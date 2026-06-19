@@ -1,0 +1,52 @@
+# Quetzal
+
+> Kubernetes-native control plane & UI to deploy and manage game servers — in the
+> spirit of Pterodactyl/Pelican, **without the Docker layer**.
+
+Quetzal runs game servers **directly on Kubernetes**: the panel talks to the
+Kubernetes API, and the kubelet *is* the daemon (no per-node "Wings"). It is
+**game-agnostic** — anything you can describe with a template (or import as a
+Pterodactyl **egg**) can be deployed.
+
+## Status
+
+🚧 Early development. Building **Phase 0 — Foundations** (see
+[ROADMAP](#roadmap)).
+
+## Design highlights
+
+- **DB-centric, no CRDs**: the database is the source of truth; a controller
+  reconciles DB state into native Kubernetes objects (Deployment / Service / PVC
+  / Secret / NetworkPolicy) and writes status back.
+- **One pod per server, no per-game side pods**: live console is provided via the
+  Kubernetes `attach` subresource (stdin) + log streaming (stdout) — no RCON
+  server, no sidecar required.
+- **Egg-compatible**: import existing Pterodactyl/Pelican eggs to ease migration.
+- **Secure by default**: namespace-per-server, NetworkPolicy, hardened
+  securityContext, secrets kept out of the DB in clear text.
+- **Self-hostable & generic**: nothing hardcoded to a specific homelab — SQLite
+  by default (Postgres optional), storageClass *or* hostPath, MIT licensed.
+
+## Architecture
+
+```
+Browser ──HTTP/WS──▶ api-server (UI + REST/WS + console proxy)
+                        └─ writes desired state ─▶ [ DB ] ◀── source of truth
+                                                     ▲ │ status / desired
+                        controller (leader-elected) ─┘ ▼ reconciles ─▶ Kubernetes API
+                                                         └─▶ namespace/server: Deployment+Service+PVC+Secret+NetworkPolicy
+```
+
+## Roadmap
+
+- **Phase 0** — Foundations: data model, store, reconciler, egg importer.
+- **Phase 1** — MVP: lifecycle + config + live console + minimal UI.
+- **Phase 2** — Networking & per-server observability.
+- **Phase 3** — Scheduled tasks, backups & data lifecycle.
+- **Phase 4** — Multi-tenant (subusers, quotas, OIDC/2FA, public API).
+- **Phase 5** — Scale-to-zero / hibernation & ecosystem.
+- **Phase 6** — Multi-cluster.
+
+## License
+
+[MIT](./LICENSE).

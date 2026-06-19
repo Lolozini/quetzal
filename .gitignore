@@ -1,0 +1,29 @@
+# Binaries
+/bin/
+/dist/
+quetzal-apiserver
+quetzal-controller
+*.exe
+
+# Local data / DB
+*.db
+*.db-journal
+*.sqlite
+data/
+
+# Go
+/vendor/
+
+# Node / frontend
+web/node_modules/
+web/dist/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Secrets / local config
+*.local.yaml
+kubeconfig

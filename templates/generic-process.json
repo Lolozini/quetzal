@@ -1,0 +1,18 @@
+{
+  "slug": "generic-process",
+  "name": "Generic Process",
+  "author": "quetzal",
+  "category": "generic",
+  "description": "Run an arbitrary container as a server via a startup command. Demonstrates the game-agnostic startup shim and {{VAR}} substitution.",
+  "images": [
+    { "displayName": "alpine 3.20", "ref": "alpine:3.20", "default": true }
+  ],
+  "variables": [
+    { "name": "Message", "description": "Banner printed on start.", "envVariable": "MESSAGE", "type": "string", "default": "Quetzal generic server started", "viewable": true, "editable": true }
+  ],
+  "startup": "echo \"{{MESSAGE}}\"; echo 'reading console (attach to send commands)'; while read -r line; do echo \"console> $line\"; done",
+  "console": { "type": "attach" },
+  "dataPath": "/data",
+  "ports": [],
+  "securityContext": {}
+}

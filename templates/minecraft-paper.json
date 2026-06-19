@@ -1,0 +1,25 @@
+{
+  "slug": "minecraft-paper",
+  "name": "Minecraft (Paper)",
+  "author": "quetzal",
+  "category": "minecraft",
+  "description": "Paper Minecraft Java Edition server using the itzg/minecraft-server image (entrypoint-driven; configured via env).",
+  "images": [
+    { "displayName": "itzg latest (Java 21)", "ref": "itzg/minecraft-server:java21-jdk", "default": true }
+  ],
+  "variables": [
+    { "name": "Memory", "description": "JVM heap size, e.g. 4G.", "envVariable": "MEMORY", "type": "string", "default": "4G", "viewable": true, "editable": true },
+    { "name": "Server Type", "description": "itzg server flavour.", "envVariable": "TYPE", "type": "string", "default": "PAPER", "viewable": true, "editable": false },
+    { "name": "Accept EULA", "description": "Accept the Minecraft EULA.", "envVariable": "EULA", "type": "bool", "default": "true", "required": true, "viewable": true, "editable": true }
+  ],
+  "startup": "",
+  "doneRegex": "Done (",
+  "stopCommand": "stop",
+  "console": { "type": "attach" },
+  "dataPath": "/data",
+  "ports": [
+    { "name": "java", "port": 25565, "protocol": "TCP", "primary": true }
+  ],
+  "features": ["eula"],
+  "securityContext": { "runAsUser": 1000, "runAsGroup": 1000, "fsGroup": 1000 }
+}

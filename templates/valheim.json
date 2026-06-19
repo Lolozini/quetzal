@@ -1,0 +1,24 @@
+{
+  "slug": "valheim",
+  "name": "Valheim",
+  "author": "quetzal",
+  "category": "survival",
+  "description": "Valheim dedicated server (lloesche/valheim-server). Demonstrates a non-Minecraft, UDP-based game.",
+  "images": [
+    { "displayName": "lloesche latest", "ref": "ghcr.io/lloesche/valheim-server:latest", "default": true }
+  ],
+  "variables": [
+    { "name": "Server Name", "envVariable": "SERVER_NAME", "type": "string", "default": "Quetzal Valheim", "viewable": true, "editable": true },
+    { "name": "World Name", "envVariable": "WORLD_NAME", "type": "string", "default": "Dedicated", "viewable": true, "editable": true },
+    { "name": "Password", "description": "Server password (min 5 chars).", "envVariable": "SERVER_PASS", "type": "string", "default": "changeme", "required": true, "viewable": true, "editable": true }
+  ],
+  "startup": "",
+  "stopCommand": "",
+  "console": { "type": "attach" },
+  "dataPath": "/config",
+  "ports": [
+    { "name": "game", "port": 2456, "protocol": "UDP", "primary": true },
+    { "name": "query", "port": 2457, "protocol": "UDP" }
+  ],
+  "securityContext": { "runAsUser": 0, "runAsGroup": 0, "fsGroup": 0 }
+}
