@@ -52,8 +52,11 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 	if err := r.ensureDeployment(ctx, srv, tmpl); err != nil {
 		return fmt.Errorf("deployment: %w", err)
 	}
-	if err := r.ensureService(ctx, srv, tmpl); err != nil {
-		return fmt.Errorf("service: %w", err)
+	// A Service requires at least one port; skip it for portless servers.
+	if len(serverPorts(srv, tmpl)) > 0 {
+		if err := r.ensureService(ctx, srv, tmpl); err != nil {
+			return fmt.Errorf("service: %w", err)
+		}
 	}
 	if err := r.ensureNetworkPolicy(ctx, srv, tmpl); err != nil {
 		return fmt.Errorf("networkpolicy: %w", err)

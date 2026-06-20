@@ -180,10 +180,12 @@ func (s *Store) UpdateServer(srv *models.Server) error {
 	return s.db.Save(srv).Error
 }
 
-// UpdateServerStatus persists only the status field.
+// UpdateServerStatus persists only the status field. It uses Updates with a
+// typed struct (not Update with a raw value) so GORM applies the JSON
+// serializer registered on the Status field.
 func (s *Store) UpdateServerStatus(id uint, st models.Status) error {
 	return s.db.Model(&models.Server{}).Where("id = ?", id).
-		Update("status", st).Error
+		Select("status").Updates(models.Server{Status: st}).Error
 }
 
 // DeleteServer removes a server record.

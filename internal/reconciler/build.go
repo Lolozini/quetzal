@@ -186,9 +186,9 @@ func BuildNetworkPolicy(s *models.Server, t *models.Template) *networkingv1.Netw
 				networkingv1.PolicyTypeIngress,
 				networkingv1.PolicyTypeEgress,
 			},
-			Ingress: []networkingv1.NetworkPolicyIngressRule{
-				{Ports: ingressPorts}, // from anywhere, only on game ports
-			},
+			// Ingress only on declared game ports; when a server exposes no
+			// ports, leaving this empty denies all ingress (secure default).
+			Ingress: ingressRules(ingressPorts),
 			Egress: []networkingv1.NetworkPolicyEgressRule{
 				{ // DNS
 					Ports: []networkingv1.NetworkPolicyPort{
@@ -210,6 +210,13 @@ func BuildNetworkPolicy(s *models.Server, t *models.Template) *networkingv1.Netw
 }
 
 // ---- helpers ----
+
+func ingressRules(ports []networkingv1.NetworkPolicyPort) []networkingv1.NetworkPolicyIngressRule {
+	if len(ports) == 0 {
+		return nil
+	}
+	return []networkingv1.NetworkPolicyIngressRule{{Ports: ports}}
+}
 
 func serverPorts(s *models.Server, t *models.Template) []models.PortSpec {
 	if len(s.Ports) > 0 {

@@ -111,3 +111,13 @@ func TestBuildNetworkPolicyBlocksMetadata(t *testing.T) {
 		t.Errorf("egress should exclude node metadata IP %s", metadataIP)
 	}
 }
+
+func TestBuildNetworkPolicyPortlessDeniesIngress(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	s.Ports = nil
+	tmpl.Ports = nil
+	np := BuildNetworkPolicy(s, tmpl)
+	if len(np.Spec.Ingress) != 0 {
+		t.Errorf("portless server should have no ingress rules (deny-all), got %+v", np.Spec.Ingress)
+	}
+}
