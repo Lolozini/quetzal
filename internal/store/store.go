@@ -69,7 +69,7 @@ func Open(cfg Config) (*Store, error) {
 
 // Migrate creates/updates the schema.
 func (s *Store) Migrate() error {
-	return s.db.AutoMigrate(&models.Template{}, &models.Server{})
+	return s.db.AutoMigrate(&models.Template{}, &models.Server{}, &models.User{}, &models.Session{})
 }
 
 // DB exposes the underlying handle (for advanced/transactional use).
@@ -191,4 +191,66 @@ func (s *Store) UpdateServerStatus(id uint, st models.Status) error {
 // DeleteServer removes a server record.
 func (s *Store) DeleteServer(id uint) error {
 	return s.db.Delete(&models.Server{}, id).Error
+}
+
+// ---- Users & sessions ----
+
+// CountUsers returns the number of user accounts (used by the setup wizard).
+func (s *Store) CountUsers() (int64, error) {
+	var n int64
+	if err := s.db.Model(&models.User{}).Count(&n).Error; err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// CreateUser inserts a new user.
+func (s *Store) CreateUser(u *models.User) error {
+	return s.db.Create(u).Error
+}
+
+// GetUser returns a user by ID.
+func (s *Store) GetUser(id uint) (*models.User, error) {
+	var u models.User
+	if err := s.db.First(&u, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &u, nil
+}
+
+// GetUserByUsername returns a user by username.
+func (s *Store) GetUserByUsername(username string) (*models.User, error) {
+	var u models.User
+	if err := s.db.Where("username = ?", username).First(&u).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &u, nil
+}
+
+// CreateSession stores a session.
+func (s *Store) CreateSession(sess *models.Session) error {
+	return s.db.Create(sess).Error
+}
+
+// GetSession returns a session by token (does not check expiry).
+func (s *Store) GetSession(token string) (*models.Session, error) {
+	var sess models.Session
+	if err := s.db.Where("token = ?", token).First(&sess).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &sess, nil
+}
+
+// DeleteSession removes a session (logout).
+func (s *Store) DeleteSession(token string) error {
+	return s.db.Where("token = ?", token).Delete(&models.Session{}).Error
 }

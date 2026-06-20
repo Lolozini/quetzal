@@ -18,10 +18,14 @@ import (
 const (
 	managedByLabel = "app.kubernetes.io/managed-by"
 	managedByValue = "quetzal"
-	serverLabel    = "quetzal.dev/server"
-	workloadName   = "server" // Deployment/Service name within the namespace
-	dataVolume     = "data"   // PVC / volume name
-	metadataIP     = "169.254.169.254/32"
+	// ServerLabel marks objects belonging to a given server (value = slug).
+	ServerLabel = "quetzal.dev/server"
+	// WorkloadName is the Deployment/Service name within a server's namespace.
+	WorkloadName = "server"
+	serverLabel  = ServerLabel
+	workloadName = WorkloadName
+	dataVolume   = "data" // PVC / volume name
+	metadataIP   = "169.254.169.254/32"
 )
 
 // labelsFor returns the standard labels for a server's objects.
