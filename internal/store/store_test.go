@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lolozini/quetzal/internal/models"
 )
@@ -24,6 +25,45 @@ func newTestStore(t *testing.T) *Store {
 		t.Fatalf("migrate: %v", err)
 	}
 	return s
+}
+
+func TestSetDesiredStateKeepsStatus(t *testing.T) {
+	s := newTestStore(t)
+	srv := &models.Server{Slug: "p", Namespace: "ns", DesiredState: models.StateRunning}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// Controller writes status...
+	if err := s.UpdateServerStatus(srv.ID, models.Status{Phase: models.PhaseRunning}); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	// ...then a power action changes only desiredState.
+	if err := s.SetDesiredState(srv.ID, models.StateStopped); err != nil {
+		t.Fatalf("set state: %v", err)
+	}
+	got, _ := s.GetServer(srv.ID)
+	if got.DesiredState != models.StateStopped {
+		t.Errorf("desiredState = %q, want Stopped", got.DesiredState)
+	}
+	if got.Status.Phase != models.PhaseRunning {
+		t.Errorf("status was clobbered: phase = %q, want Running", got.Status.Phase)
+	}
+}
+
+func TestDeleteExpiredSessions(t *testing.T) {
+	s := newTestStore(t)
+	_ = s.CreateSession(&models.Session{Token: "old", UserID: 1, ExpiresAt: time.Now().Add(-time.Hour)})
+	_ = s.CreateSession(&models.Session{Token: "new", UserID: 1, ExpiresAt: time.Now().Add(time.Hour)})
+	n, err := s.DeleteExpiredSessions()
+	if err != nil || n != 1 {
+		t.Fatalf("deleted = %d, err = %v, want 1", n, err)
+	}
+	if _, err := s.GetSession("old"); err != ErrNotFound {
+		t.Error("expired session should be gone")
+	}
+	if _, err := s.GetSession("new"); err != nil {
+		t.Error("valid session should remain")
+	}
 }
 
 func TestSealOpenSecrets(t *testing.T) {

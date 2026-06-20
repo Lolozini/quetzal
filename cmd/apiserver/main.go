@@ -83,6 +83,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	go gcSessions(ctx, st)
+
 	go func() {
 		log.Printf("quetzal-apiserver listening on %s (db=%s)", addr, dbDriver)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -95,6 +97,24 @@ func main() {
 	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutCtx)
+}
+
+// gcSessions periodically deletes expired sessions from the database.
+func gcSessions(ctx context.Context, st *store.Store) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		if n, err := st.DeleteExpiredSessions(); err != nil {
+			log.Printf("session gc: %v", err)
+		} else if n > 0 {
+			log.Printf("session gc: removed %d expired sessions", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
 }
 
 func env(key, def string) string {

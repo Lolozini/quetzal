@@ -9,7 +9,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -151,52 +150,59 @@ func (r *Reconciler) ensurePVC(ctx context.Context, want *corev1.PersistentVolum
 	return err
 }
 
-func (r *Reconciler) ensureDeployment(ctx context.Context, s *models.Server, t *models.Template, secretKeys []string) error {
-	want := BuildDeployment(s, t, secretKeys)
-	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: want.Name, Namespace: want.Namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, dep, func() error {
-		dep.Labels = mergeLabels(dep.Labels, want.Labels)
-		dep.Spec = want.Spec
-		return nil
-	})
-	return err
+// fieldOwner identifies Quetzal in server-side-apply managed fields.
+const fieldOwner = "quetzal-controller"
+
+// apply performs a server-side apply. Unlike overwriting the whole spec on each
+// reconcile, SSA is idempotent and leaves server-defaulted fields untouched, so
+// unchanged objects produce no write churn.
+func (r *Reconciler) apply(ctx context.Context, obj client.Object) error {
+	return r.Client.Patch(ctx, obj, client.Apply, client.FieldOwner(fieldOwner), client.ForceOwnership)
 }
 
-func (r *Reconciler) ensureSecret(ctx context.Context, want *corev1.Secret) error {
-	sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: want.Name, Namespace: want.Namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, sec, func() error {
-		sec.Labels = mergeLabels(sec.Labels, want.Labels)
-		// Fully replace contents so removed keys don't linger.
-		sec.Data = nil
-		sec.StringData = want.StringData
-		return nil
-	})
-	return err
+func (r *Reconciler) ensureDeployment(ctx context.Context, s *models.Server, t *models.Template, secretKeys []string) error {
+	return r.apply(ctx, BuildDeployment(s, t, secretKeys))
 }
 
 func (r *Reconciler) ensureService(ctx context.Context, s *models.Server, t *models.Template) error {
-	want := BuildService(s, t)
-	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: want.Name, Namespace: want.Namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
-		svc.Labels = mergeLabels(svc.Labels, want.Labels)
-		// Preserve immutable fields (ClusterIP); only set what we manage.
-		svc.Spec.Type = want.Spec.Type
-		svc.Spec.Selector = want.Spec.Selector
-		svc.Spec.Ports = want.Spec.Ports
-		return nil
-	})
-	return err
+	return r.apply(ctx, BuildService(s, t))
 }
 
 func (r *Reconciler) ensureNetworkPolicy(ctx context.Context, s *models.Server, t *models.Template) error {
-	want := BuildNetworkPolicy(s, t)
-	np := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: want.Name, Namespace: want.Namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, np, func() error {
-		np.Labels = mergeLabels(np.Labels, want.Labels)
-		np.Spec = want.Spec
+	return r.apply(ctx, BuildNetworkPolicy(s, t))
+}
+
+// ensureSecret creates/updates the per-server Secret, skipping the write when
+// the stored contents already match. (Secret.stringData is write-only, so we
+// compare against the decoded Data; this avoids SSA's stringData pitfalls.)
+func (r *Reconciler) ensureSecret(ctx context.Context, want *corev1.Secret) error {
+	existing := &corev1.Secret{}
+	err := r.Client.Get(ctx, client.ObjectKeyFromObject(want), existing)
+	if apierrors.IsNotFound(err) {
+		return r.Client.Create(ctx, want)
+	}
+	if err != nil {
+		return err
+	}
+	if secretDataEqual(existing.Data, want.StringData) {
 		return nil
-	})
-	return err
+	}
+	existing.Labels = mergeLabels(existing.Labels, want.Labels)
+	existing.Data = nil
+	existing.StringData = want.StringData
+	return r.Client.Update(ctx, existing)
+}
+
+func secretDataEqual(data map[string][]byte, want map[string]string) bool {
+	if len(data) != len(want) {
+		return false
+	}
+	for k, v := range want {
+		if string(data[k]) != v {
+			return false
+		}
+	}
+	return true
 }
 
 // updateStatus reads the workload + pods and writes an observed status to the DB,

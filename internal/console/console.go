@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 	corev1 "k8s.io/api/core/v1"
@@ -19,6 +20,13 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 
 	"github.com/lolozini/quetzal/internal/reconciler"
+)
+
+const (
+	// pongWait is how long we wait for a pong before treating the connection as
+	// dead; pingPeriod must be shorter so we ping in time.
+	pongWait   = 60 * time.Second
+	pingPeriod = (pongWait * 9) / 10
 )
 
 // Message is a console frame exchanged with the browser.
@@ -101,12 +109,36 @@ func Stream(ctx context.Context, ws *websocket.Conn, cs kubernetes.Interface, cf
 
 	send(ctx, out, Message{Type: "status", Data: "connected to " + pod})
 
+	// Keepalive: drop dead/half-open connections instead of leaking goroutines.
+	ws.SetReadDeadline(time.Now().Add(pongWait))
+	ws.SetPongHandler(func(string) error {
+		ws.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+	go func() {
+		t := time.NewTicker(pingPeriod)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				// WriteControl is safe to call concurrently with the writer goroutine.
+				if err := ws.WriteControl(websocket.PingMessage, nil, time.Now().Add(10*time.Second)); err != nil {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
 	// Reader loop: WS -> pod stdin.
 	for {
 		_, data, err := ws.ReadMessage()
 		if err != nil {
 			break
 		}
+		ws.SetReadDeadline(time.Now().Add(pongWait))
 		var m Message
 		if json.Unmarshal(data, &m) != nil {
 			continue

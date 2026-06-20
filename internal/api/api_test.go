@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"k8s.io/client-go/kubernetes/fake"
@@ -113,6 +114,28 @@ func TestAPIFlow(t *testing.T) {
 	dr, err := c.Do(req)
 	if err != nil || dr.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete = %v / %d", err, dr.StatusCode)
+	}
+}
+
+func TestCreateServerLongNameSlugCapped(t *testing.T) {
+	ts, c := newTestServer(t)
+	post(t, c, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+
+	longName := strings.Repeat("very-long-server-name ", 10) // ~220 chars
+	var srv struct {
+		Slug      string `json:"slug"`
+		Namespace string `json:"namespace"`
+	}
+	r := post(t, c, ts.URL+"/api/servers", map[string]any{"name": longName, "template": "generic-process"})
+	if r.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d", r.StatusCode)
+	}
+	json.NewDecoder(r.Body).Decode(&srv)
+	if len(srv.Slug) > 50 {
+		t.Errorf("slug not capped: len=%d (%q)", len(srv.Slug), srv.Slug)
+	}
+	if len(srv.Namespace) > 63 {
+		t.Errorf("namespace exceeds DNS limit: len=%d (%q)", len(srv.Namespace), srv.Namespace)
 	}
 }
 

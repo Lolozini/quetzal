@@ -17,6 +17,9 @@ import (
 	"github.com/lolozini/quetzal/internal/store"
 )
 
+// maxServerSlugLen keeps "quetzal-srv-<slug>" within the 63-char namespace limit.
+const maxServerSlugLen = 50
+
 // ---- setup & auth ----
 
 func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
@@ -174,6 +177,11 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slug := egg.Slugify(req.Name)
+	// Cap the slug so the per-server namespace ("quetzal-srv-<slug>") stays within
+	// the 63-char DNS-1123 limit.
+	if len(slug) > maxServerSlugLen {
+		slug = strings.TrimRight(slug[:maxServerSlugLen], "-")
+	}
 	if slug == "" {
 		writeError(w, http.StatusBadRequest, "name produces an empty slug")
 		return
@@ -289,14 +297,12 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 	}
 	switch req.Action {
 	case "start":
-		srv.DesiredState = models.StateRunning
-		if err := s.Store.UpdateServer(srv); err != nil {
+		if err := s.Store.SetDesiredState(srv.ID, models.StateRunning); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 	case "stop":
-		srv.DesiredState = models.StateStopped
-		if err := s.Store.UpdateServer(srv); err != nil {
+		if err := s.Store.SetDesiredState(srv.ID, models.StateStopped); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

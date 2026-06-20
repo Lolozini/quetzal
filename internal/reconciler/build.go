@@ -140,6 +140,7 @@ func BuildDeployment(s *models.Server, t *models.Template, secretKeys []string) 
 	}
 
 	return &appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      workloadName,
 			Namespace: s.Namespace,
@@ -170,6 +171,7 @@ func BuildService(s *models.Server, t *models.Template) *corev1.Service {
 		})
 	}
 	return &corev1.Service{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      workloadName,
 			Namespace: s.Namespace,
@@ -203,6 +205,7 @@ func BuildNetworkPolicy(s *models.Server, t *models.Template) *networkingv1.Netw
 	dnsPort := intstr.FromInt32(53)
 
 	return &networkingv1.NetworkPolicy{
+		TypeMeta: metav1.TypeMeta{APIVersion: "networking.k8s.io/v1", Kind: "NetworkPolicy"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "quetzal-default",
 			Namespace: s.Namespace,

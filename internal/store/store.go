@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/postgres"
@@ -244,6 +245,13 @@ func (s *Store) UpdateServer(srv *models.Server) error {
 	return s.db.Save(srv).Error
 }
 
+// SetDesiredState updates only the power state, avoiding a full-row Save that
+// could clobber the controller-written status.
+func (s *Store) SetDesiredState(id uint, state models.DesiredState) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Update("desired_state", string(state)).Error
+}
+
 // UpdateServerStatus persists only the status field. It uses Updates with a
 // typed struct (not Update with a raw value) so GORM applies the JSON
 // serializer registered on the Status field.
@@ -317,4 +325,11 @@ func (s *Store) GetSession(token string) (*models.Session, error) {
 // DeleteSession removes a session (logout).
 func (s *Store) DeleteSession(token string) error {
 	return s.db.Where("token = ?", token).Delete(&models.Session{}).Error
+}
+
+// DeleteExpiredSessions removes all sessions past their expiry. Returns the
+// number deleted.
+func (s *Store) DeleteExpiredSessions() (int64, error) {
+	res := s.db.Where("expires_at < ?", time.Now()).Delete(&models.Session{})
+	return res.RowsAffected, res.Error
 }
