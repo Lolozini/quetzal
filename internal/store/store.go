@@ -136,7 +136,7 @@ func (s *Store) OpenSecrets(blob string) (map[string]string, error) {
 func (s *Store) Migrate() error {
 	return s.db.AutoMigrate(
 		&models.Template{}, &models.Server{}, &models.User{},
-		&models.Session{}, &models.PortAllocation{},
+		&models.Session{}, &models.PortAllocation{}, &models.Schedule{},
 	)
 }
 
@@ -338,6 +338,75 @@ func (s *Store) AllocateNodePort(serverID uint, name string, min, max int32) (in
 // ReleaseServerPorts frees every node port held by a server.
 func (s *Store) ReleaseServerPorts(serverID uint) error {
 	return s.db.Where("server_id = ?", serverID).Delete(&models.PortAllocation{}).Error
+}
+
+// ---- Schedules ----
+
+// CreateSchedule inserts a schedule.
+func (s *Store) CreateSchedule(sc *models.Schedule) error {
+	return s.db.Create(sc).Error
+}
+
+// GetSchedule returns a schedule by ID.
+func (s *Store) GetSchedule(id uint) (*models.Schedule, error) {
+	var sc models.Schedule
+	if err := s.db.First(&sc, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &sc, nil
+}
+
+// ListSchedulesForServer returns a server's schedules.
+func (s *Store) ListSchedulesForServer(serverID uint) ([]models.Schedule, error) {
+	var scs []models.Schedule
+	if err := s.db.Where("server_id = ?", serverID).Order("id asc").Find(&scs).Error; err != nil {
+		return nil, err
+	}
+	return scs, nil
+}
+
+// ListEnabledSchedules returns all enabled schedules (used by the scheduler).
+func (s *Store) ListEnabledSchedules() ([]models.Schedule, error) {
+	var scs []models.Schedule
+	if err := s.db.Where("enabled = ?", true).Find(&scs).Error; err != nil {
+		return nil, err
+	}
+	return scs, nil
+}
+
+// UpdateSchedule persists user-editable fields of a schedule.
+func (s *Store) UpdateSchedule(sc *models.Schedule) error {
+	return s.db.Model(&models.Schedule{}).Where("id = ?", sc.ID).
+		Select("name", "cron", "action", "payload", "enabled", "next_run").
+		Updates(map[string]any{
+			"name": sc.Name, "cron": sc.Cron, "action": sc.Action,
+			"payload": sc.Payload, "enabled": sc.Enabled, "next_run": sc.NextRun,
+		}).Error
+}
+
+// MarkScheduleRun records a schedule's execution outcome and its next due time.
+func (s *Store) MarkScheduleRun(id uint, lastRun time.Time, nextRun *time.Time, status string) error {
+	return s.db.Model(&models.Schedule{}).Where("id = ?", id).
+		Updates(map[string]any{"last_run": lastRun, "next_run": nextRun, "last_status": status}).Error
+}
+
+// SetScheduleNextRun stores only the computed next run (e.g. on create/enable).
+func (s *Store) SetScheduleNextRun(id uint, nextRun *time.Time) error {
+	return s.db.Model(&models.Schedule{}).Where("id = ?", id).
+		Update("next_run", nextRun).Error
+}
+
+// DeleteSchedule removes a schedule.
+func (s *Store) DeleteSchedule(id uint) error {
+	return s.db.Delete(&models.Schedule{}, id).Error
+}
+
+// DeleteSchedulesForServer removes all schedules of a server (used on teardown).
+func (s *Store) DeleteSchedulesForServer(serverID uint) error {
+	return s.db.Where("server_id = ?", serverID).Delete(&models.Schedule{}).Error
 }
 
 // ---- Users & sessions ----

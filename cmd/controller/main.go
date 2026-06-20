@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -23,7 +24,9 @@ import (
 	"github.com/lolozini/quetzal/internal/console"
 	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/metrics"
+	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
+	"github.com/lolozini/quetzal/internal/scheduler"
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/templates"
 )
@@ -78,6 +81,8 @@ func main() {
 		return console.SendStdin(cctx, cs, cfg, ns, pod, stopCommand+"\n")
 	}
 
+	sched := scheduler.New(st, &executor{st: st, cs: cs, cfg: cfg})
+
 	go serveOps(metricsAddr, st)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -88,12 +93,14 @@ func main() {
 		ticker := time.NewTicker(resync)
 		defer ticker.Stop()
 		reconcileAll(ctx, rec, st)
+		sched.Tick(ctx)
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				reconcileAll(ctx, rec, st)
+				sched.Tick(ctx)
 			}
 		}
 	}
@@ -133,6 +140,48 @@ func runWithLeaderElection(ctx context.Context, cs kubernetes.Interface, namespa
 		},
 	})
 }
+
+// executor implements scheduler.Executor against the cluster + store.
+type executor struct {
+	st  *store.Store
+	cs  kubernetes.Interface
+	cfg *rest.Config
+}
+
+func (e *executor) Start(_ context.Context, srv *models.Server) error {
+	return e.st.SetDesiredState(srv.ID, models.StateRunning)
+}
+
+func (e *executor) Stop(_ context.Context, srv *models.Server) error {
+	return e.st.SetDesiredState(srv.ID, models.StateStopped)
+}
+
+func (e *executor) Restart(ctx context.Context, srv *models.Server) error {
+	return e.cs.CoreV1().Pods(srv.Namespace).DeleteCollection(ctx,
+		metav1.DeleteOptions{},
+		metav1.ListOptions{LabelSelector: reconciler.ServerLabel + "=" + srv.Slug})
+}
+
+func (e *executor) Command(ctx context.Context, srv *models.Server, cmd string) error {
+	pod, err := console.FindRunningPod(ctx, e.cs, srv.Namespace, srv.Slug)
+	if err != nil {
+		return err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	return console.SendStdin(cctx, e.cs, e.cfg, srv.Namespace, pod, cmd+"\n")
+}
+
+// Backup is wired to the backup runner in a later step.
+func (e *executor) Backup(_ context.Context, _ *models.Server) error {
+	return errBackupNotConfigured
+}
+
+var errBackupNotConfigured = errBackup("backups are not configured")
+
+type errBackup string
+
+func (e errBackup) Error() string { return string(e) }
 
 func reconcileAll(ctx context.Context, rec *reconciler.Reconciler, st *store.Store) {
 	servers, err := st.ListServers()

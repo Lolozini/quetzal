@@ -80,6 +80,29 @@ export interface ServerStats {
   memoryLimit?: string;
 }
 
+export type ScheduleAction = "start" | "stop" | "restart" | "command" | "backup";
+
+export interface Schedule {
+  id: number;
+  serverId: number;
+  name: string;
+  cron: string;
+  action: ScheduleAction;
+  payload?: string;
+  enabled: boolean;
+  nextRun?: string;
+  lastRun?: string;
+  lastStatus?: string;
+}
+
+export interface ScheduleInput {
+  name: string;
+  cron: string;
+  action: ScheduleAction;
+  payload?: string;
+  enabled: boolean;
+}
+
 export type PowerAction = "start" | "stop" | "restart" | "kill";
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -136,6 +159,14 @@ export const api = {
   setExpose: (id: number, expose: Expose) =>
     req<Server>("PATCH", `/api/servers/${id}`, { expose }),
   stats: (id: number) => req<ServerStats>("GET", `/api/servers/${id}/stats`),
+
+  schedules: (id: number) => req<Schedule[]>("GET", `/api/servers/${id}/schedules`),
+  createSchedule: (id: number, body: ScheduleInput) =>
+    req<Schedule>("POST", `/api/servers/${id}/schedules`, body),
+  updateSchedule: (id: number, sid: number, body: ScheduleInput) =>
+    req<Schedule>("PATCH", `/api/servers/${id}/schedules/${sid}`, body),
+  deleteSchedule: (id: number, sid: number) =>
+    req<void>("DELETE", `/api/servers/${id}/schedules/${sid}`),
 };
 
 export interface CreateServerRequest {

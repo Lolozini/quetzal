@@ -78,6 +78,10 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/servers/{id}/power", s.auth(s.handlePower))
 	mux.Handle("GET /api/servers/{id}/stats", s.auth(s.handleServerStats))
 	mux.Handle("GET /api/servers/{id}/console", s.auth(s.handleConsole))
+	mux.Handle("GET /api/servers/{id}/schedules", s.auth(s.handleListSchedules))
+	mux.Handle("POST /api/servers/{id}/schedules", s.auth(s.handleCreateSchedule))
+	mux.Handle("PATCH /api/servers/{id}/schedules/{sid}", s.auth(s.handleUpdateSchedule))
+	mux.Handle("DELETE /api/servers/{id}/schedules/{sid}", s.auth(s.handleDeleteSchedule))
 
 	return logRequests(mux)
 }

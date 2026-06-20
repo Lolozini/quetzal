@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, ExposeType, PowerAction, Server, ServerStats } from "../api";
 import { Console } from "./Console";
+import { Schedules } from "./Schedules";
 
 function formatMem(bytes: number): string {
   if (bytes <= 0) return "0 MiB";
@@ -193,6 +194,7 @@ export function ServerDetail({ id, onBack }: { id: number; onBack: () => void })
         {notice && <div className="notice">{notice}</div>}
         {error && <div className="error">{error}</div>}
       </div>
+      <Schedules id={id} />
       <div className="card">
         <Console id={id} />
       </div>
