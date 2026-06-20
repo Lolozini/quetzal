@@ -10,8 +10,8 @@ Pterodactyl **egg**) can be deployed.
 
 ## Status
 
-🚧 Early development. **Phases 0–2 implemented** (foundations, MVP, networking &
-observability); see [ROADMAP](#roadmap).
+🚧 Early development. **Phases 0–3 implemented** (foundations, MVP, networking &
+observability, scheduled tasks + backups); see [ROADMAP](#roadmap).
 
 ## Design highlights
 
@@ -27,6 +27,11 @@ observability); see [ROADMAP](#roadmap).
   player IP, and provider-neutral Service annotations (external-dns, MetalLB…).
 - **Per-server observability**: live CPU/memory from metrics-server, plus
   Prometheus `/metrics` for the panel itself.
+- **Scheduled tasks**: cron schedules per server (start / stop / restart /
+  console command / backup), run by the leader controller.
+- **Backups & restore**: per-server data backup/restore to any S3-compatible
+  target via restic (encryption, dedup, retention) — one-shot Jobs, no sidecar;
+  credentials stored encrypted. Deleting a server can keep or destroy its data.
 - **Egg-compatible**: import existing Pterodactyl/Pelican eggs to ease migration.
 - **Secure by default**: namespace-per-server, NetworkPolicy, hardened
   securityContext, secrets kept out of the DB in clear text.
@@ -49,7 +54,10 @@ Browser ──HTTP/WS──▶ api-server (UI + REST/WS + console proxy)
 - ✅ **Phase 1** — MVP: lifecycle + config + live console + minimal UI.
 - ✅ **Phase 2** — Networking (ClusterIP/NodePort/LoadBalancer + node-port pool) &
   per-server observability (CPU/RAM via metrics-server).
-- **Phase 3** — Scheduled tasks, backups & data lifecycle.
+- ✅ **Phase 3** — Scheduled tasks (cron), backups & restore (restic → S3), and
+  data lifecycle (keep/destroy on delete). _Deferred to later: web file browser,
+  world/modpack upload, CSI volume snapshots, online volume expansion,
+  Pterodactyl data import._
 - **Phase 4** — Multi-tenant (subusers, quotas, OIDC/2FA, public API).
 - **Phase 5** — Scale-to-zero / hibernation & ecosystem.
 - **Phase 6** — Multi-cluster.
