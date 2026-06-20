@@ -14,9 +14,10 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-// ErrUnavailable indicates the metrics API is not installed/reachable, so the
-// caller can surface a clear "install metrics-server" hint instead of a 500.
-var ErrUnavailable = errors.New("metrics API unavailable (is metrics-server installed?)")
+// ErrUnavailable indicates resource metrics could not be read: either the
+// metrics API is absent (metrics-server not installed) or the pod has no
+// sample yet (just started). Lets the caller return a clear hint, not a 500.
+var ErrUnavailable = errors.New("resource metrics unavailable (metrics-server not installed, or the pod has no sample yet)")
 
 // Usage is a pod's aggregated resource consumption.
 type Usage struct {

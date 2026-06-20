@@ -22,8 +22,11 @@ service:
   port: 8080
 
 # Node port pool for servers exposed via NodePort. Empty values fall back to the
-# cluster's default service node port range (30000-32767). Narrow it to reserve
-# a predictable block you can open on your firewall.
+# cluster's default service node port range (30000-32767). Quetzal tracks its own
+# allocations in the database but is NOT aware of node ports Kubernetes assigns
+# itself (LoadBalancer / health-check ports, or NodePort Services created outside
+# Quetzal). On a shared cluster, narrow this to a block reserved for Quetzal (and
+# open on your firewall) to avoid collisions.
 nodePort:
   min: ""
   max: ""
