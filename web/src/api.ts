@@ -103,6 +103,47 @@ export interface ScheduleInput {
   enabled: boolean;
 }
 
+export interface BackupConfig {
+  endpoint: string;
+  bucket: string;
+  prefix: string;
+  region: string;
+  useSSL: boolean;
+  keepLast: number;
+  runnerImage: string;
+  configured: boolean;
+  hasCredentials: boolean;
+  hasPassword: boolean;
+}
+
+export interface BackupConfigInput {
+  endpoint: string;
+  bucket: string;
+  prefix?: string;
+  region?: string;
+  useSSL: boolean;
+  keepLast: number;
+  runnerImage?: string;
+  accessKey?: string;
+  secretKey?: string;
+  repoPassword?: string;
+}
+
+export type BackupDirection = "backup" | "restore";
+export type BackupPhase = "Pending" | "Running" | "Succeeded" | "Failed";
+
+export interface Backup {
+  id: number;
+  serverId: number;
+  direction: BackupDirection;
+  phase: BackupPhase;
+  sourceId?: number;
+  sizeBytes?: number;
+  message?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
 export type PowerAction = "start" | "stop" | "restart" | "kill";
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -167,6 +208,15 @@ export const api = {
     req<Schedule>("PATCH", `/api/servers/${id}/schedules/${sid}`, body),
   deleteSchedule: (id: number, sid: number) =>
     req<void>("DELETE", `/api/servers/${id}/schedules/${sid}`),
+
+  backupConfig: () => req<BackupConfig>("GET", "/api/backup-config"),
+  setBackupConfig: (body: BackupConfigInput) => req<void>("PUT", "/api/backup-config", body),
+  backups: (id: number) => req<Backup[]>("GET", `/api/servers/${id}/backups`),
+  createBackup: (id: number) => req<Backup>("POST", `/api/servers/${id}/backups`),
+  restoreBackup: (id: number, bid: number) =>
+    req<Backup>("POST", `/api/servers/${id}/backups/${bid}/restore`),
+  deleteBackup: (id: number, bid: number) =>
+    req<void>("DELETE", `/api/servers/${id}/backups/${bid}`),
 };
 
 export interface CreateServerRequest {

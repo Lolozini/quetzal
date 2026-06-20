@@ -83,6 +83,14 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PATCH /api/servers/{id}/schedules/{sid}", s.auth(s.handleUpdateSchedule))
 	mux.Handle("DELETE /api/servers/{id}/schedules/{sid}", s.auth(s.handleDeleteSchedule))
 
+	// Backups.
+	mux.Handle("GET /api/backup-config", s.auth(s.handleGetBackupConfig))
+	mux.Handle("PUT /api/backup-config", s.auth(s.handleSetBackupConfig))
+	mux.Handle("GET /api/servers/{id}/backups", s.auth(s.handleListBackups))
+	mux.Handle("POST /api/servers/{id}/backups", s.auth(s.handleCreateBackup))
+	mux.Handle("POST /api/servers/{id}/backups/{bid}/restore", s.auth(s.handleRestoreBackup))
+	mux.Handle("DELETE /api/servers/{id}/backups/{bid}", s.auth(s.handleDeleteBackup))
+
 	return logRequests(mux)
 }
 

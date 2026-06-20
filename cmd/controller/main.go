@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
+	"github.com/lolozini/quetzal/internal/backup"
 	"github.com/lolozini/quetzal/internal/console"
 	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/metrics"
@@ -82,6 +83,7 @@ func main() {
 	}
 
 	sched := scheduler.New(st, &executor{st: st, cs: cs, cfg: cfg})
+	bmgr := backup.NewManager(st, cs)
 
 	go serveOps(metricsAddr, st)
 
@@ -94,6 +96,7 @@ func main() {
 		defer ticker.Stop()
 		reconcileAll(ctx, rec, st)
 		sched.Tick(ctx)
+		bmgr.Process(ctx)
 		for {
 			select {
 			case <-ctx.Done():
@@ -101,6 +104,7 @@ func main() {
 			case <-ticker.C:
 				reconcileAll(ctx, rec, st)
 				sched.Tick(ctx)
+				bmgr.Process(ctx)
 			}
 		}
 	}
@@ -172,16 +176,14 @@ func (e *executor) Command(ctx context.Context, srv *models.Server, cmd string) 
 	return console.SendStdin(cctx, e.cs, e.cfg, srv.Namespace, pod, cmd+"\n")
 }
 
-// Backup is wired to the backup runner in a later step.
-func (e *executor) Backup(_ context.Context, _ *models.Server) error {
-	return errBackupNotConfigured
+// Backup enqueues a backup operation; the backup Manager picks it up.
+func (e *executor) Backup(_ context.Context, srv *models.Server) error {
+	return e.st.CreateBackup(&models.Backup{
+		ServerID:  srv.ID,
+		Direction: models.DirBackup,
+		Phase:     models.BackupPending,
+	})
 }
-
-var errBackupNotConfigured = errBackup("backups are not configured")
-
-type errBackup string
-
-func (e errBackup) Error() string { return string(e) }
 
 func reconcileAll(ctx context.Context, rec *reconciler.Reconciler, st *store.Store) {
 	servers, err := st.ListServers()

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, ExposeType, PowerAction, Server, ServerStats } from "../api";
+import { Backups } from "./Backups";
 import { Console } from "./Console";
 import { Schedules } from "./Schedules";
 
@@ -195,6 +196,7 @@ export function ServerDetail({ id, onBack }: { id: number; onBack: () => void })
         {error && <div className="error">{error}</div>}
       </div>
       <Schedules id={id} />
+      <Backups id={id} />
       <div className="card">
         <Console id={id} />
       </div>

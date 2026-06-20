@@ -130,6 +130,59 @@ func TestDeleteServerReleasesPorts(t *testing.T) {
 	}
 }
 
+func TestBackupConfigEncryptsAndKeepsSecretsOnUpdate(t *testing.T) {
+	s := newTestStore(t)
+	cfg := &models.BackupConfig{Endpoint: "minio:9000", Bucket: "b", KeepLast: 5}
+	if err := s.SaveBackupConfig(cfg, "AKIA", "s3kr3t", "restic-pw"); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, err := s.GetBackupConfig()
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	// Stored encrypted, not plaintext.
+	if got.SecretKeyEnc == "" || strings.Contains(got.SecretKeyEnc, "s3kr3t") {
+		t.Fatalf("secret key not encrypted: %q", got.SecretKeyEnc)
+	}
+	ak, sk, pw, err := s.BackupSecrets(got)
+	if err != nil || ak != "AKIA" || sk != "s3kr3t" || pw != "restic-pw" {
+		t.Fatalf("round-trip = %q/%q/%q err=%v", ak, sk, pw, err)
+	}
+
+	// Update non-secret fields with empty secrets -> previous secrets kept.
+	if err := s.SaveBackupConfig(&models.BackupConfig{Endpoint: "minio:9000", Bucket: "b2", KeepLast: 9}, "", "", ""); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	got, _ = s.GetBackupConfig()
+	if got.Bucket != "b2" || got.KeepLast != 9 {
+		t.Errorf("non-secret update not applied: %+v", got)
+	}
+	ak, sk, pw, _ = s.BackupSecrets(got)
+	if ak != "AKIA" || sk != "s3kr3t" || pw != "restic-pw" {
+		t.Errorf("secrets should be preserved on update: %q/%q/%q", ak, sk, pw)
+	}
+}
+
+func TestPruneBackupsKeepsNewest(t *testing.T) {
+	s := newTestStore(t)
+	srv := &models.Server{Slug: "p", Namespace: "ns"}
+	_ = s.CreateServer(srv)
+	for i := 0; i < 5; i++ {
+		_ = s.CreateBackup(&models.Backup{ServerID: srv.ID, Direction: models.DirBackup, Phase: models.BackupSucceeded})
+	}
+	if err := s.PruneBackups(srv.ID, 2); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	bs, _ := s.ListBackupsForServer(srv.ID)
+	if len(bs) != 2 {
+		t.Fatalf("kept %d backups, want 2", len(bs))
+	}
+	// Newest (highest IDs) retained.
+	if bs[0].ID < bs[1].ID {
+		t.Error("list should be newest-first")
+	}
+}
+
 func TestSealOpenSecrets(t *testing.T) {
 	s := newTestStore(t)
 	m := map[string]string{"RCON_PASSWORD": "hunter2"}

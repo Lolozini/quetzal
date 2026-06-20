@@ -137,6 +137,7 @@ func (s *Store) Migrate() error {
 	return s.db.AutoMigrate(
 		&models.Template{}, &models.Server{}, &models.User{},
 		&models.Session{}, &models.PortAllocation{}, &models.Schedule{},
+		&models.BackupConfig{}, &models.Backup{},
 	)
 }
 
@@ -338,6 +339,178 @@ func (s *Store) AllocateNodePort(serverID uint, name string, min, max int32) (in
 // ReleaseServerPorts frees every node port held by a server.
 func (s *Store) ReleaseServerPorts(serverID uint) error {
 	return s.db.Where("server_id = ?", serverID).Delete(&models.PortAllocation{}).Error
+}
+
+// ---- single-value secret helpers ----
+
+// sealValue encrypts a single secret string for storage ("" stays "").
+func (s *Store) sealValue(v string) (string, error) {
+	if v == "" {
+		return "", nil
+	}
+	if len(s.key) == 0 {
+		return secretPrefixPlain + base64.StdEncoding.EncodeToString([]byte(v)), nil
+	}
+	ct, err := crypto.Seal(s.key, []byte(v))
+	if err != nil {
+		return "", err
+	}
+	return secretPrefixEnc + ct, nil
+}
+
+// openValue reverses sealValue.
+func (s *Store) openValue(blob string) (string, error) {
+	if blob == "" {
+		return "", nil
+	}
+	switch {
+	case strings.HasPrefix(blob, secretPrefixEnc):
+		if len(s.key) == 0 {
+			return "", errors.New("encrypted value present but no key configured")
+		}
+		pt, err := crypto.Open(s.key, strings.TrimPrefix(blob, secretPrefixEnc))
+		return string(pt), err
+	case strings.HasPrefix(blob, secretPrefixPlain):
+		b, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(blob, secretPrefixPlain))
+		return string(b), err
+	default:
+		return blob, nil
+	}
+}
+
+// ---- Backup configuration ----
+
+const backupConfigID = 1
+
+// GetBackupConfig returns the single backup configuration row, or ErrNotFound.
+func (s *Store) GetBackupConfig() (*models.BackupConfig, error) {
+	var c models.BackupConfig
+	if err := s.db.First(&c, backupConfigID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &c, nil
+}
+
+// SaveBackupConfig upserts the backup configuration. Plaintext secrets are
+// encrypted; an empty secret keeps the previously stored value (so the API can
+// update non-secret fields without resubmitting credentials).
+func (s *Store) SaveBackupConfig(cfg *models.BackupConfig, accessKey, secretKey, repoPassword string) error {
+	prev, _ := s.GetBackupConfig()
+	cfg.ID = backupConfigID
+
+	set := func(plain, existing string) (string, error) {
+		if plain == "" {
+			return existing, nil
+		}
+		return s.sealValue(plain)
+	}
+	var err error
+	var pa, ps, pr string
+	if prev != nil {
+		pa, ps, pr = prev.AccessKeyEnc, prev.SecretKeyEnc, prev.RepoPasswordEnc
+	}
+	if cfg.AccessKeyEnc, err = set(accessKey, pa); err != nil {
+		return err
+	}
+	if cfg.SecretKeyEnc, err = set(secretKey, ps); err != nil {
+		return err
+	}
+	if cfg.RepoPasswordEnc, err = set(repoPassword, pr); err != nil {
+		return err
+	}
+	return s.db.Save(cfg).Error
+}
+
+// BackupSecrets returns the decrypted credentials for the backup config.
+func (s *Store) BackupSecrets(cfg *models.BackupConfig) (accessKey, secretKey, repoPassword string, err error) {
+	if accessKey, err = s.openValue(cfg.AccessKeyEnc); err != nil {
+		return
+	}
+	if secretKey, err = s.openValue(cfg.SecretKeyEnc); err != nil {
+		return
+	}
+	repoPassword, err = s.openValue(cfg.RepoPasswordEnc)
+	return
+}
+
+// ---- Backups ----
+
+// CreateBackup inserts a backup/restore operation record.
+func (s *Store) CreateBackup(b *models.Backup) error {
+	return s.db.Create(b).Error
+}
+
+// GetBackup returns a backup by ID.
+func (s *Store) GetBackup(id uint) (*models.Backup, error) {
+	var b models.Backup
+	if err := s.db.First(&b, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &b, nil
+}
+
+// ListBackupsForServer returns a server's operations, newest first.
+func (s *Store) ListBackupsForServer(serverID uint) ([]models.Backup, error) {
+	var bs []models.Backup
+	if err := s.db.Where("server_id = ?", serverID).Order("id desc").Find(&bs).Error; err != nil {
+		return nil, err
+	}
+	return bs, nil
+}
+
+// ListBackupsByPhase returns all operations in a phase (used by the controller).
+func (s *Store) ListBackupsByPhase(phase models.BackupPhase) ([]models.Backup, error) {
+	var bs []models.Backup
+	if err := s.db.Where("phase = ?", phase).Order("id asc").Find(&bs).Error; err != nil {
+		return nil, err
+	}
+	return bs, nil
+}
+
+// UpdateBackup persists the mutable fields of an operation.
+func (s *Store) UpdateBackup(b *models.Backup) error {
+	return s.db.Model(&models.Backup{}).Where("id = ?", b.ID).
+		Updates(map[string]any{
+			"phase": b.Phase, "size_bytes": b.SizeBytes, "message": b.Message,
+			"job_name": b.JobName, "completed_at": b.CompletedAt,
+		}).Error
+}
+
+// DeleteBackup removes a backup record.
+func (s *Store) DeleteBackup(id uint) error {
+	return s.db.Delete(&models.Backup{}, id).Error
+}
+
+// DeleteBackupsForServer removes a server's backup records (used on teardown).
+func (s *Store) DeleteBackupsForServer(serverID uint) error {
+	return s.db.Where("server_id = ?", serverID).Delete(&models.Backup{}).Error
+}
+
+// PruneBackups deletes succeeded backup records for a server beyond keepLast
+// (newest kept), mirroring restic's retention so the UI history stays in sync.
+func (s *Store) PruneBackups(serverID uint, keepLast int) error {
+	if keepLast <= 0 {
+		return nil
+	}
+	var old []models.Backup
+	err := s.db.Where("server_id = ? AND direction = ? AND phase = ?",
+		serverID, models.DirBackup, models.BackupSucceeded).
+		Order("id desc").Offset(keepLast).Find(&old).Error
+	if err != nil {
+		return err
+	}
+	for i := range old {
+		if err := s.db.Delete(&models.Backup{}, old[i].ID).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ---- Schedules ----

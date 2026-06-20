@@ -402,6 +402,7 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.Store.DeleteSchedulesForServer(srv.ID)
+	_ = s.Store.DeleteBackupsForServer(srv.ID)
 	if err := s.Store.DeleteServer(srv.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
