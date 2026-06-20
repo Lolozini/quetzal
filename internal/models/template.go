@@ -40,6 +40,9 @@ type Template struct {
 	// StopCommand is sent to stdin for a graceful stop (egg config.stop),
 	// e.g. "stop" or "^C". Empty means SIGTERM.
 	StopCommand string `json:"stopCommand,omitempty"`
+	// StopGraceSeconds is the pod termination grace period (time the game has to
+	// shut down after the stop command / SIGTERM before SIGKILL). 0 => default.
+	StopGraceSeconds int `json:"stopGraceSeconds,omitempty"`
 
 	// ConfigFiles are rendered/patched at startup by the entrypoint shim
 	// (egg config.files).

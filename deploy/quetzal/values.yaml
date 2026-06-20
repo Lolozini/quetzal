@@ -1,0 +1,46 @@
+image:
+  repository: ghcr.io/lolozini/quetzal
+  # tag defaults to the chart appVersion when empty
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Database. SQLite (default) keeps Quetzal self-contained on a PVC shared by the
+# apiserver and controller; use Postgres for production / HA.
+db:
+  driver: sqlite
+  dsn: "/data/quetzal.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  host: quetzal.example.com
+  annotations: {}
+  tls: false
+  tlsSecretName: ""
+
+# Mark session cookies Secure (enable when served over HTTPS).
+secureCookies: false
+
+# Controller HA leader election (recommended; harmless with a single replica).
+leaderElection: true
+resync: "15s"
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+serviceAccount:
+  create: true
+  name: ""

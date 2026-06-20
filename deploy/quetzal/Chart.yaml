@@ -1,0 +1,13 @@
+apiVersion: v2
+name: quetzal
+description: Kubernetes-native control plane & UI to deploy game servers
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/lolozini/quetzal
+sources:
+  - https://github.com/lolozini/quetzal
+keywords:
+  - game-server
+  - minecraft
+  - control-plane

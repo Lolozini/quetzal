@@ -5,6 +5,7 @@ package reconciler
 import (
 	"context"
 	"fmt"
+	"log"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -22,6 +23,12 @@ import (
 type Reconciler struct {
 	Client client.Client
 	Store  *store.Store
+
+	// OnStop, if set, is called just before a running server is scaled to zero
+	// so a graceful stop command can be delivered to the container (via the
+	// console attach path). It is best-effort. Injected by the controller to
+	// avoid an import cycle with the console package.
+	OnStop func(ctx context.Context, namespace, slug, stopCommand string) error
 }
 
 // New returns a Reconciler.
@@ -49,6 +56,17 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 			return fmt.Errorf("pvc: %w", err)
 		}
 	}
+	// Graceful stop: when transitioning a currently-running server to a
+	// non-running state and the template defines a stop command, deliver it
+	// before scaling to zero (SIGTERM + termination grace period follow).
+	if srv.DesiredState != models.StateRunning && tmpl.StopCommand != "" && r.OnStop != nil {
+		if running, _ := r.deploymentRunning(ctx, srv.Namespace); running {
+			if err := r.OnStop(ctx, srv.Namespace, srv.Slug, tmpl.StopCommand); err != nil {
+				log.Printf("graceful stop for %s (continuing to scale down): %v", srv.Slug, err)
+			}
+		}
+	}
+
 	if err := r.ensureDeployment(ctx, srv, tmpl); err != nil {
 		return fmt.Errorf("deployment: %w", err)
 	}
@@ -153,7 +171,8 @@ func (r *Reconciler) ensureNetworkPolicy(ctx context.Context, s *models.Server, 
 	return err
 }
 
-// updateStatus reads the Deployment and writes an observed status to the DB.
+// updateStatus reads the workload + pods and writes an observed status to the DB,
+// including crash detection.
 func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *models.Template) error {
 	st := models.Status{Endpoints: endpoints(s, t)}
 
@@ -163,22 +182,60 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 	case models.StateStopped:
 		st.Phase = models.PhaseStopped
 	default: // Running
-		dep := &appsv1.Deployment{}
-		key := client.ObjectKey{Namespace: s.Namespace, Name: workloadName}
-		if err := r.Client.Get(ctx, key, dep); err != nil {
-			if apierrors.IsNotFound(err) {
-				st.Phase = models.PhaseStarting
-			} else {
-				return err
-			}
-		} else if dep.Status.ReadyReplicas >= 1 {
+		restarts, crashloop, msg := r.inspectPods(ctx, s.Namespace, s.Slug)
+		st.CrashCount = restarts
+		switch {
+		case crashloop:
+			st.Phase = models.PhaseCrashed
+			st.Message = msg
+		case r.deploymentReady(ctx, s.Namespace):
 			st.Phase = models.PhaseRunning
-		} else {
+		default:
 			st.Phase = models.PhaseStarting
 		}
 	}
 
 	return r.Store.UpdateServerStatus(s.ID, st)
+}
+
+func (r *Reconciler) deploymentReady(ctx context.Context, ns string) bool {
+	dep := &appsv1.Deployment{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: workloadName}, dep); err != nil {
+		return false
+	}
+	return dep.Status.ReadyReplicas >= 1
+}
+
+func (r *Reconciler) deploymentRunning(ctx context.Context, ns string) (bool, error) {
+	dep := &appsv1.Deployment{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: workloadName}, dep); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return dep.Spec.Replicas != nil && *dep.Spec.Replicas > 0, nil
+}
+
+// inspectPods sums container restarts and detects CrashLoopBackOff.
+func (r *Reconciler) inspectPods(ctx context.Context, ns, slug string) (restarts int, crashloop bool, msg string) {
+	var pods corev1.PodList
+	if err := r.Client.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{serverLabel: slug}); err != nil {
+		return 0, false, ""
+	}
+	for i := range pods.Items {
+		for _, cs := range pods.Items[i].Status.ContainerStatuses {
+			restarts += int(cs.RestartCount)
+			if cs.State.Waiting != nil && cs.State.Waiting.Reason == "CrashLoopBackOff" {
+				crashloop = true
+				msg = cs.State.Waiting.Message
+				if msg == "" {
+					msg = "container in CrashLoopBackOff"
+				}
+			}
+		}
+	}
+	return restarts, crashloop, msg
 }
 
 func endpoints(s *models.Server, t *models.Template) []string {

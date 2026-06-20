@@ -16,6 +16,7 @@ import (
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/lolozini/quetzal/internal/api"
+	"github.com/lolozini/quetzal/internal/metrics"
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/templates"
 	webui "github.com/lolozini/quetzal/web"
@@ -37,6 +38,14 @@ func main() {
 		log.Fatalf("seed templates: %v", err)
 	}
 
+	// Migration-only mode (used by an init container so a single process owns
+	// schema creation/seeding, avoiding a race between the apiserver and
+	// controller on a fresh shared database).
+	if env("QUETZAL_MIGRATE_ONLY", "") == "true" {
+		log.Printf("migration complete; exiting (QUETZAL_MIGRATE_ONLY)")
+		return
+	}
+
 	cfg, err := ctrlconfig.GetConfig()
 	if err != nil {
 		log.Fatalf("kube config: %v", err)
@@ -49,9 +58,14 @@ func main() {
 	apiSrv := api.New(st, cs, cfg)
 	apiSrv.Secure = env("QUETZAL_SECURE_COOKIES", "") == "true"
 
-	// /api/* -> API; everything else -> embedded React SPA.
+	// /api/* -> API; /metrics + /healthz for ops; everything else -> React SPA.
 	root := http.NewServeMux()
 	root.Handle("/api/", apiSrv.Handler())
+	root.Handle("/metrics", metrics.Handler(st))
+	root.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
 	root.Handle("/", webui.Handler())
 
 	srv := &http.Server{

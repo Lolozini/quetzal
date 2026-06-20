@@ -108,11 +108,17 @@ func BuildDeployment(s *models.Server, t *models.Template) *appsv1.Deployment {
 		SecurityContext: buildContainerSecurityContext(t),
 	}
 
+	grace := int64(30)
+	if t.StopGraceSeconds > 0 {
+		grace = int64(t.StopGraceSeconds)
+	}
+
 	pod := corev1.PodSpec{
-		Containers:      []corev1.Container{container},
-		SecurityContext: buildPodSecurityContext(t),
-		Volumes:         []corev1.Volume{buildDataVolume(s)},
-		NodeSelector:    s.NodeSelector,
+		Containers:                    []corev1.Container{container},
+		SecurityContext:               buildPodSecurityContext(t),
+		Volumes:                       []corev1.Volume{buildDataVolume(s)},
+		NodeSelector:                  s.NodeSelector,
+		TerminationGracePeriodSeconds: &grace,
 	}
 
 	return &appsv1.Deployment{

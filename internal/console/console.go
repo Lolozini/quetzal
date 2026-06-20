@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/gorilla/websocket"
 	corev1 "k8s.io/api/core/v1"
@@ -166,6 +167,13 @@ func attachStdin(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config,
 		return err
 	}
 	return exec.StreamWithContext(ctx, remotecommand.StreamOptions{Stdin: stdin})
+}
+
+// SendStdin attaches to a pod and writes a single payload to its stdin, then
+// returns. Used for graceful stop (sending a template's stop command). Pass a
+// context with a timeout.
+func SendStdin(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, ns, pod, data string) error {
+	return attachStdin(ctx, cs, cfg, ns, pod, strings.NewReader(data))
 }
 
 func send(ctx context.Context, out chan<- Message, m Message) {

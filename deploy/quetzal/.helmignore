@@ -1,0 +1,4 @@
+.DS_Store
+*.tmpl.bak
+*.swp
+.git/

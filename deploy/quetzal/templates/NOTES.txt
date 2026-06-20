@@ -1,0 +1,16 @@
+Quetzal is installed.
+
+{{- if .Values.ingress.enabled }}
+Open the panel at: http{{ if .Values.ingress.tls }}s{{ end }}://{{ .Values.ingress.host }}/
+{{- else }}
+Port-forward the panel:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "quetzal.fullname" . }} 8080:{{ .Values.service.port }}
+
+then open http://localhost:8080/
+{{- end }}
+
+On first visit you will create the admin account (setup wizard).
+
+Metrics: container port 9090 (/metrics) on the controller; /metrics also on the
+apiserver. Health: /healthz.

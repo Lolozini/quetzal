@@ -1,0 +1,131 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quetzal.fullname" . }}
+  labels:
+    {{- include "quetzal.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  # SQLite on a shared PVC: never run two pods at once.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "quetzal.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quetzal.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quetzal.serviceAccountName" . }}
+      securityContext:
+        runAsNonRoot: true
+        # distroless nonroot uid/gid; numeric runAsUser so the kubelet can
+        # verify non-root, and fsGroup so the process can write the PVC.
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Single process owns schema creation + template seeding so the two main
+        # containers never race on a fresh shared database.
+        - name: migrate
+          image: {{ include "quetzal.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/quetzal-apiserver"]
+          env:
+            {{- include "quetzal.commonEnv" . | nindent 12 }}
+            - name: QUETZAL_MIGRATE_ONLY
+              value: "true"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      containers:
+        - name: apiserver
+          image: {{ include "quetzal.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/quetzal-apiserver"]
+          env:
+            {{- include "quetzal.commonEnv" . | nindent 12 }}
+            - name: QUETZAL_ADDR
+              value: ":8080"
+            - name: QUETZAL_SECURE_COOKIES
+              value: {{ .Values.secureCookies | quote }}
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        - name: controller
+          image: {{ include "quetzal.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/local/bin/quetzal-controller"]
+          env:
+            {{- include "quetzal.commonEnv" . | nindent 12 }}
+            - name: QUETZAL_LEADER_ELECTION
+              value: {{ .Values.leaderElection | quote }}
+            - name: QUETZAL_METRICS_ADDR
+              value: ":9090"
+            - name: QUETZAL_RESYNC
+              value: {{ .Values.resync | quote }}
+          ports:
+            - name: metrics
+              containerPort: 9090
+          livenessProbe:
+            httpGet: { path: /healthz, port: metrics }
+            initialDelaySeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: data
+        {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "quetzal.fullname" . }}-data
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- define "quetzal.commonEnv" -}}
+- name: QUETZAL_DB_DRIVER
+  value: {{ .Values.db.driver | quote }}
+- name: QUETZAL_DB_DSN
+  value: {{ .Values.db.dsn | quote }}
+- name: POD_NAMESPACE
+  valueFrom:
+    fieldRef:
+      fieldPath: metadata.namespace
+- name: POD_NAME
+  valueFrom:
+    fieldRef:
+      fieldPath: metadata.name
+{{- end -}}
