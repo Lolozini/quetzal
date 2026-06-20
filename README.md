@@ -10,8 +10,8 @@ Pterodactyl **egg**) can be deployed.
 
 ## Status
 
-🚧 Early development. Building **Phase 0 — Foundations** (see
-[ROADMAP](#roadmap)).
+🚧 Early development. **Phases 0–2 implemented** (foundations, MVP, networking &
+observability); see [ROADMAP](#roadmap).
 
 ## Design highlights
 
@@ -21,6 +21,12 @@ Pterodactyl **egg**) can be deployed.
 - **One pod per server, no per-game side pods**: live console is provided via the
   Kubernetes `attach` subresource (stdin) + log streaming (stdout) — no RCON
   server, no sidecar required.
+- **Pluggable exposure**: publish a server in-cluster (ClusterIP), on node IPs
+  (NodePort, from a stable control-plane port pool), or via a LoadBalancer —
+  with `externalTrafficPolicy: Local` by default so the game sees the real
+  player IP, and provider-neutral Service annotations (external-dns, MetalLB…).
+- **Per-server observability**: live CPU/memory from metrics-server, plus
+  Prometheus `/metrics` for the panel itself.
 - **Egg-compatible**: import existing Pterodactyl/Pelican eggs to ease migration.
 - **Secure by default**: namespace-per-server, NetworkPolicy, hardened
   securityContext, secrets kept out of the DB in clear text.
@@ -39,9 +45,10 @@ Browser ──HTTP/WS──▶ api-server (UI + REST/WS + console proxy)
 
 ## Roadmap
 
-- **Phase 0** — Foundations: data model, store, reconciler, egg importer.
-- **Phase 1** — MVP: lifecycle + config + live console + minimal UI.
-- **Phase 2** — Networking & per-server observability.
+- ✅ **Phase 0** — Foundations: data model, store, reconciler, egg importer.
+- ✅ **Phase 1** — MVP: lifecycle + config + live console + minimal UI.
+- ✅ **Phase 2** — Networking (ClusterIP/NodePort/LoadBalancer + node-port pool) &
+  per-server observability (CPU/RAM via metrics-server).
 - **Phase 3** — Scheduled tasks, backups & data lifecycle.
 - **Phase 4** — Multi-tenant (subusers, quotas, OIDC/2FA, public API).
 - **Phase 5** — Scale-to-zero / hibernation & ecosystem.

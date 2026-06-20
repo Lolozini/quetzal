@@ -54,6 +54,14 @@ spec:
               value: ":8080"
             - name: QUETZAL_SECURE_COOKIES
               value: {{ .Values.secureCookies | quote }}
+            {{- with .Values.nodePort.min }}
+            - name: QUETZAL_NODEPORT_MIN
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.nodePort.max }}
+            - name: QUETZAL_NODEPORT_MAX
+              value: {{ . | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080

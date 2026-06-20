@@ -25,6 +25,54 @@ const (
 	PhaseError      Phase = "Error"
 )
 
+// ExposeType selects how a server's ports are made reachable. It maps directly
+// to a Kubernetes Service type and is game-agnostic.
+type ExposeType string
+
+const (
+	// ExposeClusterIP keeps the server reachable only inside the cluster (default).
+	ExposeClusterIP ExposeType = "ClusterIP"
+	// ExposeNodePort publishes each port on every node's IP at an allocated port.
+	ExposeNodePort ExposeType = "NodePort"
+	// ExposeLoadBalancer requests an external load balancer (MetalLB / cloud LB).
+	ExposeLoadBalancer ExposeType = "LoadBalancer"
+)
+
+// Expose configures external reachability for a server's ports.
+type Expose struct {
+	Type ExposeType `json:"type,omitempty"`
+	// Annotations are copied onto the Service. They stay provider-neutral: use
+	// them for external-dns hostnames, MetalLB address pools, cloud LB hints,
+	// etc. Nothing is hardcoded.
+	Annotations map[string]string `json:"annotations,omitempty"`
+	// PreserveClientIP sets externalTrafficPolicy: Local so the game server sees
+	// the real player IP (matters for bans, geo, anti-abuse). Defaults to true
+	// for NodePort/LoadBalancer when unset; ignored for ClusterIP.
+	PreserveClientIP *bool `json:"preserveClientIP,omitempty"`
+}
+
+// ServiceType returns the effective exposure type, defaulting to ClusterIP.
+func (e Expose) ServiceType() ExposeType {
+	if e.Type == "" {
+		return ExposeClusterIP
+	}
+	return e.Type
+}
+
+// External reports whether this exposure publishes the server outside the cluster.
+func (e Expose) External() bool {
+	t := e.ServiceType()
+	return t == ExposeNodePort || t == ExposeLoadBalancer
+}
+
+// LocalTraffic reports whether externalTrafficPolicy should be Local.
+func (e Expose) LocalTraffic() bool {
+	if e.PreserveClientIP != nil {
+		return *e.PreserveClientIP
+	}
+	return e.External()
+}
+
 // StorageType selects how persistent data is backed.
 type StorageType string
 
@@ -50,11 +98,16 @@ type Resources struct {
 
 // Status is the controller-written observed state.
 type Status struct {
-	Phase      Phase    `json:"phase"`
-	Endpoints  []string `json:"endpoints,omitempty"`
-	Message    string   `json:"message,omitempty"`
-	CrashCount int      `json:"crashCount,omitempty"`
-	DiskUsed   int64    `json:"diskUsed,omitempty"` // bytes
+	Phase Phase `json:"phase"`
+	// Endpoints lists reachable addresses (external when exposed, otherwise the
+	// in-cluster DNS names).
+	Endpoints []string `json:"endpoints,omitempty"`
+	// Address is the primary address players connect to (the primary port's
+	// external endpoint when exposed).
+	Address    string `json:"address,omitempty"`
+	Message    string `json:"message,omitempty"`
+	CrashCount int    `json:"crashCount,omitempty"`
+	DiskUsed   int64  `json:"diskUsed,omitempty"` // bytes
 }
 
 // Server is a deployable game server instance. The database row is the source
@@ -85,6 +138,7 @@ type Server struct {
 	SecretEnvEnc string            `json:"-"`
 	Storage      Storage           `gorm:"serializer:json" json:"storage"`
 	Ports        []PortSpec        `gorm:"serializer:json" json:"ports,omitempty"`
+	Expose       Expose            `gorm:"serializer:json" json:"expose"`
 	NodeSelector map[string]string `gorm:"serializer:json" json:"nodeSelector,omitempty"`
 
 	Status Status `gorm:"serializer:json" json:"status"`

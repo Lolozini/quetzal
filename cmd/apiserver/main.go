@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -63,6 +64,8 @@ func main() {
 
 	apiSrv := api.New(st, cs, cfg)
 	apiSrv.Secure = env("QUETZAL_SECURE_COOKIES", "") == "true"
+	apiSrv.NodePortMin = envInt32("QUETZAL_NODEPORT_MIN", 0)
+	apiSrv.NodePortMax = envInt32("QUETZAL_NODEPORT_MAX", 0)
 
 	// /api/* -> API; /metrics + /healthz for ops; everything else -> React SPA.
 	root := http.NewServeMux()
@@ -120,6 +123,15 @@ func gcSessions(ctx context.Context, st *store.Store) {
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return def
+}
+
+func envInt32(key string, def int32) int32 {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 32); err == nil {
+			return int32(n)
+		}
 	}
 	return def
 }

@@ -134,7 +134,10 @@ func (s *Store) OpenSecrets(blob string) (map[string]string, error) {
 
 // Migrate creates/updates the schema.
 func (s *Store) Migrate() error {
-	return s.db.AutoMigrate(&models.Template{}, &models.Server{}, &models.User{}, &models.Session{})
+	return s.db.AutoMigrate(
+		&models.Template{}, &models.Server{}, &models.User{},
+		&models.Session{}, &models.PortAllocation{},
+	)
 }
 
 // DB exposes the underlying handle (for advanced/transactional use).
@@ -260,9 +263,81 @@ func (s *Store) UpdateServerStatus(id uint, st models.Status) error {
 		Select("status").Updates(models.Server{Status: st}).Error
 }
 
-// DeleteServer removes a server record.
+// UpdateServerNetworking persists only the exposure config and the (re)computed
+// port list, leaving controller-written status untouched.
+func (s *Store) UpdateServerNetworking(id uint, expose models.Expose, ports []models.PortSpec) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Select("expose", "ports").
+		Updates(models.Server{Expose: expose, Ports: ports}).Error
+}
+
+// DeleteServer removes a server record and frees any node ports it held.
 func (s *Store) DeleteServer(id uint) error {
-	return s.db.Delete(&models.Server{}, id).Error
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("server_id = ?", id).Delete(&models.PortAllocation{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&models.Server{}, id).Error
+	})
+}
+
+// ---- Node port pool ----
+
+// Default node port range mirrors Kubernetes' default service node port range.
+const (
+	DefaultNodePortMin int32 = 30000
+	DefaultNodePortMax int32 = 32767
+)
+
+// AllocateNodePort reserves the lowest free node port in [min,max] for a named
+// server port, persisting it so it stays stable across reconciles. If the
+// (server, name) pair already holds an allocation it is returned unchanged.
+// A min/max of 0 falls back to the Kubernetes default range.
+func (s *Store) AllocateNodePort(serverID uint, name string, min, max int32) (int32, error) {
+	if min <= 0 {
+		min = DefaultNodePortMin
+	}
+	if max <= 0 {
+		max = DefaultNodePortMax
+	}
+	if min > max {
+		return 0, fmt.Errorf("invalid node port range %d-%d", min, max)
+	}
+	var alloc models.PortAllocation
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		err := tx.Where("server_id = ? AND port_name = ?", serverID, name).First(&alloc).Error
+		switch {
+		case err == nil:
+			return nil // reuse existing allocation
+		case !errors.Is(err, gorm.ErrRecordNotFound):
+			return err
+		}
+		used := map[int32]bool{}
+		var rows []models.PortAllocation
+		if err := tx.Find(&rows).Error; err != nil {
+			return err
+		}
+		for _, r := range rows {
+			used[r.NodePort] = true
+		}
+		for p := min; p <= max; p++ {
+			if used[p] {
+				continue
+			}
+			alloc = models.PortAllocation{NodePort: p, ServerID: serverID, PortName: name}
+			return tx.Create(&alloc).Error
+		}
+		return fmt.Errorf("no free node port in range %d-%d", min, max)
+	})
+	if err != nil {
+		return 0, err
+	}
+	return alloc.NodePort, nil
+}
+
+// ReleaseServerPorts frees every node port held by a server.
+func (s *Store) ReleaseServerPorts(serverID uint) error {
+	return s.db.Where("server_id = ?", serverID).Delete(&models.PortAllocation{}).Error
 }
 
 // ---- Users & sessions ----

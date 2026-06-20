@@ -139,6 +139,72 @@ func TestCreateServerLongNameSlugCapped(t *testing.T) {
 	}
 }
 
+func TestCreateServerNodePortAllocatesAndPatchClears(t *testing.T) {
+	ts, c := newTestServer(t)
+	post(t, c, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+
+	type port struct {
+		Name     string `json:"name"`
+		NodePort int32  `json:"nodePort"`
+	}
+	type server struct {
+		ID     uint   `json:"id"`
+		Ports  []port `json:"ports"`
+		Expose struct {
+			Type string `json:"type"`
+		} `json:"expose"`
+	}
+
+	// minecraft-paper declares a port, so NodePort exposure is allowed.
+	var srv server
+	r := post(t, c, ts.URL+"/api/servers", map[string]any{
+		"name":     "mc",
+		"template": "minecraft-paper",
+		"expose":   map[string]string{"type": "NodePort"},
+	})
+	if r.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d", r.StatusCode)
+	}
+	json.NewDecoder(r.Body).Decode(&srv)
+	if len(srv.Ports) == 0 || srv.Ports[0].NodePort < 30000 {
+		t.Fatalf("expected an allocated node port, got %+v", srv.Ports)
+	}
+
+	// Patch back to ClusterIP: node ports are freed/cleared.
+	url := ts.URL + "/api/servers/" + itoa(srv.ID)
+	req, _ := http.NewRequest(http.MethodPatch, url, strings.NewReader(`{"expose":{"type":"ClusterIP"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	pr, err := c.Do(req)
+	if err != nil || pr.StatusCode != http.StatusOK {
+		t.Fatalf("patch = %v / %d", err, pr.StatusCode)
+	}
+	var patched server
+	json.NewDecoder(pr.Body).Decode(&patched)
+	if patched.Expose.Type != "ClusterIP" {
+		t.Errorf("expose = %q, want ClusterIP", patched.Expose.Type)
+	}
+	for _, p := range patched.Ports {
+		if p.NodePort != 0 {
+			t.Errorf("node port not cleared: %+v", p)
+		}
+	}
+}
+
+func TestCreateServerExposeWithoutPortsRejected(t *testing.T) {
+	ts, c := newTestServer(t)
+	post(t, c, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+
+	// generic-process declares no ports; publishing it must fail.
+	r := post(t, c, ts.URL+"/api/servers", map[string]any{
+		"name":     "np",
+		"template": "generic-process",
+		"expose":   map[string]string{"type": "NodePort"},
+	})
+	if r.StatusCode != http.StatusBadRequest {
+		t.Errorf("expose without ports = %d, want 400", r.StatusCode)
+	}
+}
+
 func TestAuthRequired(t *testing.T) {
 	ts, _ := newTestServer(t)
 	noauth := &http.Client{} // no cookie jar

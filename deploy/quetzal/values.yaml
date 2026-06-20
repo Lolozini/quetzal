@@ -21,6 +21,13 @@ service:
   type: ClusterIP
   port: 8080
 
+# Node port pool for servers exposed via NodePort. Empty values fall back to the
+# cluster's default service node port range (30000-32767). Narrow it to reserve
+# a predictable block you can open on your firewall.
+nodePort:
+  min: ""
+  max: ""
+
 ingress:
   enabled: false
   className: ""

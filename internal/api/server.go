@@ -34,6 +34,10 @@ type Server struct {
 	SessionTTL time.Duration
 	// Secure marks cookies Secure (set when served over HTTPS).
 	Secure bool
+	// NodePortMin/NodePortMax bound the control-plane node port pool (0 = use
+	// the Kubernetes default range 30000-32767).
+	NodePortMin int32
+	NodePortMax int32
 
 	upgrader websocket.Upgrader
 }
@@ -69,8 +73,10 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/servers", s.auth(s.handleListServers))
 	mux.Handle("POST /api/servers", s.auth(s.handleCreateServer))
 	mux.Handle("GET /api/servers/{id}", s.auth(s.handleGetServer))
+	mux.Handle("PATCH /api/servers/{id}", s.auth(s.handleUpdateServer))
 	mux.Handle("DELETE /api/servers/{id}", s.auth(s.handleDeleteServer))
 	mux.Handle("POST /api/servers/{id}/power", s.auth(s.handlePower))
+	mux.Handle("GET /api/servers/{id}/stats", s.auth(s.handleServerStats))
 	mux.Handle("GET /api/servers/{id}/console", s.auth(s.handleConsole))
 
 	return logRequests(mux)

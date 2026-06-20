@@ -159,29 +159,56 @@ func BuildDeployment(s *models.Server, t *models.Template, secretKeys []string) 
 	}
 }
 
-// BuildService projects a server into a ClusterIP Service.
+// BuildService projects a server into a Service whose type follows the server's
+// exposure (ClusterIP by default, NodePort or LoadBalancer when published).
 func BuildService(s *models.Server, t *models.Template) *corev1.Service {
+	exposeNodePort := s.Expose.ServiceType() == models.ExposeNodePort
 	var ports []corev1.ServicePort
 	for _, p := range serverPorts(s, t) {
-		ports = append(ports, corev1.ServicePort{
+		sp := corev1.ServicePort{
 			Name:       p.Name,
 			Port:       p.Port,
 			TargetPort: intstr.FromInt32(p.Port),
 			Protocol:   protocol(p.Protocol),
-		})
+		}
+		// Honour the pool-allocated node port so it stays stable; 0 lets
+		// Kubernetes pick one.
+		if exposeNodePort && p.NodePort > 0 {
+			sp.NodePort = p.NodePort
+		}
+		ports = append(ports, sp)
 	}
-	return &corev1.Service{
+
+	svc := &corev1.Service{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      workloadName,
-			Namespace: s.Namespace,
-			Labels:    labelsFor(s),
+			Name:        workloadName,
+			Namespace:   s.Namespace,
+			Labels:      labelsFor(s),
+			Annotations: s.Expose.Annotations,
 		},
 		Spec: corev1.ServiceSpec{
-			Type:     corev1.ServiceTypeClusterIP,
+			Type:     serviceType(s.Expose.ServiceType()),
 			Selector: map[string]string{serverLabel: s.Slug},
 			Ports:    ports,
 		},
+	}
+	// Preserve the client source IP for published game traffic (bans/geo).
+	// Invalid for ClusterIP, so only set it when externally exposed.
+	if s.Expose.External() && s.Expose.LocalTraffic() {
+		svc.Spec.ExternalTrafficPolicy = corev1.ServiceExternalTrafficPolicyLocal
+	}
+	return svc
+}
+
+func serviceType(e models.ExposeType) corev1.ServiceType {
+	switch e {
+	case models.ExposeNodePort:
+		return corev1.ServiceTypeNodePort
+	case models.ExposeLoadBalancer:
+		return corev1.ServiceTypeLoadBalancer
+	default:
+		return corev1.ServiceTypeClusterIP
 	}
 }
 

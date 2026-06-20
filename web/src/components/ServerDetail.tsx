@@ -1,9 +1,18 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, PowerAction, Server } from "../api";
+import { api, ApiError, ExposeType, PowerAction, Server, ServerStats } from "../api";
 import { Console } from "./Console";
+
+function formatMem(bytes: number): string {
+  if (bytes <= 0) return "0 MiB";
+  const mib = bytes / (1024 * 1024);
+  if (mib >= 1024) return `${(mib / 1024).toFixed(2)} GiB`;
+  return `${mib.toFixed(0)} MiB`;
+}
 
 export function ServerDetail({ id, onBack }: { id: number; onBack: () => void }) {
   const [srv, setSrv] = useState<Server | null>(null);
+  const [stats, setStats] = useState<ServerStats | null>(null);
+  const [statsMsg, setStatsMsg] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
 
@@ -16,6 +25,18 @@ export function ServerDetail({ id, onBack }: { id: number; onBack: () => void })
       } catch (e) {
         if (active) setError(String(e));
       }
+      try {
+        const st = await api.stats(id);
+        if (active) {
+          setStats(st);
+          setStatsMsg("");
+        }
+      } catch (e) {
+        if (active) {
+          setStats(null);
+          setStatsMsg(e instanceof ApiError ? e.message : String(e));
+        }
+      }
     };
     load();
     const t = setInterval(load, 4000);
@@ -24,6 +45,15 @@ export function ServerDetail({ id, onBack }: { id: number; onBack: () => void })
       clearInterval(t);
     };
   }, [id]);
+
+  async function changeExpose(type: ExposeType) {
+    setError("");
+    try {
+      setSrv(await api.setExpose(id, { type }));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
 
   async function power(action: PowerAction) {
     setBusy(action);
@@ -84,9 +114,44 @@ export function ServerDetail({ id, onBack }: { id: number; onBack: () => void })
           <span className="k">Namespace</span>
           <span>{srv.namespace}</span>
         </div>
+        {srv.status.address && (
+          <div className="kv">
+            <span className="k">Connect</span>
+            <span>
+              <code>{srv.status.address}</code>
+            </span>
+          </div>
+        )}
         <div className="kv">
           <span className="k">Endpoints</span>
           <span>{(srv.status.endpoints || []).join(", ") || "—"}</span>
+        </div>
+        {srv.ports && srv.ports.length > 0 && (
+          <div className="kv">
+            <span className="k">Exposure</span>
+            <span>
+              <select
+                value={srv.expose?.type || "ClusterIP"}
+                onChange={(e) => changeExpose(e.target.value as ExposeType)}
+              >
+                <option value="ClusterIP">ClusterIP</option>
+                <option value="NodePort">NodePort</option>
+                <option value="LoadBalancer">LoadBalancer</option>
+              </select>
+            </span>
+          </div>
+        )}
+        <div className="kv">
+          <span className="k">CPU / Memory</span>
+          <span>
+            {stats
+              ? `${stats.cpuMillicores}m${
+                  stats.cpuLimit ? ` / ${stats.cpuLimit}` : ""
+                }  ·  ${formatMem(stats.memoryBytes)}${
+                  stats.memoryLimit ? ` / ${stats.memoryLimit}` : ""
+                }`
+              : statsMsg || "—"}
+          </span>
         </div>
         {srv.status.message && (
           <div className="kv">

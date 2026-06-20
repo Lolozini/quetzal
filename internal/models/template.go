@@ -147,6 +147,10 @@ type PortSpec struct {
 	Protocol string `json:"protocol"` // TCP | UDP
 	// Primary marks the main game port (the one players connect to).
 	Primary bool `json:"primary,omitempty"`
+	// NodePort is the node port allocated from the control-plane pool when the
+	// server is exposed via NodePort (0 = none / not applicable). It is assigned
+	// per server, so it lives on the server's port copy, not the template's.
+	NodePort int32 `json:"nodePort,omitempty"`
 }
 
 // SecurityContext holds the subset of pod/container security settings Quetzal manages.

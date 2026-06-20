@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, CreateServerRequest, Template } from "../api";
+import { api, ApiError, CreateServerRequest, ExposeType, Template } from "../api";
 
 export function CreateServer({
   onDone,
@@ -16,6 +16,7 @@ export function CreateServer({
   const [storageType, setStorageType] = useState("pvc");
   const [size, setSize] = useState("10Gi");
   const [hostPath, setHostPath] = useState("");
+  const [expose, setExpose] = useState<ExposeType>("ClusterIP");
   const [env, setEnv] = useState<Record<string, string>>({});
   const [start, setStart] = useState(true);
   const [error, setError] = useState("");
@@ -60,6 +61,7 @@ export function CreateServer({
           size: storageType === "pvc" ? size : undefined,
           hostPath: storageType === "hostPath" ? hostPath : undefined,
         },
+        expose: { type: expose },
         env,
       };
       await api.createServer(body);
@@ -140,6 +142,21 @@ export function CreateServer({
               placeholder="/srv/games/..."
               onChange={(e) => setHostPath(e.target.value)}
             />
+          </>
+        )}
+
+        {tpl?.ports && tpl.ports.length > 0 && (
+          <>
+            <label>Network exposure</label>
+            <select value={expose} onChange={(e) => setExpose(e.target.value as ExposeType)}>
+              <option value="ClusterIP">ClusterIP (in-cluster only)</option>
+              <option value="NodePort">NodePort (node IP : allocated port)</option>
+              <option value="LoadBalancer">LoadBalancer (external IP)</option>
+            </select>
+            <div className="muted" style={{ fontSize: 12 }}>
+              Ports:{" "}
+              {tpl.ports.map((p) => `${p.port}/${p.protocol}`).join(", ")}
+            </div>
           </>
         )}
 

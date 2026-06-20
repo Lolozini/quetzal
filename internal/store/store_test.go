@@ -66,6 +66,70 @@ func TestDeleteExpiredSessions(t *testing.T) {
 	}
 }
 
+func TestAllocateNodePortStableAndUnique(t *testing.T) {
+	s := newTestStore(t)
+
+	// Two ports on the same server get distinct, in-range allocations.
+	a, err := s.AllocateNodePort(1, "game", 30000, 30002)
+	if err != nil {
+		t.Fatalf("alloc game: %v", err)
+	}
+	b, err := s.AllocateNodePort(1, "query", 30000, 30002)
+	if err != nil {
+		t.Fatalf("alloc query: %v", err)
+	}
+	if a == b {
+		t.Fatalf("ports collided: %d == %d", a, b)
+	}
+	if a < 30000 || a > 30002 || b < 30000 || b > 30002 {
+		t.Fatalf("ports out of range: %d, %d", a, b)
+	}
+
+	// Re-allocating the same (server, name) is stable.
+	again, err := s.AllocateNodePort(1, "game", 30000, 30002)
+	if err != nil || again != a {
+		t.Fatalf("alloc not stable: %d != %d (err %v)", again, a, err)
+	}
+
+	// A second server takes the last free port; the range is then exhausted.
+	c, err := s.AllocateNodePort(2, "game", 30000, 30002)
+	if err != nil {
+		t.Fatalf("alloc server2: %v", err)
+	}
+	if c == a || c == b {
+		t.Fatalf("server2 port collided: %d", c)
+	}
+	if _, err := s.AllocateNodePort(3, "game", 30000, 30002); err == nil {
+		t.Fatal("expected exhaustion error when pool is full")
+	}
+
+	// Releasing server 1 frees its two ports for reuse.
+	if err := s.ReleaseServerPorts(1); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if _, err := s.AllocateNodePort(3, "game", 30000, 30002); err != nil {
+		t.Fatalf("alloc after release: %v", err)
+	}
+}
+
+func TestDeleteServerReleasesPorts(t *testing.T) {
+	s := newTestStore(t)
+	srv := &models.Server{Slug: "p", Namespace: "ns"}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := s.AllocateNodePort(srv.ID, "game", 30000, 30000); err != nil {
+		t.Fatalf("alloc: %v", err)
+	}
+	if err := s.DeleteServer(srv.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	// The single port in the range must be free again.
+	if _, err := s.AllocateNodePort(99, "game", 30000, 30000); err != nil {
+		t.Fatalf("port not released on delete: %v", err)
+	}
+}
+
 func TestSealOpenSecrets(t *testing.T) {
 	s := newTestStore(t)
 	m := map[string]string{"RCON_PASSWORD": "hunter2"}

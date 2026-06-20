@@ -208,7 +208,8 @@ func secretDataEqual(data map[string][]byte, want map[string]string) bool {
 // updateStatus reads the workload + pods and writes an observed status to the DB,
 // including crash detection.
 func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *models.Template) error {
-	st := models.Status{Endpoints: endpoints(s, t)}
+	eps, addr := r.endpointsFor(ctx, s, t)
+	st := models.Status{Endpoints: eps, Address: addr}
 
 	switch s.DesiredState {
 	case models.StateSuspended:
@@ -272,12 +273,89 @@ func (r *Reconciler) inspectPods(ctx context.Context, ns, slug string) (restarts
 	return restarts, crashloop, msg
 }
 
-func endpoints(s *models.Server, t *models.Template) []string {
-	var eps []string
-	for _, p := range serverPorts(s, t) {
-		eps = append(eps, fmt.Sprintf("%s.%s.svc.cluster.local:%d", workloadName, s.Namespace, p.Port))
+// endpointsFor computes the reachable addresses for a server and picks a primary
+// one (the primary port, or the sole port). External exposure (NodePort/
+// LoadBalancer) yields node/LB addresses; otherwise the in-cluster DNS names.
+func (r *Reconciler) endpointsFor(ctx context.Context, s *models.Server, t *models.Template) (eps []string, addr string) {
+	ports := serverPorts(s, t)
+	add := func(p models.PortSpec, ep string) {
+		eps = append(eps, ep)
+		if addr == "" && (p.Primary || len(ports) == 1) {
+			addr = ep
+		}
 	}
-	return eps
+
+	switch s.Expose.ServiceType() {
+	case models.ExposeNodePort:
+		host := r.firstNodeAddress(ctx)
+		if host == "" {
+			host = "<node-ip>"
+		}
+		for _, p := range ports {
+			if p.NodePort == 0 {
+				continue
+			}
+			add(p, fmt.Sprintf("%s:%d", host, p.NodePort))
+		}
+	case models.ExposeLoadBalancer:
+		host := r.loadBalancerAddress(ctx, s.Namespace)
+		if host == "" {
+			break // not yet provisioned
+		}
+		for _, p := range ports {
+			add(p, fmt.Sprintf("%s:%d", host, p.Port))
+		}
+	default: // ClusterIP
+		for _, p := range ports {
+			add(p, fmt.Sprintf("%s.%s.svc.cluster.local:%d", workloadName, s.Namespace, p.Port))
+		}
+	}
+	if addr == "" && len(eps) > 0 {
+		addr = eps[0]
+	}
+	return eps, addr
+}
+
+// firstNodeAddress returns a usable node address, preferring an ExternalIP and
+// falling back to an InternalIP.
+func (r *Reconciler) firstNodeAddress(ctx context.Context) string {
+	var nodes corev1.NodeList
+	if err := r.Client.List(ctx, &nodes); err != nil || len(nodes.Items) == 0 {
+		return ""
+	}
+	var internal string
+	for i := range nodes.Items {
+		for _, a := range nodes.Items[i].Status.Addresses {
+			switch a.Type {
+			case corev1.NodeExternalIP:
+				if a.Address != "" {
+					return a.Address
+				}
+			case corev1.NodeInternalIP:
+				if internal == "" {
+					internal = a.Address
+				}
+			}
+		}
+	}
+	return internal
+}
+
+// loadBalancerAddress returns the Service's external LB address once assigned.
+func (r *Reconciler) loadBalancerAddress(ctx context.Context, ns string) string {
+	svc := &corev1.Service{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: workloadName}, svc); err != nil {
+		return ""
+	}
+	for _, ing := range svc.Status.LoadBalancer.Ingress {
+		if ing.IP != "" {
+			return ing.IP
+		}
+		if ing.Hostname != "" {
+			return ing.Hostname
+		}
+	}
+	return ""
 }
 
 func mergeLabels(into, from map[string]string) map[string]string {

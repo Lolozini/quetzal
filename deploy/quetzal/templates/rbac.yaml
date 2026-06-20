@@ -37,6 +37,14 @@ rules:
   - apiGroups: [""]
     resources: ["pods/attach", "pods/exec"]
     verbs: ["create", "get"]
+  # Node addresses, to report NodePort/LoadBalancer endpoints.
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  # Per-server resource usage graphs (metrics-server).
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

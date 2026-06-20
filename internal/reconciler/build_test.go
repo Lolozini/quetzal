@@ -3,6 +3,8 @@ package reconciler
 import (
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/lolozini/quetzal/internal/models"
 )
 
@@ -84,6 +86,56 @@ func TestBuildPVCAndService(t *testing.T) {
 	svc := BuildService(s, tmpl)
 	if len(svc.Spec.Ports) != 1 || svc.Spec.Ports[0].Port != 25565 {
 		t.Errorf("service ports = %+v", svc.Spec.Ports)
+	}
+}
+
+func TestBuildServiceClusterIPDefault(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	svc := BuildService(s, tmpl)
+	if svc.Spec.Type != corev1.ServiceTypeClusterIP {
+		t.Errorf("default type = %q, want ClusterIP", svc.Spec.Type)
+	}
+	if svc.Spec.ExternalTrafficPolicy != "" {
+		t.Errorf("ClusterIP must not set externalTrafficPolicy, got %q", svc.Spec.ExternalTrafficPolicy)
+	}
+}
+
+func TestBuildServiceNodePort(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	s.Expose = models.Expose{Type: models.ExposeNodePort}
+	s.Ports = []models.PortSpec{{Name: "game", Port: 25565, Protocol: "TCP", Primary: true, NodePort: 30123}}
+
+	svc := BuildService(s, tmpl)
+	if svc.Spec.Type != corev1.ServiceTypeNodePort {
+		t.Fatalf("type = %q, want NodePort", svc.Spec.Type)
+	}
+	if svc.Spec.Ports[0].NodePort != 30123 {
+		t.Errorf("nodePort = %d, want 30123", svc.Spec.Ports[0].NodePort)
+	}
+	// Defaults to preserving the client source IP for external exposure.
+	if svc.Spec.ExternalTrafficPolicy != corev1.ServiceExternalTrafficPolicyLocal {
+		t.Errorf("externalTrafficPolicy = %q, want Local", svc.Spec.ExternalTrafficPolicy)
+	}
+}
+
+func TestBuildServiceLoadBalancerAnnotationsAndOptOut(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	cluster := false
+	s.Expose = models.Expose{
+		Type:             models.ExposeLoadBalancer,
+		Annotations:      map[string]string{"external-dns.alpha.kubernetes.io/hostname": "mc.example.com"},
+		PreserveClientIP: &cluster,
+	}
+	svc := BuildService(s, tmpl)
+	if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
+		t.Fatalf("type = %q, want LoadBalancer", svc.Spec.Type)
+	}
+	if svc.Annotations["external-dns.alpha.kubernetes.io/hostname"] != "mc.example.com" {
+		t.Errorf("annotations not propagated: %+v", svc.Annotations)
+	}
+	// PreserveClientIP=false opts out of externalTrafficPolicy: Local.
+	if svc.Spec.ExternalTrafficPolicy != "" {
+		t.Errorf("externalTrafficPolicy = %q, want unset (opted out)", svc.Spec.ExternalTrafficPolicy)
 	}
 }
 

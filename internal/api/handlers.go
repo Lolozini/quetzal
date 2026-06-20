@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/lolozini/quetzal/internal/egg"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
+	"github.com/lolozini/quetzal/internal/stats"
 	"github.com/lolozini/quetzal/internal/store"
 )
 
@@ -158,6 +160,7 @@ type createServerRequest struct {
 	CPU      string            `json:"cpu"`
 	Storage  models.Storage    `json:"storage"`
 	Env      map[string]string `json:"env"`
+	Expose   models.Expose     `json:"expose"`
 	Start    bool              `json:"start"`
 }
 
@@ -241,6 +244,11 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := validateExpose(req.Expose, len(tmpl.Ports) > 0); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	state := models.StateStopped
 	if req.Start {
 		state = models.StateRunning
@@ -260,13 +268,119 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		SecretEnvEnc:    sealed,
 		Storage:         storage,
 		Ports:           tmpl.Ports,
+		Expose:          req.Expose,
 		Status:          models.Status{Phase: models.PhaseStopped},
 	}
 	if err := s.Store.CreateServer(srv); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// NodePort exposure draws stable ports from the control-plane pool, which
+	// needs the server's ID, so allocate after the row exists.
+	if req.Expose.ServiceType() == models.ExposeNodePort {
+		ports, err := s.allocateNodePorts(srv.ID, tmpl.Ports)
+		if err != nil {
+			_ = s.Store.DeleteServer(srv.ID) // avoid a half-configured record
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if err := s.Store.UpdateServerNetworking(srv.ID, req.Expose, ports); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		srv.Ports = ports
+	}
 	writeJSON(w, http.StatusCreated, srv)
+}
+
+type updateServerRequest struct {
+	// Expose, when present, reconfigures external reachability (and reallocates
+	// or frees pool node ports accordingly).
+	Expose *models.Expose `json:"expose"`
+}
+
+func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
+	srv, ok := s.lookupServer(w, r)
+	if !ok {
+		return
+	}
+	var req updateServerRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if req.Expose == nil {
+		writeJSON(w, http.StatusOK, srv) // nothing to change
+		return
+	}
+	expose := *req.Expose
+	if err := validateExpose(expose, len(srv.Ports) > 0); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var ports []models.PortSpec
+	if expose.ServiceType() == models.ExposeNodePort {
+		var err error
+		if ports, err = s.allocateNodePorts(srv.ID, srv.Ports); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+	} else {
+		if err := s.Store.ReleaseServerPorts(srv.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		ports = clearNodePorts(srv.Ports)
+	}
+	if err := s.Store.UpdateServerNetworking(srv.ID, expose, ports); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	srv.Expose = expose
+	srv.Ports = ports
+	writeJSON(w, http.StatusOK, srv)
+}
+
+// allocateNodePorts reserves a stable pool node port for each of a server's
+// ports, returning the port list with NodePort fields set.
+func (s *Server) allocateNodePorts(serverID uint, ports []models.PortSpec) ([]models.PortSpec, error) {
+	out := make([]models.PortSpec, len(ports))
+	copy(out, ports)
+	for i := range out {
+		name := out[i].Name
+		if name == "" {
+			name = fmt.Sprintf("p%d", out[i].Port)
+		}
+		np, err := s.Store.AllocateNodePort(serverID, name, s.NodePortMin, s.NodePortMax)
+		if err != nil {
+			return nil, err
+		}
+		out[i].NodePort = np
+	}
+	return out, nil
+}
+
+func clearNodePorts(ports []models.PortSpec) []models.PortSpec {
+	out := make([]models.PortSpec, len(ports))
+	copy(out, ports)
+	for i := range out {
+		out[i].NodePort = 0
+	}
+	return out
+}
+
+func validateExpose(e models.Expose, hasPorts bool) error {
+	switch e.ServiceType() {
+	case models.ExposeClusterIP, models.ExposeNodePort, models.ExposeLoadBalancer:
+	default:
+		return fmt.Errorf("invalid expose type %q", e.Type)
+	}
+	if e.External() && !hasPorts {
+		return errors.New("cannot publish a server that declares no ports")
+	}
+	return nil
 }
 
 func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
@@ -351,6 +465,35 @@ func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 	_ = console.Stream(r.Context(), conn, s.Clientset, s.RestConfig, srv.Namespace, pod)
+}
+
+// ---- observability ----
+
+func (s *Server) handleServerStats(w http.ResponseWriter, r *http.Request) {
+	srv, ok := s.lookupServer(w, r)
+	if !ok {
+		return
+	}
+	pod, err := console.FindRunningPod(r.Context(), s.Clientset, srv.Namespace, srv.Slug)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	u, err := stats.PodUsage(r.Context(), s.Clientset, srv.Namespace, pod)
+	if err != nil {
+		if errors.Is(err, stats.ErrUnavailable) {
+			writeError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"cpuMillicores": u.CPUMillicores,
+		"memoryBytes":   u.MemoryBytes,
+		"cpuLimit":      srv.Resources.CPU,
+		"memoryLimit":   srv.Resources.Memory,
+	})
 }
 
 // ---- helpers ----

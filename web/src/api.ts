@@ -39,7 +39,24 @@ export interface Template {
 export interface ServerStatus {
   phase: string;
   endpoints?: string[];
+  address?: string;
   message?: string;
+}
+
+export type ExposeType = "ClusterIP" | "NodePort" | "LoadBalancer";
+
+export interface Expose {
+  type?: ExposeType;
+  annotations?: Record<string, string>;
+  preserveClientIP?: boolean;
+}
+
+export interface Port {
+  name: string;
+  port: number;
+  protocol: string;
+  primary?: boolean;
+  nodePort?: number;
 }
 
 export interface Server {
@@ -51,7 +68,16 @@ export interface Server {
   image: string;
   resources: { memory?: string; cpu?: string };
   storage: { type: string; size?: string; hostPath?: string };
+  ports?: Port[];
+  expose: Expose;
   status: ServerStatus;
+}
+
+export interface ServerStats {
+  cpuMillicores: number;
+  memoryBytes: number;
+  cpuLimit?: string;
+  memoryLimit?: string;
 }
 
 export type PowerAction = "start" | "stop" | "restart" | "kill";
@@ -106,6 +132,9 @@ export const api = {
     req<{ action: string; result: string }>("POST", `/api/servers/${id}/power`, {
       action,
     }),
+  setExpose: (id: number, expose: Expose) =>
+    req<Server>("PATCH", `/api/servers/${id}`, { expose }),
+  stats: (id: number) => req<ServerStats>("GET", `/api/servers/${id}/stats`),
 };
 
 export interface CreateServerRequest {
@@ -116,6 +145,7 @@ export interface CreateServerRequest {
   cpu?: string;
   storage?: { type: string; size?: string; hostPath?: string };
   env?: Record<string, string>;
+  expose?: Expose;
   start?: boolean;
 }
 
