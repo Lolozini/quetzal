@@ -39,7 +39,7 @@ func TestBuildDeployment(t *testing.T) {
 	if !c.Stdin {
 		t.Errorf("container.Stdin must be true for console attach")
 	}
-	wantCmd := []string{"/bin/sh", "-lc", "echo ${MSG}; sleep 1"}
+	wantCmd := []string{"/bin/sh", "-c", "echo ${MSG}; sleep 1"}
 	if len(c.Command) != len(wantCmd) {
 		t.Fatalf("command = %v", c.Command)
 	}

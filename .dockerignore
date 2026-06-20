@@ -1,0 +1,10 @@
+.git/
+bin/
+dist/
+web/node_modules/
+web/dist/
+*.db
+*.db-*
+*.sqlite
+.github/
+**/*_test.go

@@ -70,6 +70,10 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     } catch {
       /* ignore */
     }
+    // Session expired/invalid: let the app return to the login screen.
+    if (res.status === 401) {
+      window.dispatchEvent(new Event("quetzal:unauthorized"));
+    }
     throw new ApiError(res.status, msg);
   }
   if (res.status === 204) return undefined as T;

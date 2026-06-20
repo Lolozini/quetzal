@@ -26,6 +26,12 @@ export function App() {
     })();
   }, []);
 
+  useEffect(() => {
+    const onUnauthorized = () => setUser(null);
+    window.addEventListener("quetzal:unauthorized", onUnauthorized);
+    return () => window.removeEventListener("quetzal:unauthorized", onUnauthorized);
+  }, []);
+
   if (loading) return <div className="center muted">Loading…</div>;
 
   if (!user) {

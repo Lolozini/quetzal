@@ -140,9 +140,7 @@ func reconcileAll(ctx context.Context, rec *reconciler.Reconciler, st *store.Sto
 		valid[s.Slug] = true
 		if err := rec.ReconcileServer(ctx, s.ID); err != nil {
 			log.Printf("reconcile server %s: %v", s.Slug, err)
-			continue
 		}
-		log.Printf("reconciled server %s (state=%s)", s.Slug, s.DesiredState)
 	}
 	if err := rec.GCOrphanNamespaces(ctx, valid); err != nil {
 		log.Printf("gc orphan namespaces: %v", err)

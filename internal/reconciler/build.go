@@ -334,7 +334,7 @@ func startupCommand(t *models.Template) []string {
 		return nil
 	}
 	cmd := startupVarRe.ReplaceAllString(t.Startup, "${$1}")
-	return []string{"/bin/sh", "-lc", cmd}
+	return []string{"/bin/sh", "-c", cmd}
 }
 
 func protocol(p string) corev1.Protocol {
