@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 
@@ -202,6 +204,56 @@ func TestCreateServerExposeWithoutPortsRejected(t *testing.T) {
 	})
 	if r.StatusCode != http.StatusBadRequest {
 		t.Errorf("expose without ports = %d, want 400", r.StatusCode)
+	}
+}
+
+func TestDeleteServerKeepDataRetainsPV(t *testing.T) {
+	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "k.db"), Silent: true})
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	if err := st.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := templates.Seed(st); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// Seed the cluster with the PVC/PV a controller would have created for slug "keepme".
+	cs := fake.NewSimpleClientset(
+		&corev1.PersistentVolume{
+			ObjectMeta: metav1.ObjectMeta{Name: "pv-1"},
+			Spec:       corev1.PersistentVolumeSpec{PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimDelete},
+		},
+		&corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "data", Namespace: "quetzal-srv-keepme"},
+			Spec:       corev1.PersistentVolumeClaimSpec{VolumeName: "pv-1"},
+		},
+	)
+	ts := httptest.NewServer(api.New(st, cs, &rest.Config{}).Handler())
+	t.Cleanup(ts.Close)
+	jar, _ := cookiejar.New(nil)
+	c := &http.Client{Jar: jar}
+
+	post(t, c, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+	var created struct{ ID uint }
+	r := post(t, c, ts.URL+"/api/servers", map[string]any{"name": "keepme", "template": "generic-process"})
+	if r.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d", r.StatusCode)
+	}
+	json.NewDecoder(r.Body).Decode(&created)
+
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/servers/"+itoa(created.ID)+"?keepData=true", nil)
+	dr, err := c.Do(req)
+	if err != nil || dr.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete = %v / %d", err, dr.StatusCode)
+	}
+
+	pv, err := cs.CoreV1().PersistentVolumes().Get(req.Context(), "pv-1", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get pv: %v", err)
+	}
+	if pv.Spec.PersistentVolumeReclaimPolicy != corev1.PersistentVolumeReclaimRetain {
+		t.Errorf("reclaim policy = %q, want Retain", pv.Spec.PersistentVolumeReclaimPolicy)
 	}
 }
 

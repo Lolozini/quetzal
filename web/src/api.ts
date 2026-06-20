@@ -127,7 +127,8 @@ export const api = {
   server: (id: number) => req<Server>("GET", `/api/servers/${id}`),
   createServer: (body: CreateServerRequest) =>
     req<Server>("POST", "/api/servers", body),
-  deleteServer: (id: number) => req<void>("DELETE", `/api/servers/${id}`),
+  deleteServer: (id: number, keepData: boolean) =>
+    req<void>("DELETE", `/api/servers/${id}?keepData=${keepData}`),
   power: (id: number, action: PowerAction) =>
     req<{ action: string; result: string }>("POST", `/api/servers/${id}/power`, {
       action,

@@ -21,10 +21,12 @@ const (
 	// ServerLabel marks objects belonging to a given server (value = slug).
 	ServerLabel = "quetzal.dev/server"
 	// WorkloadName is the Deployment/Service name within a server's namespace.
-	WorkloadName  = "server"
+	WorkloadName = "server"
+	// DataVolume is the name of a server's data PVC/volume.
+	DataVolume    = "data"
 	serverLabel   = ServerLabel
 	workloadName  = WorkloadName
-	dataVolume    = "data"       // PVC / volume name
+	dataVolume    = DataVolume
 	envSecretName = "server-env" // per-server Secret holding sensitive env
 	metadataIP    = "169.254.169.254/32"
 )

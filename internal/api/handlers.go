@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -8,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/lolozini/quetzal/internal/auth"
 	"github.com/lolozini/quetzal/internal/console"
@@ -388,11 +391,51 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// keepData decides the data lifecycle. The query param (sent by the UI's
+	// delete dialog) wins; otherwise fall back to the server's stored policy.
+	keep := srv.Storage.RetainOnDelete
+	if q := r.URL.Query().Get("keepData"); q != "" {
+		keep = q == "true"
+	}
+	if err := s.teardownServer(r.Context(), srv, keep); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if err := s.Store.DeleteServer(srv.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// teardownServer removes a server's cluster resources by deleting its namespace.
+// When keepData is set and the server uses a PVC, the bound PersistentVolume's
+// reclaim policy is switched to Retain first, so the underlying volume (and its
+// data) survives the namespace/PVC deletion as a Released PV. hostPath data is
+// inherently retained (deleting the namespace never touches the node path).
+func (s *Server) teardownServer(ctx context.Context, srv *models.Server, keepData bool) error {
+	if keepData && srv.Storage.Type == models.StoragePVC {
+		if pv := s.boundPV(ctx, srv.Namespace); pv != "" {
+			patch := []byte(`{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}`)
+			if _, err := s.Clientset.CoreV1().PersistentVolumes().Patch(ctx, pv, types.StrategicMergePatchType, patch, metav1.PatchOptions{}); err != nil {
+				return fmt.Errorf("retain volume %s: %w", pv, err)
+			}
+		}
+	}
+	err := s.Clientset.CoreV1().Namespaces().Delete(ctx, srv.Namespace, metav1.DeleteOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+// boundPV returns the PersistentVolume backing a server's data PVC, or "".
+func (s *Server) boundPV(ctx context.Context, ns string) string {
+	pvc, err := s.Clientset.CoreV1().PersistentVolumeClaims(ns).Get(ctx, reconciler.DataVolume, metav1.GetOptions{})
+	if err != nil {
+		return ""
+	}
+	return pvc.Spec.VolumeName
 }
 
 type powerRequest struct {

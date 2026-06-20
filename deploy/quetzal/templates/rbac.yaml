@@ -21,6 +21,11 @@ rules:
   - apiGroups: [""]
     resources: ["services", "persistentvolumeclaims", "secrets", "configmaps", "resourcequotas", "limitranges"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Cluster-scoped PVs: switch reclaim policy to Retain when a server is deleted
+  # with "keep data".
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "patch"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
