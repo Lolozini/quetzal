@@ -18,6 +18,7 @@ import (
 	"github.com/lolozini/quetzal/internal/api"
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/templates"
+	webui "github.com/lolozini/quetzal/web"
 )
 
 func main() {
@@ -48,9 +49,14 @@ func main() {
 	apiSrv := api.New(st, cs, cfg)
 	apiSrv.Secure = env("QUETZAL_SECURE_COOKIES", "") == "true"
 
+	// /api/* -> API; everything else -> embedded React SPA.
+	root := http.NewServeMux()
+	root.Handle("/api/", apiSrv.Handler())
+	root.Handle("/", webui.Handler())
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           apiSrv.Handler(),
+		Handler:           root,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

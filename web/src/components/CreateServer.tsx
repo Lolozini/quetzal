@@ -1,0 +1,211 @@
+import { FormEvent, useEffect, useState } from "react";
+import { api, ApiError, CreateServerRequest, Template } from "../api";
+
+export function CreateServer({
+  onDone,
+  onCancel,
+}: {
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [tplSlug, setTplSlug] = useState("");
+  const [name, setName] = useState("");
+  const [image, setImage] = useState("");
+  const [memory, setMemory] = useState("");
+  const [storageType, setStorageType] = useState("pvc");
+  const [size, setSize] = useState("10Gi");
+  const [hostPath, setHostPath] = useState("");
+  const [env, setEnv] = useState<Record<string, string>>({});
+  const [start, setStart] = useState(true);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function selectTemplate(t: Template) {
+    setTplSlug(t.slug);
+    const def = t.images.find((i) => i.default) || t.images[0];
+    setImage(def ? def.ref : "");
+    const e: Record<string, string> = {};
+    t.variables.forEach((v) => {
+      if (v.default) e[v.envVariable] = v.default;
+    });
+    setEnv(e);
+  }
+
+  useEffect(() => {
+    api
+      .templates()
+      .then((ts) => {
+        setTemplates(ts);
+        if (ts[0]) selectTemplate(ts[0]);
+      })
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  const tpl = templates.find((t) => t.slug === tplSlug);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const body: CreateServerRequest = {
+        name,
+        template: tplSlug,
+        image: image || undefined,
+        memory: memory || undefined,
+        start,
+        storage: {
+          type: storageType,
+          size: storageType === "pvc" ? size : undefined,
+          hostPath: storageType === "hostPath" ? hostPath : undefined,
+        },
+        env,
+      };
+      await api.createServer(body);
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const editable = tpl?.variables.filter((v) => v.editable) ?? [];
+
+  return (
+    <div className="card">
+      <div className="row">
+        <h2>New server</h2>
+        <div className="spacer" />
+        <button onClick={onCancel}>Cancel</button>
+      </div>
+      <form onSubmit={submit}>
+        <label>Template</label>
+        <select
+          value={tplSlug}
+          onChange={(e) => {
+            const t = templates.find((x) => x.slug === e.target.value);
+            if (t) selectTemplate(t);
+          }}
+        >
+          {templates.map((t) => (
+            <option key={t.slug} value={t.slug}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+        {tpl?.description && <p className="muted">{tpl.description}</p>}
+
+        <label>Name</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
+
+        <label>Image</label>
+        <select value={image} onChange={(e) => setImage(e.target.value)}>
+          {tpl?.images.map((i) => (
+            <option key={i.ref} value={i.ref}>
+              {i.displayName} ({i.ref})
+            </option>
+          ))}
+        </select>
+
+        <div className="grid2">
+          <div>
+            <label>Memory limit</label>
+            <input
+              value={memory}
+              placeholder="e.g. 4Gi (optional)"
+              onChange={(e) => setMemory(e.target.value)}
+            />
+          </div>
+          <div>
+            <label>Storage</label>
+            <select value={storageType} onChange={(e) => setStorageType(e.target.value)}>
+              <option value="pvc">PVC (storageClass)</option>
+              <option value="hostPath">hostPath</option>
+            </select>
+          </div>
+        </div>
+
+        {storageType === "pvc" ? (
+          <>
+            <label>Volume size</label>
+            <input value={size} onChange={(e) => setSize(e.target.value)} />
+          </>
+        ) : (
+          <>
+            <label>Host path</label>
+            <input
+              value={hostPath}
+              placeholder="/srv/games/..."
+              onChange={(e) => setHostPath(e.target.value)}
+            />
+          </>
+        )}
+
+        {editable.length > 0 && (
+          <>
+            <h3 style={{ marginTop: 16 }}>Variables</h3>
+            {editable.map((v) => (
+              <div key={v.envVariable}>
+                <label>
+                  {v.name}
+                  {v.required ? " *" : ""}
+                </label>
+                {v.type === "enum" && v.options ? (
+                  <select
+                    value={env[v.envVariable] ?? ""}
+                    onChange={(e) => setEnv({ ...env, [v.envVariable]: e.target.value })}
+                  >
+                    {v.options.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                ) : v.type === "bool" ? (
+                  <select
+                    value={env[v.envVariable] ?? "false"}
+                    onChange={(e) => setEnv({ ...env, [v.envVariable]: e.target.value })}
+                  >
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                ) : (
+                  <input
+                    value={env[v.envVariable] ?? ""}
+                    onChange={(e) => setEnv({ ...env, [v.envVariable]: e.target.value })}
+                  />
+                )}
+                {v.description && (
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    {v.description}
+                  </div>
+                )}
+              </div>
+            ))}
+          </>
+        )}
+
+        <label className="row" style={{ marginTop: 12 }}>
+          <input
+            type="checkbox"
+            style={{ width: "auto" }}
+            checked={start}
+            onChange={(e) => setStart(e.target.checked)}
+          />
+          &nbsp;Start immediately
+        </label>
+
+        {error && <div className="error">{error}</div>}
+        <button
+          className="primary"
+          style={{ marginTop: 16 }}
+          disabled={busy || !name || !tplSlug}
+        >
+          {busy ? "Creating…" : "Create server"}
+        </button>
+      </form>
+    </div>
+  );
+}
