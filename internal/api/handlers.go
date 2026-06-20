@@ -453,10 +453,11 @@ func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// Resolve the pod before upgrading so we can still return a JSON error.
-	pod, err := console.FindRunningPod(r.Context(), s.Clientset, srv.Namespace, srv.Slug)
-	if err != nil {
-		writeError(w, http.StatusConflict, err.Error())
+	// A console only makes sense for a running server; otherwise there is no
+	// (and will be no) pod to attach to. The stream itself tolerates a pod that
+	// is still starting or crash-looping.
+	if srv.DesiredState != models.StateRunning {
+		writeError(w, http.StatusConflict, "server is not running")
 		return
 	}
 	conn, err := s.upgrader.Upgrade(w, r, nil)
@@ -464,7 +465,7 @@ func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
 		return // Upgrade already wrote the response
 	}
 	defer conn.Close()
-	_ = console.Stream(r.Context(), conn, s.Clientset, s.RestConfig, srv.Namespace, pod)
+	_ = console.Stream(r.Context(), conn, s.Clientset, s.RestConfig, srv.Namespace, srv.Slug)
 }
 
 // ---- observability ----

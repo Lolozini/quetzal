@@ -1,6 +1,11 @@
 // Package console proxies a server's live console over a WebSocket: stdout via
 // the pod log stream, stdin via the Kubernetes attach subresource. No sidecar
 // and no RCON server are required — this is the generic, game-agnostic console.
+//
+// The stream is resilient: it waits for the container to actually be running
+// before attaching (a pod that is still Pending has no host and no container to
+// attach to) and re-attaches across restarts, so a freshly-created or
+// crash-looping server shows logs instead of a one-shot error.
 package console
 
 import (
@@ -27,6 +32,8 @@ const (
 	// dead; pingPeriod must be shorter so we ping in time.
 	pongWait   = 60 * time.Second
 	pingPeriod = (pongWait * 9) / 10
+	// pollInterval is how often we re-check for a running container while waiting.
+	pollInterval = 1500 * time.Millisecond
 )
 
 // Message is a console frame exchanged with the browser.
@@ -38,7 +45,8 @@ type Message struct {
 }
 
 // FindRunningPod returns the name of a running pod for the given server slug,
-// or an error if none is ready.
+// falling back to any non-terminating pod. Used by best-effort callers (graceful
+// stop, stats); the interactive console uses runningContainerPod instead.
 func FindRunningPod(ctx context.Context, cs kubernetes.Interface, ns, slug string) (string, error) {
 	pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
 		LabelSelector: reconciler.ServerLabel + "=" + slug,
@@ -65,9 +73,48 @@ func FindRunningPod(ctx context.Context, cs kubernetes.Interface, ns, slug strin
 	return "", fmt.Errorf("no pod found for server %q (is it running?)", slug)
 }
 
-// Stream wires a WebSocket to a pod's console until either side closes. It runs
-// log streaming (stdout) and an attach session (stdin) concurrently.
-func Stream(ctx context.Context, ws *websocket.Conn, cs kubernetes.Interface, cfg *rest.Config, ns, pod string) error {
+// runningContainerPod returns a pod whose main container is actually in the
+// Running state (so it can be attached to / have its logs streamed), or false.
+func runningContainerPod(ctx context.Context, cs kubernetes.Interface, ns, slug string) (string, bool) {
+	pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
+		LabelSelector: reconciler.ServerLabel + "=" + slug,
+	})
+	if err != nil {
+		return "", false
+	}
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		if p.DeletionTimestamp != nil {
+			continue
+		}
+		for _, cs := range p.Status.ContainerStatuses {
+			if cs.Name == reconciler.WorkloadName && cs.State.Running != nil {
+				return p.Name, true
+			}
+		}
+	}
+	return "", false
+}
+
+// waitForRunningPod blocks until the server's main container is running,
+// returning its pod name, or ctx.Err() if the context is cancelled first.
+func waitForRunningPod(ctx context.Context, cs kubernetes.Interface, ns, slug string) (string, error) {
+	for {
+		if pod, ok := runningContainerPod(ctx, cs, ns, slug); ok {
+			return pod, nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
+}
+
+// Stream wires a WebSocket to a server's console until the client disconnects.
+// It streams logs (stdout) and an attach session (stdin) concurrently, each in
+// a loop that waits for a running container and reconnects across restarts.
+func Stream(ctx context.Context, ws *websocket.Conn, cs kubernetes.Interface, cfg *rest.Config, ns, slug string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -92,22 +139,56 @@ func Stream(ctx context.Context, ws *websocket.Conn, cs kubernetes.Interface, cf
 		}
 	}()
 
-	// stdout: follow pod logs.
+	send(ctx, out, Message{Type: "status", Data: "connecting to " + slug + "…"})
+
+	// stdout: follow logs, reconnecting when the container (re)starts.
 	go func() {
-		if err := streamLogs(ctx, cs, ns, pod, out); err != nil && ctx.Err() == nil {
-			send(ctx, out, Message{Type: "error", Data: "log stream ended: " + err.Error()})
+		var last string
+		for ctx.Err() == nil {
+			pod, err := waitForRunningPod(ctx, cs, ns, slug)
+			if err != nil {
+				return
+			}
+			if pod != last {
+				send(ctx, out, Message{Type: "status", Data: "streaming logs from " + pod})
+				last = pod
+			}
+			if err := streamLogs(ctx, cs, ns, pod, out); err != nil && ctx.Err() == nil {
+				send(ctx, out, Message{Type: "status", Data: "log stream ended; waiting for the server…"})
+			}
+			sleep(ctx, time.Second)
 		}
 	}()
 
-	// stdin: attach to the container, fed by a pipe written from the WS reader.
+	// stdin: a long-lived pipe fed by the WS reader; a pump owns the write end so
+	// the reader never blocks, and the attach loop re-reads it across restarts.
+	stdin := make(chan string, 64)
 	pr, pw := io.Pipe()
 	go func() {
-		if err := attachStdin(ctx, cs, cfg, ns, pod, pr); err != nil && ctx.Err() == nil {
-			send(ctx, out, Message{Type: "error", Data: "stdin attach ended: " + err.Error()})
+		for {
+			select {
+			case <-ctx.Done():
+				_ = pw.Close()
+				return
+			case line := <-stdin:
+				if _, err := io.WriteString(pw, line+"\n"); err != nil {
+					return
+				}
+			}
 		}
 	}()
-
-	send(ctx, out, Message{Type: "status", Data: "connected to " + pod})
+	go func() {
+		for ctx.Err() == nil {
+			pod, err := waitForRunningPod(ctx, cs, ns, slug)
+			if err != nil {
+				return
+			}
+			// Errors here are usually transient (container restarting); the loop
+			// waits for the next running container and re-attaches.
+			_ = attachStdin(ctx, cs, cfg, ns, pod, pr)
+			sleep(ctx, time.Second)
+		}
+	}()
 
 	// Keepalive: drop dead/half-open connections instead of leaking goroutines.
 	ws.SetReadDeadline(time.Now().Add(pongWait))
@@ -132,7 +213,8 @@ func Stream(ctx context.Context, ws *websocket.Conn, cs kubernetes.Interface, cf
 		}
 	}()
 
-	// Reader loop: WS -> pod stdin.
+	// Reader loop: WS -> pod stdin (non-blocking; drop if the pump is backed up
+	// because no container is currently attachable).
 	for {
 		_, data, err := ws.ReadMessage()
 		if err != nil {
@@ -144,13 +226,13 @@ func Stream(ctx context.Context, ws *websocket.Conn, cs kubernetes.Interface, cf
 			continue
 		}
 		if m.Type == "stdin" {
-			if _, err := io.WriteString(pw, m.Data+"\n"); err != nil {
-				break
+			select {
+			case stdin <- m.Data:
+			default:
 			}
 		}
 	}
 	cancel()
-	_ = pw.Close()
 	<-writerDone
 	return nil
 }
@@ -212,5 +294,13 @@ func send(ctx context.Context, out chan<- Message, m Message) {
 	select {
 	case out <- m:
 	case <-ctx.Done():
+	}
+}
+
+// sleep waits for d or until ctx is cancelled.
+func sleep(ctx context.Context, d time.Duration) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(d):
 	}
 }

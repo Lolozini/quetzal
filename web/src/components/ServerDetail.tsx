@@ -14,6 +14,7 @@ export function ServerDetail({ id, onBack }: { id: number; onBack: () => void })
   const [stats, setStats] = useState<ServerStats | null>(null);
   const [statsMsg, setStatsMsg] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
 
   useEffect(() => {
@@ -55,12 +56,22 @@ export function ServerDetail({ id, onBack }: { id: number; onBack: () => void })
     }
   }
 
+  const powerNotice: Record<PowerAction, string> = {
+    start: "Start requested — the server is spinning up.",
+    stop: "Stop requested — the server is shutting down gracefully.",
+    restart: "Restart requested — the pod is being recreated; it will come back shortly.",
+    kill: "Kill requested — forcing the pod to stop immediately.",
+  };
+
   async function power(action: PowerAction) {
     setBusy(action);
     setError("");
+    setNotice("");
     try {
       await api.power(id, action);
       setSrv(await api.server(id));
+      setNotice(powerNotice[action]);
+      window.setTimeout(() => setNotice(""), 6000);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -161,18 +172,19 @@ export function ServerDetail({ id, onBack }: { id: number; onBack: () => void })
         )}
         <div className="row" style={{ marginTop: 12 }}>
           <button className="primary" disabled={busy !== ""} onClick={() => power("start")}>
-            Start
+            {busy === "start" ? "Starting…" : "Start"}
           </button>
           <button disabled={busy !== ""} onClick={() => power("stop")}>
-            Stop
+            {busy === "stop" ? "Stopping…" : "Stop"}
           </button>
           <button disabled={busy !== ""} onClick={() => power("restart")}>
-            Restart
+            {busy === "restart" ? "Restarting…" : "Restart"}
           </button>
           <button className="danger" disabled={busy !== ""} onClick={() => power("kill")}>
-            Kill
+            {busy === "kill" ? "Killing…" : "Kill"}
           </button>
         </div>
+        {notice && <div className="notice">{notice}</div>}
         {error && <div className="error">{error}</div>}
       </div>
       <div className="card">

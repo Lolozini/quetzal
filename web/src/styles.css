@@ -67,6 +67,10 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .spacer { flex: 1; }
 
 .error { color: var(--danger); margin: 8px 0; }
+.notice {
+  margin: 8px 0; padding: 8px 12px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--accent-2); color: var(--accent);
+}
 
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }

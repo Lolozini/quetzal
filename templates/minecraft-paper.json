@@ -5,7 +5,8 @@
   "category": "minecraft",
   "description": "Paper Minecraft Java Edition server using the itzg/minecraft-server image (entrypoint-driven; configured via env).",
   "images": [
-    { "displayName": "itzg latest (Java 21)", "ref": "itzg/minecraft-server:java21-jdk", "default": true }
+    { "displayName": "Java 25 (current Minecraft)", "ref": "itzg/minecraft-server:java25-jdk", "default": true },
+    { "displayName": "Java 21 (Minecraft ≤ 25.x)", "ref": "itzg/minecraft-server:java21-jdk" }
   ],
   "variables": [
     { "name": "Memory", "description": "JVM heap size, e.g. 4G.", "envVariable": "MEMORY", "type": "string", "default": "4G", "viewable": true, "editable": true },
