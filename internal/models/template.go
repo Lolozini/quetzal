@@ -101,6 +101,9 @@ type TemplateVariable struct {
 	Options  []string `json:"options,omitempty"` // for enum
 	Viewable bool     `json:"viewable"`
 	Editable bool     `json:"editable"`
+	// Secret marks the value as sensitive: it is stored encrypted, materialized
+	// into a Kubernetes Secret, and never returned by the API.
+	Secret bool `json:"secret,omitempty"`
 }
 
 // ConfigFileParser enumerates the supported file parsers (egg config.files).

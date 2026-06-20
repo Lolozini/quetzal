@@ -198,6 +198,29 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		env[k] = v
 	}
 
+	// Split sensitive values out of the clear-text env: they are encrypted and
+	// materialized into a Kubernetes Secret by the controller.
+	secretNames := map[string]bool{}
+	for _, v := range tmpl.Variables {
+		if v.Secret {
+			secretNames[v.EnvVariable] = true
+		}
+	}
+	plainEnv := map[string]string{}
+	secretEnv := map[string]string{}
+	for k, v := range env {
+		if secretNames[k] {
+			secretEnv[k] = v
+		} else {
+			plainEnv[k] = v
+		}
+	}
+	sealed, err := s.Store.SealSecrets(secretEnv)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to seal secrets")
+		return
+	}
+
 	storage := req.Storage
 	if storage.Type == "" {
 		storage.Type = models.StoragePVC
@@ -225,7 +248,8 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		Namespace:       reconciler.NamespaceFor(slug),
 		DesiredState:    state,
 		Resources:       models.Resources{Memory: req.Memory, CPU: req.CPU},
-		Env:             env,
+		Env:             plainEnv,
+		SecretEnvEnc:    sealed,
 		Storage:         storage,
 		Ports:           tmpl.Ports,
 		Status:          models.Status{Phase: models.PhaseStopped},

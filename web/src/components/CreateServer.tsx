@@ -173,6 +173,8 @@ export function CreateServer({
                   </select>
                 ) : (
                   <input
+                    type={v.secret ? "password" : "text"}
+                    autoComplete={v.secret ? "new-password" : "off"}
                     value={env[v.envVariable] ?? ""}
                     onChange={(e) => setEnv({ ...env, [v.envVariable]: e.target.value })}
                   />

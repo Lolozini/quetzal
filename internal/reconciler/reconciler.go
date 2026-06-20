@@ -56,6 +56,22 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 			return fmt.Errorf("pvc: %w", err)
 		}
 	}
+
+	// Materialize sensitive env into a per-server Secret (referenced by the
+	// Deployment via secretKeyRef). Values are decrypted from the DB here.
+	secretEnv, err := r.Store.OpenSecrets(srv.SecretEnvEnc)
+	if err != nil {
+		return fmt.Errorf("secrets: %w", err)
+	}
+	if sec := BuildSecret(srv, secretEnv); sec != nil {
+		if err := r.ensureSecret(ctx, sec); err != nil {
+			return fmt.Errorf("secret: %w", err)
+		}
+	}
+	secretKeys := make([]string, 0, len(secretEnv))
+	for k := range secretEnv {
+		secretKeys = append(secretKeys, k)
+	}
 	// Graceful stop: when transitioning a currently-running server to a
 	// non-running state and the template defines a stop command, deliver it
 	// before scaling to zero (SIGTERM + termination grace period follow).
@@ -67,7 +83,7 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 		}
 	}
 
-	if err := r.ensureDeployment(ctx, srv, tmpl); err != nil {
+	if err := r.ensureDeployment(ctx, srv, tmpl, secretKeys); err != nil {
 		return fmt.Errorf("deployment: %w", err)
 	}
 	// A Service requires at least one port; skip it for portless servers.
@@ -135,12 +151,24 @@ func (r *Reconciler) ensurePVC(ctx context.Context, want *corev1.PersistentVolum
 	return err
 }
 
-func (r *Reconciler) ensureDeployment(ctx context.Context, s *models.Server, t *models.Template) error {
-	want := BuildDeployment(s, t)
+func (r *Reconciler) ensureDeployment(ctx context.Context, s *models.Server, t *models.Template, secretKeys []string) error {
+	want := BuildDeployment(s, t, secretKeys)
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: want.Name, Namespace: want.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, dep, func() error {
 		dep.Labels = mergeLabels(dep.Labels, want.Labels)
 		dep.Spec = want.Spec
+		return nil
+	})
+	return err
+}
+
+func (r *Reconciler) ensureSecret(ctx context.Context, want *corev1.Secret) error {
+	sec := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: want.Name, Namespace: want.Namespace}}
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, sec, func() error {
+		sec.Labels = mergeLabels(sec.Labels, want.Labels)
+		// Fully replace contents so removed keys don't linger.
+		sec.Data = nil
+		sec.StringData = want.StringData
 		return nil
 	})
 	return err

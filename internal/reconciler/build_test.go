@@ -30,7 +30,7 @@ func testServerAndTemplate() (*models.Server, *models.Template) {
 
 func TestBuildDeployment(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
-	dep := BuildDeployment(s, tmpl)
+	dep := BuildDeployment(s, tmpl, nil)
 
 	if dep.Spec.Replicas == nil || *dep.Spec.Replicas != 1 {
 		t.Fatalf("replicas = %v, want 1", dep.Spec.Replicas)
@@ -109,6 +109,45 @@ func TestBuildNetworkPolicyBlocksMetadata(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("egress should exclude node metadata IP %s", metadataIP)
+	}
+}
+
+func TestBuildDeploymentSecretEnv(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	s.Env = map[string]string{"PUBLIC": "ok"}
+	dep := BuildDeployment(s, tmpl, []string{"RCON_PASSWORD"})
+	c := dep.Spec.Template.Spec.Containers[0]
+
+	var public, secret *struct{}
+	for _, e := range c.Env {
+		switch e.Name {
+		case "PUBLIC":
+			if e.Value != "ok" || e.ValueFrom != nil {
+				t.Errorf("PUBLIC should be a plain value, got %+v", e)
+			}
+			public = &struct{}{}
+		case "RCON_PASSWORD":
+			if e.Value != "" || e.ValueFrom == nil || e.ValueFrom.SecretKeyRef == nil {
+				t.Errorf("RCON_PASSWORD should use secretKeyRef, got %+v", e)
+			} else if e.ValueFrom.SecretKeyRef.Name != "server-env" {
+				t.Errorf("secret name = %q, want server-env", e.ValueFrom.SecretKeyRef.Name)
+			}
+			secret = &struct{}{}
+		}
+	}
+	if public == nil || secret == nil {
+		t.Fatalf("missing env entries: %+v", c.Env)
+	}
+}
+
+func TestBuildSecret(t *testing.T) {
+	s, _ := testServerAndTemplate()
+	if BuildSecret(s, nil) != nil {
+		t.Error("no data -> nil secret")
+	}
+	sec := BuildSecret(s, map[string]string{"RCON_PASSWORD": "x"})
+	if sec == nil || sec.Name != "server-env" || sec.StringData["RCON_PASSWORD"] != "x" {
+		t.Errorf("unexpected secret: %+v", sec)
 	}
 }
 

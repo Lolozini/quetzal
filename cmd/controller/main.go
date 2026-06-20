@@ -21,6 +21,7 @@ import (
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/lolozini/quetzal/internal/console"
+	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/metrics"
 	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/store"
@@ -35,7 +36,12 @@ func main() {
 	leaderEnabled := env("QUETZAL_LEADER_ELECTION", "false") == "true"
 	namespace := env("POD_NAMESPACE", "quetzal-system")
 
-	st, err := store.Open(store.Config{Driver: dbDriver, DSN: dbDSN, Silent: true})
+	st, err := store.Open(store.Config{
+		Driver:    dbDriver,
+		DSN:       dbDSN,
+		Silent:    true,
+		SecretKey: crypto.KeyFromEnv("QUETZAL_SECRET_KEY"),
+	})
 	if err != nil {
 		log.Fatalf("open store: %v", err)
 	}

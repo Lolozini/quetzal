@@ -21,11 +21,12 @@ const (
 	// ServerLabel marks objects belonging to a given server (value = slug).
 	ServerLabel = "quetzal.dev/server"
 	// WorkloadName is the Deployment/Service name within a server's namespace.
-	WorkloadName = "server"
-	serverLabel  = ServerLabel
-	workloadName = WorkloadName
-	dataVolume   = "data" // PVC / volume name
-	metadataIP   = "169.254.169.254/32"
+	WorkloadName  = "server"
+	serverLabel   = ServerLabel
+	workloadName  = WorkloadName
+	dataVolume    = "data"       // PVC / volume name
+	envSecretName = "server-env" // per-server Secret holding sensitive env
+	metadataIP    = "169.254.169.254/32"
 )
 
 // labelsFor returns the standard labels for a server's objects.
@@ -77,8 +78,25 @@ func BuildPVC(s *models.Server) *corev1.PersistentVolumeClaim {
 	return pvc
 }
 
-// BuildDeployment projects a server (+ template) into a Deployment.
-func BuildDeployment(s *models.Server, t *models.Template) *appsv1.Deployment {
+// BuildSecret returns the per-server Secret holding sensitive env values, or
+// nil when there are none.
+func BuildSecret(s *models.Server, data map[string]string) *corev1.Secret {
+	if len(data) == 0 {
+		return nil
+	}
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      envSecretName,
+			Namespace: s.Namespace,
+			Labels:    labelsFor(s),
+		},
+		StringData: data,
+	}
+}
+
+// BuildDeployment projects a server (+ template) into a Deployment. secretKeys
+// lists env var names sourced from the per-server Secret (via secretKeyRef).
+func BuildDeployment(s *models.Server, t *models.Template, secretKeys []string) *appsv1.Deployment {
 	labels := labelsFor(s)
 	replicas := s.Replicas()
 
@@ -99,7 +117,7 @@ func BuildDeployment(s *models.Server, t *models.Template) *appsv1.Deployment {
 		// stdin must stay open so the console can attach to send commands.
 		Stdin:     true,
 		TTY:       false,
-		Env:       buildEnv(s.Env),
+		Env:       buildEnv(s.Env, secretKeys),
 		Ports:     buildContainerPorts(serverPorts(s, t)),
 		Resources: buildResources(s.Resources),
 		VolumeMounts: []corev1.VolumeMount{
@@ -235,15 +253,36 @@ func serverPorts(s *models.Server, t *models.Template) []models.PortSpec {
 	return t.Ports
 }
 
-func buildEnv(env map[string]string) []corev1.EnvVar {
+func buildEnv(env map[string]string, secretKeys []string) []corev1.EnvVar {
+	secretSet := make(map[string]bool, len(secretKeys))
+	for _, k := range secretKeys {
+		secretSet[k] = true
+	}
+
 	keys := make([]string, 0, len(env))
 	for k := range env {
-		keys = append(keys, k)
+		if !secretSet[k] {
+			keys = append(keys, k)
+		}
 	}
 	sort.Strings(keys) // deterministic ordering
-	out := make([]corev1.EnvVar, 0, len(keys))
+	out := make([]corev1.EnvVar, 0, len(keys)+len(secretKeys))
 	for _, k := range keys {
 		out = append(out, corev1.EnvVar{Name: k, Value: env[k]})
+	}
+
+	sk := append([]string(nil), secretKeys...)
+	sort.Strings(sk)
+	for _, k := range sk {
+		out = append(out, corev1.EnvVar{
+			Name: k,
+			ValueFrom: &corev1.EnvVarSource{
+				SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: envSecretName},
+					Key:                  k,
+				},
+			},
+		})
 	}
 	return out
 }

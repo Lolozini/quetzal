@@ -16,6 +16,7 @@ export interface TemplateVariable {
   required?: boolean;
   options?: string[];
   editable: boolean;
+  secret?: boolean;
 }
 
 export interface TemplateImage {

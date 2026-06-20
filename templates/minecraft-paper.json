@@ -10,7 +10,8 @@
   "variables": [
     { "name": "Memory", "description": "JVM heap size, e.g. 4G.", "envVariable": "MEMORY", "type": "string", "default": "4G", "viewable": true, "editable": true },
     { "name": "Server Type", "description": "itzg server flavour.", "envVariable": "TYPE", "type": "string", "default": "PAPER", "viewable": true, "editable": false },
-    { "name": "Accept EULA", "description": "Accept the Minecraft EULA.", "envVariable": "EULA", "type": "bool", "default": "true", "required": true, "viewable": true, "editable": true }
+    { "name": "Accept EULA", "description": "Accept the Minecraft EULA.", "envVariable": "EULA", "type": "bool", "default": "true", "required": true, "viewable": true, "editable": true },
+    { "name": "RCON Password", "description": "Password for RCON (stored encrypted, kept in a Kubernetes Secret).", "envVariable": "RCON_PASSWORD", "type": "string", "secret": true, "viewable": true, "editable": true }
   ],
   "startup": "",
   "doneRegex": "Done (",

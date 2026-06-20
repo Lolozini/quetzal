@@ -78,8 +78,11 @@ type Server struct {
 
 	DesiredState DesiredState `gorm:"default:Stopped" json:"desiredState"`
 
-	Resources    Resources         `gorm:"serializer:json" json:"resources"`
-	Env          map[string]string `gorm:"serializer:json" json:"env"`
+	Resources Resources         `gorm:"serializer:json" json:"resources"`
+	Env       map[string]string `gorm:"serializer:json" json:"env"`
+	// SecretEnvEnc holds sensitive env values, encrypted at rest (never clear
+	// text in the DB, never serialized to API clients).
+	SecretEnvEnc string            `json:"-"`
 	Storage      Storage           `gorm:"serializer:json" json:"storage"`
 	Ports        []PortSpec        `gorm:"serializer:json" json:"ports,omitempty"`
 	NodeSelector map[string]string `gorm:"serializer:json" json:"nodeSelector,omitempty"`

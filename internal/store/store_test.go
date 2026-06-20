@@ -2,6 +2,7 @@ package store
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lolozini/quetzal/internal/models"
@@ -10,7 +11,12 @@ import (
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
 	dsn := filepath.Join(t.TempDir(), "test.db")
-	s, err := Open(Config{Driver: DriverSQLite, DSN: dsn, Silent: true})
+	s, err := Open(Config{
+		Driver:    DriverSQLite,
+		DSN:       dsn,
+		Silent:    true,
+		SecretKey: []byte("0123456789abcdef0123456789abcdef"),
+	})
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -18,6 +24,29 @@ func newTestStore(t *testing.T) *Store {
 		t.Fatalf("migrate: %v", err)
 	}
 	return s
+}
+
+func TestSealOpenSecrets(t *testing.T) {
+	s := newTestStore(t)
+	m := map[string]string{"RCON_PASSWORD": "hunter2"}
+	blob, err := s.SealSecrets(m)
+	if err != nil {
+		t.Fatalf("seal: %v", err)
+	}
+	if blob == "" || strings.Contains(blob, "hunter2") {
+		t.Fatalf("sealed blob is empty or leaks plaintext: %q", blob)
+	}
+	got, err := s.OpenSecrets(blob)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if got["RCON_PASSWORD"] != "hunter2" {
+		t.Errorf("round-trip mismatch: %+v", got)
+	}
+	// Empty map -> empty blob.
+	if b, _ := s.SealSecrets(nil); b != "" {
+		t.Errorf("empty map should seal to empty string, got %q", b)
+	}
 }
 
 func TestServerCRUDAndStatusSerializer(t *testing.T) {

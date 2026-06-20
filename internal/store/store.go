@@ -3,14 +3,19 @@
 package store
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"strings"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/models"
 )
 
@@ -32,11 +37,15 @@ type Config struct {
 	// "quetzal.db"); for postgres a libpq/gorm connection string.
 	DSN    string
 	Silent bool
+	// SecretKey (32 bytes) encrypts sensitive server values at rest. When empty,
+	// such values are stored obfuscated-but-unencrypted (dev only) with a warning.
+	SecretKey []byte
 }
 
 // Store wraps the database handle and exposes typed operations.
 type Store struct {
-	db *gorm.DB
+	db  *gorm.DB
+	key []byte
 }
 
 // Open opens (and pings) the database for the given config.
@@ -64,7 +73,62 @@ func Open(cfg Config) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
-	return &Store{db: db}, nil
+	if len(cfg.SecretKey) == 0 {
+		log.Printf("warning: QUETZAL_SECRET_KEY not set; server secrets will NOT be encrypted at rest")
+	}
+	return &Store{db: db, key: cfg.SecretKey}, nil
+}
+
+const (
+	secretPrefixEnc   = "enc:"
+	secretPrefixPlain = "plain:"
+)
+
+// SealSecrets serializes and (when a key is configured) encrypts a secret env
+// map for storage. Returns "" for an empty map.
+func (s *Store) SealSecrets(m map[string]string) (string, error) {
+	if len(m) == 0 {
+		return "", nil
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return "", err
+	}
+	if len(s.key) == 0 {
+		return secretPrefixPlain + base64.StdEncoding.EncodeToString(b), nil
+	}
+	ct, err := crypto.Seal(s.key, b)
+	if err != nil {
+		return "", err
+	}
+	return secretPrefixEnc + ct, nil
+}
+
+// OpenSecrets reverses SealSecrets.
+func (s *Store) OpenSecrets(blob string) (map[string]string, error) {
+	m := map[string]string{}
+	if blob == "" {
+		return m, nil
+	}
+	switch {
+	case strings.HasPrefix(blob, secretPrefixEnc):
+		if len(s.key) == 0 {
+			return nil, errors.New("encrypted secrets present but no key configured")
+		}
+		pt, err := crypto.Open(s.key, strings.TrimPrefix(blob, secretPrefixEnc))
+		if err != nil {
+			return nil, err
+		}
+		return m, json.Unmarshal(pt, &m)
+	case strings.HasPrefix(blob, secretPrefixPlain):
+		b, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(blob, secretPrefixPlain))
+		if err != nil {
+			return nil, err
+		}
+		return m, json.Unmarshal(b, &m)
+	default:
+		return m, json.Unmarshal([]byte(blob), &m)
+	}
 }
 
 // Migrate creates/updates the schema.

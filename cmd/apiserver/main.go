@@ -16,6 +16,7 @@ import (
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/lolozini/quetzal/internal/api"
+	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/metrics"
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/templates"
@@ -27,7 +28,12 @@ func main() {
 	dbDriver := store.Driver(env("QUETZAL_DB_DRIVER", "sqlite"))
 	dbDSN := env("QUETZAL_DB_DSN", "quetzal.db")
 
-	st, err := store.Open(store.Config{Driver: dbDriver, DSN: dbDSN, Silent: true})
+	st, err := store.Open(store.Config{
+		Driver:    dbDriver,
+		DSN:       dbDSN,
+		Silent:    true,
+		SecretKey: crypto.KeyFromEnv("QUETZAL_SECRET_KEY"),
+	})
 	if err != nil {
 		log.Fatalf("open store: %v", err)
 	}

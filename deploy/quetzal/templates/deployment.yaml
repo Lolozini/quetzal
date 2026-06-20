@@ -128,4 +128,9 @@ spec:
   valueFrom:
     fieldRef:
       fieldPath: metadata.name
+- name: QUETZAL_SECRET_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "quetzal.fullname" . }}-secretkey
+      key: secret-key
 {{- end -}}
