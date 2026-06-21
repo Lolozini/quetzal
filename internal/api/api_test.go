@@ -22,6 +22,14 @@ import (
 )
 
 func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
+	ts, c, _ := newTestServerStore(t)
+	return ts, c
+}
+
+// newTestServerStore is like newTestServer but also returns the backing store,
+// for tests that need to seed rows that aren't reachable through the API alone
+// (e.g. a succeeded backup, which normally requires the controller + a cluster).
+func newTestServerStore(t *testing.T) (*httptest.Server, *http.Client, *store.Store) {
 	t.Helper()
 	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "api.db"), Silent: true})
 	if err != nil {
@@ -37,7 +45,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	jar, _ := cookiejar.New(nil)
-	return ts, &http.Client{Jar: jar}
+	return ts, &http.Client{Jar: jar}, st
 }
 
 func post(t *testing.T, c *http.Client, url string, body any) *http.Response {

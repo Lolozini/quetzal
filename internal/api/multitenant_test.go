@@ -6,6 +6,8 @@ import (
 	"net/http/cookiejar"
 	"strings"
 	"testing"
+
+	"github.com/lolozini/quetzal/internal/models"
 )
 
 // loginAs returns a cookie-jar client authenticated as the given user.
@@ -119,6 +121,35 @@ func TestSuspendBlocksPower(t *testing.T) {
 	}
 	if rr := post(t, alice, url+"/power", map[string]string{"action": "stop"}); rr.StatusCode != http.StatusOK {
 		t.Errorf("power after unsuspend = %d, want 200", rr.StatusCode)
+	}
+}
+
+func TestRestoreRequiresStoppedServer(t *testing.T) {
+	srv, admin, st := newTestServerStore(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+
+	var created struct{ ID uint }
+	r := post(t, admin, srv.URL+"/api/servers", map[string]any{"name": "s", "template": "generic-process", "start": true})
+	json.NewDecoder(r.Body).Decode(&created)
+	url := srv.URL + "/api/servers/" + itoa(created.ID)
+
+	// Seed a succeeded backup to restore from (the manager isn't running here).
+	b := &models.Backup{ServerID: created.ID, Direction: models.DirBackup, Phase: models.BackupSucceeded}
+	if err := st.CreateBackup(b); err != nil {
+		t.Fatalf("seed backup: %v", err)
+	}
+	restoreURL := url + "/backups/" + itoa(b.ID) + "/restore"
+
+	// Running server: a live restore would corrupt the volume -> 409.
+	if rr := post(t, admin, restoreURL, nil); rr.StatusCode != http.StatusConflict {
+		t.Errorf("restore while running = %d, want 409", rr.StatusCode)
+	}
+	// Stop it, then restore is accepted.
+	if rr := post(t, admin, url+"/power", map[string]string{"action": "stop"}); rr.StatusCode != http.StatusOK {
+		t.Fatalf("stop = %d", rr.StatusCode)
+	}
+	if rr := post(t, admin, restoreURL, nil); rr.StatusCode != http.StatusAccepted {
+		t.Errorf("restore while stopped = %d, want 202", rr.StatusCode)
 	}
 }
 

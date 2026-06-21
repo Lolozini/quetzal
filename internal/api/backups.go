@@ -136,6 +136,19 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "can only restore from a succeeded backup")
 		return
 	}
+	// A restore overwrites the data volume in place. If the server is running, its
+	// pod and the restore Job would mount the same volume read-write at the same
+	// time (RWO allows this on a single node) and corrupt the data. Require a
+	// stopped server first, mirroring Pterodactyl/Pelican.
+	srv, err := s.Store.GetServer(src.ServerID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if srv.DesiredState == models.StateRunning {
+		writeError(w, http.StatusConflict, "stop the server before restoring (a live restore would corrupt the data volume)")
+		return
+	}
 	b := &models.Backup{
 		ServerID:  src.ServerID,
 		Direction: models.DirRestore,

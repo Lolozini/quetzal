@@ -38,7 +38,7 @@ export function Backups({ id }: { id: number }) {
   }
 
   async function restore(b: Backup) {
-    if (!window.confirm("Restore this backup into the server's volume? Current data will be overwritten by the snapshot.")) return;
+    if (!window.confirm("Restore this backup into the server's volume? Current data will be overwritten by the snapshot.\n\nThe server must be stopped first (a live restore would corrupt the data).")) return;
     setError("");
     try {
       await api.restoreBackup(id, b.id);
