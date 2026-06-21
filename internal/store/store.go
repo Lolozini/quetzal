@@ -257,6 +257,30 @@ func (s *Store) SetDesiredState(id uint, state models.DesiredState) error {
 		Update("desired_state", string(state)).Error
 }
 
+// SetHibernated flips the system hibernation flag (scale-to-zero on idle).
+func (s *Store) SetHibernated(id uint, hibernated bool) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Update("hibernated", hibernated).Error
+}
+
+// UpdateLastActive records the last time a server saw activity.
+func (s *Store) UpdateLastActive(id uint, when time.Time) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Update("last_active_at", when).Error
+}
+
+// Wake clears hibernation and resets the idle timer (manual wake / start).
+func (s *Store) Wake(id uint, when time.Time) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Updates(map[string]any{"hibernated": false, "last_active_at": when}).Error
+}
+
+// UpdateServerHibernation persists a server's hibernation policy.
+func (s *Store) UpdateServerHibernation(id uint, h models.Hibernation) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Select("hibernation").Updates(models.Server{Hibernation: h}).Error
+}
+
 // UpdateServerStatus persists only the status field. It uses Updates with a
 // typed struct (not Update with a raw value) so GORM applies the JSON
 // serializer registered on the Status field.

@@ -135,6 +135,7 @@ func BuildDeployment(s *models.Server, t *models.Template, secretKeys []string) 
 
 	pod := corev1.PodSpec{
 		Containers:                    []corev1.Container{container},
+		InitContainers:                installInitContainers(t),
 		SecurityContext:               buildPodSecurityContext(t),
 		Volumes:                       []corev1.Volume{buildDataVolume(s)},
 		NodeSelector:                  s.NodeSelector,
@@ -393,6 +394,36 @@ func buildContainerSecurityContext(t *models.Template) *corev1.SecurityContext {
 		AllowPrivilegeEscalation: &no,
 		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 	}
+}
+
+// installMountPath is where the data volume is mounted during install, matching
+// the Pterodactyl egg convention so imported install scripts work unchanged.
+const installMountPath = "/mnt/server"
+
+// installInitContainers runs a template's install script once (egg
+// scripts.installation), populating the data volume before the main container
+// starts. A marker file makes it a no-op on every subsequent start.
+func installInitContainers(t *models.Template) []corev1.Container {
+	if t.Install == nil || t.Install.Script == "" {
+		return nil
+	}
+	image := t.Install.Image
+	if image == "" {
+		image = "alpine:3.20"
+	}
+	entrypoint := t.Install.Entrypoint
+	if entrypoint == "" {
+		entrypoint = "sh"
+	}
+	script := fmt.Sprintf("if [ -f %[1]s/.quetzal-installed ]; then exit 0; fi\n%[2]s\ntouch %[1]s/.quetzal-installed\n",
+		installMountPath, t.Install.Script)
+	return []corev1.Container{{
+		Name:            "install",
+		Image:           image,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Command:         []string{entrypoint, "-c", script},
+		VolumeMounts:    []corev1.VolumeMount{{Name: dataVolume, MountPath: installMountPath}},
+	}}
 }
 
 var startupVarRe = regexp.MustCompile(`{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}`)

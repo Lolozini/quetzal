@@ -211,11 +211,13 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 	eps, addr := r.endpointsFor(ctx, s, t)
 	st := models.Status{Endpoints: eps, Address: addr}
 
-	switch s.DesiredState {
-	case models.StateSuspended:
+	switch {
+	case s.DesiredState == models.StateSuspended:
 		st.Phase = models.PhaseSuspended
-	case models.StateStopped:
+	case s.DesiredState == models.StateStopped:
 		st.Phase = models.PhaseStopped
+	case s.Hibernated:
+		st.Phase = models.PhaseHibernated
 	default: // Running
 		restarts, crashloop, msg := r.inspectPods(ctx, s.Namespace, s.Slug)
 		st.CrashCount = restarts

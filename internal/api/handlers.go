@@ -165,15 +165,16 @@ func (s *Server) handleGetServer(w http.ResponseWriter, r *http.Request) {
 }
 
 type createServerRequest struct {
-	Name     string            `json:"name"`
-	Template string            `json:"template"`
-	Image    string            `json:"image"`
-	Memory   string            `json:"memory"`
-	CPU      string            `json:"cpu"`
-	Storage  models.Storage    `json:"storage"`
-	Env      map[string]string `json:"env"`
-	Expose   models.Expose     `json:"expose"`
-	Start    bool              `json:"start"`
+	Name        string             `json:"name"`
+	Template    string             `json:"template"`
+	Image       string             `json:"image"`
+	Memory      string             `json:"memory"`
+	CPU         string             `json:"cpu"`
+	Storage     models.Storage     `json:"storage"`
+	Env         map[string]string  `json:"env"`
+	Expose      models.Expose      `json:"expose"`
+	Hibernation models.Hibernation `json:"hibernation"`
+	Start       bool               `json:"start"`
 }
 
 func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
@@ -287,6 +288,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		Storage:         storage,
 		Ports:           tmpl.Ports,
 		Expose:          req.Expose,
+		Hibernation:     req.Hibernation,
 		Status:          models.Status{Phase: models.PhaseStopped},
 	}
 	if err := s.Store.CreateServer(srv); err != nil {
@@ -362,6 +364,8 @@ type updateServerRequest struct {
 	// Expose, when present, reconfigures external reachability (and reallocates
 	// or frees pool node ports accordingly).
 	Expose *models.Expose `json:"expose"`
+	// Hibernation, when present, updates the idle scale-to-zero policy.
+	Hibernation *models.Hibernation `json:"hibernation"`
 }
 
 func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
@@ -374,8 +378,16 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
+	if req.Hibernation != nil {
+		if err := s.Store.UpdateServerHibernation(srv.ID, *req.Hibernation); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		srv.Hibernation = *req.Hibernation
+		s.audit(r, srv.ID, "server.hibernation", strconv.FormatBool(req.Hibernation.Enabled))
+	}
 	if req.Expose == nil {
-		writeJSON(w, http.StatusOK, srv) // nothing to change
+		writeJSON(w, http.StatusOK, srv) // nothing else to change
 		return
 	}
 	expose := *req.Expose
@@ -532,6 +544,8 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		// Starting also wakes a hibernated server and resets its idle timer.
+		_ = s.Store.Wake(srv.ID, time.Now())
 	case "stop":
 		if err := s.Store.SetDesiredState(srv.ID, models.StateStopped); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())

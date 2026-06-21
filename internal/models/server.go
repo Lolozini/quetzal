@@ -22,8 +22,17 @@ const (
 	PhaseStopped    Phase = "Stopped"
 	PhaseCrashed    Phase = "Crashed"
 	PhaseSuspended  Phase = "Suspended"
+	PhaseHibernated Phase = "Hibernated"
 	PhaseError      Phase = "Error"
 )
+
+// Hibernation configures automatic scale-to-zero of an idle server (no active
+// player connections). Waking is manual (start); wake-on-connect is a future
+// shared-proxy enhancement.
+type Hibernation struct {
+	Enabled     bool `json:"enabled"`
+	IdleMinutes int  `json:"idleMinutes"` // 0 falls back to a default
+}
 
 // ExposeType selects how a server's ports are made reachable. It maps directly
 // to a Kubernetes Service type and is game-agnostic.
@@ -141,12 +150,19 @@ type Server struct {
 	Expose       Expose            `gorm:"serializer:json" json:"expose"`
 	NodeSelector map[string]string `gorm:"serializer:json" json:"nodeSelector,omitempty"`
 
+	// Hibernation policy and system-managed state.
+	Hibernation Hibernation `gorm:"serializer:json" json:"hibernation"`
+	// Hibernated is set by the controller when an idle server is scaled to zero.
+	Hibernated   bool       `json:"hibernated"`
+	LastActiveAt *time.Time `json:"lastActiveAt,omitempty"`
+
 	Status Status `gorm:"serializer:json" json:"status"`
 }
 
-// Replicas returns the desired pod replica count for the current power state.
+// Replicas returns the desired pod replica count. A server runs only when the
+// user wants it Running and it isn't hibernated (scaled to zero on idle).
 func (s *Server) Replicas() int32 {
-	if s.DesiredState == StateRunning {
+	if s.DesiredState == StateRunning && !s.Hibernated {
 		return 1
 	}
 	return 0

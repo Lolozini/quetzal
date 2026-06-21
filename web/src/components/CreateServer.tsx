@@ -17,6 +17,8 @@ export function CreateServer({
   const [size, setSize] = useState("10Gi");
   const [hostPath, setHostPath] = useState("");
   const [expose, setExpose] = useState<ExposeType>("ClusterIP");
+  const [hibernate, setHibernate] = useState(false);
+  const [idleMin, setIdleMin] = useState(15);
   const [env, setEnv] = useState<Record<string, string>>({});
   const [start, setStart] = useState(true);
   const [error, setError] = useState("");
@@ -62,6 +64,7 @@ export function CreateServer({
           hostPath: storageType === "hostPath" ? hostPath : undefined,
         },
         expose: { type: expose },
+        hibernation: { enabled: hibernate, idleMinutes: idleMin },
         env,
       };
       await api.createServer(body);
@@ -157,6 +160,23 @@ export function CreateServer({
               Ports:{" "}
               {tpl.ports.map((p) => `${p.port}/${p.protocol}`).join(", ")}
             </div>
+            <label className="row" style={{ marginTop: 8 }}>
+              <input
+                type="checkbox"
+                style={{ width: "auto" }}
+                checked={hibernate}
+                onChange={(e) => setHibernate(e.target.checked)}
+              />
+              &nbsp;Auto-sleep when idle (no players) after&nbsp;
+              <input
+                type="number"
+                min={1}
+                style={{ width: 70 }}
+                value={idleMin}
+                onChange={(e) => setIdleMin(Number(e.target.value))}
+              />
+              &nbsp;min
+            </label>
           </>
         )}
 

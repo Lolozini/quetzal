@@ -85,6 +85,7 @@ tr.clickable:hover { background: var(--panel-2); cursor: pointer; }
 .badge.Stopped { color: var(--muted); }
 .badge.Crashed, .badge.Error { color: var(--danger); border-color: var(--danger); }
 .badge.Starting, .badge.Installing, .badge.Stopping { color: var(--warn); border-color: var(--warn); }
+.badge.Suspended, .badge.Hibernated { color: var(--muted); border-color: var(--muted); }
 
 .console {
   background: #0a0c10; border: 1px solid var(--border); border-radius: 8px;

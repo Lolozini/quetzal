@@ -204,6 +204,9 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
           <button className="danger" disabled={busy !== ""} onClick={() => power("kill")}>
             {busy === "kill" ? "Killing…" : "Kill"}
           </button>
+          {srv.hibernated && (
+            <button className="primary" disabled={busy !== ""} onClick={() => power("start")}>Wake</button>
+          )}
           {user.isAdmin && (
             <>
               <div className="spacer" />
@@ -215,6 +218,46 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
             </>
           )}
         </div>
+        {canManage && srv.ports && srv.ports.length > 0 && (
+          <div className="kv" style={{ marginTop: 12 }}>
+            <span className="k">Hibernation</span>
+            <span>
+              <label className="row" style={{ width: "auto" }}>
+                <input
+                  type="checkbox"
+                  style={{ width: "auto" }}
+                  checked={!!srv.hibernation?.enabled}
+                  onChange={(e) =>
+                    api
+                      .setHibernation(id, {
+                        enabled: e.target.checked,
+                        idleMinutes: srv.hibernation?.idleMinutes || 15,
+                      })
+                      .then(setSrv)
+                      .catch((err) => setError(String(err)))
+                  }
+                />
+                &nbsp;auto-sleep when idle after&nbsp;
+              </label>
+              <input
+                type="number"
+                min={1}
+                style={{ width: 70 }}
+                value={srv.hibernation?.idleMinutes || 15}
+                onChange={(e) =>
+                  api
+                    .setHibernation(id, {
+                      enabled: !!srv.hibernation?.enabled,
+                      idleMinutes: Number(e.target.value),
+                    })
+                    .then(setSrv)
+                    .catch((err) => setError(String(err)))
+                }
+              />
+              &nbsp;min
+            </span>
+          </div>
+        )}
         {notice && <div className="notice">{notice}</div>}
         {error && <div className="error">{error}</div>}
       </div>

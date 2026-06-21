@@ -1,6 +1,7 @@
 package reconciler
 
 import (
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -64,6 +65,34 @@ func TestBuildDeployment(t *testing.T) {
 	s.DesiredState = models.StateStopped
 	if r := s.Replicas(); r != 0 {
 		t.Errorf("stopped replicas = %d, want 0", r)
+	}
+}
+
+func TestBuildDeploymentInstallInitContainer(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	// No install -> no init container.
+	if ics := BuildDeployment(s, tmpl, nil).Spec.Template.Spec.InitContainers; len(ics) != 0 {
+		t.Fatalf("expected no init containers, got %d", len(ics))
+	}
+	// With an install script -> a marker-guarded init container mounting the data
+	// volume at the egg convention path.
+	tmpl.Install = &models.InstallScript{Image: "debian:slim", Script: "echo installing > /mnt/server/world.txt"}
+	ics := BuildDeployment(s, tmpl, nil).Spec.Template.Spec.InitContainers
+	if len(ics) != 1 || ics[0].Name != "install" {
+		t.Fatalf("expected one install init container, got %+v", ics)
+	}
+	ic := ics[0]
+	if ic.Image != "debian:slim" {
+		t.Errorf("install image = %q", ic.Image)
+	}
+	script := ic.Command[len(ic.Command)-1]
+	for _, want := range []string{".quetzal-installed", "echo installing > /mnt/server/world.txt", "touch"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("install script missing %q:\n%s", want, script)
+		}
+	}
+	if ic.VolumeMounts[0].MountPath != "/mnt/server" || ic.VolumeMounts[0].Name != "data" {
+		t.Errorf("install mount = %+v, want data at /mnt/server", ic.VolumeMounts[0])
 	}
 }
 

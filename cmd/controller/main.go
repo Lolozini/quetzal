@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"log"
 	"net/http"
@@ -12,18 +13,21 @@ import (
 	"syscall"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+	"k8s.io/client-go/tools/remotecommand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/lolozini/quetzal/internal/backup"
 	"github.com/lolozini/quetzal/internal/console"
 	"github.com/lolozini/quetzal/internal/crypto"
+	"github.com/lolozini/quetzal/internal/hibernate"
 	"github.com/lolozini/quetzal/internal/metrics"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
@@ -84,6 +88,7 @@ func main() {
 
 	sched := scheduler.New(st, &executor{st: st, cs: cs, cfg: cfg})
 	bmgr := backup.NewManager(st, cs)
+	hmgr := hibernate.New(st, connProbe(cs, cfg))
 
 	go serveOps(metricsAddr, st)
 
@@ -97,6 +102,7 @@ func main() {
 		reconcileAll(ctx, rec, st)
 		sched.Tick(ctx)
 		bmgr.Process(ctx)
+		hmgr.Tick(ctx)
 		for {
 			select {
 			case <-ctx.Done():
@@ -105,6 +111,7 @@ func main() {
 				reconcileAll(ctx, rec, st)
 				sched.Tick(ctx)
 				bmgr.Process(ctx)
+				hmgr.Tick(ctx)
 			}
 		}
 	}
@@ -183,6 +190,44 @@ func (e *executor) Backup(_ context.Context, srv *models.Server) error {
 		Direction: models.DirBackup,
 		Phase:     models.BackupPending,
 	})
+}
+
+// connProbe returns a hibernation probe that counts ESTABLISHED connections on
+// a server's game ports by reading /proc/net/tcp inside the running container.
+func connProbe(cs kubernetes.Interface, cfg *rest.Config) hibernate.ConnProbe {
+	return func(ctx context.Context, srv *models.Server) (int, error) {
+		pod, err := console.FindRunningPod(ctx, cs, srv.Namespace, srv.Slug)
+		if err != nil {
+			return 0, err
+		}
+		out, err := execCapture(ctx, cs, cfg, srv.Namespace, pod, reconciler.WorkloadName,
+			[]string{"sh", "-c", "cat /proc/net/tcp /proc/net/tcp6 2>/dev/null"})
+		if err != nil {
+			return 0, err
+		}
+		ports := map[int32]bool{}
+		for _, p := range srv.Ports {
+			ports[p.Port] = true
+		}
+		return hibernate.CountEstablished(out, ports), nil
+	}
+}
+
+// execCapture runs a command in a pod container and returns its stdout.
+func execCapture(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, ns, pod, container string, cmd []string) (string, error) {
+	req := cs.CoreV1().RESTClient().Post().Resource("pods").Name(pod).Namespace(ns).SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: container, Command: cmd, Stdout: true, Stderr: true,
+		}, scheme.ParameterCodec)
+	ex, err := remotecommand.NewSPDYExecutor(cfg, "POST", req.URL())
+	if err != nil {
+		return "", err
+	}
+	var stdout, stderr bytes.Buffer
+	if err := ex.StreamWithContext(ctx, remotecommand.StreamOptions{Stdout: &stdout, Stderr: &stderr}); err != nil {
+		return "", err
+	}
+	return stdout.String(), nil
 }
 
 func reconcileAll(ctx context.Context, rec *reconciler.Reconciler, st *store.Store) {

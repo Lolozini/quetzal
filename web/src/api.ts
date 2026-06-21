@@ -92,6 +92,11 @@ export interface Expose {
   preserveClientIP?: boolean;
 }
 
+export interface Hibernation {
+  enabled: boolean;
+  idleMinutes: number;
+}
+
 export interface Port {
   name: string;
   port: number;
@@ -112,6 +117,8 @@ export interface Server {
   storage: { type: string; size?: string; hostPath?: string };
   ports?: Port[];
   expose: Expose;
+  hibernation?: Hibernation;
+  hibernated?: boolean;
   status: ServerStatus;
 }
 
@@ -241,6 +248,8 @@ export const api = {
     }),
   setExpose: (id: number, expose: Expose) =>
     req<Server>("PATCH", `/api/servers/${id}`, { expose }),
+  setHibernation: (id: number, hibernation: Hibernation) =>
+    req<Server>("PATCH", `/api/servers/${id}`, { hibernation }),
   stats: (id: number) => req<ServerStats>("GET", `/api/servers/${id}/stats`),
 
   schedules: (id: number) => req<Schedule[]>("GET", `/api/servers/${id}/schedules`),
@@ -294,6 +303,7 @@ export interface CreateServerRequest {
   storage?: { type: string; size?: string; hostPath?: string };
   env?: Record<string, string>;
   expose?: Expose;
+  hibernation?: Hibernation;
   start?: boolean;
 }
 
