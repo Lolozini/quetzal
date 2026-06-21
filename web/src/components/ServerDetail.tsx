@@ -70,6 +70,10 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
   }
 
   const canManage = !!srv && (user.isAdmin || srv.ownerId === user.id);
+  // Idle detection only works over TCP; hide the hibernation control for any
+  // server exposing a UDP port (the controller treats it as ineligible anyway).
+  const tcpOnly =
+    !!srv?.ports && srv.ports.length > 0 && srv.ports.every((p) => p.protocol.toUpperCase() !== "UDP");
 
   const powerNotice: Record<PowerAction, string> = {
     start: "Start requested — the server is spinning up.",
@@ -218,7 +222,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
             </>
           )}
         </div>
-        {canManage && srv.ports && srv.ports.length > 0 && (
+        {canManage && tcpOnly && (
           <div className="kv" style={{ marginTop: 12 }}>
             <span className="k">Hibernation</span>
             <span>

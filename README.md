@@ -70,7 +70,9 @@ Browser ──HTTP/WS──▶ api-server (UI + REST/WS + console proxy)
   per-user quotas, audit log, API keys. _Deferred to later: OIDC/SSO, 2FA/TOTP,
   email/Discord notifications, webhooks._
 - ✅ **Phase 5** — Hibernation (scale-to-zero on idle) + egg install scripts.
-  _Deferred to later: wake-on-connect proxy, git template sync, sandboxed runtime._
+  Idle is detected from TCP connection state, so auto-sleep currently applies to
+  TCP servers only. _Deferred to later: UDP idle detection + wake-on-connect
+  proxy, git template sync, sandboxed runtime._
 - **Phase 6** — Multi-cluster.
 
 ## License

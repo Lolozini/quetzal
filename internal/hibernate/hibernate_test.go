@@ -99,17 +99,23 @@ func TestManagerFailSafeAndIneligible(t *testing.T) {
 		t.Error("must not hibernate when activity can't be measured")
 	}
 
-	// Disabled / portless / stopped servers are ineligible.
+	// Disabled / portless / stopped / UDP servers are ineligible. UDP is the
+	// important one: its players are invisible to the TCP probe, so it must
+	// never auto-sleep (it would kick everyone).
+	udpPorts := []models.PortSpec{{Name: "game", Port: 2456, Protocol: "UDP"}}
+	mixedPorts := []models.PortSpec{{Name: "tcp", Port: 25565, Protocol: "TCP"}, {Name: "query", Port: 2457, Protocol: "UDP"}}
 	for _, srv := range []*models.Server{
 		{Slug: "off", Namespace: "n1", DesiredState: models.StateRunning, Ports: failing.Ports, LastActiveAt: &now},
 		{Slug: "noport", Namespace: "n2", DesiredState: models.StateRunning, Hibernation: models.Hibernation{Enabled: true}, LastActiveAt: &now},
 		{Slug: "stopped", Namespace: "n3", DesiredState: models.StateStopped, Ports: failing.Ports, Hibernation: models.Hibernation{Enabled: true}, LastActiveAt: &now},
+		{Slug: "udp", Namespace: "n4", DesiredState: models.StateRunning, Ports: udpPorts, Hibernation: models.Hibernation{Enabled: true}, LastActiveAt: &now},
+		{Slug: "mixed", Namespace: "n5", DesiredState: models.StateRunning, Ports: mixedPorts, Hibernation: models.Hibernation{Enabled: true}, LastActiveAt: &now},
 	} {
 		_ = st.CreateServer(srv)
 	}
 	idle := New(st, func(context.Context, *models.Server) (int, error) { return 0, nil })
 	idle.Tick(context.Background())
-	for _, slug := range []string{"off", "noport", "stopped"} {
+	for _, slug := range []string{"off", "noport", "stopped", "udp", "mixed"} {
 		if got, _ := st.GetServerBySlug(slug); got.Hibernated {
 			t.Errorf("%s should be ineligible for hibernation", slug)
 		}

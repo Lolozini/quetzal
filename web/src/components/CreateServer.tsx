@@ -77,6 +77,11 @@ export function CreateServer({
   }
 
   const editable = tpl?.variables.filter((v) => v.editable) ?? [];
+  // Hibernation needs reliable idle detection, which today only works for TCP
+  // (UDP players are invisible to the connection probe). Hide the toggle for any
+  // server exposing a UDP port so it isn't enabled as a silent no-op.
+  const tcpOnly =
+    !!tpl?.ports && tpl.ports.length > 0 && tpl.ports.every((p) => p.protocol.toUpperCase() !== "UDP");
 
   return (
     <div className="card">
@@ -160,23 +165,30 @@ export function CreateServer({
               Ports:{" "}
               {tpl.ports.map((p) => `${p.port}/${p.protocol}`).join(", ")}
             </div>
-            <label className="row" style={{ marginTop: 8 }}>
-              <input
-                type="checkbox"
-                style={{ width: "auto" }}
-                checked={hibernate}
-                onChange={(e) => setHibernate(e.target.checked)}
-              />
-              &nbsp;Auto-sleep when idle (no players) after&nbsp;
-              <input
-                type="number"
-                min={1}
-                style={{ width: 70 }}
-                value={idleMin}
-                onChange={(e) => setIdleMin(Number(e.target.value))}
-              />
-              &nbsp;min
-            </label>
+            {tcpOnly ? (
+              <label className="row" style={{ marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  style={{ width: "auto" }}
+                  checked={hibernate}
+                  onChange={(e) => setHibernate(e.target.checked)}
+                />
+                &nbsp;Auto-sleep when idle (no players) after&nbsp;
+                <input
+                  type="number"
+                  min={1}
+                  style={{ width: 70 }}
+                  value={idleMin}
+                  onChange={(e) => setIdleMin(Number(e.target.value))}
+                />
+                &nbsp;min
+              </label>
+            ) : (
+              <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+                Auto-sleep is unavailable for UDP servers (idle players can't be
+                detected yet).
+              </div>
+            )}
           </>
         )}
 

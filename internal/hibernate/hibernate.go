@@ -81,7 +81,26 @@ func eligible(srv *models.Server) bool {
 	return srv.Hibernation.Enabled &&
 		srv.DesiredState == models.StateRunning &&
 		!srv.Hibernated &&
-		len(srv.Ports) > 0
+		measurablePorts(srv)
+}
+
+// measurablePorts reports whether idle can be reliably measured from TCP
+// connection state. UDP is connectionless: it has no ESTABLISHED entry in
+// /proc/net/tcp, so a UDP game port would always look idle even with active
+// players — auto-sleeping it would kick everyone. We therefore only consider a
+// server eligible when it exposes at least one port and *every* port is TCP.
+// Generic UDP idle detection (and wake-on-connect) is deferred to the shared
+// proxy work; until then, UDP servers simply never auto-hibernate (fail-safe).
+func measurablePorts(srv *models.Server) bool {
+	if len(srv.Ports) == 0 {
+		return false
+	}
+	for _, p := range srv.Ports {
+		if strings.EqualFold(p.Protocol, "UDP") {
+			return false
+		}
+	}
+	return true
 }
 
 func idleWindow(srv *models.Server) time.Duration {

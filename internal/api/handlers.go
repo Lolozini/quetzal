@@ -384,6 +384,13 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		srv.Hibernation = *req.Hibernation
+		// Disabling auto-sleep on a currently-hibernated server must wake it:
+		// otherwise no policy will ever scale it back up and it stays stuck at
+		// zero replicas.
+		if !req.Hibernation.Enabled && srv.Hibernated {
+			_ = s.Store.Wake(srv.ID, time.Now())
+			srv.Hibernated = false
+		}
 		s.audit(r, srv.ID, "server.hibernation", strconv.FormatBool(req.Hibernation.Enabled))
 	}
 	if req.Expose == nil {
