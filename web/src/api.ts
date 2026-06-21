@@ -5,6 +5,47 @@ export interface User {
   id: number;
   username: string;
   isAdmin: boolean;
+  maxServers?: number;
+  maxMemoryMB?: number;
+  maxCpuMilli?: number;
+  createdAt?: string;
+}
+
+export interface ServerAccess {
+  id: number;
+  serverId: number;
+  userId: number;
+  username?: string;
+  permissions: string[];
+}
+
+export const ALL_PERMISSIONS = [
+  "view",
+  "power",
+  "console",
+  "schedules",
+  "backups",
+  "settings",
+  "delete",
+] as const;
+
+export interface AuditEntry {
+  id: number;
+  createdAt: string;
+  userId: number;
+  username: string;
+  serverId?: number;
+  action: string;
+  detail?: string;
+}
+
+export interface APIKey {
+  id: number;
+  userId: number;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt?: string;
 }
 
 export interface TemplateVariable {
@@ -65,6 +106,7 @@ export interface Server {
   displayName: string;
   namespace: string;
   desiredState: string;
+  ownerId?: number;
   image: string;
   resources: { memory?: string; cpu?: string };
   storage: { type: string; size?: string; hostPath?: string };
@@ -217,6 +259,30 @@ export const api = {
     req<Backup>("POST", `/api/servers/${id}/backups/${bid}/restore`),
   deleteBackup: (id: number, bid: number) =>
     req<void>("DELETE", `/api/servers/${id}/backups/${bid}`),
+
+  // Multi-tenant.
+  suspend: (id: number) => req<void>("POST", `/api/servers/${id}/suspend`),
+  unsuspend: (id: number) => req<void>("POST", `/api/servers/${id}/unsuspend`),
+  access: (id: number) => req<ServerAccess[]>("GET", `/api/servers/${id}/access`),
+  grantAccess: (id: number, username: string, permissions: string[]) =>
+    req<void>("POST", `/api/servers/${id}/access`, { username, permissions }),
+  revokeAccess: (id: number, uid: number) =>
+    req<void>("DELETE", `/api/servers/${id}/access/${uid}`),
+  serverAudit: (id: number) => req<AuditEntry[]>("GET", `/api/servers/${id}/audit`),
+  globalAudit: () => req<AuditEntry[]>("GET", "/api/audit"),
+
+  users: () => req<User[]>("GET", "/api/users"),
+  createUser: (body: Record<string, unknown>) => req<User>("POST", "/api/users", body),
+  updateUser: (uid: number, body: Record<string, unknown>) =>
+    req<User>("PATCH", `/api/users/${uid}`, body),
+  deleteUser: (uid: number) => req<void>("DELETE", `/api/users/${uid}`),
+  changePassword: (oldPassword: string, newPassword: string) =>
+    req<void>("POST", "/api/me/password", { oldPassword, newPassword }),
+
+  apiKeys: () => req<APIKey[]>("GET", "/api/apikeys"),
+  createAPIKey: (name: string) =>
+    req<{ key: APIKey; token: string }>("POST", "/api/apikeys", { name }),
+  deleteAPIKey: (kid: number) => req<void>("DELETE", `/api/apikeys/${kid}`),
 };
 
 export interface CreateServerRequest {

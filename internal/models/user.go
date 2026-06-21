@@ -2,7 +2,8 @@ package models
 
 import "time"
 
-// User is a panel account. MVP: a single admin (multi-user/RBAC comes later).
+// User is a panel account. Admins have unrestricted access; regular users own
+// their servers and may be granted scoped access to others as subusers.
 type User struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	Username     string    `gorm:"uniqueIndex;size:190" json:"username"`
@@ -10,6 +11,12 @@ type User struct {
 	IsAdmin      bool      `json:"isAdmin"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
+
+	// Per-user quotas (0 = unlimited), enforced at server creation. Admins are
+	// exempt.
+	MaxServers  int   `json:"maxServers"`
+	MaxMemoryMB int64 `json:"maxMemoryMB"`
+	MaxCPUMilli int64 `json:"maxCpuMilli"`
 }
 
 // Session is a server-side bearer session (opaque random token).

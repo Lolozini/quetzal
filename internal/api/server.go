@@ -91,6 +91,27 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/servers/{id}/backups/{bid}/restore", s.auth(s.handleRestoreBackup))
 	mux.Handle("DELETE /api/servers/{id}/backups/{bid}", s.auth(s.handleDeleteBackup))
 
+	// Multi-tenant: suspend (admin), subuser access, audit.
+	mux.Handle("POST /api/servers/{id}/suspend", s.auth(s.handleSuspend))
+	mux.Handle("POST /api/servers/{id}/unsuspend", s.auth(s.handleUnsuspend))
+	mux.Handle("GET /api/servers/{id}/access", s.auth(s.handleListAccess))
+	mux.Handle("POST /api/servers/{id}/access", s.auth(s.handleGrantAccess))
+	mux.Handle("DELETE /api/servers/{id}/access/{uid}", s.auth(s.handleRevokeAccess))
+	mux.Handle("GET /api/servers/{id}/audit", s.auth(s.handleServerAudit))
+	mux.Handle("GET /api/audit", s.auth(s.handleGlobalAudit))
+
+	// Users (admin) + self password change.
+	mux.Handle("GET /api/users", s.auth(s.handleListUsers))
+	mux.Handle("POST /api/users", s.auth(s.handleCreateUser))
+	mux.Handle("PATCH /api/users/{uid}", s.auth(s.handleUpdateUser))
+	mux.Handle("DELETE /api/users/{uid}", s.auth(s.handleDeleteUser))
+	mux.Handle("POST /api/me/password", s.auth(s.handleChangePassword))
+
+	// API keys (scoped bearer tokens for the public API).
+	mux.Handle("GET /api/apikeys", s.auth(s.handleListAPIKeys))
+	mux.Handle("POST /api/apikeys", s.auth(s.handleCreateAPIKey))
+	mux.Handle("DELETE /api/apikeys/{kid}", s.auth(s.handleDeleteAPIKey))
+
 	return logRequests(mux)
 }
 
@@ -121,6 +142,16 @@ func (s *Server) currentUser(r *http.Request) (*models.User, error) {
 	token := tokenFromRequest(r)
 	if token == "" {
 		return nil, store.ErrNotFound
+	}
+	// API keys (long-lived bearer tokens) are identified by their prefix.
+	if strings.HasPrefix(token, apiKeyPrefix) {
+		key, err := s.Store.GetAPIKeyByHash(hashToken(token))
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now()
+		_ = s.Store.TouchAPIKey(key.ID, now)
+		return s.Store.GetUser(key.UserID)
 	}
 	sess, err := s.Store.GetSession(token)
 	if err != nil {

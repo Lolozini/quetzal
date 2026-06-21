@@ -13,7 +13,7 @@ import (
 )
 
 func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
-	srv, ok := s.lookupServer(w, r)
+	srv, ok := s.requireServer(w, r, models.PermView)
 	if !ok {
 		return
 	}
@@ -34,7 +34,7 @@ type scheduleRequest struct {
 }
 
 func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
-	srv, ok := s.lookupServer(w, r)
+	srv, ok := s.requireServer(w, r, models.PermSchedules)
 	if !ok {
 		return
 	}
@@ -64,11 +64,12 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit(r, srv.ID, "schedule.create", sc.Name+" ("+string(sc.Action)+" @ "+sc.Cron+")")
 	writeJSON(w, http.StatusCreated, sc)
 }
 
 func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
-	sc, ok := s.lookupSchedule(w, r)
+	sc, ok := s.lookupSchedule(w, r, models.PermSchedules)
 	if !ok {
 		return
 	}
@@ -98,7 +99,7 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
-	sc, ok := s.lookupSchedule(w, r)
+	sc, ok := s.lookupSchedule(w, r, models.PermSchedules)
 	if !ok {
 		return
 	}
@@ -106,12 +107,14 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit(r, sc.ServerID, "schedule.delete", sc.Name)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// lookupSchedule resolves {sid} and verifies it belongs to {id}.
-func (s *Server) lookupSchedule(w http.ResponseWriter, r *http.Request) (*models.Schedule, bool) {
-	srv, ok := s.lookupServer(w, r)
+// lookupSchedule resolves {sid}, checks `perm` on the parent server, and that
+// the schedule belongs to it.
+func (s *Server) lookupSchedule(w http.ResponseWriter, r *http.Request, perm string) (*models.Schedule, bool) {
+	srv, ok := s.requireServer(w, r, perm)
 	if !ok {
 		return nil, false
 	}

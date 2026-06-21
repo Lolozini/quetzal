@@ -138,6 +138,7 @@ func (s *Store) Migrate() error {
 		&models.Template{}, &models.Server{}, &models.User{},
 		&models.Session{}, &models.PortAllocation{}, &models.Schedule{},
 		&models.BackupConfig{}, &models.Backup{},
+		&models.ServerAccess{}, &models.AuditEntry{}, &models.APIKey{},
 	)
 }
 
@@ -596,6 +597,197 @@ func (s *Store) CountUsers() (int64, error) {
 // CreateUser inserts a new user.
 func (s *Store) CreateUser(u *models.User) error {
 	return s.db.Create(u).Error
+}
+
+// ListUsers returns all users (admin view).
+func (s *Store) ListUsers() ([]models.User, error) {
+	var us []models.User
+	if err := s.db.Order("id asc").Find(&us).Error; err != nil {
+		return nil, err
+	}
+	return us, nil
+}
+
+// UpdateUserAdminFields persists admin-editable fields (role + quotas).
+func (s *Store) UpdateUserAdminFields(id uint, isAdmin bool, maxServers int, maxMemoryMB, maxCPUMilli int64) error {
+	return s.db.Model(&models.User{}).Where("id = ?", id).
+		Updates(map[string]any{
+			"is_admin": isAdmin, "max_servers": maxServers,
+			"max_memory_mb": maxMemoryMB, "max_cpu_milli": maxCPUMilli,
+		}).Error
+}
+
+// UpdateUserPassword sets a new password hash.
+func (s *Store) UpdateUserPassword(id uint, hash string) error {
+	return s.db.Model(&models.User{}).Where("id = ?", id).Update("password_hash", hash).Error
+}
+
+// DeleteUser removes a user and their access grants + API keys.
+func (s *Store) DeleteUser(id uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ?", id).Delete(&models.ServerAccess{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&models.APIKey{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&models.Session{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&models.User{}, id).Error
+	})
+}
+
+// CountAdmins returns the number of admin users (to protect the last admin).
+func (s *Store) CountAdmins() (int64, error) {
+	var n int64
+	err := s.db.Model(&models.User{}).Where("is_admin = ?", true).Count(&n).Error
+	return n, err
+}
+
+// ListServersByOwner returns servers owned by a user (for quota accounting).
+func (s *Store) ListServersByOwner(ownerID uint) ([]models.Server, error) {
+	var srvs []models.Server
+	if err := s.db.Where("owner_id = ?", ownerID).Find(&srvs).Error; err != nil {
+		return nil, err
+	}
+	return srvs, nil
+}
+
+// ListAccessibleServers returns servers a user owns or has been granted access to.
+func (s *Store) ListAccessibleServers(userID uint) ([]models.Server, error) {
+	var srvs []models.Server
+	err := s.db.Where("owner_id = ? OR id IN (?)",
+		userID, s.db.Model(&models.ServerAccess{}).Select("server_id").Where("user_id = ?", userID),
+	).Order("created_at asc").Find(&srvs).Error
+	return srvs, err
+}
+
+// ---- Server access (subusers) ----
+
+// GrantAccess creates or updates a subuser grant.
+func (s *Store) GrantAccess(serverID, userID uint, perms []string) error {
+	var existing models.ServerAccess
+	err := s.db.Where("server_id = ? AND user_id = ?", serverID, userID).First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return s.db.Create(&models.ServerAccess{ServerID: serverID, UserID: userID, Permissions: perms}).Error
+	}
+	if err != nil {
+		return err
+	}
+	existing.Permissions = perms
+	return s.db.Save(&existing).Error
+}
+
+// GetServerAccess returns a user's grant on a server, or ErrNotFound.
+func (s *Store) GetServerAccess(serverID, userID uint) (*models.ServerAccess, error) {
+	var a models.ServerAccess
+	if err := s.db.Where("server_id = ? AND user_id = ?", serverID, userID).First(&a).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &a, nil
+}
+
+// ListAccessForServer returns a server's subuser grants, with usernames filled.
+func (s *Store) ListAccessForServer(serverID uint) ([]models.ServerAccess, error) {
+	var as []models.ServerAccess
+	if err := s.db.Where("server_id = ?", serverID).Order("id asc").Find(&as).Error; err != nil {
+		return nil, err
+	}
+	for i := range as {
+		if u, err := s.GetUser(as[i].UserID); err == nil {
+			as[i].Username = u.Username
+		}
+	}
+	return as, nil
+}
+
+// RevokeAccess removes a subuser grant.
+func (s *Store) RevokeAccess(serverID, userID uint) error {
+	return s.db.Where("server_id = ? AND user_id = ?", serverID, userID).Delete(&models.ServerAccess{}).Error
+}
+
+// DeleteAccessForServer removes all grants on a server (on teardown).
+func (s *Store) DeleteAccessForServer(serverID uint) error {
+	return s.db.Where("server_id = ?", serverID).Delete(&models.ServerAccess{}).Error
+}
+
+// ---- Audit log ----
+
+// AddAudit appends an audit entry (best-effort; never blocks the action).
+func (s *Store) AddAudit(e *models.AuditEntry) error {
+	return s.db.Create(e).Error
+}
+
+// ListAuditForServer returns recent audit entries for a server, newest first.
+func (s *Store) ListAuditForServer(serverID uint, limit int) ([]models.AuditEntry, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	var es []models.AuditEntry
+	err := s.db.Where("server_id = ?", serverID).Order("id desc").Limit(limit).Find(&es).Error
+	return es, err
+}
+
+// ListAudit returns recent panel-wide audit entries (admin), newest first.
+func (s *Store) ListAudit(limit int) ([]models.AuditEntry, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	var es []models.AuditEntry
+	err := s.db.Order("id desc").Limit(limit).Find(&es).Error
+	return es, err
+}
+
+// ---- API keys ----
+
+// CreateAPIKey stores an API key (hash only).
+func (s *Store) CreateAPIKey(k *models.APIKey) error {
+	return s.db.Create(k).Error
+}
+
+// GetAPIKeyByHash looks up an API key by its token hash.
+func (s *Store) GetAPIKeyByHash(hash string) (*models.APIKey, error) {
+	var k models.APIKey
+	if err := s.db.Where("hash = ?", hash).First(&k).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &k, nil
+}
+
+// ListAPIKeysForUser returns a user's API keys (without secrets).
+func (s *Store) ListAPIKeysForUser(userID uint) ([]models.APIKey, error) {
+	var ks []models.APIKey
+	err := s.db.Where("user_id = ?", userID).Order("id asc").Find(&ks).Error
+	return ks, err
+}
+
+// GetAPIKey returns an API key by ID.
+func (s *Store) GetAPIKey(id uint) (*models.APIKey, error) {
+	var k models.APIKey
+	if err := s.db.First(&k, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &k, nil
+}
+
+// TouchAPIKey records last use (best-effort).
+func (s *Store) TouchAPIKey(id uint, when time.Time) error {
+	return s.db.Model(&models.APIKey{}).Where("id = ?", id).Update("last_used_at", when).Error
+}
+
+// DeleteAPIKey removes an API key.
+func (s *Store) DeleteAPIKey(id uint) error {
+	return s.db.Delete(&models.APIKey{}, id).Error
 }
 
 // GetUser returns a user by ID.

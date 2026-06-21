@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, ExposeType, PowerAction, Server, ServerStats } from "../api";
+import { api, ApiError, AuditEntry, ExposeType, PowerAction, Server, ServerStats, User } from "../api";
+import { Access } from "./Access";
 import { Backups } from "./Backups";
 import { Console } from "./Console";
 import { Schedules } from "./Schedules";
@@ -11,7 +12,7 @@ function formatMem(bytes: number): string {
   return `${mib.toFixed(0)} MiB`;
 }
 
-export function ServerDetail({ id, onBack }: { id: number; onBack: () => void }) {
+export function ServerDetail({ id, user, onBack }: { id: number; user: User; onBack: () => void }) {
   const [srv, setSrv] = useState<Server | null>(null);
   const [stats, setStats] = useState<ServerStats | null>(null);
   const [statsMsg, setStatsMsg] = useState("");
@@ -57,6 +58,18 @@ export function ServerDetail({ id, onBack }: { id: number; onBack: () => void })
       setError(e instanceof ApiError ? e.message : String(e));
     }
   }
+
+  async function suspend(want: boolean) {
+    setError("");
+    try {
+      await (want ? api.suspend(id) : api.unsuspend(id));
+      setSrv(await api.server(id));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
+  const canManage = !!srv && (user.isAdmin || srv.ownerId === user.id);
 
   const powerNotice: Record<PowerAction, string> = {
     start: "Start requested — the server is spinning up.",
@@ -191,15 +204,59 @@ export function ServerDetail({ id, onBack }: { id: number; onBack: () => void })
           <button className="danger" disabled={busy !== ""} onClick={() => power("kill")}>
             {busy === "kill" ? "Killing…" : "Kill"}
           </button>
+          {user.isAdmin && (
+            <>
+              <div className="spacer" />
+              {srv.desiredState === "Suspended" ? (
+                <button onClick={() => suspend(false)}>Unsuspend</button>
+              ) : (
+                <button className="danger" onClick={() => suspend(true)}>Suspend</button>
+              )}
+            </>
+          )}
         </div>
         {notice && <div className="notice">{notice}</div>}
         {error && <div className="error">{error}</div>}
       </div>
       <Schedules id={id} />
       <Backups id={id} />
+      {canManage && <Access id={id} />}
+      <ServerAudit id={id} />
       <div className="card">
         <Console id={id} />
       </div>
     </>
+  );
+}
+
+function ServerAudit({ id }: { id: number }) {
+  const [entries, setEntries] = useState<AuditEntry[]>([]);
+  useEffect(() => {
+    const load = () => api.serverAudit(id).then(setEntries).catch(() => {});
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [id]);
+  return (
+    <div className="card">
+      <h3>Activity</h3>
+      {entries.length === 0 ? (
+        <p className="muted">No activity yet.</p>
+      ) : (
+        <table>
+          <thead><tr><th>When</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
+          <tbody>
+            {entries.map((e) => (
+              <tr key={e.id}>
+                <td>{new Date(e.createdAt).toLocaleString()}</td>
+                <td>{e.username}</td>
+                <td><code>{e.action}</code></td>
+                <td>{e.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }

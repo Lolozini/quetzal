@@ -97,7 +97,7 @@ func (s *Server) handleSetBackupConfig(w http.ResponseWriter, r *http.Request) {
 // ---- per-server backups ----
 
 func (s *Server) handleListBackups(w http.ResponseWriter, r *http.Request) {
-	srv, ok := s.lookupServer(w, r)
+	srv, ok := s.requireServer(w, r, models.PermView)
 	if !ok {
 		return
 	}
@@ -110,7 +110,7 @@ func (s *Server) handleListBackups(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
-	srv, ok := s.lookupServer(w, r)
+	srv, ok := s.requireServer(w, r, models.PermBackups)
 	if !ok {
 		return
 	}
@@ -123,11 +123,12 @@ func (s *Server) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit(r, srv.ID, "backup.create", "")
 	writeJSON(w, http.StatusAccepted, b)
 }
 
 func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
-	src, ok := s.lookupBackup(w, r)
+	src, ok := s.lookupBackup(w, r, models.PermBackups)
 	if !ok {
 		return
 	}
@@ -145,11 +146,12 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit(r, src.ServerID, "backup.restore", "from #"+strconv.FormatUint(uint64(src.ID), 10))
 	writeJSON(w, http.StatusAccepted, b)
 }
 
 func (s *Server) handleDeleteBackup(w http.ResponseWriter, r *http.Request) {
-	b, ok := s.lookupBackup(w, r)
+	b, ok := s.lookupBackup(w, r, models.PermBackups)
 	if !ok {
 		return
 	}
@@ -160,9 +162,10 @@ func (s *Server) handleDeleteBackup(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// lookupBackup resolves {bid} and verifies it belongs to {id}.
-func (s *Server) lookupBackup(w http.ResponseWriter, r *http.Request) (*models.Backup, bool) {
-	srv, ok := s.lookupServer(w, r)
+// lookupBackup resolves {bid}, checks `perm` on the parent server, and that the
+// backup belongs to it.
+func (s *Server) lookupBackup(w http.ResponseWriter, r *http.Request, perm string) (*models.Backup, bool) {
+	srv, ok := s.requireServer(w, r, perm)
 	if !ok {
 		return nil, false
 	}
@@ -185,13 +188,4 @@ func (s *Server) lookupBackup(w http.ResponseWriter, r *http.Request) (*models.B
 		return nil, false
 	}
 	return b, true
-}
-
-func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
-	u := userFrom(r.Context())
-	if u == nil || !u.IsAdmin {
-		writeError(w, http.StatusForbidden, "admin privileges required")
-		return false
-	}
-	return true
 }

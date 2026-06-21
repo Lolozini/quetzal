@@ -11,6 +11,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -140,7 +141,14 @@ func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 // ---- servers ----
 
 func (s *Server) handleListServers(w http.ResponseWriter, r *http.Request) {
-	srvs, err := s.Store.ListServers()
+	u := userFrom(r.Context())
+	var srvs []models.Server
+	var err error
+	if u.IsAdmin {
+		srvs, err = s.Store.ListServers()
+	} else {
+		srvs, err = s.Store.ListAccessibleServers(u.ID)
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -149,7 +157,7 @@ func (s *Server) handleListServers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetServer(w http.ResponseWriter, r *http.Request) {
-	srv, ok := s.lookupServer(w, r)
+	srv, ok := s.requireServer(w, r, models.PermView)
 	if !ok {
 		return
 	}
@@ -253,6 +261,12 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	owner := userFrom(r.Context())
+	if err := s.checkQuota(owner, req.Memory, req.CPU); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
 	state := models.StateStopped
 	if req.Start {
 		state = models.StateRunning
@@ -261,7 +275,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	srv := &models.Server{
 		Slug:            slug,
 		DisplayName:     req.Name,
-		OwnerID:         userFrom(r.Context()).ID,
+		OwnerID:         owner.ID,
 		TemplateID:      tmpl.ID,
 		TemplateVersion: tmpl.Version,
 		Image:           image,
@@ -295,7 +309,53 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		}
 		srv.Ports = ports
 	}
+	s.audit(r, srv.ID, "server.create", srv.Slug)
 	writeJSON(w, http.StatusCreated, srv)
+}
+
+// checkQuota enforces a user's per-user quotas (admins are exempt). It sums the
+// user's existing owned servers plus the new request against their limits.
+func (s *Server) checkQuota(u *models.User, memory, cpu string) error {
+	if u.IsAdmin || (u.MaxServers == 0 && u.MaxMemoryMB == 0 && u.MaxCPUMilli == 0) {
+		return nil
+	}
+	owned, err := s.Store.ListServersByOwner(u.ID)
+	if err != nil {
+		return err
+	}
+	memMB, cpuM := int64(0), int64(0)
+	for i := range owned {
+		mb, c := resourceTotals(owned[i].Resources)
+		memMB += mb
+		cpuM += c
+	}
+	nmb, ncpu := resourceTotals(models.Resources{Memory: memory, CPU: cpu})
+	if u.MaxServers > 0 && len(owned)+1 > u.MaxServers {
+		return fmt.Errorf("quota exceeded: at most %d servers", u.MaxServers)
+	}
+	if u.MaxMemoryMB > 0 && memMB+nmb > u.MaxMemoryMB {
+		return fmt.Errorf("quota exceeded: memory limit %d MB", u.MaxMemoryMB)
+	}
+	if u.MaxCPUMilli > 0 && cpuM+ncpu > u.MaxCPUMilli {
+		return fmt.Errorf("quota exceeded: CPU limit %dm", u.MaxCPUMilli)
+	}
+	return nil
+}
+
+// resourceTotals converts a server's resource limits to (MB, millicores); zero
+// when unset/unparseable.
+func resourceTotals(rsc models.Resources) (mb, milli int64) {
+	if rsc.Memory != "" {
+		if q, err := resource.ParseQuantity(rsc.Memory); err == nil {
+			mb = q.Value() / (1024 * 1024)
+		}
+	}
+	if rsc.CPU != "" {
+		if q, err := resource.ParseQuantity(rsc.CPU); err == nil {
+			milli = q.MilliValue()
+		}
+	}
+	return mb, milli
 }
 
 type updateServerRequest struct {
@@ -305,7 +365,7 @@ type updateServerRequest struct {
 }
 
 func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
-	srv, ok := s.lookupServer(w, r)
+	srv, ok := s.requireServer(w, r, models.PermSettings)
 	if !ok {
 		return
 	}
@@ -344,6 +404,7 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	}
 	srv.Expose = expose
 	srv.Ports = ports
+	s.audit(r, srv.ID, "server.update", "expose="+string(expose.ServiceType()))
 	writeJSON(w, http.StatusOK, srv)
 }
 
@@ -388,7 +449,7 @@ func validateExpose(e models.Expose, hasPorts bool) error {
 }
 
 func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
-	srv, ok := s.lookupServer(w, r)
+	srv, ok := s.requireServer(w, r, models.PermDelete)
 	if !ok {
 		return
 	}
@@ -404,6 +465,8 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.Store.DeleteSchedulesForServer(srv.ID)
 	_ = s.Store.DeleteBackupsForServer(srv.ID)
+	_ = s.Store.DeleteAccessForServer(srv.ID)
+	s.audit(r, 0, "server.delete", srv.Slug+" (keepData="+strconv.FormatBool(keep)+")")
 	if err := s.Store.DeleteServer(srv.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -448,8 +511,14 @@ type powerRequest struct {
 }
 
 func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
-	srv, ok := s.lookupServer(w, r)
+	srv, ok := s.requireServer(w, r, models.PermPower)
 	if !ok {
+		return
+	}
+	// A suspended server is frozen by an admin; ordinary power actions are blocked
+	// until an admin lifts the suspension.
+	if srv.DesiredState == models.StateSuspended {
+		writeError(w, http.StatusConflict, "server is suspended by an administrator")
 		return
 	}
 	var req powerRequest
@@ -483,7 +552,46 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "action must be start|stop|restart|kill")
 		return
 	}
+	s.audit(r, srv.ID, "server.power", req.Action)
 	writeJSON(w, http.StatusOK, map[string]string{"action": req.Action, "result": "accepted"})
+}
+
+// handleSuspend / handleUnsuspend are admin-only: a suspended server is scaled
+// to zero by the reconciler and its owner cannot power it back on.
+func (s *Server) handleSuspend(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	srv, ok := s.lookupServer(w, r)
+	if !ok {
+		return
+	}
+	if err := s.Store.SetDesiredState(srv.ID, models.StateSuspended); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.audit(r, srv.ID, "server.suspend", "")
+	writeJSON(w, http.StatusOK, map[string]string{"result": "suspended"})
+}
+
+func (s *Server) handleUnsuspend(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	srv, ok := s.lookupServer(w, r)
+	if !ok {
+		return
+	}
+	if srv.DesiredState != models.StateSuspended {
+		writeError(w, http.StatusConflict, "server is not suspended")
+		return
+	}
+	if err := s.Store.SetDesiredState(srv.ID, models.StateStopped); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.audit(r, srv.ID, "server.unsuspend", "")
+	writeJSON(w, http.StatusOK, map[string]string{"result": "unsuspended"})
 }
 
 func (s *Server) deletePods(r *http.Request, srv *models.Server, grace *int64) error {
@@ -497,7 +605,7 @@ func (s *Server) deletePods(r *http.Request, srv *models.Server, grace *int64) e
 // ---- console ----
 
 func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
-	srv, ok := s.lookupServer(w, r)
+	srv, ok := s.requireServer(w, r, models.PermConsole)
 	if !ok {
 		return
 	}
@@ -519,7 +627,7 @@ func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
 // ---- observability ----
 
 func (s *Server) handleServerStats(w http.ResponseWriter, r *http.Request) {
-	srv, ok := s.lookupServer(w, r)
+	srv, ok := s.requireServer(w, r, models.PermView)
 	if !ok {
 		return
 	}

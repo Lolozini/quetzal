@@ -3,11 +3,15 @@ import { User } from "../api";
 import { ServerList } from "./ServerList";
 import { CreateServer } from "./CreateServer";
 import { ServerDetail } from "./ServerDetail";
+import { Admin } from "./Admin";
+import { Account } from "./Account";
 
 type View =
   | { name: "list" }
   | { name: "create" }
-  | { name: "detail"; id: number };
+  | { name: "detail"; id: number }
+  | { name: "admin" }
+  | { name: "account" };
 
 export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [view, setView] = useState<View>({ name: "list" });
@@ -15,11 +19,17 @@ export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void
   return (
     <>
       <div className="topbar">
-        <div className="brand">
+        <div className="brand" style={{ cursor: "pointer" }} onClick={() => setView({ name: "list" })}>
           Quetz<span>al</span>
         </div>
         <div className="row">
-          <span className="muted">{user.username}</span>
+          <button onClick={() => setView({ name: "list" })}>Servers</button>
+          {user.isAdmin && <button onClick={() => setView({ name: "admin" })}>Admin</button>}
+          <button onClick={() => setView({ name: "account" })}>Account</button>
+          <span className="muted">
+            {user.username}
+            {user.isAdmin ? " (admin)" : ""}
+          </span>
           <button onClick={onLogout}>Logout</button>
         </div>
       </div>
@@ -37,8 +47,10 @@ export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void
           />
         )}
         {view.name === "detail" && (
-          <ServerDetail id={view.id} onBack={() => setView({ name: "list" })} />
+          <ServerDetail id={view.id} user={user} onBack={() => setView({ name: "list" })} />
         )}
+        {view.name === "admin" && user.isAdmin && <Admin />}
+        {view.name === "account" && <Account user={user} />}
       </div>
     </>
   );
