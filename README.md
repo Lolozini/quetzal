@@ -10,8 +10,9 @@ Pterodactyl **egg**) can be deployed.
 
 ## Status
 
-🚧 Early development. **Phases 0–3 implemented** (foundations, MVP, networking &
-observability, scheduled tasks + backups); see [ROADMAP](#roadmap).
+🚧 Early development. **Phases 0–4 implemented** (foundations, MVP, networking &
+observability, scheduled tasks + backups, multi-tenant access control);
+see [ROADMAP](#roadmap).
 
 ## Design highlights
 
@@ -32,6 +33,9 @@ observability, scheduled tasks + backups); see [ROADMAP](#roadmap).
 - **Backups & restore**: per-server data backup/restore to any S3-compatible
   target via restic (encryption, dedup, retention) — one-shot Jobs, no sidecar;
   credentials stored encrypted. Deleting a server can keep or destroy its data.
+- **Multi-tenant**: per-server ownership, subusers with scoped permissions,
+  admin suspend, per-user quotas, an append-only audit log, and API keys
+  (bearer tokens for the public API).
 - **Egg-compatible**: import existing Pterodactyl/Pelican eggs to ease migration.
 - **Secure by default**: namespace-per-server, NetworkPolicy, hardened
   securityContext, secrets kept out of the DB in clear text.
@@ -58,7 +62,9 @@ Browser ──HTTP/WS──▶ api-server (UI + REST/WS + console proxy)
   data lifecycle (keep/destroy on delete). _Deferred to later: web file browser,
   world/modpack upload, CSI volume snapshots, online volume expansion,
   Pterodactyl data import._
-- **Phase 4** — Multi-tenant (subusers, quotas, OIDC/2FA, public API).
+- ✅ **Phase 4** — Multi-tenant: ownership + subusers/permissions, admin suspend,
+  per-user quotas, audit log, API keys. _Deferred to later: OIDC/SSO, 2FA/TOTP,
+  email/Discord notifications, webhooks._
 - **Phase 5** — Scale-to-zero / hibernation & ecosystem.
 - **Phase 6** — Multi-cluster.
 
