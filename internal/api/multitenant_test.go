@@ -66,7 +66,11 @@ func TestMultiTenantOwnershipAndSubusers(t *testing.T) {
 		t.Fatalf("grant = %d", rr.StatusCode)
 	}
 
-	// Bob now sees and can power, but cannot delete or manage schedules.
+	// Bob now sees the shared server in his list and can open it.
+	getJSON(t, bob, srv.URL+"/api/servers", &bobList)
+	if len(bobList) != 1 {
+		t.Errorf("bob should see 1 shared server after grant, saw %d", len(bobList))
+	}
 	if rr, _ := bob.Get(url); rr.StatusCode != http.StatusOK {
 		t.Errorf("bob get after grant = %d, want 200", rr.StatusCode)
 	}

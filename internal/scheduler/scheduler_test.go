@@ -104,6 +104,27 @@ func TestTickIgnoresDisabledAndFuture(t *testing.T) {
 	}
 }
 
+func TestTickSkipsPowerActionsOnSuspendedServer(t *testing.T) {
+	st := testStore(t)
+	srv := &models.Server{Slug: "s", Namespace: "ns", DesiredState: models.StateSuspended}
+	_ = st.CreateServer(srv)
+	past := time.Now().Add(-time.Minute)
+	// A cron "start" must NOT lift an admin suspension.
+	sc := &models.Schedule{ServerID: srv.ID, Name: "wake", Cron: "* * * * *", Action: models.SchedStart, Enabled: true, NextRun: &past}
+	_ = st.CreateSchedule(sc)
+
+	m := &mockExec{}
+	New(st, m).Tick(context.Background())
+
+	if m.started != 0 {
+		t.Errorf("Start fired on a suspended server (%d); suspension must hold", m.started)
+	}
+	got, _ := st.GetSchedule(sc.ID)
+	if got.LastStatus != "skipped (server suspended)" {
+		t.Errorf("LastStatus = %q, want skipped (server suspended)", got.LastStatus)
+	}
+}
+
 func TestNextRunRejectsBadCron(t *testing.T) {
 	if _, err := NextRun("not a cron", time.Now()); err == nil {
 		t.Error("expected error for invalid cron")

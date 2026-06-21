@@ -95,6 +95,12 @@ func (s *Scheduler) run(ctx context.Context, sc *models.Schedule) string {
 		}
 		return "error: server: " + err.Error()
 	}
+	// Respect admin suspension: scheduled power actions must not silently undo a
+	// suspension (manual power is already blocked at the API).
+	if srv.DesiredState == models.StateSuspended &&
+		(sc.Action == models.SchedStart || sc.Action == models.SchedStop || sc.Action == models.SchedRestart) {
+		return "skipped (server suspended)"
+	}
 	switch sc.Action {
 	case models.SchedStart:
 		err = s.Exec.Start(ctx, srv)
