@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -212,14 +213,10 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		image = defaultImage(tmpl)
 	}
 
-	env := map[string]string{}
-	for _, v := range tmpl.Variables {
-		if v.Default != "" {
-			env[v.EnvVariable] = v.Default
-		}
-	}
-	for k, v := range req.Env {
-		env[k] = v
+	env, err := resolveEnv(tmpl, req.Env)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	// Split sensitive values out of the clear-text env: they are encrypted and
@@ -315,11 +312,55 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, srv)
 }
 
+// resolveEnv merges template defaults with user-supplied values, enforcing the
+// template's variable contract: only editable variables may be set, unknown keys
+// are rejected (no arbitrary env injection into the container — e.g. LD_PRELOAD,
+// JAVA_TOOL_OPTIONS), enum values must be valid, and required variables must end
+// up non-empty.
+func resolveEnv(tmpl *models.Template, reqEnv map[string]string) (map[string]string, error) {
+	byEnv := make(map[string]models.TemplateVariable, len(tmpl.Variables))
+	env := map[string]string{}
+	for _, v := range tmpl.Variables {
+		byEnv[v.EnvVariable] = v
+		if v.Default != "" {
+			env[v.EnvVariable] = v.Default
+		}
+	}
+	for k, val := range reqEnv {
+		v, ok := byEnv[k]
+		if !ok {
+			return nil, fmt.Errorf("unknown variable %q", k)
+		}
+		if !v.Editable {
+			return nil, fmt.Errorf("variable %q is not editable", k)
+		}
+		if v.Type == models.VarEnum && len(v.Options) > 0 && !slices.Contains(v.Options, val) {
+			return nil, fmt.Errorf("variable %q must be one of %v", k, v.Options)
+		}
+		env[k] = val
+	}
+	for _, v := range tmpl.Variables {
+		if v.Required && strings.TrimSpace(env[v.EnvVariable]) == "" {
+			return nil, fmt.Errorf("variable %q is required", v.EnvVariable)
+		}
+	}
+	return env, nil
+}
+
 // checkQuota enforces a user's per-user quotas (admins are exempt). It sums the
 // user's existing owned servers plus the new request against their limits.
 func (s *Server) checkQuota(u *models.User, memory, cpu string) error {
 	if u.IsAdmin || (u.MaxServers == 0 && u.MaxMemoryMB == 0 && u.MaxCPUMilli == 0) {
 		return nil
+	}
+	// A memory/CPU quota only means something if every server it covers declares
+	// a limit; otherwise an unlimited server counts as 0 and trivially bypasses
+	// the quota while consuming unbounded resources. Require the matching limit.
+	if u.MaxMemoryMB > 0 && strings.TrimSpace(memory) == "" {
+		return errors.New("a memory limit is required (your account has a memory quota)")
+	}
+	if u.MaxCPUMilli > 0 && strings.TrimSpace(cpu) == "" {
+		return errors.New("a CPU limit is required (your account has a CPU quota)")
 	}
 	owned, err := s.Store.ListServersByOwner(u.ID)
 	if err != nil {
@@ -478,10 +519,15 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	if q := r.URL.Query().Get("keepData"); q != "" {
 		keep = q == "true"
 	}
-	if err := s.teardownServer(r.Context(), srv, keep); err != nil {
+	// Retain the data volume first, while the PVC still exists to resolve its PV.
+	if err := s.retainDataIfKept(r.Context(), srv, keep); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Remove the DB rows BEFORE the namespace. Once the server row is gone the
+	// reconciler won't recreate the workload, closing the window where a
+	// concurrent reconcile could re-materialize the namespace between teardown
+	// and row deletion. GCOrphanNamespaces is the backstop for the namespace.
 	_ = s.Store.DeleteSchedulesForServer(srv.ID)
 	_ = s.Store.DeleteBackupsForServer(srv.ID)
 	_ = s.Store.DeleteAccessForServer(srv.ID)
@@ -490,26 +536,39 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Best-effort immediate namespace teardown; if it fails, GCOrphanNamespaces
+	// (which deletes managed namespaces with no matching server row) cleans up.
+	if err := s.deleteNamespace(r.Context(), srv.Namespace); err != nil {
+		log.Printf("delete server %s: namespace teardown deferred to GC: %v", srv.Slug, err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// teardownServer removes a server's cluster resources by deleting its namespace.
-// When keepData is set and the server uses a PVC, the bound PersistentVolume's
-// reclaim policy is switched to Retain first, so the underlying volume (and its
-// data) survives the namespace/PVC deletion as a Released PV. hostPath data is
-// inherently retained (deleting the namespace never touches the node path).
-func (s *Server) teardownServer(ctx context.Context, srv *models.Server, keepData bool) error {
-	if keepData && srv.Storage.Type == models.StoragePVC {
-		if pv := s.boundPV(ctx, srv.Namespace); pv != "" {
-			patch := []byte(`{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}`)
-			if _, err := s.Clientset.CoreV1().PersistentVolumes().Patch(ctx, pv, types.StrategicMergePatchType, patch, metav1.PatchOptions{}); err != nil {
-				return fmt.Errorf("retain volume %s: %w", pv, err)
-			}
-			// Surface the retained PV so the operator can recover/rebind it later.
-			log.Printf("server %s deleted with keepData: retained PersistentVolume %q (now Released)", srv.Slug, pv)
-		}
+// retainDataIfKept switches a kept PVC's bound PersistentVolume to Retain so the
+// underlying volume (and its data) survives the namespace/PVC deletion as a
+// Released PV. hostPath data is inherently retained (deleting the namespace never
+// touches the node path), so this is a no-op there.
+func (s *Server) retainDataIfKept(ctx context.Context, srv *models.Server, keepData bool) error {
+	if !keepData || srv.Storage.Type != models.StoragePVC {
+		return nil
 	}
-	err := s.Clientset.CoreV1().Namespaces().Delete(ctx, srv.Namespace, metav1.DeleteOptions{})
+	pv := s.boundPV(ctx, srv.Namespace)
+	if pv == "" {
+		return nil
+	}
+	patch := []byte(`{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}`)
+	if _, err := s.Clientset.CoreV1().PersistentVolumes().Patch(ctx, pv, types.StrategicMergePatchType, patch, metav1.PatchOptions{}); err != nil {
+		return fmt.Errorf("retain volume %s: %w", pv, err)
+	}
+	// Surface the retained PV so the operator can recover/rebind it later.
+	log.Printf("server %s deleted with keepData: retained PersistentVolume %q (now Released)", srv.Slug, pv)
+	return nil
+}
+
+// deleteNamespace removes a server's namespace (cascading its objects), treating
+// an already-absent namespace as success.
+func (s *Server) deleteNamespace(ctx context.Context, ns string) error {
+	err := s.Clientset.CoreV1().Namespaces().Delete(ctx, ns, metav1.DeleteOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}

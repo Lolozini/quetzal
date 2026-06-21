@@ -167,6 +167,50 @@ func TestQuotaEnforcement(t *testing.T) {
 	}
 }
 
+func TestMemoryQuotaRequiresLimit(t *testing.T) {
+	srv, admin := newTestServer(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+	createUser(t, admin, srv.URL, map[string]any{"username": "alice", "password": "alicepw12", "maxMemoryMB": 2048})
+	alice := loginAs(t, srv.URL, "alice", "alicepw12")
+
+	// Without a memory limit the server would count as 0 and bypass the quota.
+	if r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "nolimit", "template": "generic-process"}); r.StatusCode != http.StatusForbidden {
+		t.Errorf("create without memory limit under quota = %d, want 403", r.StatusCode)
+	}
+	// Within the quota with a declared limit: allowed.
+	if r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "ok", "template": "generic-process", "memory": "1Gi"}); r.StatusCode != http.StatusCreated {
+		t.Errorf("create within quota = %d, want 201", r.StatusCode)
+	}
+	// Exceeding the remaining quota: rejected.
+	if r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "toobig", "template": "generic-process", "memory": "4Gi"}); r.StatusCode != http.StatusForbidden {
+		t.Errorf("create exceeding quota = %d, want 403", r.StatusCode)
+	}
+}
+
+func TestEnvValidation(t *testing.T) {
+	srv, admin := newTestServer(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+
+	// Unknown variable -> rejected (no arbitrary env injection).
+	if r := post(t, admin, srv.URL+"/api/servers", map[string]any{
+		"name": "inject", "template": "generic-process", "env": map[string]string{"LD_PRELOAD": "/evil.so"},
+	}); r.StatusCode != http.StatusBadRequest {
+		t.Errorf("unknown env var = %d, want 400", r.StatusCode)
+	}
+	// Non-editable variable -> rejected (minecraft-paper TYPE is fixed).
+	if r := post(t, admin, srv.URL+"/api/servers", map[string]any{
+		"name": "fixed", "template": "minecraft-paper", "env": map[string]string{"TYPE": "FORGE"},
+	}); r.StatusCode != http.StatusBadRequest {
+		t.Errorf("non-editable env var = %d, want 400", r.StatusCode)
+	}
+	// Editable variable -> accepted.
+	if r := post(t, admin, srv.URL+"/api/servers", map[string]any{
+		"name": "okenv", "template": "generic-process", "env": map[string]string{"MESSAGE": "hello"},
+	}); r.StatusCode != http.StatusCreated {
+		t.Errorf("editable env var = %d, want 201", r.StatusCode)
+	}
+}
+
 func TestAPIKeyAuth(t *testing.T) {
 	srv, admin := newTestServer(t)
 	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})

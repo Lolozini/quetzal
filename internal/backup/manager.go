@@ -12,6 +12,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/store"
 )
 
@@ -78,6 +79,17 @@ func (m *Manager) processPending(ctx context.Context) {
 		if err != nil {
 			m.finish(b, models.BackupFailed, 0, "server not found")
 			continue
+		}
+		// A restore overwrites the data volume in place. Never start it while a
+		// pod still mounts that volume (the server must be stopped first): the
+		// two read-write mounts would corrupt the data. Leave the op Pending and
+		// retry once the pod has terminated. The API already refuses to enqueue a
+		// restore for a running server; this also covers the stop grace period.
+		if b.Direction == models.DirRestore {
+			has, err := m.serverHasPods(ctx, srv.Namespace, srv.Slug)
+			if err != nil || has {
+				continue
+			}
 		}
 		hostPath := ""
 		if srv.Storage.Type == models.StorageHostPath {
@@ -153,6 +165,18 @@ func (m *Manager) processRunning(ctx context.Context) {
 			m.cleanup(ctx, srv.Namespace, b.JobName)
 		}
 	}
+}
+
+// serverHasPods reports whether any pod (running or terminating) still exists
+// for a server — i.e. whether its data volume may still be mounted.
+func (m *Manager) serverHasPods(ctx context.Context, ns, slug string) (bool, error) {
+	pods, err := m.CS.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
+		LabelSelector: reconciler.ServerLabel + "=" + slug,
+	})
+	if err != nil {
+		return false, err
+	}
+	return len(pods.Items) > 0, nil
 }
 
 func (m *Manager) ensureSecret(ctx context.Context, sec *corev1.Secret) error {

@@ -87,12 +87,22 @@ func TestE2EBackupRestore(t *testing.T) {
 		t.Errorf("backup size = %d, want > 0", done.SizeBytes)
 	}
 
-	// Destroy the data, then restore from the backup.
+	// Destroy the data.
 	execInPod(ctx, t, cs, cfg, srv.Namespace, pod, []string{"sh", "-c", "rm -f /data/marker.txt"})
 	out := execInPod(ctx, t, cs, cfg, srv.Namespace, pod, []string{"sh", "-c", "cat /data/marker.txt 2>/dev/null || echo GONE"})
 	if !bytes.Contains([]byte(out), []byte("GONE")) {
 		t.Fatalf("marker should be gone before restore, got %q", out)
 	}
+
+	// A restore overwrites the volume in place, so the server must be stopped
+	// first: the Manager refuses to restore while a pod still mounts the volume.
+	if err := st.SetDesiredState(srv.ID, models.StateStopped); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if err := rec.ReconcileServer(ctx, srv.ID); err != nil {
+		t.Fatalf("reconcile stop: %v", err)
+	}
+	waitNoPods(ctx, t, cs, srv.Namespace, srv.Slug)
 
 	r := &models.Backup{ServerID: srv.ID, Direction: models.DirRestore, Phase: models.BackupPending, SourceID: b.ID}
 	if err := st.CreateBackup(r); err != nil {
@@ -100,8 +110,16 @@ func TestE2EBackupRestore(t *testing.T) {
 	}
 	waitBackupPhase(ctx, t, st, mgr, r.ID, models.BackupSucceeded, 4*time.Minute)
 
-	// The marker must be back.
-	out = execInPod(ctx, t, cs, cfg, srv.Namespace, pod, []string{"sh", "-c", "cat /data/marker.txt"})
+	// Start the server again; the restored marker must be back on the volume.
+	if err := st.SetDesiredState(srv.ID, models.StateRunning); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	reconcileUntilRunning(ctx, t, rec, st, srv.ID)
+	pod2, err := console.FindRunningPod(ctx, cs, srv.Namespace, srv.Slug)
+	if err != nil {
+		t.Fatalf("find pod after restart: %v", err)
+	}
+	out = execInPod(ctx, t, cs, cfg, srv.Namespace, pod2, []string{"sh", "-c", "cat /data/marker.txt"})
 	if !bytes.Contains([]byte(out), []byte(marker)) {
 		t.Fatalf("restore did not recover the marker; got %q", out)
 	}
@@ -130,6 +148,24 @@ func TestE2EBackupRestore(t *testing.T) {
 	waitBackupPhase(ctx, t, st, mgr, hb.ID, models.BackupSucceeded, 4*time.Minute)
 	if done, _ := st.GetBackup(hb.ID); done.SizeBytes <= 0 {
 		t.Errorf("hostPath backup size = %d, want > 0", done.SizeBytes)
+	}
+}
+
+// waitNoPods blocks until no pod for the given server slug remains in the
+// namespace (the data volume is fully released).
+func waitNoPods(ctx context.Context, t *testing.T, cs kubernetes.Interface, ns, slug string) {
+	t.Helper()
+	err := wait.PollUntilContextTimeout(ctx, 2*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
+			LabelSelector: reconciler.ServerLabel + "=" + slug,
+		})
+		if err != nil {
+			return false, nil
+		}
+		return len(pods.Items) == 0, nil
+	})
+	if err != nil {
+		t.Fatalf("pods for %s never terminated: %v", slug, err)
 	}
 }
 
