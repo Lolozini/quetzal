@@ -5,6 +5,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -86,6 +87,12 @@ func (s *Scheduler) Tick(ctx context.Context) {
 func (s *Scheduler) run(ctx context.Context, sc *models.Schedule) string {
 	srv, err := s.Store.GetServer(sc.ServerID)
 	if err != nil {
+		// The server is gone (deleted out from under the schedule): remove the
+		// orphan so it stops firing and spamming errors.
+		if errors.Is(err, store.ErrNotFound) {
+			_ = s.Store.DeleteSchedule(sc.ID)
+			return "removed (server deleted)"
+		}
 		return "error: server: " + err.Error()
 	}
 	switch sc.Action {

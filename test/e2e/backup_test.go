@@ -105,6 +105,32 @@ func TestE2EBackupRestore(t *testing.T) {
 	if !bytes.Contains([]byte(out), []byte(marker)) {
 		t.Fatalf("restore did not recover the marker; got %q", out)
 	}
+
+	// A hostPath-backed server (no PVC) must also be backupable.
+	hp := &models.Server{
+		Slug: "e2e-bk-hp", DisplayName: "bk-hp", TemplateID: gen.ID, TemplateVersion: gen.Version,
+		Image: defaultImage(gen), Namespace: reconciler.NamespaceFor("e2e-bk-hp"),
+		DesiredState: models.StateRunning, Env: map[string]string{"MESSAGE": "hi"},
+		Storage: models.Storage{Type: models.StorageHostPath, HostPath: "/tmp/e2e-hp-data"},
+	}
+	if err := st.CreateServer(hp); err != nil {
+		t.Fatalf("create hostPath server: %v", err)
+	}
+	t.Cleanup(func() { _ = rec.DeleteServer(ctx, hp) })
+	reconcileUntilRunning(ctx, t, rec, st, hp.ID)
+	hppod, err := console.FindRunningPod(ctx, cs, hp.Namespace, hp.Slug)
+	if err != nil {
+		t.Fatalf("find hostPath pod: %v", err)
+	}
+	execInPod(ctx, t, cs, cfg, hp.Namespace, hppod, []string{"sh", "-c", "echo hp-marker > /data/hp.txt"})
+	hb := &models.Backup{ServerID: hp.ID, Direction: models.DirBackup, Phase: models.BackupPending}
+	if err := st.CreateBackup(hb); err != nil {
+		t.Fatalf("create hostPath backup: %v", err)
+	}
+	waitBackupPhase(ctx, t, st, mgr, hb.ID, models.BackupSucceeded, 4*time.Minute)
+	if done, _ := st.GetBackup(hb.ID); done.SizeBytes <= 0 {
+		t.Errorf("hostPath backup size = %d, want > 0", done.SizeBytes)
+	}
 }
 
 func waitBackupPhase(ctx context.Context, t *testing.T, st *store.Store, mgr *backup.Manager, id uint, want models.BackupPhase, timeout time.Duration) {

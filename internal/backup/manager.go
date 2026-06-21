@@ -61,18 +61,33 @@ func (m *Manager) processPending(ctx context.Context) {
 		}
 		return
 	}
+	// Serialize per server: never run two operations for the same server at once
+	// (they would contend on that server's restic repository lock).
+	busy := map[uint]bool{}
+	if run, _ := m.Store.ListBackupsByPhase(models.BackupRunning); run != nil {
+		for i := range run {
+			busy[run[i].ServerID] = true
+		}
+	}
 	for i := range pend {
 		b := &pend[i]
+		if busy[b.ServerID] {
+			continue
+		}
 		srv, err := m.Store.GetServer(b.ServerID)
 		if err != nil {
 			m.finish(b, models.BackupFailed, 0, "server not found")
 			continue
 		}
+		hostPath := ""
+		if srv.Storage.Type == models.StorageHostPath {
+			hostPath = srv.Storage.HostPath
+		}
 		p := Params{
 			Image: Image(cfg), Namespace: srv.Namespace, Slug: srv.Slug,
 			BackupID: b.ID, Direction: b.Direction, SourceID: b.SourceID,
-			KeepLast: cfg.KeepLast, Repository: Repository(cfg), Region: cfg.Region,
-			AccessKey: access, SecretKey: secret, RepoPassword: pass,
+			KeepLast: cfg.KeepLast, Repository: Repository(cfg, srv.Slug), Region: cfg.Region,
+			HostPath: hostPath, AccessKey: access, SecretKey: secret, RepoPassword: pass,
 		}
 		if err := m.ensureSecret(ctx, BuildSecret(p)); err != nil {
 			m.finish(b, models.BackupFailed, 0, "create creds secret: "+err.Error())
@@ -88,6 +103,7 @@ func (m *Manager) processPending(ctx context.Context) {
 		if err := m.Store.UpdateBackup(b); err != nil {
 			log.Printf("backup: update %d: %v", b.ID, err)
 		}
+		busy[b.ServerID] = true
 	}
 }
 

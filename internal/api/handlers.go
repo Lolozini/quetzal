@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -422,6 +423,8 @@ func (s *Server) teardownServer(ctx context.Context, srv *models.Server, keepDat
 			if _, err := s.Clientset.CoreV1().PersistentVolumes().Patch(ctx, pv, types.StrategicMergePatchType, patch, metav1.PatchOptions{}); err != nil {
 				return fmt.Errorf("retain volume %s: %w", pv, err)
 			}
+			// Surface the retained PV so the operator can recover/rebind it later.
+			log.Printf("server %s deleted with keepData: retained PersistentVolume %q (now Released)", srv.Slug, pv)
 		}
 	}
 	err := s.Clientset.CoreV1().Namespaces().Delete(ctx, srv.Namespace, metav1.DeleteOptions{})

@@ -29,13 +29,16 @@ const (
 
 // Params is everything needed to render a backup/restore operation.
 type Params struct {
-	Image        string
-	Namespace    string
-	Slug         string
-	BackupID     uint
-	Direction    models.BackupDirection
-	SourceID     uint // restore: the backup ID to restore from
-	KeepLast     int
+	Image     string
+	Namespace string
+	Slug      string
+	BackupID  uint
+	Direction models.BackupDirection
+	SourceID  uint // restore: the backup ID to restore from
+	KeepLast  int
+	// HostPath, when set, mounts the data from a node path instead of the PVC
+	// (hostPath-backed servers).
+	HostPath     string
 	Repository   string // restic repository URL (s3:...)
 	Region       string
 	AccessKey    string
@@ -43,8 +46,10 @@ type Params struct {
 	RepoPassword string
 }
 
-// Repository builds a restic S3 repository URL from a backup config.
-func Repository(cfg *models.BackupConfig) string {
+// Repository builds a restic S3 repository URL for a server. Each server gets
+// its own repository (…/<prefix>/<slug>) so concurrent backups of different
+// servers never contend on restic's exclusive forget/prune lock.
+func Repository(cfg *models.BackupConfig, slug string) string {
 	scheme := "https://"
 	if !cfg.UseSSL {
 		scheme = "http://"
@@ -52,6 +57,9 @@ func Repository(cfg *models.BackupConfig) string {
 	repo := "s3:" + scheme + cfg.Endpoint + "/" + cfg.Bucket
 	if p := strings.Trim(cfg.Prefix, "/"); p != "" {
 		repo += "/" + p
+	}
+	if slug != "" {
+		repo += "/" + slug
 	}
 	return repo
 }
@@ -120,6 +128,22 @@ restic forget --host %q --keep-last %d --prune
 	ttl := int32(1800) // safety net; the controller deletes finished Jobs itself
 	ro := p.Direction == models.DirBackup
 
+	// Mount the same data the server uses: its PVC, or a node hostPath.
+	dataVolume := corev1.Volume{Name: "data"}
+	if p.HostPath != "" {
+		hpType := corev1.HostPathDirectoryOrCreate
+		dataVolume.VolumeSource = corev1.VolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{Path: p.HostPath, Type: &hpType},
+		}
+	} else {
+		dataVolume.VolumeSource = corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: reconciler.DataVolume,
+				ReadOnly:  ro,
+			},
+		}
+	}
+
 	return &batchv1.Job{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "batch/v1", Kind: "Job"},
 		ObjectMeta: metav1.ObjectMeta{Name: JobName(p), Namespace: p.Namespace, Labels: labels(p)},
@@ -141,15 +165,7 @@ restic forget --host %q --keep-last %d --prune
 						}},
 						VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: mountPath, ReadOnly: ro}},
 					}},
-					Volumes: []corev1.Volume{{
-						Name: "data",
-						VolumeSource: corev1.VolumeSource{
-							PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-								ClaimName: reconciler.DataVolume,
-								ReadOnly:  ro,
-							},
-						},
-					}},
+					Volumes: []corev1.Volume{dataVolume},
 				},
 			},
 		},

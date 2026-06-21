@@ -9,13 +9,28 @@ import (
 
 func TestRepository(t *testing.T) {
 	cfg := &models.BackupConfig{Endpoint: "minio.minio.svc:9000", Bucket: "quetzal", Prefix: "/games/", UseSSL: false}
-	if got, want := Repository(cfg), "s3:http://minio.minio.svc:9000/quetzal/games"; got != want {
+	// Per-server repository: prefix + slug appended.
+	if got, want := Repository(cfg, "s1"), "s3:http://minio.minio.svc:9000/quetzal/games/s1"; got != want {
 		t.Errorf("repo = %q, want %q", got, want)
 	}
 	cfg.UseSSL = true
 	cfg.Prefix = ""
-	if got, want := Repository(cfg), "s3:https://minio.minio.svc:9000/quetzal"; got != want {
+	if got, want := Repository(cfg, "valheim"), "s3:https://minio.minio.svc:9000/quetzal/valheim"; got != want {
 		t.Errorf("repo = %q, want %q", got, want)
+	}
+}
+
+func TestBuildJobHostPathVolume(t *testing.T) {
+	// PVC-backed: volume is a PVC.
+	pvc := BuildJob(Params{Slug: "s1", BackupID: 1, Direction: models.DirBackup})
+	if v := pvc.Spec.Template.Spec.Volumes[0]; v.PersistentVolumeClaim == nil || v.HostPath != nil {
+		t.Errorf("expected PVC volume, got %+v", v)
+	}
+	// hostPath-backed: volume is a hostPath at the node path.
+	hp := BuildJob(Params{Slug: "s1", BackupID: 2, Direction: models.DirBackup, HostPath: "/srv/games/s1"})
+	v := hp.Spec.Template.Spec.Volumes[0]
+	if v.HostPath == nil || v.HostPath.Path != "/srv/games/s1" || v.PersistentVolumeClaim != nil {
+		t.Errorf("expected hostPath volume /srv/games/s1, got %+v", v)
 	}
 }
 
