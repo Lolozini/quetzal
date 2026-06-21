@@ -10,9 +10,9 @@ Pterodactyl **egg**) can be deployed.
 
 ## Status
 
-🚧 Early development. **Phases 0–4 implemented** (foundations, MVP, networking &
-observability, scheduled tasks + backups, multi-tenant access control);
-see [ROADMAP](#roadmap).
+🚧 Early development. **Phases 0–5 implemented** (foundations, MVP, networking &
+observability, scheduled tasks + backups, multi-tenant access control,
+hibernation + egg install scripts); see [ROADMAP](#roadmap).
 
 ## Design highlights
 
@@ -36,6 +36,10 @@ see [ROADMAP](#roadmap).
 - **Multi-tenant**: per-server ownership, subusers with scoped permissions,
   admin suspend, per-user quotas, an append-only audit log, and API keys
   (bearer tokens for the public API).
+- **Hibernation**: opt-in scale-to-zero for idle servers (no player connections),
+  woken on demand — saves resources for dormant servers.
+- **Install scripts**: egg install scripts run as a one-time init container, so
+  install-based eggs work out of the box.
 - **Egg-compatible**: import existing Pterodactyl/Pelican eggs to ease migration.
 - **Secure by default**: namespace-per-server, NetworkPolicy, hardened
   securityContext, secrets kept out of the DB in clear text.
@@ -65,7 +69,8 @@ Browser ──HTTP/WS──▶ api-server (UI + REST/WS + console proxy)
 - ✅ **Phase 4** — Multi-tenant: ownership + subusers/permissions, admin suspend,
   per-user quotas, audit log, API keys. _Deferred to later: OIDC/SSO, 2FA/TOTP,
   email/Discord notifications, webhooks._
-- **Phase 5** — Scale-to-zero / hibernation & ecosystem.
+- ✅ **Phase 5** — Hibernation (scale-to-zero on idle) + egg install scripts.
+  _Deferred to later: wake-on-connect proxy, git template sync, sandboxed runtime._
 - **Phase 6** — Multi-cluster.
 
 ## License
