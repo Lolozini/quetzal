@@ -12,7 +12,7 @@ Pterodactyl **egg**) can be deployed.
 
 🚧 Early development. **Phases 0–6 implemented** (foundations, MVP, networking &
 observability, scheduled tasks + backups, multi-tenant access control +
-notifications, hibernation + egg install scripts, multi-cluster); see
+notifications + 2FA, hibernation + egg install scripts, multi-cluster); see
 [ROADMAP](#roadmap).
 
 ## Design highlights
@@ -37,6 +37,9 @@ notifications, hibernation + egg install scripts, multi-cluster); see
 - **Multi-tenant**: per-server ownership, subusers with scoped permissions,
   admin suspend, per-user quotas, an append-only audit log, and API keys
   (bearer tokens for the public API).
+- **Two-factor auth**: opt-in TOTP (RFC 6238) with one-time recovery codes;
+  login becomes a password + code challenge, and admins can reset a locked-out
+  user. Secrets are encrypted at rest.
 - **Notifications**: outbound channels — **Discord**, **generic HMAC-signed
   webhooks**, and **email/SMTP** — fired on events (server up/crash/idle-sleep,
   power, backups, …). Channels are global (catch-all) or scoped to one server,
@@ -79,8 +82,9 @@ Browser ──HTTP/WS──▶ api-server (UI + REST/WS + console proxy)
   Pterodactyl data import._
 - ✅ **Phase 4** — Multi-tenant: ownership + subusers/permissions, admin suspend,
   per-user quotas, audit log, API keys; **notifications** (Discord / webhook /
-  email on events, via a durable event outbox). _Deferred to later: OIDC/SSO,
-  2FA/TOTP, OpenAPI spec for the public API._
+  email on events, via a durable event outbox); **opt-in 2FA (TOTP) with
+  recovery codes**. _Deferred to later: OIDC/SSO, OpenAPI spec for the public
+  API._
 - ✅ **Phase 5** — Hibernation (scale-to-zero on idle) + egg install scripts +
   **wake-on-connect**, in two modes:
   - _drop_ (TCP): a tiny activator listens while hibernated and wakes the server
