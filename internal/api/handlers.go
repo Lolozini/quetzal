@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
 	"errors"
 	"fmt"
 	"log"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/lolozini/quetzal/internal/auth"
 	"github.com/lolozini/quetzal/internal/console"
+	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/egg"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
@@ -666,6 +668,40 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, srv.ID, "server.power", req.Action)
 	writeJSON(w, http.StatusOK, map[string]string{"action": req.Action, "result": "accepted"})
+}
+
+type wakeRequest struct {
+	Slug  string `json:"slug"`
+	Token string `json:"token"`
+}
+
+// handleWake is the wake-on-connect callback from a server's activator: a valid
+// per-server token wakes a hibernated, wake-on-connect server. It never reveals
+// whether a server exists (always 204 unless the token is wrong/body invalid).
+func (s *Server) handleWake(w http.ResponseWriter, r *http.Request) {
+	var req wakeRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	srv, err := s.Store.GetServerBySlug(req.Slug)
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	want := crypto.WakeToken(s.WakeKey, srv.Slug)
+	if !hmac.Equal([]byte(req.Token), []byte(want)) {
+		writeError(w, http.StatusForbidden, "invalid wake token")
+		return
+	}
+	if srv.Hibernation.WakeOnConnect && srv.Hibernated {
+		if err := s.Store.Wake(srv.ID, time.Now()); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.audit(r, srv.ID, "server.wake", "wake-on-connect")
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleSuspend / handleUnsuspend are admin-only: a suspended server is scaled

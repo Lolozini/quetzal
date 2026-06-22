@@ -95,6 +95,7 @@ export interface Expose {
 export interface Hibernation {
   enabled: boolean;
   idleMinutes: number;
+  wakeOnConnect?: boolean;
 }
 
 export interface Port {

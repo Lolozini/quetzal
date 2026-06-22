@@ -5,12 +5,24 @@ package crypto
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"io"
 	"os"
 )
+
+// WakeToken derives a per-server wake-on-connect token from the secret key. The
+// controller injects it into a server's activator; the apiserver recomputes and
+// compares it (constant-time) to authenticate wake callbacks. A nil/empty key
+// still yields a deterministic token (dev only; set QUETZAL_SECRET_KEY in prod).
+func WakeToken(key []byte, slug string) string {
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte("wake:" + slug))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+}
 
 // ErrKeySize is returned for a key that is not 32 bytes (AES-256).
 var ErrKeySize = errors.New("encryption key must be 32 bytes")

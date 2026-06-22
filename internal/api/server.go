@@ -42,6 +42,9 @@ type Server struct {
 	// the Kubernetes default range 30000-32767).
 	NodePortMin int32
 	NodePortMax int32
+	// WakeKey signs/verifies per-server wake-on-connect callback tokens (shared
+	// with the controller via QUETZAL_SECRET_KEY).
+	WakeKey []byte
 
 	upgrader websocket.Upgrader
 }
@@ -78,6 +81,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/setup", s.handleSetup)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
+	// Wake-on-connect callback from a server's activator (token-authenticated,
+	// no session). Reachable in-cluster from server namespaces.
+	mux.HandleFunc("POST /api/internal/wake", s.handleWake)
 	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})

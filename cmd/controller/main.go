@@ -79,6 +79,15 @@ func main() {
 		log.Fatalf("ensure local cluster: %v", err)
 	}
 
+	// Wake-on-connect: the activator runs as the Quetzal image (QUETZAL_IMAGE)
+	// and calls back to the apiserver (QUETZAL_APISERVER_URL) to wake a server.
+	// Disabled when either is unset.
+	actCfg := activatorConfig{
+		image:   env("QUETZAL_IMAGE", ""),
+		wakeURL: wakeURL(env("QUETZAL_APISERVER_URL", "")),
+		key:     crypto.KeyFromEnv("QUETZAL_SECRET_KEY"),
+	}
+
 	sched := scheduler.New(st, &executor{st: st, reg: reg})
 	bmgr := backup.NewManager(st, reg)
 	hmgr := hibernate.New(st, connProbe(reg))
@@ -93,7 +102,7 @@ func main() {
 		ticker := time.NewTicker(resync)
 		defer ticker.Stop()
 		tick := func() {
-			reconcileAll(ctx, reg, st)
+			reconcileAll(ctx, reg, st, actCfg)
 			sched.Tick(ctx)
 			bmgr.Process(ctx)
 			hmgr.Tick(ctx)
@@ -239,7 +248,27 @@ func execCapture(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config,
 // reconcileAll reconciles every server against its target cluster, then garbage
 // collects orphan namespaces per cluster. Servers are grouped by cluster so each
 // cluster's GC only ever sees its own servers' slugs.
-func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store) {
+// activatorConfig carries the wake-on-connect settings applied to each
+// per-cluster reconciler.
+type activatorConfig struct {
+	image   string
+	wakeURL string
+	key     []byte
+}
+
+// wakeURL builds the activator callback URL from the apiserver base URL ("" when
+// unset, which disables wake-on-connect).
+func wakeURL(base string) string {
+	if base == "" {
+		return ""
+	}
+	for len(base) > 0 && base[len(base)-1] == '/' {
+		base = base[:len(base)-1]
+	}
+	return base + "/api/internal/wake"
+}
+
+func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, actCfg activatorConfig) {
 	servers, err := st.ListServers()
 	if err != nil {
 		log.Printf("list servers: %v", err)
@@ -273,6 +302,9 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store) {
 		}
 		rec := reconciler.New(clients.Client, st)
 		rec.OnStop = onStopFor(clients)
+		rec.ActivatorImage = actCfg.image
+		rec.WakeURL = actCfg.wakeURL
+		rec.WakeKey = actCfg.key
 		for _, s := range byCluster[c.ID] {
 			if err := rec.ReconcileServer(ctx, s.ID); err != nil {
 				log.Printf("reconcile server %s (cluster %s): %v", s.Slug, c.Slug, err)

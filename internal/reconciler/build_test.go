@@ -112,7 +112,7 @@ func TestBuildPVCAndService(t *testing.T) {
 		t.Error("expected no PVC for hostPath storage")
 	}
 
-	svc := BuildService(s, tmpl)
+	svc := BuildService(s, tmpl, false)
 	if len(svc.Spec.Ports) != 1 || svc.Spec.Ports[0].Port != 25565 {
 		t.Errorf("service ports = %+v", svc.Spec.Ports)
 	}
@@ -120,7 +120,7 @@ func TestBuildPVCAndService(t *testing.T) {
 
 func TestBuildServiceClusterIPDefault(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
-	svc := BuildService(s, tmpl)
+	svc := BuildService(s, tmpl, false)
 	if svc.Spec.Type != corev1.ServiceTypeClusterIP {
 		t.Errorf("default type = %q, want ClusterIP", svc.Spec.Type)
 	}
@@ -134,7 +134,7 @@ func TestBuildServiceNodePort(t *testing.T) {
 	s.Expose = models.Expose{Type: models.ExposeNodePort}
 	s.Ports = []models.PortSpec{{Name: "game", Port: 25565, Protocol: "TCP", Primary: true, NodePort: 30123}}
 
-	svc := BuildService(s, tmpl)
+	svc := BuildService(s, tmpl, false)
 	if svc.Spec.Type != corev1.ServiceTypeNodePort {
 		t.Fatalf("type = %q, want NodePort", svc.Spec.Type)
 	}
@@ -155,7 +155,7 @@ func TestBuildServiceLoadBalancerAnnotationsAndOptOut(t *testing.T) {
 		Annotations:      map[string]string{"external-dns.alpha.kubernetes.io/hostname": "mc.example.com"},
 		PreserveClientIP: &cluster,
 	}
-	svc := BuildService(s, tmpl)
+	svc := BuildService(s, tmpl, false)
 	if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
 		t.Fatalf("type = %q, want LoadBalancer", svc.Spec.Type)
 	}

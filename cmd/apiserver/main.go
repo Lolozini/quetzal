@@ -69,6 +69,7 @@ func main() {
 	apiSrv.Secure = env("QUETZAL_SECURE_COOKIES", "") == "true"
 	apiSrv.NodePortMin = envInt32("QUETZAL_NODEPORT_MIN", 0)
 	apiSrv.NodePortMax = envInt32("QUETZAL_NODEPORT_MAX", 0)
+	apiSrv.WakeKey = crypto.KeyFromEnv("QUETZAL_SECRET_KEY")
 
 	// /api/* -> API; /metrics + /healthz for ops; everything else -> React SPA.
 	root := http.NewServeMux()

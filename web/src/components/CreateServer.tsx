@@ -21,6 +21,7 @@ export function CreateServer({
   const [cluster, setCluster] = useState("");
   const [hibernate, setHibernate] = useState(false);
   const [idleMin, setIdleMin] = useState(15);
+  const [wakeOnConnect, setWakeOnConnect] = useState(true);
   const [env, setEnv] = useState<Record<string, string>>({});
   const [start, setStart] = useState(true);
   const [error, setError] = useState("");
@@ -74,7 +75,7 @@ export function CreateServer({
           hostPath: storageType === "hostPath" ? hostPath : undefined,
         },
         expose: { type: expose },
-        hibernation: { enabled: hibernate, idleMinutes: idleMin },
+        hibernation: { enabled: hibernate, idleMinutes: idleMin, wakeOnConnect },
         cluster: cluster || undefined,
         env,
       };
@@ -210,6 +211,20 @@ export function CreateServer({
                 &nbsp;min
               </label>
             ) : (
+              <></>
+            )}
+            {tcpOnly && hibernate && (
+              <label className="row" style={{ marginTop: 4 }}>
+                <input
+                  type="checkbox"
+                  style={{ width: "auto" }}
+                  checked={wakeOnConnect}
+                  onChange={(e) => setWakeOnConnect(e.target.checked)}
+                />
+                &nbsp;Wake automatically when a player connects
+              </label>
+            )}
+            {!tcpOnly && (
               <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
                 Auto-sleep is unavailable for UDP servers (idle players can't be
                 detected yet).

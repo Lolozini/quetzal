@@ -14,6 +14,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/store"
 )
@@ -28,6 +29,13 @@ type Reconciler struct {
 	// console attach path). It is best-effort. Injected by the controller to
 	// avoid an import cycle with the console package.
 	OnStop func(ctx context.Context, namespace, slug, stopCommand string) error
+
+	// Wake-on-connect: when ActivatorImage is set, a hibernated server with
+	// wake-on-connect enabled gets a tiny activator that listens on its TCP ports
+	// and calls WakeURL to wake it. WakeKey signs the per-server callback token.
+	ActivatorImage string
+	WakeURL        string
+	WakeKey        []byte
 }
 
 // New returns a Reconciler.
@@ -85,9 +93,16 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 	if err := r.ensureDeployment(ctx, srv, tmpl, secretKeys); err != nil {
 		return fmt.Errorf("deployment: %w", err)
 	}
+	// Wake-on-connect: while hibernated, an activator listens on the server's TCP
+	// ports and the Service points at it; otherwise it points at the real
+	// workload and any activator is removed.
+	activator := r.activatorActive(srv, tmpl)
+	if err := r.ensureActivator(ctx, srv, tmpl, activator); err != nil {
+		return fmt.Errorf("activator: %w", err)
+	}
 	// A Service requires at least one port; skip it for portless servers.
 	if len(serverPorts(srv, tmpl)) > 0 {
-		if err := r.ensureService(ctx, srv, tmpl); err != nil {
+		if err := r.ensureService(ctx, srv, tmpl, activator); err != nil {
 			return fmt.Errorf("service: %w", err)
 		}
 	}
@@ -164,8 +179,30 @@ func (r *Reconciler) ensureDeployment(ctx context.Context, s *models.Server, t *
 	return r.apply(ctx, BuildDeployment(s, t, secretKeys))
 }
 
-func (r *Reconciler) ensureService(ctx context.Context, s *models.Server, t *models.Template) error {
-	return r.apply(ctx, BuildService(s, t))
+func (r *Reconciler) ensureService(ctx context.Context, s *models.Server, t *models.Template, activator bool) error {
+	return r.apply(ctx, BuildService(s, t, activator))
+}
+
+// activatorActive reports whether a wake-on-connect activator should currently
+// front this server: enabled, hibernated, has a TCP port, and an image to run.
+func (r *Reconciler) activatorActive(s *models.Server, t *models.Template) bool {
+	if r.ActivatorImage == "" || !s.Hibernated || !s.Hibernation.WakeOnConnect {
+		return false
+	}
+	return hasTCPPort(serverPorts(s, t))
+}
+
+// ensureActivator creates the activator Deployment when active, or removes it.
+func (r *Reconciler) ensureActivator(ctx context.Context, s *models.Server, t *models.Template, active bool) error {
+	if !active {
+		dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: ActivatorName, Namespace: s.Namespace}}
+		if err := r.Client.Delete(ctx, dep); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+		return nil
+	}
+	token := crypto.WakeToken(r.WakeKey, s.Slug)
+	return r.apply(ctx, BuildActivatorDeployment(s, t, r.ActivatorImage, r.WakeURL, token))
 }
 
 func (r *Reconciler) ensureNetworkPolicy(ctx context.Context, s *models.Server, t *models.Template) error {

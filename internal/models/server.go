@@ -32,6 +32,9 @@ const (
 type Hibernation struct {
 	Enabled     bool `json:"enabled"`
 	IdleMinutes int  `json:"idleMinutes"` // 0 falls back to a default
+	// WakeOnConnect deploys a tiny activator while hibernated that listens on the
+	// server's TCP ports and wakes it when a client connects. TCP only.
+	WakeOnConnect bool `json:"wakeOnConnect"`
 }
 
 // ExposeType selects how a server's ports are made reachable. It maps directly

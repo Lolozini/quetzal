@@ -37,7 +37,8 @@ hibernation + egg install scripts, multi-cluster); see [ROADMAP](#roadmap).
   admin suspend, per-user quotas, an append-only audit log, and API keys
   (bearer tokens for the public API).
 - **Hibernation**: opt-in scale-to-zero for idle servers (no player connections),
-  woken on demand — saves resources for dormant servers.
+  woken on demand or **automatically when a player connects** (a tiny per-server
+  activator listens while the server sleeps) — saves resources for dormant servers.
 - **Install scripts**: egg install scripts run as a one-time init container, so
   install-based eggs work out of the box.
 - **Multi-cluster**: register additional clusters by kubeconfig (stored
@@ -72,10 +73,13 @@ Browser ──HTTP/WS──▶ api-server (UI + REST/WS + console proxy)
 - ✅ **Phase 4** — Multi-tenant: ownership + subusers/permissions, admin suspend,
   per-user quotas, audit log, API keys. _Deferred to later: OIDC/SSO, 2FA/TOTP,
   email/Discord notifications, webhooks._
-- ✅ **Phase 5** — Hibernation (scale-to-zero on idle) + egg install scripts.
-  Idle is detected from TCP connection state, so auto-sleep currently applies to
-  TCP servers only. _Deferred to later: UDP idle detection + wake-on-connect
-  proxy, git template sync, sandboxed runtime._
+- ✅ **Phase 5** — Hibernation (scale-to-zero on idle) + egg install scripts +
+  **wake-on-connect**: while hibernated, a tiny per-server activator listens on
+  the TCP ports and wakes the server when a client connects (the controller then
+  scales the real workload and repoints the Service). The first connection is
+  dropped — reconnect once it's up. TCP only; idle detection is also TCP-based.
+  _Deferred to later: UDP wake/idle + transparent connection holding, git
+  template sync, sandboxed runtime._
 - ✅ **Phase 6** — Multi-cluster: a kubeconfig-based cluster registry (encrypted
   at rest), per-server deploy target, per-cluster reconcile + GC + status probes,
   and read-only node listing. _Deferred to later: moving a server between

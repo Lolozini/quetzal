@@ -90,6 +90,12 @@ spec:
               value: ":9090"
             - name: QUETZAL_RESYNC
               value: {{ .Values.resync | quote }}
+            # Wake-on-connect: the activator runs as this same image and calls
+            # back to the apiserver Service to wake a server.
+            - name: QUETZAL_IMAGE
+              value: {{ include "quetzal.image" . | quote }}
+            - name: QUETZAL_APISERVER_URL
+              value: "http://{{ include "quetzal.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}"
           ports:
             - name: metrics
               containerPort: 9090

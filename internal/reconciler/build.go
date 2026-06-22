@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -20,6 +22,13 @@ const (
 	managedByValue = "quetzal"
 	// ServerLabel marks objects belonging to a given server (value = slug).
 	ServerLabel = "quetzal.dev/server"
+	// ActivatorLabel marks a server's wake-on-connect activator pods (value =
+	// slug). It is deliberately distinct from ServerLabel so the real workload's
+	// Deployment never adopts activator pods; the Service selector flips between
+	// the two.
+	ActivatorLabel = "quetzal.dev/activator"
+	// ActivatorName is the activator Deployment's name within a server namespace.
+	ActivatorName = "activator"
 	// WorkloadName is the Deployment/Service name within a server's namespace.
 	WorkloadName = "server"
 	// DataVolume is the name of a server's data PVC/volume.
@@ -163,8 +172,14 @@ func BuildDeployment(s *models.Server, t *models.Template, secretKeys []string) 
 }
 
 // BuildService projects a server into a Service whose type follows the server's
-// exposure (ClusterIP by default, NodePort or LoadBalancer when published).
-func BuildService(s *models.Server, t *models.Template) *corev1.Service {
+// exposure (ClusterIP by default, NodePort or LoadBalancer when published). When
+// activator is true the selector points at the wake-on-connect activator pods
+// instead of the (scaled-to-zero) real workload.
+func BuildService(s *models.Server, t *models.Template, activator bool) *corev1.Service {
+	selectorLabel, selectorValue := serverLabel, s.Slug
+	if activator {
+		selectorLabel = ActivatorLabel
+	}
 	exposeNodePort := s.Expose.ServiceType() == models.ExposeNodePort
 	var ports []corev1.ServicePort
 	for _, p := range serverPorts(s, t) {
@@ -192,7 +207,7 @@ func BuildService(s *models.Server, t *models.Template) *corev1.Service {
 		},
 		Spec: corev1.ServiceSpec{
 			Type:     serviceType(s.Expose.ServiceType()),
-			Selector: map[string]string{serverLabel: s.Slug},
+			Selector: map[string]string{selectorLabel: selectorValue},
 			Ports:    ports,
 		},
 	}
@@ -203,6 +218,83 @@ func BuildService(s *models.Server, t *models.Template) *corev1.Service {
 	}
 	return svc
 }
+
+// activatorBinary is the activator command inside the Quetzal image.
+const activatorBinary = "/usr/local/bin/quetzal-activator"
+
+// BuildActivatorDeployment renders the per-server wake-on-connect activator: a
+// tiny Deployment that listens on the server's TCP ports and calls back to wake
+// the server. It runs only while the server is hibernated with wake-on-connect
+// enabled, and is removed once the server wakes.
+func BuildActivatorDeployment(s *models.Server, t *models.Template, image, wakeURL, token string) *appsv1.Deployment {
+	labels := map[string]string{managedByLabel: managedByValue, ActivatorLabel: s.Slug}
+	one := int32(1)
+	no := false
+	yes := true
+
+	var portCSV []string
+	var cports []corev1.ContainerPort
+	for _, p := range tcpPorts(serverPorts(s, t)) {
+		portCSV = append(portCSV, strconv.Itoa(int(p.Port)))
+		cports = append(cports, corev1.ContainerPort{ContainerPort: p.Port, Protocol: corev1.ProtocolTCP})
+	}
+
+	return &appsv1.Deployment{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
+		ObjectMeta: metav1.ObjectMeta{Name: ActivatorName, Namespace: s.Namespace, Labels: labels},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &one,
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{ActivatorLabel: s.Slug}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels},
+				Spec: corev1.PodSpec{
+					SecurityContext: &corev1.PodSecurityContext{
+						RunAsNonRoot:   &yes,
+						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+					},
+					Containers: []corev1.Container{{
+						Name:            "activator",
+						Image:           image,
+						ImagePullPolicy: corev1.PullIfNotPresent,
+						Command:         []string{activatorBinary},
+						Ports:           cports,
+						Env: []corev1.EnvVar{
+							{Name: "QUETZAL_WAKE_URL", Value: wakeURL},
+							{Name: "QUETZAL_WAKE_SLUG", Value: s.Slug},
+							{Name: "QUETZAL_WAKE_TOKEN", Value: token},
+							{Name: "QUETZAL_PORTS", Value: strings.Join(portCSV, ",")},
+						},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("10m"),
+								corev1.ResourceMemory: resource.MustParse("16Mi"),
+							},
+							Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("32Mi")},
+						},
+						SecurityContext: &corev1.SecurityContext{
+							AllowPrivilegeEscalation: &no,
+							ReadOnlyRootFilesystem:   &yes,
+							Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+						},
+					}},
+				},
+			},
+		},
+	}
+}
+
+// tcpPorts returns the subset of ports that are TCP (UDP can't be wake-on-connect).
+func tcpPorts(ports []models.PortSpec) []models.PortSpec {
+	var out []models.PortSpec
+	for _, p := range ports {
+		if !strings.EqualFold(p.Protocol, "UDP") {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func hasTCPPort(ports []models.PortSpec) bool { return len(tcpPorts(ports)) > 0 }
 
 func serviceType(e models.ExposeType) corev1.ServiceType {
 	switch e {

@@ -54,6 +54,21 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
 
   const clusterName = (cid?: number) => clusters.find((c) => c.id === cid)?.name;
 
+  // saveHib patches the hibernation policy while preserving the unspecified
+  // fields (so toggling one control never silently clears the others).
+  function saveHib(patch: Partial<NonNullable<Server["hibernation"]>>) {
+    const cur = srv?.hibernation;
+    api
+      .setHibernation(id, {
+        enabled: cur?.enabled ?? false,
+        idleMinutes: cur?.idleMinutes || 15,
+        wakeOnConnect: cur?.wakeOnConnect ?? false,
+        ...patch,
+      })
+      .then(setSrv)
+      .catch((err) => setError(String(err)));
+  }
+
   async function changeExpose(type: ExposeType) {
     setError("");
     try {
@@ -241,15 +256,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
                   type="checkbox"
                   style={{ width: "auto" }}
                   checked={!!srv.hibernation?.enabled}
-                  onChange={(e) =>
-                    api
-                      .setHibernation(id, {
-                        enabled: e.target.checked,
-                        idleMinutes: srv.hibernation?.idleMinutes || 15,
-                      })
-                      .then(setSrv)
-                      .catch((err) => setError(String(err)))
-                  }
+                  onChange={(e) => saveHib({ enabled: e.target.checked })}
                 />
                 &nbsp;auto-sleep when idle after&nbsp;
               </label>
@@ -258,17 +265,20 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
                 min={1}
                 style={{ width: 70 }}
                 value={srv.hibernation?.idleMinutes || 15}
-                onChange={(e) =>
-                  api
-                    .setHibernation(id, {
-                      enabled: !!srv.hibernation?.enabled,
-                      idleMinutes: Number(e.target.value),
-                    })
-                    .then(setSrv)
-                    .catch((err) => setError(String(err)))
-                }
+                onChange={(e) => saveHib({ idleMinutes: Number(e.target.value) })}
               />
               &nbsp;min
+              {srv.hibernation?.enabled && (
+                <label className="row" style={{ width: "auto", marginTop: 4 }}>
+                  <input
+                    type="checkbox"
+                    style={{ width: "auto" }}
+                    checked={!!srv.hibernation?.wakeOnConnect}
+                    onChange={(e) => saveHib({ wakeOnConnect: e.target.checked })}
+                  />
+                  &nbsp;wake when a player connects
+                </label>
+              )}
             </span>
           </div>
         )}
