@@ -63,6 +63,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
         enabled: cur?.enabled ?? false,
         idleMinutes: cur?.idleMinutes || 15,
         wakeOnConnect: cur?.wakeOnConnect ?? false,
+        proxy: cur?.proxy ?? false,
         ...patch,
       })
       .then(setSrv)
@@ -89,10 +90,9 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
   }
 
   const canManage = !!srv && (user.isAdmin || srv.ownerId === user.id);
-  // Idle detection only works over TCP; hide the hibernation control for any
-  // server exposing a UDP port (the controller treats it as ineligible anyway).
-  const tcpOnly =
-    !!srv?.ports && srv.ports.length > 0 && srv.ports.every((p) => p.protocol.toUpperCase() !== "UDP");
+  const hasPorts = !!srv?.ports && srv.ports.length > 0;
+  // TCP-only servers can use the lightweight wake-on-connect; UDP needs the proxy.
+  const tcpOnly = hasPorts && srv!.ports!.every((p) => p.protocol.toUpperCase() !== "UDP");
 
   const powerNotice: Record<PowerAction, string> = {
     start: "Start requested — the server is spinning up.",
@@ -247,7 +247,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
             </>
           )}
         </div>
-        {canManage && tcpOnly && (
+        {canManage && hasPorts && (
           <div className="kv" style={{ marginTop: 12 }}>
             <span className="k">Hibernation</span>
             <span>
@@ -269,15 +269,34 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
               />
               &nbsp;min
               {srv.hibernation?.enabled && (
-                <label className="row" style={{ width: "auto", marginTop: 4 }}>
-                  <input
-                    type="checkbox"
-                    style={{ width: "auto" }}
-                    checked={!!srv.hibernation?.wakeOnConnect}
-                    onChange={(e) => saveHib({ wakeOnConnect: e.target.checked })}
-                  />
-                  &nbsp;wake when a player connects
-                </label>
+                <>
+                  {tcpOnly && (
+                    <label className="row" style={{ width: "auto", marginTop: 4 }}>
+                      <input
+                        type="checkbox"
+                        style={{ width: "auto" }}
+                        checked={!!srv.hibernation?.wakeOnConnect && !srv.hibernation?.proxy}
+                        disabled={!!srv.hibernation?.proxy}
+                        onChange={(e) => saveHib({ wakeOnConnect: e.target.checked })}
+                      />
+                      &nbsp;wake when a player connects (TCP)
+                    </label>
+                  )}
+                  <label className="row" style={{ width: "auto", marginTop: 4 }}>
+                    <input
+                      type="checkbox"
+                      style={{ width: "auto" }}
+                      checked={!!srv.hibernation?.proxy}
+                      onChange={(e) => saveHib({ proxy: e.target.checked })}
+                    />
+                    &nbsp;transparent proxy (TCP+UDP, no reconnect)
+                  </label>
+                  {!tcpOnly && !srv.hibernation?.proxy && (
+                    <div className="error" style={{ fontSize: 12 }}>
+                      UDP servers need the transparent proxy to auto-sleep.
+                    </div>
+                  )}
+                </>
               )}
             </span>
           </div>

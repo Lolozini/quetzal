@@ -96,6 +96,7 @@ export interface Hibernation {
   enabled: boolean;
   idleMinutes: number;
   wakeOnConnect?: boolean;
+  proxy?: boolean;
 }
 
 export interface Port {

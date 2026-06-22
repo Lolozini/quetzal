@@ -82,10 +82,12 @@ func main() {
 	// Wake-on-connect: the activator runs as the Quetzal image (QUETZAL_IMAGE)
 	// and calls back to the apiserver (QUETZAL_APISERVER_URL) to wake a server.
 	// Disabled when either is unset.
+	apiBase := env("QUETZAL_APISERVER_URL", "")
 	actCfg := activatorConfig{
-		image:   env("QUETZAL_IMAGE", ""),
-		wakeURL: wakeURL(env("QUETZAL_APISERVER_URL", "")),
-		key:     crypto.KeyFromEnv("QUETZAL_SECRET_KEY"),
+		image:     env("QUETZAL_IMAGE", ""),
+		wakeURL:   apiCallbackURL(apiBase, "wake"),
+		activeURL: apiCallbackURL(apiBase, "active"),
+		key:       crypto.KeyFromEnv("QUETZAL_SECRET_KEY"),
 	}
 
 	sched := scheduler.New(st, &executor{st: st, reg: reg})
@@ -251,21 +253,22 @@ func execCapture(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config,
 // activatorConfig carries the wake-on-connect settings applied to each
 // per-cluster reconciler.
 type activatorConfig struct {
-	image   string
-	wakeURL string
-	key     []byte
+	image     string
+	wakeURL   string
+	activeURL string
+	key       []byte
 }
 
-// wakeURL builds the activator callback URL from the apiserver base URL ("" when
-// unset, which disables wake-on-connect).
-func wakeURL(base string) string {
+// apiCallbackURL builds an activator callback URL from the apiserver base URL
+// ("" when unset, which disables wake-on-connect).
+func apiCallbackURL(base, kind string) string {
 	if base == "" {
 		return ""
 	}
 	for len(base) > 0 && base[len(base)-1] == '/' {
 		base = base[:len(base)-1]
 	}
-	return base + "/api/internal/wake"
+	return base + "/api/internal/" + kind
 }
 
 func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, actCfg activatorConfig) {
@@ -304,6 +307,7 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 		rec.OnStop = onStopFor(clients)
 		rec.ActivatorImage = actCfg.image
 		rec.WakeURL = actCfg.wakeURL
+		rec.ActiveURL = actCfg.activeURL
 		rec.WakeKey = actCfg.key
 		for _, s := range byCluster[c.ID] {
 			if err := rec.ReconcileServer(ctx, s.ID); err != nil {

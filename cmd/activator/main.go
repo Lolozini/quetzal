@@ -1,11 +1,19 @@
-// Command activator stands in for a hibernated server. It listens on the
-// server's TCP game ports and, on the first connection, asks the control plane
-// to wake the server (scale it back up) via an authenticated callback. It holds
-// no cluster credentials and no game state — it only nudges the database (the
-// source of truth); the controller then scales the real workload and repoints
-// the Service. The triggering connection is dropped, so clients reconnect once
-// the server is up. TCP only; wake-and-proxy and UDP are intentionally out of
-// scope (see README).
+// Command activator fronts a hibernated server so a client connection can wake
+// it. It has two modes (QUETZAL_MODE):
+//
+//   - "drop" (default): a lightweight TCP listener that, on the first
+//     connection, asks the control plane to wake the server and then drops the
+//     connection (clients reconnect once it is up). It is out of the data path
+//     when the server is awake, so it adds no latency and the server sees the
+//     real client IP.
+//   - "proxy": an always-in-path TCP+UDP proxy to the real workload (via the
+//     server's internal Service). It wakes the server on a new flow, holds/
+//     forwards traffic transparently (no reconnect), supports UDP, and reports
+//     activity so UDP servers can also auto-hibernate. Trade-offs: a small extra
+//     hop and the server sees the proxy's IP rather than the client's.
+//
+// The activator holds no cluster credentials; it only nudges the database (the
+// source of truth) via authenticated callbacks.
 package main
 
 import (
@@ -22,26 +30,48 @@ import (
 )
 
 func main() {
+	switch os.Getenv("QUETZAL_MODE") {
+	case "proxy":
+		runProxy()
+	default:
+		runDrop()
+	}
+}
+
+// runDrop is the lightweight wake-and-drop mode.
+func runDrop() {
 	wakeURL := os.Getenv("QUETZAL_WAKE_URL")
-	ports := splitPorts(os.Getenv("QUETZAL_PORTS"))
+	ports := splitPorts(os.Getenv("QUETZAL_TCP_PORTS"))
 	if wakeURL == "" || len(ports) == 0 {
-		log.Fatalf("activator: QUETZAL_WAKE_URL and QUETZAL_PORTS are required")
+		log.Fatalf("activator: QUETZAL_WAKE_URL and QUETZAL_TCP_PORTS are required")
 	}
 	slug := os.Getenv("QUETZAL_WAKE_SLUG")
 	token := os.Getenv("QUETZAL_WAKE_TOKEN")
-	w := &waker{
-		cooldown: 15 * time.Second,
-		post:     func() error { return postWake(wakeURL, slug, token) },
-	}
+	w := &waker{cooldown: 15 * time.Second, post: func() error { return postCallback(wakeURL, slug, token) }}
 	for _, p := range ports {
-		go listen(p, w, slug)
+		go dropListen(p, w)
 	}
-	log.Printf("activator: waiting for a connection to wake %q on ports %v", slug, ports)
-	select {} // run until the pod is removed
+	log.Printf("activator(drop): waiting for a connection to wake %q on %v", slug, ports)
+	select {}
 }
 
-// waker fires a wake callback, debounced to at most once per cooldown so a burst
-// of connection attempts produces a single wake.
+func dropListen(port string, w *waker) {
+	ln, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		log.Fatalf("activator: listen %s: %v", port, err)
+	}
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			continue
+		}
+		w.trigger()
+		_ = conn.Close()
+	}
+}
+
+// waker fires a callback, debounced to at most once per cooldown so a burst of
+// connection attempts produces a single call.
 type waker struct {
 	cooldown time.Duration
 	post     func() error
@@ -73,22 +103,8 @@ func (w *waker) trigger() {
 	}
 }
 
-func listen(port string, w *waker, slug string) {
-	ln, err := net.Listen("tcp", ":"+port)
-	if err != nil {
-		log.Fatalf("activator: listen %s: %v", port, err)
-	}
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			continue
-		}
-		w.trigger()
-		_ = conn.Close()
-	}
-}
-
-func postWake(url, slug, token string) error {
+// postCallback POSTs {slug, token} to a control-plane callback URL.
+func postCallback(url, slug, token string) error {
 	body, _ := json.Marshal(map[string]string{"slug": slug, "token": token})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

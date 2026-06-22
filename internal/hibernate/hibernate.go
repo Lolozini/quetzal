@@ -57,13 +57,19 @@ func (m *Manager) Tick(ctx context.Context) {
 		if !eligible(srv) {
 			continue
 		}
-		conns, err := m.Probe(ctx, srv)
-		if err != nil {
-			continue // fail-safe: can't measure -> assume active
-		}
-		if conns > 0 {
-			_ = m.Store.UpdateLastActive(srv.ID, now)
-			continue
+		// Proxy-mode servers don't get probed: the in-path proxy reports activity
+		// by bumping LastActiveAt (the only way to measure UDP), so we rely on
+		// that timestamp's freshness. Other servers are probed for TCP
+		// connections and have their timer bumped here when active.
+		if !srv.Hibernation.Proxy {
+			conns, err := m.Probe(ctx, srv)
+			if err != nil {
+				continue // fail-safe: can't measure -> assume active
+			}
+			if conns > 0 {
+				_ = m.Store.UpdateLastActive(srv.ID, now)
+				continue
+			}
 		}
 		// Idle: start the timer on first observation, hibernate once it elapses.
 		if srv.LastActiveAt == nil {
@@ -78,10 +84,15 @@ func (m *Manager) Tick(ctx context.Context) {
 }
 
 func eligible(srv *models.Server) bool {
-	return srv.Hibernation.Enabled &&
-		srv.DesiredState == models.StateRunning &&
-		!srv.Hibernated &&
-		measurablePorts(srv)
+	if !srv.Hibernation.Enabled || srv.DesiredState != models.StateRunning || srv.Hibernated {
+		return false
+	}
+	// Proxy mode measures activity (incl. UDP) via the in-path proxy, so any
+	// ported server qualifies; otherwise idle is read from TCP state only.
+	if srv.Hibernation.Proxy {
+		return len(srv.Ports) > 0
+	}
+	return measurablePorts(srv)
 }
 
 // measurablePorts reports whether idle can be reliably measured from TCP

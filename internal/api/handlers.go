@@ -708,6 +708,26 @@ func (s *Server) handleWake(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleActive is the proxy's activity heartbeat: a valid token bumps the
+// server's idle timer (LastActiveAt). This is how UDP activity is measured —
+// /proc/net/tcp can't see it. Always 204 (no existence leak).
+func (s *Server) handleActive(w http.ResponseWriter, r *http.Request) {
+	var req wakeRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	srv, err := s.Store.GetServerBySlug(req.Slug)
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if hmac.Equal([]byte(req.Token), []byte(crypto.WakeToken(s.WakeKey, srv.Slug))) {
+		_ = s.Store.UpdateLastActive(srv.ID, time.Now())
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // handleSuspend / handleUnsuspend are admin-only: a suspended server is scaled
 // to zero by the reconciler and its owner cannot power it back on.
 func (s *Server) handleSuspend(w http.ResponseWriter, r *http.Request) {

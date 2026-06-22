@@ -33,8 +33,15 @@ type Hibernation struct {
 	Enabled     bool `json:"enabled"`
 	IdleMinutes int  `json:"idleMinutes"` // 0 falls back to a default
 	// WakeOnConnect deploys a tiny activator while hibernated that listens on the
-	// server's TCP ports and wakes it when a client connects. TCP only.
+	// server's TCP ports and wakes it when a client connects, then drops the
+	// connection (clients reconnect). Out of the data path when awake. TCP only.
 	WakeOnConnect bool `json:"wakeOnConnect"`
+	// Proxy uses an always-in-path TCP+UDP proxy instead: it wakes the server on
+	// a new flow and forwards traffic transparently (no reconnect), supports UDP,
+	// and reports activity so UDP servers can auto-hibernate too. Trade-offs: a
+	// small extra hop and the server sees the proxy's IP, not the client's.
+	// When set, it supersedes WakeOnConnect.
+	Proxy bool `json:"proxy"`
 }
 
 // ExposeType selects how a server's ports are made reachable. It maps directly

@@ -222,21 +222,52 @@ func BuildService(s *models.Server, t *models.Template, activator bool) *corev1.
 // activatorBinary is the activator command inside the Quetzal image.
 const activatorBinary = "/usr/local/bin/quetzal-activator"
 
-// BuildActivatorDeployment renders the per-server wake-on-connect activator: a
-// tiny Deployment that listens on the server's TCP ports and calls back to wake
-// the server. It runs only while the server is hibernated with wake-on-connect
-// enabled, and is removed once the server wakes.
-func BuildActivatorDeployment(s *models.Server, t *models.Template, image, wakeURL, token string) *appsv1.Deployment {
+// InternalServiceName is the per-server ClusterIP Service that always selects the
+// real workload, giving the proxy activator a stable backend address.
+const InternalServiceName = "server-internal"
+
+// ActivatorParams configures a server's activator Deployment.
+type ActivatorParams struct {
+	Image     string
+	WakeURL   string
+	ActiveURL string // proxy mode only
+	Token     string
+	Proxy     bool // true = always-in-path TCP+UDP proxy; false = lightweight wake-and-drop
+}
+
+// BuildActivatorDeployment renders a server's activator. In drop mode it listens
+// on the TCP ports and wakes on connect; in proxy mode it forwards TCP+UDP to the
+// internal Service and reports activity.
+func BuildActivatorDeployment(s *models.Server, t *models.Template, p ActivatorParams) *appsv1.Deployment {
 	labels := map[string]string{managedByLabel: managedByValue, ActivatorLabel: s.Slug}
 	one := int32(1)
 	no := false
 	yes := true
 
-	var portCSV []string
+	ports := serverPorts(s, t)
+	var tcpCSV, udpCSV []string
 	var cports []corev1.ContainerPort
-	for _, p := range tcpPorts(serverPorts(s, t)) {
-		portCSV = append(portCSV, strconv.Itoa(int(p.Port)))
-		cports = append(cports, corev1.ContainerPort{ContainerPort: p.Port, Protocol: corev1.ProtocolTCP})
+	for _, pt := range tcpPorts(ports) {
+		tcpCSV = append(tcpCSV, strconv.Itoa(int(pt.Port)))
+		cports = append(cports, corev1.ContainerPort{ContainerPort: pt.Port, Protocol: corev1.ProtocolTCP})
+	}
+	env := []corev1.EnvVar{
+		{Name: "QUETZAL_WAKE_URL", Value: p.WakeURL},
+		{Name: "QUETZAL_WAKE_SLUG", Value: s.Slug},
+		{Name: "QUETZAL_WAKE_TOKEN", Value: p.Token},
+		{Name: "QUETZAL_TCP_PORTS", Value: strings.Join(tcpCSV, ",")},
+	}
+	if p.Proxy {
+		for _, pt := range udpPorts(ports) {
+			udpCSV = append(udpCSV, strconv.Itoa(int(pt.Port)))
+			cports = append(cports, corev1.ContainerPort{ContainerPort: pt.Port, Protocol: corev1.ProtocolUDP})
+		}
+		env = append(env,
+			corev1.EnvVar{Name: "QUETZAL_MODE", Value: "proxy"},
+			corev1.EnvVar{Name: "QUETZAL_BACKEND", Value: fmt.Sprintf("%s.%s.svc", InternalServiceName, s.Namespace)},
+			corev1.EnvVar{Name: "QUETZAL_UDP_PORTS", Value: strings.Join(udpCSV, ",")},
+			corev1.EnvVar{Name: "QUETZAL_ACTIVE_URL", Value: p.ActiveURL},
+		)
 	}
 
 	return &appsv1.Deployment{
@@ -254,22 +285,17 @@ func BuildActivatorDeployment(s *models.Server, t *models.Template, image, wakeU
 					},
 					Containers: []corev1.Container{{
 						Name:            "activator",
-						Image:           image,
+						Image:           p.Image,
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						Command:         []string{activatorBinary},
 						Ports:           cports,
-						Env: []corev1.EnvVar{
-							{Name: "QUETZAL_WAKE_URL", Value: wakeURL},
-							{Name: "QUETZAL_WAKE_SLUG", Value: s.Slug},
-							{Name: "QUETZAL_WAKE_TOKEN", Value: token},
-							{Name: "QUETZAL_PORTS", Value: strings.Join(portCSV, ",")},
-						},
+						Env:             env,
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("10m"),
 								corev1.ResourceMemory: resource.MustParse("16Mi"),
 							},
-							Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("32Mi")},
+							Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("64Mi")},
 						},
 						SecurityContext: &corev1.SecurityContext{
 							AllowPrivilegeEscalation: &no,
@@ -283,11 +309,49 @@ func BuildActivatorDeployment(s *models.Server, t *models.Template, image, wakeU
 	}
 }
 
-// tcpPorts returns the subset of ports that are TCP (UDP can't be wake-on-connect).
+// BuildInternalService is the proxy's stable backend: a ClusterIP Service that
+// always selects the real workload (so the proxy can reach it by a fixed DNS
+// name regardless of the public Service's selector).
+func BuildInternalService(s *models.Server, t *models.Template) *corev1.Service {
+	var ports []corev1.ServicePort
+	for _, p := range serverPorts(s, t) {
+		ports = append(ports, corev1.ServicePort{
+			Name:       p.Name,
+			Port:       p.Port,
+			TargetPort: intstr.FromInt32(p.Port),
+			Protocol:   protocol(p.Protocol),
+		})
+	}
+	return &corev1.Service{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      InternalServiceName,
+			Namespace: s.Namespace,
+			Labels:    labelsFor(s),
+		},
+		Spec: corev1.ServiceSpec{
+			Type:     corev1.ServiceTypeClusterIP,
+			Selector: map[string]string{serverLabel: s.Slug},
+			Ports:    ports,
+		},
+	}
+}
+
+// tcpPorts / udpPorts split a port list by protocol (empty protocol = TCP).
 func tcpPorts(ports []models.PortSpec) []models.PortSpec {
 	var out []models.PortSpec
 	for _, p := range ports {
 		if !strings.EqualFold(p.Protocol, "UDP") {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func udpPorts(ports []models.PortSpec) []models.PortSpec {
+	var out []models.PortSpec
+	for _, p := range ports {
+		if strings.EqualFold(p.Protocol, "UDP") {
 			out = append(out, p)
 		}
 	}

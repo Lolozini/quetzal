@@ -74,11 +74,16 @@ Browser ──HTTP/WS──▶ api-server (UI + REST/WS + console proxy)
   per-user quotas, audit log, API keys. _Deferred to later: OIDC/SSO, 2FA/TOTP,
   email/Discord notifications, webhooks._
 - ✅ **Phase 5** — Hibernation (scale-to-zero on idle) + egg install scripts +
-  **wake-on-connect**: while hibernated, a tiny per-server activator listens on
-  the TCP ports and wakes the server when a client connects (the controller then
-  scales the real workload and repoints the Service). The first connection is
-  dropped — reconnect once it's up. TCP only; idle detection is also TCP-based.
-  _Deferred to later: UDP wake/idle + transparent connection holding, git
+  **wake-on-connect**, in two modes:
+  - _drop_ (TCP): a tiny activator listens while hibernated and wakes the server
+    on connect, then drops it (reconnect once up). Out of the data path when
+    awake — no latency, the server sees the real client IP.
+  - _proxy_ (TCP+UDP): an always-in-path proxy forwards traffic transparently
+    (no reconnect), supports UDP, and reports activity so **UDP servers can also
+    auto-hibernate**. Trade-offs: a small extra hop and the server sees the
+    proxy's IP, not the client's.
+
+  _Deferred to later: PROXY-protocol / real client IP in proxy mode, git
   template sync, sandboxed runtime._
 - ✅ **Phase 6** — Multi-cluster: a kubeconfig-based cluster registry (encrypted
   at rest), per-server deploy target, per-cluster reconcile + GC + status probes,

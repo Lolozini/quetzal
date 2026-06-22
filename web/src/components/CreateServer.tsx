@@ -22,6 +22,7 @@ export function CreateServer({
   const [hibernate, setHibernate] = useState(false);
   const [idleMin, setIdleMin] = useState(15);
   const [wakeOnConnect, setWakeOnConnect] = useState(true);
+  const [proxy, setProxy] = useState(false);
   const [env, setEnv] = useState<Record<string, string>>({});
   const [start, setStart] = useState(true);
   const [error, setError] = useState("");
@@ -36,6 +37,8 @@ export function CreateServer({
       if (v.default) e[v.envVariable] = v.default;
     });
     setEnv(e);
+    // UDP servers can only auto-sleep via the transparent proxy, so default it on.
+    setProxy((t.ports ?? []).some((p) => p.protocol.toUpperCase() === "UDP"));
   }
 
   useEffect(() => {
@@ -75,7 +78,7 @@ export function CreateServer({
           hostPath: storageType === "hostPath" ? hostPath : undefined,
         },
         expose: { type: expose },
-        hibernation: { enabled: hibernate, idleMinutes: idleMin, wakeOnConnect },
+        hibernation: { enabled: hibernate, idleMinutes: idleMin, wakeOnConnect: wakeOnConnect && !proxy, proxy },
         cluster: cluster || undefined,
         env,
       };
@@ -192,43 +195,52 @@ export function CreateServer({
               Ports:{" "}
               {tpl.ports.map((p) => `${p.port}/${p.protocol}`).join(", ")}
             </div>
-            {tcpOnly ? (
-              <label className="row" style={{ marginTop: 8 }}>
-                <input
-                  type="checkbox"
-                  style={{ width: "auto" }}
-                  checked={hibernate}
-                  onChange={(e) => setHibernate(e.target.checked)}
-                />
-                &nbsp;Auto-sleep when idle (no players) after&nbsp;
-                <input
-                  type="number"
-                  min={1}
-                  style={{ width: 70 }}
-                  value={idleMin}
-                  onChange={(e) => setIdleMin(Number(e.target.value))}
-                />
-                &nbsp;min
-              </label>
-            ) : (
-              <></>
-            )}
-            {tcpOnly && hibernate && (
-              <label className="row" style={{ marginTop: 4 }}>
-                <input
-                  type="checkbox"
-                  style={{ width: "auto" }}
-                  checked={wakeOnConnect}
-                  onChange={(e) => setWakeOnConnect(e.target.checked)}
-                />
-                &nbsp;Wake automatically when a player connects
-              </label>
-            )}
-            {!tcpOnly && (
-              <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-                Auto-sleep is unavailable for UDP servers (idle players can't be
-                detected yet).
-              </div>
+            <label className="row" style={{ marginTop: 8 }}>
+              <input
+                type="checkbox"
+                style={{ width: "auto" }}
+                checked={hibernate}
+                onChange={(e) => setHibernate(e.target.checked)}
+              />
+              &nbsp;Auto-sleep when idle (no players) after&nbsp;
+              <input
+                type="number"
+                min={1}
+                style={{ width: 70 }}
+                value={idleMin}
+                onChange={(e) => setIdleMin(Number(e.target.value))}
+              />
+              &nbsp;min
+            </label>
+            {hibernate && (
+              <>
+                {tcpOnly && (
+                  <label className="row" style={{ marginTop: 4 }}>
+                    <input
+                      type="checkbox"
+                      style={{ width: "auto" }}
+                      checked={wakeOnConnect && !proxy}
+                      disabled={proxy}
+                      onChange={(e) => setWakeOnConnect(e.target.checked)}
+                    />
+                    &nbsp;Wake when a player connects (TCP; first attempt reconnects)
+                  </label>
+                )}
+                <label className="row" style={{ marginTop: 4 }}>
+                  <input
+                    type="checkbox"
+                    style={{ width: "auto" }}
+                    checked={proxy}
+                    onChange={(e) => setProxy(e.target.checked)}
+                  />
+                  &nbsp;Transparent proxy (TCP+UDP, no reconnect; required for UDP)
+                </label>
+                {!tcpOnly && !proxy && (
+                  <div className="error" style={{ fontSize: 12 }}>
+                    UDP servers need the transparent proxy to auto-sleep.
+                  </div>
+                )}
+              </>
             )}
           </>
         )}

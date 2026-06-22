@@ -30,11 +30,12 @@ type Reconciler struct {
 	// avoid an import cycle with the console package.
 	OnStop func(ctx context.Context, namespace, slug, stopCommand string) error
 
-	// Wake-on-connect: when ActivatorImage is set, a hibernated server with
-	// wake-on-connect enabled gets a tiny activator that listens on its TCP ports
-	// and calls WakeURL to wake it. WakeKey signs the per-server callback token.
+	// Wake-on-connect: when ActivatorImage is set, a server with wake-on-connect
+	// (drop) or proxy mode gets an activator. WakeURL/ActiveURL are the control
+	// plane callbacks; WakeKey signs the per-server callback token.
 	ActivatorImage string
 	WakeURL        string
+	ActiveURL      string
 	WakeKey        []byte
 }
 
@@ -93,16 +94,21 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 	if err := r.ensureDeployment(ctx, srv, tmpl, secretKeys); err != nil {
 		return fmt.Errorf("deployment: %w", err)
 	}
-	// Wake-on-connect: while hibernated, an activator listens on the server's TCP
-	// ports and the Service points at it; otherwise it points at the real
-	// workload and any activator is removed.
-	activator := r.activatorActive(srv, tmpl)
-	if err := r.ensureActivator(ctx, srv, tmpl, activator); err != nil {
+	// Wake-on-connect: an activator may front the server. In proxy mode it is
+	// always in path (and needs an internal backend Service); in drop mode it
+	// only appears while hibernated. The public Service selector points at the
+	// activator when one is fronting, else at the real workload.
+	proxy := r.proxyActive(srv, tmpl)
+	drop := r.dropActive(srv, tmpl)
+	if err := r.ensureInternalService(ctx, srv, tmpl, proxy); err != nil {
+		return fmt.Errorf("internal service: %w", err)
+	}
+	if err := r.ensureActivator(ctx, srv, tmpl, proxy, drop); err != nil {
 		return fmt.Errorf("activator: %w", err)
 	}
 	// A Service requires at least one port; skip it for portless servers.
 	if len(serverPorts(srv, tmpl)) > 0 {
-		if err := r.ensureService(ctx, srv, tmpl, activator); err != nil {
+		if err := r.ensureService(ctx, srv, tmpl, proxy || drop); err != nil {
 			return fmt.Errorf("service: %w", err)
 		}
 	}
@@ -183,26 +189,53 @@ func (r *Reconciler) ensureService(ctx context.Context, s *models.Server, t *mod
 	return r.apply(ctx, BuildService(s, t, activator))
 }
 
-// activatorActive reports whether a wake-on-connect activator should currently
-// front this server: enabled, hibernated, has a TCP port, and an image to run.
-func (r *Reconciler) activatorActive(s *models.Server, t *models.Template) bool {
-	if r.ActivatorImage == "" || !s.Hibernated || !s.Hibernation.WakeOnConnect {
+// proxyActive reports whether the always-in-path proxy should front this server
+// (hibernation + proxy mode + at least one port + an image to run).
+func (r *Reconciler) proxyActive(s *models.Server, t *models.Template) bool {
+	if r.ActivatorImage == "" || !s.Hibernation.Enabled || !s.Hibernation.Proxy {
+		return false
+	}
+	return len(serverPorts(s, t)) > 0
+}
+
+// dropActive reports whether the lightweight wake-and-drop activator should
+// front this server (hibernated + wake-on-connect, not proxy, a TCP port).
+func (r *Reconciler) dropActive(s *models.Server, t *models.Template) bool {
+	if r.ActivatorImage == "" || s.Hibernation.Proxy || !s.Hibernated || !s.Hibernation.WakeOnConnect {
 		return false
 	}
 	return hasTCPPort(serverPorts(s, t))
 }
 
-// ensureActivator creates the activator Deployment when active, or removes it.
-func (r *Reconciler) ensureActivator(ctx context.Context, s *models.Server, t *models.Template, active bool) error {
-	if !active {
+// ensureActivator creates the activator Deployment for the active mode, or
+// removes it when neither mode applies.
+func (r *Reconciler) ensureActivator(ctx context.Context, s *models.Server, t *models.Template, proxy, drop bool) error {
+	if !proxy && !drop {
 		dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: ActivatorName, Namespace: s.Namespace}}
 		if err := r.Client.Delete(ctx, dep); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 		return nil
 	}
-	token := crypto.WakeToken(r.WakeKey, s.Slug)
-	return r.apply(ctx, BuildActivatorDeployment(s, t, r.ActivatorImage, r.WakeURL, token))
+	return r.apply(ctx, BuildActivatorDeployment(s, t, ActivatorParams{
+		Image:     r.ActivatorImage,
+		WakeURL:   r.WakeURL,
+		ActiveURL: r.ActiveURL,
+		Token:     crypto.WakeToken(r.WakeKey, s.Slug),
+		Proxy:     proxy,
+	}))
+}
+
+// ensureInternalService maintains the proxy's stable backend Service.
+func (r *Reconciler) ensureInternalService(ctx context.Context, s *models.Server, t *models.Template, proxy bool) error {
+	if !proxy || len(serverPorts(s, t)) == 0 {
+		svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: InternalServiceName, Namespace: s.Namespace}}
+		if err := r.Client.Delete(ctx, svc); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+		return nil
+	}
+	return r.apply(ctx, BuildInternalService(s, t))
 }
 
 func (r *Reconciler) ensureNetworkPolicy(ctx context.Context, s *models.Server, t *models.Template) error {

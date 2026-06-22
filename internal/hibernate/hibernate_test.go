@@ -85,6 +85,46 @@ func TestManagerKeepsActiveServerAwake(t *testing.T) {
 	}
 }
 
+func TestManagerProxyModeUsesHeartbeat(t *testing.T) {
+	st := testStore(t)
+	now := time.Now()
+
+	// A UDP, proxy-mode server is eligible (proxy measures activity) and must NOT
+	// be probed — its idle timer is driven by the activity heartbeat.
+	stale := now.Add(-time.Hour)
+	udp := &models.Server{
+		Slug: "udp", Namespace: "nu", DesiredState: models.StateRunning,
+		Ports:        []models.PortSpec{{Name: "game", Port: 2456, Protocol: "UDP"}},
+		Hibernation:  models.Hibernation{Enabled: true, IdleMinutes: 1, Proxy: true},
+		LastActiveAt: &stale,
+	}
+	_ = st.CreateServer(udp)
+
+	// A second proxy server with a fresh heartbeat must stay awake.
+	fresh := now.Add(-10 * time.Second)
+	live := &models.Server{
+		Slug: "udp-live", Namespace: "nl", DesiredState: models.StateRunning,
+		Ports:        []models.PortSpec{{Name: "game", Port: 2456, Protocol: "UDP"}},
+		Hibernation:  models.Hibernation{Enabled: true, IdleMinutes: 1, Proxy: true},
+		LastActiveAt: &fresh,
+	}
+	_ = st.CreateServer(live)
+
+	m := New(st, func(context.Context, *models.Server) (int, error) {
+		t.Error("probe must not be called for a proxy-mode server")
+		return 0, nil
+	})
+	m.Now = func() time.Time { return now }
+	m.Tick(context.Background())
+
+	if got, _ := st.GetServerBySlug("udp"); !got.Hibernated {
+		t.Error("stale proxy UDP server should have hibernated")
+	}
+	if got, _ := st.GetServerBySlug("udp-live"); got.Hibernated {
+		t.Error("proxy UDP server with a fresh heartbeat must stay awake")
+	}
+}
+
 func TestManagerFailSafeAndIneligible(t *testing.T) {
 	st := testStore(t)
 	now := time.Now().Add(-time.Hour) // lastActive far in the past

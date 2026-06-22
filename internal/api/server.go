@@ -81,9 +81,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/setup", s.handleSetup)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
-	// Wake-on-connect callback from a server's activator (token-authenticated,
+	// Wake-on-connect callbacks from a server's activator (token-authenticated,
 	// no session). Reachable in-cluster from server namespaces.
 	mux.HandleFunc("POST /api/internal/wake", s.handleWake)
+	mux.HandleFunc("POST /api/internal/active", s.handleActive)
 	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
