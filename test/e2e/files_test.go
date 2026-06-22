@@ -108,6 +108,14 @@ func TestE2EFiles(t *testing.T) {
 		t.Errorf("after rename read = %q, want %q", got, content)
 	}
 
+	// Download the directory as a gzip tarball (folder download).
+	arc := doFile(t, hc, http.MethodGet, base+"/archive?path=sub", "")
+	mustStatus(t, arc, http.StatusOK)
+	ab := readBody(t, arc)
+	if len(ab) < 2 || ab[0] != 0x1f || ab[1] != 0x8b {
+		t.Errorf("archive is not a gzip stream (len=%d)", len(ab))
+	}
+
 	// Path traversal must be confined to the data root: reading ../../etc/passwd
 	// resolves under /data (nonexistent) and must NOT return the real file.
 	tr := doFile(t, hc, http.MethodGet, base+"/content?path=../../../../etc/passwd", "")

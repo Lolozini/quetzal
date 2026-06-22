@@ -129,6 +129,28 @@ func (s *Server) handleReadFile(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleArchiveFile streams a gzip tarball of a file or directory, so whole
+// folders can be downloaded (not just single files).
+func (s *Server) handleArchiveFile(w http.ResponseWriter, r *http.Request) {
+	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
+	if !ok {
+		return
+	}
+	full := jail(root, r.URL.Query().Get("path"))
+	parent, base := path.Dir(full), path.Base(full)
+	name := base
+	if name == "/" || name == "." || name == "" {
+		name = "files"
+	}
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeFilename(name)+`.tar.gz"`)
+	// tar from the parent so the archive contains the entry by its bare name.
+	cmd := []string{"sh", "-c", `cd "$1" && exec tar -czf - -- "$2"`, "_", parent, base}
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, cmd, nil, w); err != nil {
+		writeError(w, http.StatusBadGateway, "archive failed: "+err.Error())
+	}
+}
+
 func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {
 	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
 	if !ok {

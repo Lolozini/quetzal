@@ -406,6 +406,20 @@ paths:
             schema: { type: string, format: binary }
       responses:
         "204": { description: Written }
+  /api/servers/{id}/files/archive:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Files]
+      summary: Download a file or directory as a gzip tarball
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: A .tar.gz stream
+          content:
+            application/gzip:
+              schema: { type: string, format: binary }
   /api/servers/{id}/files/mkdir:
     parameters:
       - $ref: "#/components/parameters/ServerId"

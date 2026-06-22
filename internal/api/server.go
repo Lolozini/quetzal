@@ -162,6 +162,7 @@ func (s *Server) Handler() http.Handler {
 	// File manager (exec into the running pod; requires the files permission).
 	mux.Handle("GET /api/servers/{id}/files", s.auth(s.handleListFiles))
 	mux.Handle("GET /api/servers/{id}/files/content", s.auth(s.handleReadFile))
+	mux.Handle("GET /api/servers/{id}/files/archive", s.auth(s.handleArchiveFile))
 	mux.Handle("PUT /api/servers/{id}/files/content", s.auth(s.handleWriteFile))
 	mux.Handle("POST /api/servers/{id}/files/mkdir", s.auth(s.handleMkdir))
 	mux.Handle("POST /api/servers/{id}/files/rename", s.auth(s.handleRenameFile))
