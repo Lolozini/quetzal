@@ -17,6 +17,14 @@ type User struct {
 	MaxServers  int   `json:"maxServers"`
 	MaxMemoryMB int64 `json:"maxMemoryMB"`
 	MaxCPUMilli int64 `json:"maxCpuMilli"`
+
+	// Two-factor authentication (opt-in TOTP). TOTPSecretEnc holds the encrypted
+	// base32 secret (reversible: needed to compute codes). TOTPEnabled is set
+	// once the user confirms enrollment with a valid code. RecoveryCodes are
+	// SHA-256 hashes of the still-unused single-use codes. None are serialized.
+	TOTPSecretEnc string   `json:"-"`
+	TOTPEnabled   bool     `json:"twoFactorEnabled"`
+	RecoveryCodes []string `gorm:"serializer:json" json:"-"`
 }
 
 // Session is a server-side bearer session (opaque random token).
