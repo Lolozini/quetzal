@@ -304,7 +304,41 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 		}
 	}
 
+	r.emitTransition(s, s.Status.Phase, st)
 	return r.Store.UpdateServerStatus(s.ID, st)
+}
+
+// emitTransition records an event when a server crosses into a phase worth
+// notifying about. It only covers transitions the API can't already see
+// (the controller observes crashes, readiness and idle-hibernation); power
+// actions are emitted by the API itself, so they are not duplicated here.
+func (r *Reconciler) emitTransition(s *models.Server, old models.Phase, st models.Status) {
+	if old == st.Phase {
+		return
+	}
+	switch st.Phase {
+	case models.PhaseRunning:
+		r.emitEvent(s, models.EventServerRunning, "is up and running")
+	case models.PhaseCrashed:
+		msg := "crashed"
+		if st.CrashCount > 0 {
+			msg = fmt.Sprintf("crashed (%d restarts)", st.CrashCount)
+		}
+		if st.Message != "" {
+			msg += ": " + st.Message
+		}
+		r.emitEvent(s, models.EventServerCrashed, msg)
+	case models.PhaseHibernated:
+		r.emitEvent(s, models.EventServerHibernated, "hibernated after inactivity")
+	}
+}
+
+// emitEvent appends a server-scoped event (best-effort). The apiserver's
+// dispatcher delivers it on its next pass.
+func (r *Reconciler) emitEvent(s *models.Server, eventType, message string) {
+	_ = r.Store.AddEvent(&models.Event{
+		ServerID: s.ID, Type: eventType, Message: s.Slug + ": " + message,
+	})
 }
 
 func (r *Reconciler) deploymentReady(ctx context.Context, ns string) bool {
