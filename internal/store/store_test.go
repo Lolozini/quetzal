@@ -261,3 +261,71 @@ func TestUpsertTemplateBumpsVersion(t *testing.T) {
 		t.Errorf("version = %d, want 2", again.Version)
 	}
 }
+
+func TestEnsureLocalClusterIdempotentAndAdopts(t *testing.T) {
+	s := newTestStore(t)
+
+	// A pre-multi-cluster server (ClusterID 0) should be adopted onto the local
+	// cluster the first time EnsureLocalCluster runs.
+	legacy := &models.Server{Slug: "legacy", Namespace: "ns-legacy", DesiredState: models.StateStopped}
+	if err := s.CreateServer(legacy); err != nil {
+		t.Fatalf("create server: %v", err)
+	}
+
+	local1, err := s.EnsureLocalCluster()
+	if err != nil {
+		t.Fatalf("ensure local (1): %v", err)
+	}
+	local2, err := s.EnsureLocalCluster()
+	if err != nil {
+		t.Fatalf("ensure local (2): %v", err)
+	}
+	if local1.ID != local2.ID {
+		t.Errorf("local cluster id changed: %d != %d", local1.ID, local2.ID)
+	}
+	if !local1.InCluster {
+		t.Errorf("local cluster should be InCluster")
+	}
+
+	clusters, err := s.ListClusters()
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	inCluster := 0
+	for _, c := range clusters {
+		if c.InCluster {
+			inCluster++
+		}
+	}
+	if inCluster != 1 {
+		t.Errorf("InCluster cluster count = %d, want 1", inCluster)
+	}
+
+	got, _ := s.GetServer(legacy.ID)
+	if got.ClusterID != local1.ID {
+		t.Errorf("legacy server adopted to cluster %d, want %d", got.ClusterID, local1.ID)
+	}
+}
+
+func TestClusterKubeconfigEncrypted(t *testing.T) {
+	s := newTestStore(t)
+	const kubeconfig = "apiVersion: v1\nkind: Config\n# secret creds here\n"
+	c := &models.Cluster{Slug: "edge", Name: "edge"}
+	if err := s.CreateCluster(c, kubeconfig); err != nil {
+		t.Fatalf("create cluster: %v", err)
+	}
+	stored, err := s.GetCluster(c.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if strings.Contains(stored.KubeconfigEnc, "secret creds") {
+		t.Errorf("kubeconfig stored in clear text: %q", stored.KubeconfigEnc)
+	}
+	back, err := s.ClusterKubeconfig(stored)
+	if err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+	if back != kubeconfig {
+		t.Errorf("round-trip mismatch: %q != %q", back, kubeconfig)
+	}
+}

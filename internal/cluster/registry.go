@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -39,8 +40,13 @@ type cached struct {
 type Registry struct {
 	store *store.Store
 	local Clients
-	mu    sync.Mutex
-	cache map[uint]cached
+	// RequestTimeout, when >0, bounds every API call on remote clients built by
+	// this registry. The controller sets it (it never streams) so an unreachable
+	// remote cannot wedge the reconcile loop; the apiserver leaves it 0 because
+	// it serves long-lived console log/attach streams.
+	RequestTimeout time.Duration
+	mu             sync.Mutex
+	cache          map[uint]cached
 }
 
 // New returns a registry whose local cluster uses the given clients.
@@ -78,7 +84,7 @@ func (r *Registry) For(id uint) (Clients, error) {
 	if ent, ok := r.cache[id]; ok && ent.hash == h {
 		return ent.clients, nil
 	}
-	clients, err := Build(kubeconfig)
+	clients, err := buildWithTimeout(kubeconfig, r.RequestTimeout)
 	if err != nil {
 		return Clients{}, err
 	}
@@ -86,11 +92,19 @@ func (r *Registry) For(id uint) (Clients, error) {
 	return clients, nil
 }
 
-// Build constructs clients from a raw kubeconfig (no caching).
+// Build constructs clients from a raw kubeconfig (no caching, no request
+// timeout). Used to validate a kubeconfig before storing it.
 func Build(kubeconfig string) (Clients, error) {
+	return buildWithTimeout(kubeconfig, 0)
+}
+
+func buildWithTimeout(kubeconfig string, timeout time.Duration) (Clients, error) {
 	cfg, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeconfig))
 	if err != nil {
 		return Clients{}, err
+	}
+	if timeout > 0 {
+		cfg.Timeout = timeout
 	}
 	return FromConfig(cfg)
 }

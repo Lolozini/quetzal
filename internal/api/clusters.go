@@ -26,6 +26,16 @@ func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Non-admins only need enough to pick a deploy target; don't leak probe
+	// details (a status message can carry a cluster's internal address).
+	if u := userFrom(r.Context()); u == nil || !u.IsAdmin {
+		for i := range cs {
+			cs[i].Version = ""
+			cs[i].NodeCount = 0
+			cs[i].StatusMessage = ""
+			cs[i].LastCheckedAt = nil
+		}
+	}
 	writeJSON(w, http.StatusOK, cs)
 }
 

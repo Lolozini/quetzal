@@ -19,7 +19,11 @@ func (s *Store) EnsureLocalCluster() (*models.Cluster, error) {
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		c = models.Cluster{Slug: "local", Name: "local (in-cluster)", InCluster: true, Reachable: true}
 		if err := s.db.Create(&c).Error; err != nil {
-			return nil, err
+			// Another process (apiserver vs controller) may have created it
+			// concurrently and won the unique-slug race; re-read instead of failing.
+			if e2 := s.db.Where("in_cluster = ?", true).First(&c).Error; e2 != nil {
+				return nil, err
+			}
 		}
 	case err != nil:
 		return nil, err

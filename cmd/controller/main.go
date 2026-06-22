@@ -64,11 +64,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("kube config: %v", err)
 	}
+	// Bound every API call so an unreachable cluster can't wedge a reconcile
+	// tick. Safe here because the controller never streams (console log/attach
+	// live in the apiserver, which keeps its clients timeout-free).
+	clusterTimeout := envDuration("QUETZAL_CLUSTER_TIMEOUT", 30*time.Second)
+	cfg.Timeout = clusterTimeout
 	local, err := cluster.FromConfig(cfg)
 	if err != nil {
 		log.Fatalf("kube clients: %v", err)
 	}
 	reg := cluster.New(st, local)
+	reg.RequestTimeout = clusterTimeout
 	if _, err := st.EnsureLocalCluster(); err != nil {
 		log.Fatalf("ensure local cluster: %v", err)
 	}
@@ -240,9 +246,17 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store) {
 		return
 	}
 	byCluster := map[uint][]models.Server{}
+	// allSlugs is the GC valid-set used on EVERY cluster. Slugs are globally
+	// unique and a server never changes clusters, so a managed namespace whose
+	// slug has no server is always an orphan. Using the global set (rather than
+	// a per-cluster set) makes GC safe even if the same physical cluster is
+	// registered twice — a row with no servers won't delete the other row's
+	// namespaces on the shared cluster.
+	allSlugs := make(map[string]bool, len(servers))
 	for i := range servers {
 		s := servers[i]
 		byCluster[s.ClusterID] = append(byCluster[s.ClusterID], s)
+		allSlugs[s.Slug] = true
 	}
 	clusters, err := st.ListClusters()
 	if err != nil {
@@ -259,14 +273,12 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store) {
 		}
 		rec := reconciler.New(clients.Client, st)
 		rec.OnStop = onStopFor(clients)
-		valid := make(map[string]bool, len(byCluster[c.ID]))
 		for _, s := range byCluster[c.ID] {
-			valid[s.Slug] = true
 			if err := rec.ReconcileServer(ctx, s.ID); err != nil {
 				log.Printf("reconcile server %s (cluster %s): %v", s.Slug, c.Slug, err)
 			}
 		}
-		if err := rec.GCOrphanNamespaces(ctx, valid); err != nil {
+		if err := rec.GCOrphanNamespaces(ctx, allSlugs); err != nil {
 			log.Printf("gc orphan namespaces (cluster %s): %v", c.Slug, err)
 		}
 		delete(byCluster, c.ID)

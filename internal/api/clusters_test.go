@@ -59,11 +59,22 @@ func TestClusters(t *testing.T) {
 	if r := post(t, admin, srv.URL+"/api/clusters", map[string]string{"name": "edge", "kubeconfig": fakeKubeconfig}); r.StatusCode != http.StatusConflict {
 		t.Errorf("duplicate cluster = %d, want 409", r.StatusCode)
 	}
-	// Any authenticated user can list clusters (to pick a deploy target).
+	// Any authenticated user can list clusters (to pick a deploy target), but a
+	// non-admin must not see probe details (which can leak internal addresses).
 	var list []map[string]any
 	getJSON(t, alice, srv.URL+"/api/clusters", &list)
 	if len(list) == 0 {
-		t.Errorf("alice should see the cluster list")
+		t.Fatalf("alice should see the cluster list")
+	}
+	for _, c := range list {
+		if c["slug"] == "edge" {
+			if _, ok := c["statusMessage"]; ok {
+				t.Errorf("non-admin should not see cluster statusMessage")
+			}
+			if _, ok := c["version"]; ok {
+				t.Errorf("non-admin should not see cluster version")
+			}
+		}
 	}
 
 	// Create a server targeting the registered cluster.
