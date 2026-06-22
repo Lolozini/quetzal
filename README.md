@@ -56,7 +56,9 @@ notifications + 2FA, hibernation + egg install scripts, multi-cluster); see
   server against its own cluster. The local cluster needs no credentials.
 - **Egg-compatible**: import existing Pterodactyl/Pelican eggs to ease migration.
 - **Secure by default**: namespace-per-server, NetworkPolicy, hardened
-  securityContext, secrets kept out of the DB in clear text.
+  securityContext, no ServiceAccount token mounted into game pods, a per-namespace
+  ResourceQuota, secrets kept out of the DB in clear text; brute-force rate
+  limiting on login/2FA and CSRF protection on the API.
 - **Self-hostable & generic**: nothing hardcoded to a specific homelab — SQLite
   by default (Postgres optional), storageClass *or* hostPath, MIT licensed.
 
