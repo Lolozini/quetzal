@@ -434,6 +434,8 @@ export const api = {
     req<void>("DELETE", `/api/servers/${id}/files?path=${encodeURIComponent(path)}`),
   fileDownloadUrl: (id: number, path: string) =>
     `/api/servers/${id}/files/content?path=${encodeURIComponent(path)}&download=1`,
+  fileArchiveUrl: (id: number, path: string) =>
+    `/api/servers/${id}/files/archive?path=${encodeURIComponent(path)}`,
 
   // Notifications.
   channels: () => req<NotificationChannel[]>("GET", "/api/notifications/channels"),

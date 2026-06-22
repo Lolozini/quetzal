@@ -3,13 +3,8 @@ import { api, ApiError, FileEntry } from "../api";
 
 const EDIT_MAX = 1 << 20; // 1 MiB: larger files are download-only
 
-// join builds a relative path under the data root from a dir and a name.
 function join(dir: string, name: string): string {
   return dir ? `${dir}/${name}` : name;
-}
-function parent(dir: string): string {
-  const i = dir.lastIndexOf("/");
-  return i < 0 ? "" : dir.slice(0, i);
 }
 
 export function Files({ id }: { id: number }) {
@@ -19,6 +14,7 @@ export function Files({ id }: { id: number }) {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<{ path: string; content: string } | null>(null);
   const [saved, setSaved] = useState("");
+  const [mut, setMut] = useState(0); // bumped on changes so the tree refreshes
   const uploadRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -38,10 +34,18 @@ export function Files({ id }: { id: number }) {
     load();
   }, [load]);
 
+  function nav(p: string) {
+    setEditing(null);
+    setPath(p);
+  }
+  function changed() {
+    setMut((n) => n + 1);
+    load();
+  }
+
   async function open(e: FileEntry) {
     if (e.dir) {
-      setEditing(null);
-      setPath(join(path, e.name));
+      nav(join(path, e.name));
       return;
     }
     const p = join(path, e.name);
@@ -77,7 +81,7 @@ export function Files({ id }: { id: number }) {
     if (!name) return;
     try {
       await api.mkdir(id, join(path, name));
-      await load();
+      changed();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
@@ -88,7 +92,7 @@ export function Files({ id }: { id: number }) {
     if (!to || to === e.name) return;
     try {
       await api.renameFile(id, join(path, e.name), join(path, to));
-      await load();
+      changed();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     }
@@ -99,7 +103,7 @@ export function Files({ id }: { id: number }) {
     try {
       await api.deleteFile(id, join(path, e.name));
       if (editing && editing.path.startsWith(join(path, e.name))) setEditing(null);
-      await load();
+      changed();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     }
@@ -113,7 +117,7 @@ export function Files({ id }: { id: number }) {
     setError("");
     try {
       await api.writeFile(id, join(path, file.name), file);
-      await load();
+      changed();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -121,69 +125,173 @@ export function Files({ id }: { id: number }) {
     }
   }
 
+  const segs = path ? path.split("/") : [];
+
   return (
     <div className="card">
       <h2>Files</h2>
 
-      <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <button disabled={path === ""} onClick={() => { setEditing(null); setPath(parent(path)); }}>↑ Up</button>
-        <code>/{path}</code>
+      {/* Breadcrumb */}
+      <div className="row" style={{ gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+        <a href="#" onClick={(e) => { e.preventDefault(); nav(""); }}>root</a>
+        {segs.map((seg, i) => {
+          const p = segs.slice(0, i + 1).join("/");
+          return (
+            <span key={p}>
+              <span className="muted"> / </span>
+              <a href="#" onClick={(e) => { e.preventDefault(); nav(p); }}>{seg}</a>
+            </span>
+          );
+        })}
         <span style={{ flex: 1 }} />
         <button onClick={load} disabled={busy}>Refresh</button>
         <button onClick={newFolder}>New folder</button>
         <button onClick={() => uploadRef.current?.click()}>Upload</button>
+        <a href={api.fileArchiveUrl(id, path)}><button type="button">Download folder</button></a>
         <input ref={uploadRef} type="file" style={{ display: "none" }} onChange={upload} />
       </div>
 
       {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
 
-      <table style={{ marginTop: 8 }}>
-        <thead>
-          <tr><th>Name</th><th>Size</th><th></th></tr>
-        </thead>
-        <tbody>
-          {entries
-            .slice()
-            .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1))
-            .map((e) => (
-              <tr key={e.name}>
-                <td>
-                  <a href="#" onClick={(ev) => { ev.preventDefault(); open(e); }}>
-                    {e.dir ? "📁 " : "📄 "}{e.name}
-                  </a>
-                </td>
-                <td>{e.dir ? "" : humanSize(e.size)}</td>
-                <td style={{ whiteSpace: "nowrap" }}>
-                  {!e.dir && <a href={api.fileDownloadUrl(id, join(path, e.name))}>Download</a>}{" "}
-                  <button onClick={() => rename(e)}>Rename</button>{" "}
-                  <button className="danger" onClick={() => remove(e)}>Delete</button>
-                </td>
-              </tr>
-            ))}
-          {entries.length === 0 && !error && (
-            <tr><td colSpan={3} className="muted">Empty directory.</td></tr>
-          )}
-        </tbody>
-      </table>
-
-      {editing && (
-        <div style={{ marginTop: 12 }}>
-          <h3>Editing <code>/{editing.path}</code></h3>
-          <textarea
-            value={editing.content}
-            onChange={(e) => { setEditing({ ...editing, content: e.target.value }); setSaved(""); }}
-            spellCheck={false}
-            style={{ width: "100%", minHeight: 320, fontFamily: "monospace" }}
-          />
-          <div className="row" style={{ marginTop: 8 }}>
-            <button className="primary" onClick={save} disabled={busy}>Save</button>
-            <button onClick={() => setEditing(null)}>Close</button>
-            {saved && <span className="notice">{saved}</span>}
-          </div>
+      <div className="row" style={{ alignItems: "flex-start", gap: 12, marginTop: 8 }}>
+        {/* Tree sidebar */}
+        <div style={{ width: 240, minWidth: 200, maxHeight: 420, overflow: "auto", borderRight: "1px solid var(--border, #333)", paddingRight: 8 }}>
+          <DirTree id={id} current={path} onNavigate={nav} reload={mut} />
         </div>
-      )}
+
+        {/* Current directory */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Size</th><th></th></tr>
+            </thead>
+            <tbody>
+              {entries
+                .slice()
+                .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1))
+                .map((e) => (
+                  <tr key={e.name}>
+                    <td>
+                      <a href="#" onClick={(ev) => { ev.preventDefault(); open(e); }}>
+                        {e.dir ? "📁 " : "📄 "}{e.name}
+                      </a>
+                    </td>
+                    <td>{e.dir ? "" : humanSize(e.size)}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <a href={e.dir ? api.fileArchiveUrl(id, join(path, e.name)) : api.fileDownloadUrl(id, join(path, e.name))}>Download</a>{" "}
+                      <button onClick={() => rename(e)}>Rename</button>{" "}
+                      <button className="danger" onClick={() => remove(e)}>Delete</button>
+                    </td>
+                  </tr>
+                ))}
+              {entries.length === 0 && !error && (
+                <tr><td colSpan={3} className="muted">Empty directory.</td></tr>
+              )}
+            </tbody>
+          </table>
+
+          {editing && (
+            <div style={{ marginTop: 12 }}>
+              <h3>Editing <code>/{editing.path}</code></h3>
+              <textarea
+                value={editing.content}
+                onChange={(e) => { setEditing({ ...editing, content: e.target.value }); setSaved(""); }}
+                spellCheck={false}
+                style={{ width: "100%", minHeight: 320, fontFamily: "monospace" }}
+              />
+              <div className="row" style={{ marginTop: 8 }}>
+                <button className="primary" onClick={save} disabled={busy}>Save</button>
+                <button onClick={() => setEditing(null)}>Close</button>
+                {saved && <span className="notice">{saved}</span>}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
+}
+
+// DirTree is a lazily-loaded folder tree. Directories expand on click and their
+// children are fetched on demand; navigating selects the folder in the main pane.
+function DirTree({
+  id, current, onNavigate, reload,
+}: {
+  id: number;
+  current: string;
+  onNavigate: (p: string) => void;
+  reload: number;
+}) {
+  const [open, setOpen] = useState<Set<string>>(() => new Set([""]));
+  const [kids, setKids] = useState<Record<string, FileEntry[]>>({});
+
+  const loadKids = useCallback(async (p: string) => {
+    try {
+      const all = await api.listFiles(id, p);
+      setKids((prev) => ({ ...prev, [p]: all.filter((e) => e.dir) }));
+    } catch {
+      setKids((prev) => ({ ...prev, [p]: [] }));
+    }
+  }, [id]);
+
+  // (Re)load the root and any open folders when the tree or data changes.
+  useEffect(() => {
+    setOpen((cur) => {
+      cur.forEach((p) => loadKids(p));
+      return cur;
+    });
+  }, [reload, loadKids]);
+
+  // Expand and load the ancestors of the current path so the selection is shown.
+  useEffect(() => {
+    const anc = [""];
+    let acc = "";
+    for (const seg of current ? current.split("/") : []) {
+      acc = acc ? `${acc}/${seg}` : seg;
+      anc.push(acc);
+    }
+    setOpen((prev) => {
+      const n = new Set(prev);
+      anc.forEach((p) => n.add(p));
+      return n;
+    });
+    anc.forEach((p) => loadKids(p));
+  }, [current, loadKids]);
+
+  function toggle(p: string) {
+    setOpen((prev) => {
+      const n = new Set(prev);
+      if (n.has(p)) {
+        n.delete(p);
+      } else {
+        n.add(p);
+        loadKids(p);
+      }
+      return n;
+    });
+  }
+
+  function node(p: string, name: string, depth: number) {
+    const isOpen = open.has(p);
+    return (
+      <div key={p || "/"}>
+        <div
+          className="row"
+          style={{ gap: 2, paddingLeft: depth * 12, cursor: "pointer", fontWeight: p === current ? 600 : 400 }}
+        >
+          <span onClick={() => toggle(p)} style={{ width: 14, display: "inline-block", textAlign: "center" }}>
+            {isOpen ? "▾" : "▸"}
+          </span>
+          <span onClick={() => { onNavigate(p); if (!isOpen) toggle(p); }} style={{ whiteSpace: "nowrap" }}>
+            📁 {name || "root"}
+          </span>
+        </div>
+        {isOpen && (kids[p] || []).map((c) => node(p ? `${p}/${c.name}` : c.name, c.name, depth + 1))}
+      </div>
+    );
+  }
+
+  return <div style={{ fontSize: 14 }}>{node("", "", 0)}</div>;
 }
 
 function humanSize(n: number): string {
