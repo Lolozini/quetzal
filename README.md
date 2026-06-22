@@ -61,7 +61,9 @@ notifications + 2FA, hibernation + egg install scripts, multi-cluster); see
 - **Multi-cluster**: register additional clusters by kubeconfig (stored
   encrypted) and pick a deploy target per server; the controller reconciles each
   server against its own cluster. The local cluster needs no credentials.
-- **Egg-compatible**: import existing Pterodactyl/Pelican eggs to ease migration.
+- **Egg-compatible**: import existing Pterodactyl/Pelican eggs to ease migration,
+  including **config.files rendering** at startup (properties/json/yaml/ini) so
+  imported eggs configure themselves like they do under Wings.
 - **Secure by default**: namespace-per-server, NetworkPolicy, hardened
   securityContext, no ServiceAccount token mounted into game pods, a per-namespace
   ResourceQuota, secrets kept out of the DB in clear text; brute-force rate
