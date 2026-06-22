@@ -40,6 +40,9 @@ notifications + 2FA, hibernation + egg install scripts, multi-cluster); see
 - **Two-factor auth**: opt-in TOTP (RFC 6238) with one-time recovery codes;
   login becomes a password + code challenge, and admins can reset a locked-out
   user. Secrets are encrypted at rest.
+- **Documented API**: the full REST API has an OpenAPI 3.0 spec at
+  `/api/openapi.yaml` (use it with any client generator) rendered as browsable
+  docs at `/api/docs`.
 - **Notifications**: outbound channels — **Discord**, **generic HMAC-signed
   webhooks**, and **email/SMTP** — fired on events (server up/crash/idle-sleep,
   power, backups, …). Channels are global (catch-all) or scoped to one server,
@@ -85,8 +88,7 @@ Browser ──HTTP/WS──▶ api-server (UI + REST/WS + console proxy)
 - ✅ **Phase 4** — Multi-tenant: ownership + subusers/permissions, admin suspend,
   per-user quotas, audit log, API keys; **notifications** (Discord / webhook /
   email on events, via a durable event outbox); **opt-in 2FA (TOTP) with
-  recovery codes**. _Deferred to later: OIDC/SSO, OpenAPI spec for the public
-  API._
+  recovery codes**; an **OpenAPI spec + `/api/docs`** for the public API.
 - ✅ **Phase 5** — Hibernation (scale-to-zero on idle) + egg install scripts +
   **wake-on-connect**, in two modes:
   - _drop_ (TCP): a tiny activator listens while hibernated and wakes the server
