@@ -40,9 +40,10 @@ notifications + 2FA, hibernation + egg install scripts, multi-cluster); see
 - **Two-factor auth**: opt-in TOTP (RFC 6238) with one-time recovery codes;
   login becomes a password + code challenge, and admins can reset a locked-out
   user. Secrets are encrypted at rest.
-- **File manager**: browse, edit, upload, download, rename and delete a server's
-  files from the panel — served by exec-ing into the running pod (no sidecar),
-  with paths confined to the data volume.
+- **File manager**: a tree/breadcrumb file browser to edit, upload, rename,
+  delete and download a server's files — including whole folders as `.tar.gz`
+  archives. Served by exec-ing into the running pod (no sidecar), with paths
+  confined to the data volume.
 - **Documented API**: the full REST API has an OpenAPI 3.0 spec at
   `/api/openapi.yaml` (use it with any client generator) rendered as browsable
   docs at `/api/docs`.
