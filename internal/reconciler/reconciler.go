@@ -192,7 +192,9 @@ func (r *Reconciler) ensureService(ctx context.Context, s *models.Server, t *mod
 // proxyActive reports whether the always-in-path proxy should front this server
 // (hibernation + proxy mode + at least one port + an image to run).
 func (r *Reconciler) proxyActive(s *models.Server, t *models.Template) bool {
-	if r.ActivatorImage == "" || !s.Hibernation.Enabled || !s.Hibernation.Proxy {
+	// Require a callback URL too: a proxy with no way to wake/heartbeat would let
+	// the server hibernate with players and never wake.
+	if r.ActivatorImage == "" || r.WakeURL == "" || !s.Hibernation.Enabled || !s.Hibernation.Proxy {
 		return false
 	}
 	return len(serverPorts(s, t)) > 0
@@ -201,7 +203,7 @@ func (r *Reconciler) proxyActive(s *models.Server, t *models.Template) bool {
 // dropActive reports whether the lightweight wake-and-drop activator should
 // front this server (hibernated + wake-on-connect, not proxy, a TCP port).
 func (r *Reconciler) dropActive(s *models.Server, t *models.Template) bool {
-	if r.ActivatorImage == "" || s.Hibernation.Proxy || !s.Hibernated || !s.Hibernation.WakeOnConnect {
+	if r.ActivatorImage == "" || r.WakeURL == "" || s.Hibernation.Proxy || !s.Hibernated || !s.Hibernation.WakeOnConnect {
 		return false
 	}
 	return hasTCPPort(serverPorts(s, t))

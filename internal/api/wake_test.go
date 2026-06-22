@@ -50,4 +50,20 @@ func TestWakeEndpoint(t *testing.T) {
 	if code := wake("does-not-exist", "whatever"); code != http.StatusNoContent {
 		t.Errorf("unknown slug = %d, want 204 (no leak)", code)
 	}
+
+	// Proxy mode sets WakeOnConnect=false but must still wake on a valid token.
+	p := &models.Server{
+		Slug: "proxysrv", Namespace: reconciler.NamespaceFor("proxysrv"), DesiredState: models.StateRunning,
+		Hibernated:  true,
+		Hibernation: models.Hibernation{Enabled: true, Proxy: true, WakeOnConnect: false},
+	}
+	if err := st.CreateServer(p); err != nil {
+		t.Fatalf("create proxy server: %v", err)
+	}
+	if code := wake("proxysrv", crypto.WakeToken(nil, "proxysrv")); code != http.StatusNoContent {
+		t.Fatalf("proxy wake = %d, want 204", code)
+	}
+	if got, _ := st.GetServer(p.ID); got.Hibernated {
+		t.Errorf("proxy-mode server should wake on a valid token")
+	}
 }

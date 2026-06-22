@@ -44,6 +44,12 @@ type Hibernation struct {
 	Proxy bool `json:"proxy"`
 }
 
+// WakesOnConnect reports whether a connection should wake this server, in either
+// activator mode (drop or proxy).
+func (h Hibernation) WakesOnConnect() bool {
+	return h.Enabled && (h.WakeOnConnect || h.Proxy)
+}
+
 // ExposeType selects how a server's ports are made reachable. It maps directly
 // to a Kubernetes Service type and is game-agnostic.
 type ExposeType string

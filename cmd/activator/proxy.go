@@ -146,7 +146,7 @@ func pipe(a, b net.Conn) {
 // ---- UDP ----
 
 type udpFlow struct {
-	backend  *net.UDPConn
+	backend  net.Conn
 	lastSeen time.Time
 }
 
@@ -154,11 +154,6 @@ const udpIdle = 60 * time.Second
 
 func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 	defer pc.Close()
-	baddr, err := net.ResolveUDPAddr("udp", backendAddr)
-	if err != nil {
-		log.Printf("activator: resolve %s: %v", backendAddr, err)
-		return
-	}
 	flows := map[string]*udpFlow{}
 	var mu sync.Mutex
 
@@ -175,7 +170,9 @@ func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 		f := flows[key]
 		if f == nil {
 			p.waker.trigger()
-			be, derr := net.DialUDP("udp", nil, baddr)
+			// Resolve + dial per flow so a transient DNS miss at startup (the
+			// backend Service may not be resolvable yet) doesn't kill the handler.
+			be, derr := net.Dial("udp", backendAddr)
 			if derr != nil {
 				mu.Unlock()
 				continue
@@ -193,7 +190,7 @@ func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 }
 
 // udpBackToClient relays the backend's responses for one flow back to the client.
-func (p *proxy) udpBackToClient(pc *net.UDPConn, be *net.UDPConn, caddr *net.UDPAddr, flows map[string]*udpFlow, key string, mu *sync.Mutex) {
+func (p *proxy) udpBackToClient(pc *net.UDPConn, be net.Conn, caddr *net.UDPAddr, flows map[string]*udpFlow, key string, mu *sync.Mutex) {
 	buf := make([]byte, 64*1024)
 	for {
 		_ = be.SetReadDeadline(time.Now().Add(udpIdle + 10*time.Second))
@@ -230,7 +227,7 @@ func (p *proxy) sweepUDP(flows map[string]*udpFlow, mu *sync.Mutex) {
 
 // closeFlow removes a flow exactly once (whoever wins the lock), decrementing
 // the active count only if this backend socket is still the registered one.
-func (p *proxy) closeFlow(flows map[string]*udpFlow, key string, be *net.UDPConn, mu *sync.Mutex) {
+func (p *proxy) closeFlow(flows map[string]*udpFlow, key string, be net.Conn, mu *sync.Mutex) {
 	mu.Lock()
 	defer mu.Unlock()
 	if f := flows[key]; f != nil && f.backend == be {

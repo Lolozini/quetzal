@@ -698,7 +698,7 @@ func (s *Server) handleWake(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if srv.Hibernation.WakeOnConnect && srv.Hibernated {
+	if srv.Hibernation.WakesOnConnect() && srv.Hibernated {
 		if err := s.Store.Wake(srv.ID, time.Now()); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
