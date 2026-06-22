@@ -144,6 +144,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	// Public API documentation: the machine-readable spec and a rendered viewer.
+	mux.HandleFunc("GET /api/openapi.yaml", s.handleOpenAPISpec)
+	mux.HandleFunc("GET /api/docs", s.handleDocs)
 
 	// Protected.
 	mux.Handle("GET /api/me", s.auth(s.handleMe))

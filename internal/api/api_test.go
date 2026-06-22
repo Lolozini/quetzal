@@ -3,6 +3,7 @@ package api_test
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -305,4 +306,34 @@ func getJSON(t *testing.T, c *http.Client, url string, v any) {
 
 func itoa(u uint) string {
 	return strconv.FormatUint(uint64(u), 10)
+}
+
+func TestOpenAPIDocsArePublic(t *testing.T) {
+	ts, _ := newTestServer(t)
+	noauth := &http.Client{}
+
+	r, err := noauth.Get(ts.URL + "/api/openapi.yaml")
+	if err != nil {
+		t.Fatalf("get spec: %v", err)
+	}
+	defer r.Body.Close()
+	if r.StatusCode != http.StatusOK {
+		t.Fatalf("spec status = %d, want 200 (public)", r.StatusCode)
+	}
+	body, _ := io.ReadAll(r.Body)
+	if !strings.Contains(string(body), "openapi:") || !strings.Contains(string(body), "Quetzal API") {
+		t.Error("spec body does not look like the OpenAPI document")
+	}
+
+	r2, err := noauth.Get(ts.URL + "/api/docs")
+	if err != nil {
+		t.Fatalf("get docs: %v", err)
+	}
+	defer r2.Body.Close()
+	if r2.StatusCode != http.StatusOK {
+		t.Errorf("docs status = %d, want 200", r2.StatusCode)
+	}
+	if ct := r2.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("docs content-type = %q, want text/html", ct)
+	}
 }

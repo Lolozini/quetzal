@@ -1,0 +1,1270 @@
+openapi: 3.0.3
+info:
+  title: Quetzal API
+  version: "1.0"
+  license:
+    name: MIT
+  description: |
+    HTTP API for Quetzal, a Kubernetes-native game-server control plane.
+
+    ## Authentication
+    Most endpoints require authentication. Two credential types are accepted:
+
+    - **API key** (recommended for scripts): send `Authorization: Bearer <token>`.
+      Create a key under *Account → API keys*; it inherits the owner's
+      permissions. Tokens are shown once at creation.
+    - **Session cookie**: set by `POST /api/login` and used by the web UI.
+
+    A key/session identifies a user; per-server access follows that user's
+    ownership and granted subuser permissions. Admin-only endpoints are noted.
+
+    ## Conventions
+    - Request and response bodies are JSON unless noted.
+    - Mutating requests made from a browser are subject to a same-origin check.
+    - Authentication endpoints are rate limited (HTTP 429 with `Retry-After`).
+servers:
+  - url: /
+    description: Same origin as the panel
+tags:
+  - name: Auth
+    description: Setup, login, and the current user
+  - name: Servers
+    description: Server lifecycle, configuration and power
+  - name: Console
+    description: Live console (logs + attach) over WebSocket
+  - name: Schedules
+    description: Cron schedules per server
+  - name: Backups
+    description: Backup configuration, backup and restore
+  - name: Access
+    description: Subuser access and per-server audit
+  - name: Users
+    description: User management (admin) and self-service
+  - name: TwoFactor
+    description: Opt-in TOTP two-factor authentication
+  - name: APIKeys
+    description: Bearer tokens for the API
+  - name: Clusters
+    description: Multi-cluster registry
+  - name: Notifications
+    description: Notification channels and the event feed
+  - name: Internal
+    description: In-cluster callbacks (not for external use)
+
+security:
+  - bearerAuth: []
+  - cookieAuth: []
+
+paths:
+  /api/setup/status:
+    get:
+      tags: [Auth]
+      summary: Whether first-run setup is needed
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  needed: { type: boolean }
+  /api/setup:
+    post:
+      tags: [Auth]
+      summary: Create the first admin account (first run only)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Credentials" }
+      responses:
+        "201":
+          description: Admin created (session cookie set)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "409": { description: Setup already completed }
+  /api/login:
+    post:
+      tags: [Auth]
+      summary: Log in
+      description: >
+        On success a session cookie is set and the user is returned. If the
+        account has 2FA enabled and no `code` was supplied, the response is
+        `{ "twoFactorRequired": true }` with no session; resubmit with a TOTP or
+        recovery code.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Credentials" }
+      responses:
+        "200":
+          description: Authenticated, or a 2FA challenge
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/User"
+                  - type: object
+                    properties:
+                      twoFactorRequired: { type: boolean, enum: [true] }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/logout:
+    post:
+      tags: [Auth]
+      summary: Log out (clears the session)
+      responses:
+        "204": { description: Logged out }
+  /api/me:
+    get:
+      tags: [Auth]
+      summary: The current user
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/me/password:
+    post:
+      tags: [Users]
+      summary: Change your own password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [oldPassword, newPassword]
+              properties:
+                oldPassword: { type: string, format: password }
+                newPassword: { type: string, format: password }
+      responses:
+        "204": { description: Password changed }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/me/2fa/setup:
+    post:
+      tags: [TwoFactor]
+      summary: Begin TOTP enrollment
+      description: Returns a secret and otpauth URI; not active until enabled.
+      responses:
+        "200":
+          description: Pending enrollment
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret: { type: string }
+                  uri: { type: string, description: otpauth:// provisioning URI }
+        "409": { description: 2FA already enabled }
+  /api/me/2fa/enable:
+    post:
+      tags: [TwoFactor]
+      summary: Confirm enrollment with a code
+      description: Activates 2FA and returns one-time recovery codes (shown once).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties: { code: { type: string } }
+      responses:
+        "200":
+          description: 2FA enabled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recoveryCodes:
+                    type: array
+                    items: { type: string }
+        "400": { description: Invalid code or no enrollment in progress }
+  /api/me/2fa/disable:
+    post:
+      tags: [TwoFactor]
+      summary: Disable your 2FA (re-verifies a code)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties: { code: { type: string } }
+      responses:
+        "204": { description: 2FA disabled }
+        "400": { description: Invalid code or 2FA not enabled }
+
+  /api/templates:
+    get:
+      tags: [Servers]
+      summary: List available templates (eggs)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Template" }
+
+  /api/servers:
+    get:
+      tags: [Servers]
+      summary: List servers you can access
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Server" }
+    post:
+      tags: [Servers]
+      summary: Create a server
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateServerRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Server" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { description: A server with this name already exists }
+  /api/servers/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Servers]
+      summary: Get a server
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Server" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Servers]
+      summary: Update exposure and/or hibernation settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expose: { $ref: "#/components/schemas/Expose" }
+                hibernation: { $ref: "#/components/schemas/Hibernation" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Server" }
+    delete:
+      tags: [Servers]
+      summary: Delete a server
+      parameters:
+        - name: keepData
+          in: query
+          schema: { type: boolean }
+          description: Retain the data volume (overrides the server's stored policy).
+      responses:
+        "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/servers/{id}/power:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    post:
+      tags: [Servers]
+      summary: Power action
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [start, stop, restart, kill] }
+      responses:
+        "200":
+          description: Action accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  action: { type: string }
+                  result: { type: string }
+  /api/servers/{id}/stats:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Servers]
+      summary: Live CPU/memory usage (from metrics-server)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServerStats" }
+  /api/servers/{id}/console:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Console]
+      summary: Live console (WebSocket)
+      description: >
+        Upgrades to a WebSocket carrying console messages
+        (`{type: stdout|stdin|status|error, data}`). stdout streams pod logs;
+        stdin is delivered via the pod attach subresource.
+      responses:
+        "101": { description: Switching Protocols (WebSocket) }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/servers/{id}/schedules:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Schedules]
+      summary: List schedules
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Schedule" }
+    post:
+      tags: [Schedules]
+      summary: Create a schedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+  /api/servers/{id}/schedules/{sid}:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+      - name: sid
+        in: path
+        required: true
+        schema: { type: integer }
+    patch:
+      tags: [Schedules]
+      summary: Update a schedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ScheduleInput" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Schedule" }
+    delete:
+      tags: [Schedules]
+      summary: Delete a schedule
+      responses:
+        "204": { description: Deleted }
+
+  /api/backup-config:
+    get:
+      tags: [Backups]
+      summary: Get backup configuration (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BackupConfig" }
+    put:
+      tags: [Backups]
+      summary: Set backup configuration (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BackupConfigInput" }
+      responses:
+        "204": { description: Saved }
+  /api/servers/{id}/backups:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Backups]
+      summary: List backups
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Backup" }
+    post:
+      tags: [Backups]
+      summary: Trigger a backup
+      responses:
+        "201":
+          description: Backup started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Backup" }
+  /api/servers/{id}/backups/{bid}/restore:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+      - { name: bid, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [Backups]
+      summary: Restore from a backup
+      responses:
+        "201":
+          description: Restore started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Backup" }
+        "409": { description: Server must be stopped to restore }
+  /api/servers/{id}/backups/{bid}:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+      - { name: bid, in: path, required: true, schema: { type: integer } }
+    delete:
+      tags: [Backups]
+      summary: Delete a backup
+      responses:
+        "204": { description: Deleted }
+
+  /api/servers/{id}/suspend:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    post:
+      tags: [Servers]
+      summary: Suspend a server (admin)
+      responses:
+        "204": { description: Suspended }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/servers/{id}/unsuspend:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    post:
+      tags: [Servers]
+      summary: Unsuspend a server (admin)
+      responses:
+        "204": { description: Unsuspended }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/servers/{id}/access:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Access]
+      summary: List subuser access
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ServerAccess" }
+    post:
+      tags: [Access]
+      summary: Grant a subuser scoped access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, permissions]
+              properties:
+                username: { type: string }
+                permissions:
+                  type: array
+                  items:
+                    type: string
+                    enum: [view, power, console, schedules, backups, settings, delete]
+      responses:
+        "204": { description: Granted }
+  /api/servers/{id}/access/{uid}:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+      - $ref: "#/components/parameters/UserId"
+    delete:
+      tags: [Access]
+      summary: Revoke a subuser's access
+      responses:
+        "204": { description: Revoked }
+  /api/servers/{id}/audit:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Access]
+      summary: Recent audit entries for a server
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AuditEntry" }
+  /api/audit:
+    get:
+      tags: [Access]
+      summary: Panel-wide audit log (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AuditEntry" }
+
+  /api/servers/{id}/notifications:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Notifications]
+      summary: List a server's notification channels
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/NotificationChannel" }
+  /api/servers/{id}/events:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+      - $ref: "#/components/parameters/Limit"
+    get:
+      tags: [Notifications]
+      summary: A server's event feed
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Event" }
+  /api/events:
+    parameters:
+      - $ref: "#/components/parameters/Limit"
+    get:
+      tags: [Notifications]
+      summary: Panel-wide event feed (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Event" }
+  /api/notifications/channels:
+    get:
+      tags: [Notifications]
+      summary: List global notification channels (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/NotificationChannel" }
+    post:
+      tags: [Notifications]
+      summary: Create a channel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChannelInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationChannel" }
+  /api/notifications/channels/{nid}:
+    parameters:
+      - { name: nid, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [Notifications]
+      summary: Get a channel
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationChannel" }
+    patch:
+      tags: [Notifications]
+      summary: Update a channel (blank secrets keep the stored value)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChannelInput" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationChannel" }
+    delete:
+      tags: [Notifications]
+      summary: Delete a channel
+      responses:
+        "204": { description: Deleted }
+  /api/notifications/channels/{nid}/test:
+    parameters:
+      - { name: nid, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [Notifications]
+      summary: Send a test notification to a channel
+      responses:
+        "204": { description: Delivered }
+        "502": { description: Delivery failed }
+        "503": { description: Notifications are not enabled }
+
+  /api/users:
+    get:
+      tags: [Users]
+      summary: List users (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/User" }
+    post:
+      tags: [Users]
+      summary: Create a user (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+  /api/users/{uid}:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    patch:
+      tags: [Users]
+      summary: Update a user's role/quotas (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserInput" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+    delete:
+      tags: [Users]
+      summary: Delete a user (admin)
+      responses:
+        "204": { description: Deleted }
+  /api/users/{uid}/2fa/disable:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    post:
+      tags: [TwoFactor]
+      summary: Reset a user's 2FA (admin; lost-device recovery)
+      responses:
+        "204": { description: 2FA reset }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/apikeys:
+    get:
+      tags: [APIKeys]
+      summary: List your API keys
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/APIKey" }
+    post:
+      tags: [APIKeys]
+      summary: Create an API key (token shown once)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties: { name: { type: string } }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key: { $ref: "#/components/schemas/APIKey" }
+                  token: { type: string, description: The plaintext bearer token (shown once) }
+  /api/apikeys/{kid}:
+    parameters:
+      - { name: kid, in: path, required: true, schema: { type: integer } }
+    delete:
+      tags: [APIKeys]
+      summary: Revoke an API key
+      responses:
+        "204": { description: Revoked }
+
+  /api/clusters:
+    get:
+      tags: [Clusters]
+      summary: List clusters (non-admins get a reduced view)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Cluster" }
+    post:
+      tags: [Clusters]
+      summary: Register a cluster by kubeconfig (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, kubeconfig]
+              properties:
+                name: { type: string }
+                kubeconfig: { type: string, description: Stored encrypted at rest }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Cluster" }
+  /api/clusters/{cid}:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: integer } }
+    patch:
+      tags: [Clusters]
+      summary: Update a cluster (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                kubeconfig: { type: string }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Cluster" }
+    delete:
+      tags: [Clusters]
+      summary: Remove a cluster (admin)
+      responses:
+        "204": { description: Removed }
+        "409": { description: Cluster still holds servers or is the local cluster }
+  /api/clusters/{cid}/test:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [Clusters]
+      summary: Probe a cluster's connectivity (admin)
+      responses:
+        "200":
+          description: Probe result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Cluster" }
+  /api/clusters/{cid}/nodes:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [Clusters]
+      summary: List a cluster's nodes (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ClusterNode" }
+
+  /api/internal/wake:
+    post:
+      tags: [Internal]
+      summary: Wake-on-connect callback (in-cluster activator)
+      description: >
+        HMAC-token authenticated; always returns 204 to avoid leaking server
+        existence. Not for external callers.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WakeRequest" }
+      responses:
+        "204": { description: Processed (or ignored) }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/internal/active:
+    post:
+      tags: [Internal]
+      summary: Activity heartbeat callback (in-cluster proxy)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WakeRequest" }
+      responses:
+        "204": { description: Processed (or ignored) }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: An API key created under Account → API keys.
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: quetzal_session
+      description: Session cookie set by POST /api/login (used by the web UI).
+  parameters:
+    ServerId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+      description: Server ID
+    UserId:
+      name: uid
+      in: path
+      required: true
+      schema: { type: integer }
+      description: User ID
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Authentication required or invalid credentials
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: Too many requests
+      headers:
+        Retry-After:
+          schema: { type: integer }
+          description: Seconds to wait before retrying
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+    Credentials:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string, format: password }
+        code:
+          type: string
+          description: TOTP or recovery code (second login step when 2FA is enabled)
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        isAdmin: { type: boolean }
+        maxServers: { type: integer, description: "0 = unlimited" }
+        maxMemoryMB: { type: integer, format: int64 }
+        maxCpuMilli: { type: integer, format: int64 }
+        twoFactorEnabled: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    UserInput:
+      type: object
+      properties:
+        username: { type: string }
+        password: { type: string, format: password }
+        isAdmin: { type: boolean }
+        maxServers: { type: integer }
+        maxMemoryMB: { type: integer, format: int64 }
+        maxCpuMilli: { type: integer, format: int64 }
+    Resources:
+      type: object
+      properties:
+        memory: { type: string, example: "2Gi" }
+        cpu: { type: string, example: "1" }
+    Storage:
+      type: object
+      properties:
+        type: { type: string, enum: [pvc, hostPath] }
+        size: { type: string, example: "10Gi" }
+        storageClass: { type: string }
+        hostPath: { type: string }
+        retainOnDelete: { type: boolean }
+    Port:
+      type: object
+      properties:
+        name: { type: string }
+        port: { type: integer }
+        protocol: { type: string, enum: [TCP, UDP] }
+        primary: { type: boolean }
+        nodePort: { type: integer }
+    Expose:
+      type: object
+      properties:
+        type: { type: string, enum: [ClusterIP, NodePort, LoadBalancer] }
+        annotations:
+          type: object
+          additionalProperties: { type: string }
+        preserveClientIP: { type: boolean }
+    Hibernation:
+      type: object
+      properties:
+        enabled: { type: boolean }
+        idleMinutes: { type: integer }
+        wakeOnConnect: { type: boolean }
+        proxy: { type: boolean }
+    Status:
+      type: object
+      properties:
+        phase:
+          type: string
+          enum: [Installing, Starting, Running, Stopping, Stopped, Crashed, Suspended, Hibernated, Error]
+        endpoints:
+          type: array
+          items: { type: string }
+        address: { type: string }
+        message: { type: string }
+        crashCount: { type: integer }
+    Server:
+      type: object
+      properties:
+        id: { type: integer }
+        slug: { type: string }
+        displayName: { type: string }
+        namespace: { type: string }
+        desiredState: { type: string, enum: [Running, Stopped, Suspended] }
+        ownerId: { type: integer }
+        image: { type: string }
+        resources: { $ref: "#/components/schemas/Resources" }
+        storage: { $ref: "#/components/schemas/Storage" }
+        ports:
+          type: array
+          items: { $ref: "#/components/schemas/Port" }
+        expose: { $ref: "#/components/schemas/Expose" }
+        hibernation: { $ref: "#/components/schemas/Hibernation" }
+        hibernated: { type: boolean }
+        clusterId: { type: integer }
+        status: { $ref: "#/components/schemas/Status" }
+    CreateServerRequest:
+      type: object
+      required: [name, template]
+      properties:
+        name: { type: string }
+        template: { type: string, description: Template slug }
+        image: { type: string, description: Image ref (defaults to the template's) }
+        memory: { type: string }
+        cpu: { type: string }
+        storage: { $ref: "#/components/schemas/Storage" }
+        env:
+          type: object
+          additionalProperties: { type: string }
+        expose: { $ref: "#/components/schemas/Expose" }
+        hibernation: { $ref: "#/components/schemas/Hibernation" }
+        cluster: { type: string, description: Target cluster slug (empty = local) }
+        start: { type: boolean }
+    ServerStats:
+      type: object
+      properties:
+        cpuMillicores: { type: integer }
+        memoryBytes: { type: integer, format: int64 }
+        cpuLimit: { type: string }
+        memoryLimit: { type: string }
+    TemplateVariable:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        envVariable: { type: string }
+        type: { type: string }
+        default: { type: string }
+        required: { type: boolean }
+        options:
+          type: array
+          items: { type: string }
+        editable: { type: boolean }
+        secret: { type: boolean }
+    TemplateImage:
+      type: object
+      properties:
+        displayName: { type: string }
+        ref: { type: string }
+        default: { type: boolean }
+    Template:
+      type: object
+      properties:
+        id: { type: integer }
+        slug: { type: string }
+        name: { type: string }
+        category: { type: string }
+        description: { type: string }
+        images:
+          type: array
+          items: { $ref: "#/components/schemas/TemplateImage" }
+        variables:
+          type: array
+          items: { $ref: "#/components/schemas/TemplateVariable" }
+        ports:
+          type: array
+          items: { $ref: "#/components/schemas/Port" }
+    Schedule:
+      type: object
+      properties:
+        id: { type: integer }
+        serverId: { type: integer }
+        name: { type: string }
+        cron: { type: string }
+        action: { type: string, enum: [start, stop, restart, command, backup] }
+        payload: { type: string }
+        enabled: { type: boolean }
+        nextRun: { type: string, format: date-time }
+        lastRun: { type: string, format: date-time }
+        lastStatus: { type: string }
+    ScheduleInput:
+      type: object
+      required: [name, cron, action, enabled]
+      properties:
+        name: { type: string }
+        cron: { type: string }
+        action: { type: string, enum: [start, stop, restart, command, backup] }
+        payload: { type: string }
+        enabled: { type: boolean }
+    Backup:
+      type: object
+      properties:
+        id: { type: integer }
+        serverId: { type: integer }
+        direction: { type: string, enum: [backup, restore] }
+        phase: { type: string, enum: [Pending, Running, Succeeded, Failed] }
+        sourceId: { type: integer }
+        sizeBytes: { type: integer, format: int64 }
+        message: { type: string }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time }
+    BackupConfig:
+      type: object
+      properties:
+        endpoint: { type: string }
+        bucket: { type: string }
+        prefix: { type: string }
+        region: { type: string }
+        useSSL: { type: boolean }
+        keepLast: { type: integer }
+        runnerImage: { type: string }
+        configured: { type: boolean }
+        hasCredentials: { type: boolean }
+        hasPassword: { type: boolean }
+    BackupConfigInput:
+      type: object
+      properties:
+        endpoint: { type: string }
+        bucket: { type: string }
+        prefix: { type: string }
+        region: { type: string }
+        useSSL: { type: boolean }
+        keepLast: { type: integer }
+        runnerImage: { type: string }
+        accessKey: { type: string }
+        secretKey: { type: string }
+        repoPassword: { type: string }
+    Cluster:
+      type: object
+      properties:
+        id: { type: integer }
+        slug: { type: string }
+        name: { type: string }
+        inCluster: { type: boolean }
+        reachable: { type: boolean }
+        version: { type: string }
+        nodeCount: { type: integer }
+        lastCheckedAt: { type: string, format: date-time }
+        statusMessage: { type: string }
+    ClusterNode:
+      type: object
+      properties:
+        name: { type: string }
+        ready: { type: boolean }
+        version: { type: string }
+        os: { type: string }
+        cpu: { type: string }
+        memory: { type: string }
+        internalIP: { type: string }
+    ServerAccess:
+      type: object
+      properties:
+        id: { type: integer }
+        serverId: { type: integer }
+        userId: { type: integer }
+        username: { type: string }
+        permissions:
+          type: array
+          items: { type: string }
+    AuditEntry:
+      type: object
+      properties:
+        id: { type: integer }
+        createdAt: { type: string, format: date-time }
+        userId: { type: integer }
+        username: { type: string }
+        serverId: { type: integer }
+        action: { type: string }
+        detail: { type: string }
+    Event:
+      type: object
+      properties:
+        id: { type: integer }
+        createdAt: { type: string, format: date-time }
+        type: { type: string }
+        serverId: { type: integer }
+        userId: { type: integer }
+        username: { type: string }
+        message: { type: string }
+        data:
+          type: object
+          additionalProperties: { type: string }
+    NotificationChannel:
+      type: object
+      description: Secret config values are never returned, only whether they are set.
+      properties:
+        id: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        name: { type: string }
+        type: { type: string, enum: [discord, webhook, email] }
+        enabled: { type: boolean }
+        serverId: { type: integer, description: "0 = global catch-all" }
+        events:
+          type: array
+          items: { type: string }
+          description: Event-type allow-list (empty = all)
+        config:
+          type: object
+          additionalProperties: { type: string }
+          description: Non-secret settings
+        secrets:
+          type: object
+          additionalProperties: { type: boolean }
+          description: Which secret keys are configured
+    ChannelInput:
+      type: object
+      required: [name, type]
+      properties:
+        name: { type: string }
+        type: { type: string, enum: [discord, webhook, email] }
+        enabled: { type: boolean }
+        serverId: { type: integer }
+        events:
+          type: array
+          items: { type: string }
+        config:
+          type: object
+          additionalProperties: { type: string }
+          description: >
+            Type-specific settings. discord: url. webhook: url, secret.
+            email: host, port, username, password, from, to, tls.
+    APIKey:
+      type: object
+      properties:
+        id: { type: integer }
+        userId: { type: integer }
+        name: { type: string }
+        prefix: { type: string }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: string, format: date-time }
+    WakeRequest:
+      type: object
+      required: [slug, token]
+      properties:
+        slug: { type: string }
+        token: { type: string }
