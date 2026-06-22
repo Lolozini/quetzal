@@ -131,6 +131,12 @@ func deliverEmail(ctx context.Context, cfg map[string]string, e models.Event) er
 	if err != nil {
 		return err
 	}
+	// net/smtp takes no context, so bound the whole conversation with a socket
+	// deadline. Without it a server that accepts the connection then stalls would
+	// block the single dispatcher goroutine forever, wedging all notifications.
+	if dl, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(dl)
+	}
 	// Implicit TLS (SMTPS, usually :465) wraps the connection immediately.
 	if mode == "tls" {
 		conn = tls.Client(conn, &tls.Config{ServerName: host})

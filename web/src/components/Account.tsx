@@ -25,6 +25,12 @@ function TwoFactor({ initialEnabled, username }: { initialEnabled: boolean; user
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // The user prop is captured at login and can be stale if 2FA was toggled
+  // earlier this session; sync the real state on mount.
+  useEffect(() => {
+    api.me().then((m) => setEnabled(!!m.twoFactorEnabled)).catch(() => {});
+  }, []);
+
   function fail(e: unknown) {
     setError(e instanceof ApiError ? e.message : String(e));
   }
