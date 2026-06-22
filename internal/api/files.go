@@ -1,0 +1,205 @@
+package api
+
+import (
+	"context"
+	"io"
+	"net/http"
+	"path"
+	"strconv"
+	"strings"
+	"time"
+
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+
+	"github.com/lolozini/quetzal/internal/console"
+	"github.com/lolozini/quetzal/internal/models"
+)
+
+// File operations run inside the server's running container via the exec
+// subresource (no sidecar). Paths from the client are always confined to the
+// server's data directory and passed as positional shell arguments (never
+// interpolated), so neither path traversal nor shell injection is possible.
+
+const fileOpTimeout = 60 * time.Second
+
+type fileEntry struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+	Dir  bool   `json:"dir"`
+}
+
+// dataRoot returns the server's data directory (the only writable, mounted path).
+func (s *Server) dataRoot(srv *models.Server) string {
+	if t, err := s.Store.GetTemplate(srv.TemplateID); err == nil && t.DataPath != "" {
+		return t.DataPath
+	}
+	return "/data"
+}
+
+// jail resolves a client-supplied relative path strictly under root. Any "..":
+// path.Clean against "/" first drops leading parent refs, so the join can never
+// escape root.
+func jail(root, rel string) string {
+	return path.Join(root, path.Clean("/"+rel))
+}
+
+// fileContext loads the server (requiring the files permission), resolves its
+// data root and target cluster, and finds a running pod. It writes the error
+// response itself and returns ok=false on any failure.
+func (s *Server) fileContext(w http.ResponseWriter, r *http.Request) (srv *models.Server, root string, cs kubernetes.Interface, cfg *rest.Config, pod string, ok bool) {
+	srv, ok = s.requireServer(w, r, models.PermFiles)
+	if !ok {
+		return
+	}
+	root = s.dataRoot(srv)
+	cs, cfg, err := s.clientsFor(srv)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "target cluster unavailable: "+err.Error())
+		return nil, "", nil, nil, "", false
+	}
+	pod, running := console.RunningPod(r.Context(), cs, srv.Namespace, srv.Slug)
+	if !running {
+		writeError(w, http.StatusConflict, "server must be running to manage files")
+		return nil, "", nil, nil, "", false
+	}
+	return srv, root, cs, cfg, pod, true
+}
+
+// exec runs a command in the server's container with a bounded timeout.
+func (s *Server) execFile(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, ns, pod string, cmd []string, stdin io.Reader, stdout io.Writer) error {
+	ctx, cancel := context.WithTimeout(ctx, fileOpTimeout)
+	defer cancel()
+	return console.Exec(ctx, cs, cfg, ns, pod, cmd, stdin, stdout)
+}
+
+// listScript prints "<type>\t<size>\t<name>" per entry of the directory in $1.
+const listScript = `cd "$1" 2>/dev/null || { echo "no such directory" >&2; exit 2; }
+for e in * .*; do
+  [ "$e" = "." ] && continue
+  [ "$e" = ".." ] && continue
+  [ -e "$e" ] || [ -L "$e" ] || continue
+  if [ -d "$e" ]; then printf 'd\t0\t%s\n' "$e"
+  else s=$(wc -c < "$e" 2>/dev/null) || s=0; printf 'f\t%s\t%s\n' "$s" "$e"; fi
+done`
+
+func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
+	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
+	if !ok {
+		return
+	}
+	dir := jail(root, r.URL.Query().Get("path"))
+	var out strings.Builder
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", listScript, "_", dir}, nil, &out); err != nil {
+		writeError(w, http.StatusBadGateway, "list failed: "+err.Error())
+		return
+	}
+	entries := []fileEntry{}
+	for _, line := range strings.Split(out.String(), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		size, _ := strconv.ParseInt(parts[1], 10, 64)
+		entries = append(entries, fileEntry{Name: parts[2], Size: size, Dir: parts[0] == "d"})
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+func (s *Server) handleReadFile(w http.ResponseWriter, r *http.Request) {
+	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
+	if !ok {
+		return
+	}
+	full := jail(root, r.URL.Query().Get("path"))
+	if r.URL.Query().Get("download") == "1" {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeFilename(path.Base(full))+`"`)
+	} else {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	}
+	// Stream cat's stdout straight to the response (no buffering of large files).
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"cat", "--", full}, nil, w); err != nil {
+		// Headers may already be sent; best-effort error only if nothing written.
+		writeError(w, http.StatusBadGateway, "read failed: "+err.Error())
+		return
+	}
+}
+
+func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {
+	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
+	if !ok {
+		return
+	}
+	full := jail(root, r.URL.Query().Get("path"))
+	body := http.MaxBytesReader(w, r.Body, 256<<20) // 256 MiB cap
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", `cat > "$1"`, "_", full}, body, io.Discard); err != nil {
+		writeError(w, http.StatusBadGateway, "write failed: "+err.Error())
+		return
+	}
+	s.audit(r, srv.ID, "files.write", relParam(r))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
+	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
+	if !ok {
+		return
+	}
+	full := jail(root, r.URL.Query().Get("path"))
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"mkdir", "-p", "--", full}, nil, io.Discard); err != nil {
+		writeError(w, http.StatusBadGateway, "mkdir failed: "+err.Error())
+		return
+	}
+	s.audit(r, srv.ID, "files.mkdir", relParam(r))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
+	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
+	if !ok {
+		return
+	}
+	rel := r.URL.Query().Get("path")
+	if path.Clean("/"+rel) == "/" {
+		writeError(w, http.StatusBadRequest, "refusing to delete the data root")
+		return
+	}
+	full := jail(root, rel)
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"rm", "-rf", "--", full}, nil, io.Discard); err != nil {
+		writeError(w, http.StatusBadGateway, "delete failed: "+err.Error())
+		return
+	}
+	s.audit(r, srv.ID, "files.delete", rel)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
+	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
+	if !ok {
+		return
+	}
+	from := jail(root, r.URL.Query().Get("path"))
+	toRel := r.URL.Query().Get("to")
+	if strings.TrimSpace(toRel) == "" {
+		writeError(w, http.StatusBadRequest, "missing 'to'")
+		return
+	}
+	to := jail(root, toRel)
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"mv", "--", from, to}, nil, io.Discard); err != nil {
+		writeError(w, http.StatusBadGateway, "rename failed: "+err.Error())
+		return
+	}
+	s.audit(r, srv.ID, "files.rename", relParam(r)+" -> "+toRel)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func relParam(r *http.Request) string { return r.URL.Query().Get("path") }
+
+// sanitizeFilename strips characters unsafe for a Content-Disposition filename.
+func sanitizeFilename(name string) string {
+	return strings.NewReplacer(`"`, "", "\\", "", "\n", "", "\r", "").Replace(name)
+}

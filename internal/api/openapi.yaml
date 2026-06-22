@@ -32,6 +32,8 @@ tags:
     description: Server lifecycle, configuration and power
   - name: Console
     description: Live console (logs + attach) over WebSocket
+  - name: Files
+    description: File manager (exec into the running pod; requires the files permission)
   - name: Schedules
     description: Cron schedules per server
   - name: Backups
@@ -341,6 +343,91 @@ paths:
         "101": { description: Switching Protocols (WebSocket) }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/servers/{id}/files:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Files]
+      summary: List a directory
+      description: >
+        Lists entries in `path` (relative to the server's data root). The server
+        must be running. `path` is confined to the data root.
+      parameters:
+        - { name: path, in: query, schema: { type: string }, description: Directory relative to the data root }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    size: { type: integer, format: int64 }
+                    dir: { type: boolean }
+        "409": { description: Server must be running to manage files }
+    delete:
+      tags: [Files]
+      summary: Delete a file or directory (recursive)
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Deleted }
+        "400": { description: Refusing to delete the data root }
+  /api/servers/{id}/files/content:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Files]
+      summary: Read or download a file
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+        - { name: download, in: query, schema: { type: string, enum: ["1"] }, description: Force a download response }
+      responses:
+        "200":
+          description: File contents
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+            text/plain:
+              schema: { type: string }
+    put:
+      tags: [Files]
+      summary: Write (create/overwrite) a file
+      description: Raw request body is written to `path` (truncating). Used for save and upload.
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "204": { description: Written }
+  /api/servers/{id}/files/mkdir:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    post:
+      tags: [Files]
+      summary: Create a directory (mkdir -p)
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Created }
+  /api/servers/{id}/files/rename:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    post:
+      tags: [Files]
+      summary: Rename / move a file or directory
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string }, description: Source (relative to data root) }
+        - { name: to, in: query, required: true, schema: { type: string }, description: Destination (relative to data root) }
+      responses:
+        "204": { description: Renamed }
+
   /api/servers/{id}/schedules:
     parameters:
       - $ref: "#/components/parameters/ServerId"
@@ -512,7 +599,7 @@ paths:
                   type: array
                   items:
                     type: string
-                    enum: [view, power, console, schedules, backups, settings, delete]
+                    enum: [view, power, console, schedules, backups, files, settings, delete]
       responses:
         "204": { description: Granted }
   /api/servers/{id}/access/{uid}:

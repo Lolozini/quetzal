@@ -10,13 +10,14 @@ const (
 	PermConsole   = "console"   // live console
 	PermSchedules = "schedules" // manage scheduled tasks
 	PermBackups   = "backups"   // create/restore/delete backups
+	PermFiles     = "files"     // browse/edit the server's files
 	PermSettings  = "settings"  // edit exposure / resources
 	PermDelete    = "delete"    // delete the server
 )
 
 // AllPermissions is the full set a subuser can be granted.
 var AllPermissions = []string{
-	PermView, PermPower, PermConsole, PermSchedules, PermBackups, PermSettings, PermDelete,
+	PermView, PermPower, PermConsole, PermSchedules, PermBackups, PermFiles, PermSettings, PermDelete,
 }
 
 // ValidPermission reports whether p is a known permission.

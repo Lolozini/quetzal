@@ -9,6 +9,7 @@
 package console
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -71,6 +72,12 @@ func FindRunningPod(ctx context.Context, cs kubernetes.Interface, ns, slug strin
 		return fallback, nil
 	}
 	return "", fmt.Errorf("no pod found for server %q (is it running?)", slug)
+}
+
+// RunningPod returns a pod whose main container is currently running, or false.
+// Exposed for callers (e.g. file operations) that require a live container.
+func RunningPod(ctx context.Context, cs kubernetes.Interface, ns, slug string) (string, bool) {
+	return runningContainerPod(ctx, cs, ns, slug)
 }
 
 // runningContainerPod returns a pod whose main container is actually in the
@@ -288,6 +295,41 @@ func attachStdin(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config,
 // context with a timeout.
 func SendStdin(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, ns, pod, data string) error {
 	return attachStdin(ctx, cs, cfg, ns, pod, strings.NewReader(data))
+}
+
+// Exec runs a command in a server's main container via the pods/exec
+// subresource. stdin is optional (nil for none); stdout is written to the
+// provided writer (stream large outputs directly without buffering). A non-zero
+// exit returns an error including captured stderr. Pass a context with a timeout.
+func Exec(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, ns, pod string, command []string, stdin io.Reader, stdout io.Writer) error {
+	req := cs.CoreV1().RESTClient().Post().
+		Resource("pods").Name(pod).Namespace(ns).SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: reconciler.WorkloadName,
+			Command:   command,
+			Stdin:     stdin != nil,
+			Stdout:    true,
+			Stderr:    true,
+			TTY:       false,
+		}, scheme.ParameterCodec)
+
+	executor, err := remotecommand.NewSPDYExecutor(cfg, "POST", req.URL())
+	if err != nil {
+		return err
+	}
+	var stderr bytes.Buffer
+	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdin:  stdin,
+		Stdout: stdout,
+		Stderr: &stderr,
+	})
+	if err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return fmt.Errorf("%w: %s", err, msg)
+		}
+		return err
+	}
+	return nil
 }
 
 func send(ctx context.Context, out chan<- Message, m Message) {
