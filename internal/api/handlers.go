@@ -87,9 +87,21 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	ip := s.clientIP(r)
+	if !s.AuthIPLimiter.Allow(ip) {
+		tooManyRequests(w, s.AuthIPLimiter.RetryAfter(ip))
+		return
+	}
 	var req credentials
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	// Per-account brute-force throttle (bounds password and TOTP-code guessing);
+	// cleared on a fully successful login below.
+	userKey := strings.ToLower(strings.TrimSpace(req.Username))
+	if !s.LoginLimiter.Allow(userKey) {
+		tooManyRequests(w, s.LoginLimiter.RetryAfter(userKey))
 		return
 	}
 	u, err := s.Store.GetUserByUsername(req.Username)
@@ -121,6 +133,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Successful login: don't hold earlier failures against this user/IP.
+	s.LoginLimiter.Reset(userKey)
+	s.AuthIPLimiter.Reset(ip)
 	writeJSON(w, http.StatusOK, u)
 }
 
@@ -700,6 +715,10 @@ type wakeRequest struct {
 // indistinguishable, so a pod on the cluster (e.g. an untrusted game container)
 // can't probe which servers exist.
 func (s *Server) handleWake(w http.ResponseWriter, r *http.Request) {
+	if ip := s.clientIP(r); !s.InternalLimiter.Allow(ip) {
+		tooManyRequests(w, s.InternalLimiter.RetryAfter(ip))
+		return
+	}
 	var req wakeRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
@@ -731,6 +750,10 @@ func (s *Server) handleWake(w http.ResponseWriter, r *http.Request) {
 // server's idle timer (LastActiveAt). This is how UDP activity is measured —
 // /proc/net/tcp can't see it. Always 204 (no existence leak).
 func (s *Server) handleActive(w http.ResponseWriter, r *http.Request) {
+	if ip := s.clientIP(r); !s.InternalLimiter.Allow(ip) {
+		tooManyRequests(w, s.InternalLimiter.RetryAfter(ip))
+		return
+	}
 	var req wakeRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")

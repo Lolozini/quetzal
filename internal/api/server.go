@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/lolozini/quetzal/internal/cluster"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/notify"
+	"github.com/lolozini/quetzal/internal/ratelimit"
 	"github.com/lolozini/quetzal/internal/store"
 )
 
@@ -51,6 +53,15 @@ type Server struct {
 	// recorded for the activity feed).
 	Dispatch *notify.Dispatcher
 
+	// Rate limiters (per-process). LoginLimiter is keyed by username, AuthIPLimiter
+	// and InternalLimiter by client IP. Replaceable in tests.
+	LoginLimiter    *ratelimit.Limiter
+	AuthIPLimiter   *ratelimit.Limiter
+	InternalLimiter *ratelimit.Limiter
+	// TrustProxy honors X-Forwarded-For when deriving the client IP (set when
+	// served behind a reverse proxy such as Traefik).
+	TrustProxy bool
+
 	upgrader websocket.Upgrader
 }
 
@@ -62,9 +73,46 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 		RestConfig: cfg,
 		Registry:   cluster.New(st, cluster.Clients{Clientset: cs, Config: cfg}),
 		SessionTTL: 7 * 24 * time.Hour,
+		// Brute-force defaults: 10 login attempts / 15 min per username (covers
+		// password and TOTP-code guessing), a broader per-IP cap, and a generous
+		// cap on the in-cluster wake/active callbacks.
+		LoginLimiter:    ratelimit.New(10, 15*time.Minute),
+		AuthIPLimiter:   ratelimit.New(60, 15*time.Minute),
+		InternalLimiter: ratelimit.New(120, time.Minute),
 	}
 	s.upgrader = websocket.Upgrader{CheckOrigin: s.checkOrigin}
 	return s
+}
+
+// GCRateLimiters drops expired counters from all limiters; call periodically.
+func (s *Server) GCRateLimiters() {
+	s.LoginLimiter.GC()
+	s.AuthIPLimiter.GC()
+	s.InternalLimiter.GC()
+}
+
+// clientIP returns the caller's IP, honoring X-Forwarded-For only when behind a
+// trusted proxy (otherwise it is attacker-spoofable).
+func (s *Server) clientIP(r *http.Request) string {
+	if s.TrustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			if i := strings.IndexByte(xff, ','); i >= 0 {
+				return strings.TrimSpace(xff[:i])
+			}
+			return strings.TrimSpace(xff)
+		}
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+func tooManyRequests(w http.ResponseWriter, retryAfter int) {
+	if retryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+	}
+	writeError(w, http.StatusTooManyRequests, "too many requests, slow down")
 }
 
 // clientsFor returns the Kubernetes clientset + rest config for a server's
@@ -167,7 +215,43 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/servers/{id}/events", s.auth(s.handleServerEvents))
 	mux.Handle("GET /api/events", s.auth(s.handleGlobalEvents))
 
-	return logRequests(mux)
+	return logRequests(s.csrf(mux))
+}
+
+// csrf blocks state-changing requests whose Origin/Referer is cross-origin. The
+// session cookie is SameSite=Lax (already blocking most cross-site sends); this
+// is defense-in-depth. Non-browser clients send neither header and authenticate
+// with bearer tokens (not ambient cookies), so they are unaffected.
+func (s *Server) csrf(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			// safe, no state change
+		default:
+			if !s.sameOriginRequest(r) {
+				writeError(w, http.StatusForbidden, "cross-origin request blocked")
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// sameOriginRequest reports whether an unsafe request's Origin (or, failing that,
+// Referer) matches the request Host. A request with neither header is allowed.
+func (s *Server) sameOriginRequest(r *http.Request) bool {
+	src := r.Header.Get("Origin")
+	if src == "" {
+		src = r.Header.Get("Referer")
+	}
+	if src == "" {
+		return true
+	}
+	u, err := url.Parse(src)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return u.Host == r.Host
 }
 
 // ---- auth middleware & helpers ----

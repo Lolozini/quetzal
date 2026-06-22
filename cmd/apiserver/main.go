@@ -71,6 +71,7 @@ func main() {
 	apiSrv.NodePortMin = envInt32("QUETZAL_NODEPORT_MIN", 0)
 	apiSrv.NodePortMax = envInt32("QUETZAL_NODEPORT_MAX", 0)
 	apiSrv.WakeKey = crypto.KeyFromEnv("QUETZAL_SECRET_KEY")
+	apiSrv.TrustProxy = env("QUETZAL_TRUST_PROXY", "") == "true"
 
 	// The notification dispatcher drains the event outbox to configured channels.
 	dispatcher := notify.New(st)
@@ -96,6 +97,7 @@ func main() {
 	defer stop()
 
 	go gcSessions(ctx, st)
+	go gcRateLimiters(ctx, apiSrv)
 	go dispatcher.Run(ctx)
 
 	go func() {
@@ -126,6 +128,20 @@ func gcSessions(ctx context.Context, st *store.Store) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		}
+	}
+}
+
+// gcRateLimiters periodically drops expired rate-limit counters.
+func gcRateLimiters(ctx context.Context, srv *api.Server) {
+	t := time.NewTicker(10 * time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			srv.GCRateLimiters()
 		}
 	}
 }
