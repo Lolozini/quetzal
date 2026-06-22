@@ -8,8 +8,14 @@ export interface User {
   maxServers?: number;
   maxMemoryMB?: number;
   maxCpuMilli?: number;
+  twoFactorEnabled?: boolean;
   createdAt?: string;
 }
+
+// LoginResult is either the authenticated user or a 2FA challenge: when the
+// account has two-factor enabled, the password step returns twoFactorRequired
+// and the client must resubmit with a code.
+export type LoginResult = User | { twoFactorRequired: true };
 
 export interface ServerAccess {
   id: number;
@@ -305,8 +311,8 @@ export const api = {
   setupStatus: () => req<{ needed: boolean }>("GET", "/api/setup/status"),
   setup: (username: string, password: string) =>
     req<User>("POST", "/api/setup", { username, password }),
-  login: (username: string, password: string) =>
-    req<User>("POST", "/api/login", { username, password }),
+  login: (username: string, password: string, code?: string) =>
+    req<LoginResult>("POST", "/api/login", { username, password, code }),
   logout: () => req<void>("POST", "/api/logout"),
   me: () => req<User>("GET", "/api/me"),
 
@@ -362,6 +368,13 @@ export const api = {
   deleteUser: (uid: number) => req<void>("DELETE", `/api/users/${uid}`),
   changePassword: (oldPassword: string, newPassword: string) =>
     req<void>("POST", "/api/me/password", { oldPassword, newPassword }),
+
+  // Two-factor authentication (opt-in TOTP).
+  setup2FA: () => req<{ secret: string; uri: string }>("POST", "/api/me/2fa/setup"),
+  enable2FA: (code: string) =>
+    req<{ recoveryCodes: string[] }>("POST", "/api/me/2fa/enable", { code }),
+  disable2FA: (code: string) => req<void>("POST", "/api/me/2fa/disable", { code }),
+  adminDisable2FA: (uid: number) => req<void>("POST", `/api/users/${uid}/2fa/disable`),
 
   apiKeys: () => req<APIKey[]>("GET", "/api/apikeys"),
   createAPIKey: (name: string) =>

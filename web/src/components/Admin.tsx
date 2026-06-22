@@ -79,21 +79,33 @@ function Users() {
     }
   }
 
+  async function reset2FA(u: User) {
+    if (!window.confirm(`Reset two-factor authentication for "${u.username}"? They will sign in with just their password until they re-enable it.`)) return;
+    try {
+      await api.adminDisable2FA(u.id);
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
   return (
     <div className="card">
       <h2>Users</h2>
       <table>
         <thead>
-          <tr><th>User</th><th>Role</th><th>Quota (servers / mem MB)</th><th></th></tr>
+          <tr><th>User</th><th>Role</th><th>2FA</th><th>Quota (servers / mem MB)</th><th></th></tr>
         </thead>
         <tbody>
           {users.map((u) => (
             <tr key={u.id}>
               <td>{u.username}</td>
               <td>{u.isAdmin ? "admin" : "user"}</td>
+              <td>{u.twoFactorEnabled ? "on" : <span className="muted">off</span>}</td>
               <td>{(u.maxServers || "∞") + " / " + (u.maxMemoryMB || "∞")}</td>
               <td style={{ whiteSpace: "nowrap" }}>
                 <button onClick={() => toggleAdmin(u)}>{u.isAdmin ? "Demote" : "Make admin"}</button>{" "}
+                {u.twoFactorEnabled && <><button onClick={() => reset2FA(u)}>Reset 2FA</button>{" "}</>}
                 <button className="danger" onClick={() => remove(u)}>Delete</button>
               </td>
             </tr>

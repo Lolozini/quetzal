@@ -5,6 +5,7 @@ export function Account({ user }: { user: User }) {
   return (
     <>
       <ChangePassword />
+      <TwoFactor initialEnabled={!!user.twoFactorEnabled} username={user.username} />
       <APIKeys />
       <div className="card">
         <h3>Account</h3>
@@ -12,6 +13,125 @@ export function Account({ user }: { user: User }) {
         <div className="kv"><span className="k">Role</span><span>{user.isAdmin ? "administrator" : "user"}</span></div>
       </div>
     </>
+  );
+}
+
+function TwoFactor({ initialEnabled, username }: { initialEnabled: boolean; username: string }) {
+  const [enabled, setEnabled] = useState(initialEnabled);
+  const [enroll, setEnroll] = useState<{ secret: string; uri: string } | null>(null);
+  const [recovery, setRecovery] = useState<string[] | null>(null);
+  const [disabling, setDisabling] = useState(false);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function fail(e: unknown) {
+    setError(e instanceof ApiError ? e.message : String(e));
+  }
+
+  async function begin() {
+    setError("");
+    setBusy(true);
+    try {
+      setEnroll(await api.setup2FA());
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirm() {
+    setError("");
+    setBusy(true);
+    try {
+      const res = await api.enable2FA(code.trim());
+      setRecovery(res.recoveryCodes);
+      setEnabled(true);
+      setEnroll(null);
+      setCode("");
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disable() {
+    setError("");
+    setBusy(true);
+    try {
+      await api.disable2FA(code.trim());
+      setEnabled(false);
+      setDisabling(false);
+      setCode("");
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2>Two-factor authentication</h2>
+
+      {recovery && (
+        <div className="notice">
+          <strong>Save your recovery codes now — they are shown only once.</strong>
+          <p className="muted">Each code works once if you lose your authenticator.</p>
+          <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{recovery.join("\n")}</pre>
+          <button onClick={() => setRecovery(null)}>I've saved them</button>
+        </div>
+      )}
+
+      {!recovery && enabled && !disabling && (
+        <>
+          <p>2FA is <strong>enabled</strong> on your account.</p>
+          <button className="danger" onClick={() => { setError(""); setDisabling(true); }}>Disable 2FA</button>
+        </>
+      )}
+
+      {!recovery && enabled && disabling && (
+        <div>
+          <p className="muted">Confirm with a current code (or a recovery code) to disable.</p>
+          <label>Code</label>
+          <input value={code} autoComplete="one-time-code" onChange={(e) => setCode(e.target.value)} />
+          <div className="row" style={{ marginTop: 12 }}>
+            <button className="danger" disabled={busy || !code} onClick={disable}>Confirm disable</button>
+            <button onClick={() => { setDisabling(false); setCode(""); setError(""); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {!recovery && !enabled && !enroll && (
+        <>
+          <p className="muted">Protect your account with a time-based one-time password (TOTP).</p>
+          <button className="primary" disabled={busy} onClick={begin}>Enable 2FA</button>
+        </>
+      )}
+
+      {!recovery && !enabled && enroll && (
+        <div>
+          <p className="muted">
+            Add this account to your authenticator app, then enter the current code to confirm.
+          </p>
+          <div className="kv"><span className="k">Account</span><span>{username}</span></div>
+          <label>Setup key (manual entry)</label>
+          <code style={{ display: "block", wordBreak: "break-all", marginBottom: 8 }}>{enroll.secret}</code>
+          <label>otpauth URI (scan or paste)</label>
+          <code style={{ display: "block", wordBreak: "break-all" }}>{enroll.uri}</code>
+          <label style={{ marginTop: 12 }}>Verification code</label>
+          <input value={code} autoComplete="one-time-code" onChange={(e) => setCode(e.target.value)} />
+          <div className="row" style={{ marginTop: 12 }}>
+            <button className="primary" disabled={busy || !code} onClick={confirm}>Confirm &amp; enable</button>
+            <button onClick={() => { setEnroll(null); setCode(""); setError(""); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {error && <div className="error">{error}</div>}
+    </div>
   );
 }
 

@@ -10,6 +10,8 @@ export function Auth({
 }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [twoFactor, setTwoFactor] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -18,10 +20,16 @@ export function Auth({
     setBusy(true);
     setError("");
     try {
-      const u = setupNeeded
-        ? await api.setup(username, password)
-        : await api.login(username, password);
-      onAuthed(u);
+      if (setupNeeded) {
+        onAuthed(await api.setup(username, password));
+        return;
+      }
+      const res = await api.login(username, password, twoFactor ? code : undefined);
+      if ("twoFactorRequired" in res) {
+        setTwoFactor(true); // ask for the code, keep username/password
+      } else {
+        onAuthed(res);
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -36,19 +44,41 @@ export function Auth({
           Quetz<span style={{ color: "var(--accent)" }}>al</span>
         </h1>
         <p className="muted">
-          {setupNeeded ? "Create the admin account" : "Sign in to continue"}
+          {setupNeeded
+            ? "Create the admin account"
+            : twoFactor
+              ? "Enter your authentication code"
+              : "Sign in to continue"}
         </p>
-        <label>Username</label>
-        <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
-        <label>Password</label>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        {!twoFactor && (
+          <>
+            <label>Username</label>
+            <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+            <label>Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </>
+        )}
+        {twoFactor && (
+          <>
+            <label>Authentication code</label>
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              autoFocus
+              autoComplete="one-time-code"
+              inputMode="text"
+              placeholder="6-digit code or recovery code"
+            />
+            <p className="muted">From your authenticator app, or a recovery code.</p>
+          </>
+        )}
         {error && <div className="error">{error}</div>}
         <button className="primary" style={{ marginTop: 16, width: "100%" }} disabled={busy}>
-          {busy ? "…" : setupNeeded ? "Create admin" : "Sign in"}
+          {busy ? "…" : setupNeeded ? "Create admin" : twoFactor ? "Verify" : "Sign in"}
         </button>
       </form>
     </div>
