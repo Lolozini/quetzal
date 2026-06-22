@@ -3,6 +3,7 @@ import { api, ApiError, AuditEntry, Cluster, ExposeType, PowerAction, Server, Se
 import { Access } from "./Access";
 import { Backups } from "./Backups";
 import { Console } from "./Console";
+import { Files } from "./Files";
 import { Notifications } from "./Notifications";
 import { Schedules } from "./Schedules";
 
@@ -306,6 +307,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
         {error && <div className="error">{error}</div>}
       </div>
       <Schedules id={id} />
+      {canManage && <Files id={id} />}
       <Backups id={id} />
       {canManage && <Access id={id} />}
       {canManage && <Notifications serverId={id} />}

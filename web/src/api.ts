@@ -31,9 +31,16 @@ export const ALL_PERMISSIONS = [
   "console",
   "schedules",
   "backups",
+  "files",
   "settings",
   "delete",
 ] as const;
+
+export interface FileEntry {
+  name: string;
+  size: number;
+  dir: boolean;
+}
 
 export interface AuditEntry {
   id: number;
@@ -390,6 +397,43 @@ export const api = {
   deleteCluster: (id: number) => req<void>("DELETE", `/api/clusters/${id}`),
   testCluster: (id: number) => req<Cluster>("POST", `/api/clusters/${id}/test`),
   clusterNodes: (id: number) => req<ClusterNode[]>("GET", `/api/clusters/${id}/nodes`),
+
+  // File manager. Content read/write use raw bodies (not JSON), so they bypass
+  // the req() helper; the browser sends a same-origin Origin so CSRF passes.
+  listFiles: (id: number, path: string) =>
+    req<FileEntry[]>("GET", `/api/servers/${id}/files?path=${encodeURIComponent(path)}`),
+  readFile: async (id: number, path: string): Promise<string> => {
+    const res = await fetch(`/api/servers/${id}/files/content?path=${encodeURIComponent(path)}`, {
+      credentials: "include",
+    });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
+      throw new ApiError(res.status, msg);
+    }
+    return res.text();
+  },
+  writeFile: async (id: number, path: string, body: BodyInit): Promise<void> => {
+    const res = await fetch(`/api/servers/${id}/files/content?path=${encodeURIComponent(path)}`, {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/octet-stream" },
+      body,
+    });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
+      throw new ApiError(res.status, msg);
+    }
+  },
+  mkdir: (id: number, path: string) =>
+    req<void>("POST", `/api/servers/${id}/files/mkdir?path=${encodeURIComponent(path)}`),
+  renameFile: (id: number, path: string, to: string) =>
+    req<void>("POST", `/api/servers/${id}/files/rename?path=${encodeURIComponent(path)}&to=${encodeURIComponent(to)}`),
+  deleteFile: (id: number, path: string) =>
+    req<void>("DELETE", `/api/servers/${id}/files?path=${encodeURIComponent(path)}`),
+  fileDownloadUrl: (id: number, path: string) =>
+    `/api/servers/${id}/files/content?path=${encodeURIComponent(path)}&download=1`,
 
   // Notifications.
   channels: () => req<NotificationChannel[]>("GET", "/api/notifications/channels"),
