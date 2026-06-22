@@ -241,3 +241,31 @@ func TestBuildNetworkPolicyPortlessDeniesIngress(t *testing.T) {
 		t.Errorf("portless server should have no ingress rules (deny-all), got %+v", np.Spec.Ingress)
 	}
 }
+
+func TestBuildDeploymentDropsServiceAccountToken(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	dep := BuildDeployment(s, tmpl, nil)
+	got := dep.Spec.Template.Spec.AutomountServiceAccountToken
+	if got == nil || *got {
+		t.Errorf("AutomountServiceAccountToken = %v, want false (untrusted game code)", got)
+	}
+}
+
+func TestBuildResourceQuotaCapsCountsNotCompute(t *testing.T) {
+	s, _ := testServerAndTemplate()
+	q := BuildResourceQuota(s)
+	if q.Namespace != s.Namespace {
+		t.Errorf("quota namespace = %q, want %q", q.Namespace, s.Namespace)
+	}
+	hard := q.Spec.Hard
+	if _, ok := hard[corev1.ResourcePods]; !ok {
+		t.Error("quota should cap pod count")
+	}
+	// Must NOT cap total CPU/memory: backup/restore Jobs share the namespace and
+	// a tight compute quota would also force every pod to declare limits.
+	for _, r := range []corev1.ResourceName{corev1.ResourceLimitsCPU, corev1.ResourceLimitsMemory, corev1.ResourceRequestsCPU, corev1.ResourceRequestsMemory} {
+		if _, ok := hard[r]; ok {
+			t.Errorf("quota must not cap compute resource %q", r)
+		}
+	}
+}

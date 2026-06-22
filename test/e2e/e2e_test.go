@@ -114,6 +114,10 @@ func TestE2ELifecycle(t *testing.T) {
 	assertNotExists(ctx, t, c, &corev1.Service{}, portless.Namespace, "server")
 	assertPodRunning(ctx, t, c, portless.Namespace)
 
+	// Security: the namespace carries a ResourceQuota (server-side applied) and it
+	// does not prevent the pod from running.
+	assertExists(ctx, t, c, &corev1.ResourceQuota{}, portless.Namespace, "quetzal-quota")
+
 	// Ported: a Service with the game port exists.
 	svc := &corev1.Service{}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: ported.Namespace, Name: "server"}, svc); err != nil {

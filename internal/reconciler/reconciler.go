@@ -59,6 +59,9 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 	if err := r.ensureNamespace(ctx, srv); err != nil {
 		return fmt.Errorf("namespace: %w", err)
 	}
+	if err := r.ensureResourceQuota(ctx, srv); err != nil {
+		return fmt.Errorf("resourcequota: %w", err)
+	}
 	if pvc := BuildPVC(srv); pvc != nil {
 		if err := r.ensurePVC(ctx, pvc); err != nil {
 			return fmt.Errorf("pvc: %w", err)
@@ -159,6 +162,10 @@ func (r *Reconciler) ensureNamespace(ctx context.Context, s *models.Server) erro
 		return nil
 	})
 	return err
+}
+
+func (r *Reconciler) ensureResourceQuota(ctx context.Context, s *models.Server) error {
+	return r.apply(ctx, BuildResourceQuota(s))
 }
 
 func (r *Reconciler) ensurePVC(ctx context.Context, want *corev1.PersistentVolumeClaim) error {

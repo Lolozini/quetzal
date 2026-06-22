@@ -142,9 +142,13 @@ func BuildDeployment(s *models.Server, t *models.Template, secretKeys []string) 
 		grace = int64(t.StopGraceSeconds)
 	}
 
+	noAutomount := false
 	pod := corev1.PodSpec{
-		Containers:                    []corev1.Container{container},
-		InitContainers:                installInitContainers(t),
+		Containers:     []corev1.Container{container},
+		InitContainers: installInitContainers(t),
+		// Untrusted game code (mods/plugins) has no business talking to the
+		// Kubernetes API, so don't mount a ServiceAccount token into the pod.
+		AutomountServiceAccountToken:  &noAutomount,
 		SecurityContext:               buildPodSecurityContext(t),
 		Volumes:                       []corev1.Volume{buildDataVolume(s)},
 		NodeSelector:                  s.NodeSelector,
@@ -279,6 +283,9 @@ func BuildActivatorDeployment(s *models.Server, t *models.Template, p ActivatorP
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
+					// The activator authenticates to the apiserver with an HMAC
+					// token over HTTP; it needs no Kubernetes API access.
+					AutomountServiceAccountToken: &no,
 					SecurityContext: &corev1.PodSecurityContext{
 						RunAsNonRoot:   &yes,
 						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
@@ -421,6 +428,32 @@ func BuildNetworkPolicy(s *models.Server, t *models.Template) *networkingv1.Netw
 						},
 					}},
 				},
+			},
+		},
+	}
+}
+
+// BuildResourceQuota caps how many objects a server's namespace may hold, to
+// bound the blast radius of a compromised workload (it can't spawn many pods or
+// claim many volumes). It deliberately does NOT cap total CPU/memory: backup and
+// restore run as Jobs in the same namespace, so a tight compute quota would
+// break them, and per-pod limits plus per-user quotas already bound compute. The
+// pod count uses non-terminal pods, so completed backup Job pods don't count.
+func BuildResourceQuota(s *models.Server) *corev1.ResourceQuota {
+	return &corev1.ResourceQuota{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "ResourceQuota"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "quetzal-quota",
+			Namespace: s.Namespace,
+			Labels:    labelsFor(s),
+		},
+		Spec: corev1.ResourceQuotaSpec{
+			Hard: corev1.ResourceList{
+				// Recreate strategy => at most one server pod; +1 activator
+				// (wake-on-connect) +1 transient backup/restore Job pod, with headroom.
+				corev1.ResourcePods:                   resource.MustParse("6"),
+				corev1.ResourceServices:               resource.MustParse("4"),
+				corev1.ResourcePersistentVolumeClaims: resource.MustParse("3"),
 			},
 		},
 	}
