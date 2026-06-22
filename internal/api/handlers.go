@@ -676,8 +676,10 @@ type wakeRequest struct {
 }
 
 // handleWake is the wake-on-connect callback from a server's activator: a valid
-// per-server token wakes a hibernated, wake-on-connect server. It never reveals
-// whether a server exists (always 204 unless the token is wrong/body invalid).
+// per-server token wakes a hibernated, wake-on-connect server. It always answers
+// 204 for any well-formed request — an unknown slug and a bad token are
+// indistinguishable, so a pod on the cluster (e.g. an untrusted game container)
+// can't probe which servers exist.
 func (s *Server) handleWake(w http.ResponseWriter, r *http.Request) {
 	var req wakeRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -691,7 +693,9 @@ func (s *Server) handleWake(w http.ResponseWriter, r *http.Request) {
 	}
 	want := crypto.WakeToken(s.WakeKey, srv.Slug)
 	if !hmac.Equal([]byte(req.Token), []byte(want)) {
-		writeError(w, http.StatusForbidden, "invalid wake token")
+		// Don't reveal that the slug exists; log for operators and no-op.
+		log.Printf("wake: invalid token for %q", srv.Slug)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if srv.Hibernation.WakeOnConnect && srv.Hibernated {

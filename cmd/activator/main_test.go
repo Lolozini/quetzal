@@ -32,6 +32,43 @@ func TestWakerDebounces(t *testing.T) {
 	}
 }
 
+func TestWakerRetriesAfterFailure(t *testing.T) {
+	var calls int32
+	now := time.Now()
+	fail := true
+	w := &waker{
+		cooldown: 15 * time.Second,
+		now:      func() time.Time { return now },
+		post: func() error {
+			atomic.AddInt32(&calls, 1)
+			if fail {
+				return errFakePost
+			}
+			return nil
+		},
+	}
+
+	// A failed wake must not suppress retries within the cooldown window.
+	w.trigger()
+	w.trigger()
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("failed wake suppressed retry: calls = %d, want 2", got)
+	}
+	// Once it succeeds, the cooldown applies again.
+	fail = false
+	w.trigger()
+	w.trigger()
+	if got := atomic.LoadInt32(&calls); got != 3 {
+		t.Fatalf("post-success calls = %d, want 3 (cooldown should hold)", got)
+	}
+}
+
+var errFakePost = fakeErr("post failed")
+
+type fakeErr string
+
+func (e fakeErr) Error() string { return string(e) }
+
 func TestSplitPorts(t *testing.T) {
 	got := splitPorts("25565, 25575 ,, 2456")
 	want := []string{"25565", "25575", "2456"}

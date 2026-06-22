@@ -80,6 +80,10 @@ func TestE2EWakeOnConnect(t *testing.T) {
 	if svc.Spec.Selector[reconciler.ActivatorLabel] != srv.Slug {
 		t.Errorf("hibernated selector = %v, want activator", svc.Spec.Selector)
 	}
+	// The old key must be pruned, or the AND-selector would match no pods.
+	if _, ok := svc.Spec.Selector[reconciler.ServerLabel]; ok {
+		t.Errorf("hibernated selector still has server label: %v", svc.Spec.Selector)
+	}
 
 	// Wake -> activator removed, Service points back at the real workload.
 	if err := st.Wake(srv.ID, time.Now()); err != nil {
@@ -96,6 +100,9 @@ func TestE2EWakeOnConnect(t *testing.T) {
 	}
 	if svc.Spec.Selector[reconciler.ServerLabel] != srv.Slug {
 		t.Errorf("woken selector = %v, want server", svc.Spec.Selector)
+	}
+	if _, ok := svc.Spec.Selector[reconciler.ActivatorLabel]; ok {
+		t.Errorf("woken selector still has activator label: %v", svc.Spec.Selector)
 	}
 }
 

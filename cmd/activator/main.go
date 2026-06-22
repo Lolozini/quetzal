@@ -65,6 +65,11 @@ func (w *waker) trigger() {
 	w.mu.Unlock()
 	if err := w.post(); err != nil {
 		log.Printf("activator: wake callback failed: %v", err)
+		// Don't let a failed wake suppress retries for the whole cooldown: clear
+		// the timestamp so the next connection tries again immediately.
+		w.mu.Lock()
+		w.last = time.Time{}
+		w.mu.Unlock()
 	}
 }
 
