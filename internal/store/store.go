@@ -140,6 +140,7 @@ func (s *Store) Migrate() error {
 		&models.BackupConfig{}, &models.Backup{},
 		&models.ServerAccess{}, &models.AuditEntry{}, &models.APIKey{},
 		&models.Cluster{},
+		&models.NotificationChannel{}, &models.Event{}, &models.Setting{},
 	)
 }
 
