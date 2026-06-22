@@ -1,5 +1,7 @@
 # Quetzal
 
+[![CI](https://github.com/lolozini/quetzal/actions/workflows/ci.yml/badge.svg)](https://github.com/lolozini/quetzal/actions/workflows/ci.yml)
+
 > Kubernetes-native control plane & UI to deploy and manage game servers — in the
 > spirit of Pterodactyl/Pelican, **without the Docker layer**.
 
@@ -14,6 +16,29 @@ Pterodactyl **egg**) can be deployed.
 observability, scheduled tasks + backups, multi-tenant access control +
 notifications + 2FA, hibernation + egg install scripts, multi-cluster); see
 [ROADMAP](#roadmap).
+
+## Install
+
+Container images are published to the GitHub Container Registry on every push to
+`main` (and tagged releases):
+
+```
+ghcr.io/lolozini/quetzal:latest      # main
+ghcr.io/lolozini/quetzal:vX.Y.Z      # releases
+```
+
+Deploy with the bundled Helm chart (creates the RBAC, Deployments, Service and,
+optionally, an Ingress):
+
+```sh
+helm install quetzal ./deploy/quetzal \
+  --namespace quetzal --create-namespace \
+  --set image.tag=latest \
+  --set ingress.enabled=true --set ingress.host=quetzal.example.com
+```
+
+Then open the panel and complete the first-run admin setup. See
+[deploy/quetzal/values.yaml](deploy/quetzal/values.yaml) for all options.
 
 ## Design highlights
 
