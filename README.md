@@ -11,8 +11,9 @@ Pterodactyl **egg**) can be deployed.
 ## Status
 
 🚧 Early development. **Phases 0–6 implemented** (foundations, MVP, networking &
-observability, scheduled tasks + backups, multi-tenant access control,
-hibernation + egg install scripts, multi-cluster); see [ROADMAP](#roadmap).
+observability, scheduled tasks + backups, multi-tenant access control +
+notifications, hibernation + egg install scripts, multi-cluster); see
+[ROADMAP](#roadmap).
 
 ## Design highlights
 
@@ -36,6 +37,12 @@ hibernation + egg install scripts, multi-cluster); see [ROADMAP](#roadmap).
 - **Multi-tenant**: per-server ownership, subusers with scoped permissions,
   admin suspend, per-user quotas, an append-only audit log, and API keys
   (bearer tokens for the public API).
+- **Notifications**: outbound channels — **Discord**, **generic HMAC-signed
+  webhooks**, and **email/SMTP** — fired on events (server up/crash/idle-sleep,
+  power, backups, …). Channels are global (catch-all) or scoped to one server,
+  with per-event-type filters; their secrets are encrypted at rest. Delivery is
+  driven by a durable event outbox, so controller-observed events (crashes,
+  auto-hibernation) notify too.
 - **Hibernation**: opt-in scale-to-zero for idle servers (no player connections),
   woken on demand or **automatically when a player connects** (a tiny per-server
   activator listens while the server sleeps) — saves resources for dormant servers.
@@ -71,8 +78,9 @@ Browser ──HTTP/WS──▶ api-server (UI + REST/WS + console proxy)
   world/modpack upload, CSI volume snapshots, online volume expansion,
   Pterodactyl data import._
 - ✅ **Phase 4** — Multi-tenant: ownership + subusers/permissions, admin suspend,
-  per-user quotas, audit log, API keys. _Deferred to later: OIDC/SSO, 2FA/TOTP,
-  email/Discord notifications, webhooks._
+  per-user quotas, audit log, API keys; **notifications** (Discord / webhook /
+  email on events, via a durable event outbox). _Deferred to later: OIDC/SSO,
+  2FA/TOTP, OpenAPI spec for the public API._
 - ✅ **Phase 5** — Hibernation (scale-to-zero on idle) + egg install scripts +
   **wake-on-connect**, in two modes:
   - _drop_ (TCP): a tiny activator listens while hibernated and wakes the server
