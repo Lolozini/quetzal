@@ -1,6 +1,7 @@
 package reconciler
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -14,7 +15,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
+	"github.com/lolozini/quetzal/internal/configfile"
 	"github.com/lolozini/quetzal/internal/models"
+)
+
+const (
+	// configRenderBinary is where the renderer lives in the Quetzal image; the
+	// copy init container installs it into renderBinPath on a shared volume so the
+	// render init (running the game image, hence the server's user) can execute it.
+	configRenderBinary = "/usr/local/bin/quetzal-configrender"
+	renderBinVolume    = "quetzal-config-bin"
+	renderBinMount     = "/quetzal-bin"
+	renderBinPath      = "/quetzal-bin/configrender"
 )
 
 const (
@@ -107,7 +119,7 @@ func BuildSecret(s *models.Server, data map[string]string) *corev1.Secret {
 
 // BuildDeployment projects a server (+ template) into a Deployment. secretKeys
 // lists env var names sourced from the per-server Secret (via secretKeyRef).
-func BuildDeployment(s *models.Server, t *models.Template, secretKeys []string) *appsv1.Deployment {
+func BuildDeployment(s *models.Server, t *models.Template, systemImage string, secretKeys []string) *appsv1.Deployment {
 	labels := labelsFor(s)
 	replicas := s.Replicas()
 
@@ -143,14 +155,28 @@ func BuildDeployment(s *models.Server, t *models.Template, secretKeys []string) 
 	}
 
 	noAutomount := false
+	initContainers := installInitContainers(t)
+	volumes := []corev1.Volume{buildDataVolume(s)}
+	// Egg config.files: render them at startup. Run as two init containers so the
+	// renderer executes as the server's own user (correct file ownership): a copy
+	// step (Quetzal image) drops the static binary onto a shared volume, then a
+	// render step (the game image) runs it against the data volume.
+	if systemImage != "" && len(t.ConfigFiles) > 0 {
+		initContainers = append(initContainers, configRenderInitContainers(s, t, systemImage, secretKeys, dataPath)...)
+		volumes = append(volumes, corev1.Volume{
+			Name:         renderBinVolume,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		})
+	}
+
 	pod := corev1.PodSpec{
 		Containers:     []corev1.Container{container},
-		InitContainers: installInitContainers(t),
+		InitContainers: initContainers,
 		// Untrusted game code (mods/plugins) has no business talking to the
 		// Kubernetes API, so don't mount a ServiceAccount token into the pod.
 		AutomountServiceAccountToken:  &noAutomount,
 		SecurityContext:               buildPodSecurityContext(t),
-		Volumes:                       []corev1.Volume{buildDataVolume(s)},
+		Volumes:                       volumes,
 		NodeSelector:                  s.NodeSelector,
 		TerminationGracePeriodSeconds: &grace,
 	}
@@ -592,6 +618,95 @@ const installMountPath = "/mnt/server"
 // installInitContainers runs a template's install script once (egg
 // scripts.installation), populating the data volume before the main container
 // starts. A marker file makes it a no-op on every subsequent start.
+// configRenderInitContainers returns the copy + render init containers that
+// apply a template's config.files. The render step uses the game image (s.Image)
+// and the same env as the main container, so ${VAR} (including secret env via
+// secretKeyRef) resolves and files are written as the server's user.
+func configRenderInitContainers(s *models.Server, t *models.Template, systemImage string, secretKeys []string, dataPath string) []corev1.Container {
+	primary := primaryPort(s, t)
+	specs := make([]configfile.Spec, 0, len(t.ConfigFiles))
+	for _, cf := range t.ConfigFiles {
+		find := make(map[string]string, len(cf.Find))
+		for k, v := range cf.Find {
+			find[k] = toShellTemplate(v, primary)
+		}
+		specs = append(specs, configfile.Spec{Path: cf.Path, Parser: string(cf.Parser), Find: find})
+	}
+	blob, _ := json.Marshal(specs)
+
+	renderEnv := append(buildEnv(s.Env, secretKeys),
+		corev1.EnvVar{Name: "QUETZAL_DATA_PATH", Value: dataPath},
+		corev1.EnvVar{Name: "QUETZAL_CONFIG_FILES", Value: string(blob)},
+	)
+	sc := buildContainerSecurityContext(t)
+	return []corev1.Container{
+		{
+			Name:            "render-copy",
+			Image:           systemImage,
+			ImagePullPolicy: corev1.PullIfNotPresent,
+			Command:         []string{configRenderBinary},
+			Env:             []corev1.EnvVar{{Name: "QUETZAL_INSTALL_TO", Value: renderBinPath}},
+			VolumeMounts:    []corev1.VolumeMount{{Name: renderBinVolume, MountPath: renderBinMount}},
+			SecurityContext: sc,
+		},
+		{
+			Name:            "render-config",
+			Image:           s.Image,
+			ImagePullPolicy: corev1.PullIfNotPresent,
+			Command:         []string{renderBinPath},
+			Env:             renderEnv,
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: dataVolume, MountPath: dataPath},
+				{Name: renderBinVolume, MountPath: renderBinMount, ReadOnly: true},
+			},
+			SecurityContext: sc,
+		},
+	}
+}
+
+// primaryPort returns the server's primary port (or first, or 0).
+func primaryPort(s *models.Server, t *models.Template) int32 {
+	ports := serverPorts(s, t)
+	for _, p := range ports {
+		if p.Primary {
+			return p.Port
+		}
+	}
+	if len(ports) > 0 {
+		return ports[0].Port
+	}
+	return 0
+}
+
+// pbVarRe matches a {{...}} placeholder in an egg config.files value.
+var pbVarRe = regexp.MustCompile(`{{\s*([^}]+?)\s*}}`)
+
+// toShellTemplate converts an egg config.files value's placeholders into a form
+// the renderer expands against the container env: env references become ${VAR}
+// (so secrets resolve at runtime, not baked into the spec) and the default port
+// is substituted literally. Unknown placeholders are left untouched.
+func toShellTemplate(v string, primary int32) string {
+	return pbVarRe.ReplaceAllStringFunc(v, func(m string) string {
+		inner := strings.TrimSpace(pbVarRe.FindStringSubmatch(m)[1])
+		switch {
+		case inner == "server.build.default.port":
+			return strconv.Itoa(int(primary))
+		case inner == "server.build.default.ip":
+			return "0.0.0.0"
+		case strings.HasPrefix(inner, "server.build.env."):
+			return "${" + strings.TrimPrefix(inner, "server.build.env.") + "}"
+		case strings.HasPrefix(inner, "env."):
+			return "${" + strings.TrimPrefix(inner, "env.") + "}"
+		case identRe.MatchString(inner):
+			return "${" + inner + "}"
+		default:
+			return m
+		}
+	})
+}
+
+var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 func installInitContainers(t *models.Template) []corev1.Container {
 	if t.Install == nil || t.Install.Script == "" {
 		return nil

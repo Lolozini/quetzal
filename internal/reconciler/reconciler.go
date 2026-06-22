@@ -189,7 +189,7 @@ func (r *Reconciler) apply(ctx context.Context, obj client.Object) error {
 }
 
 func (r *Reconciler) ensureDeployment(ctx context.Context, s *models.Server, t *models.Template, secretKeys []string) error {
-	return r.apply(ctx, BuildDeployment(s, t, secretKeys))
+	return r.apply(ctx, BuildDeployment(s, t, r.ActivatorImage, secretKeys))
 }
 
 func (r *Reconciler) ensureService(ctx context.Context, s *models.Server, t *models.Template, activator bool) error {

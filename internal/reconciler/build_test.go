@@ -33,7 +33,7 @@ func testServerAndTemplate() (*models.Server, *models.Template) {
 
 func TestBuildDeployment(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
-	dep := BuildDeployment(s, tmpl, nil)
+	dep := BuildDeployment(s, tmpl, "", nil)
 
 	if dep.Spec.Replicas == nil || *dep.Spec.Replicas != 1 {
 		t.Fatalf("replicas = %v, want 1", dep.Spec.Replicas)
@@ -71,13 +71,13 @@ func TestBuildDeployment(t *testing.T) {
 func TestBuildDeploymentInstallInitContainer(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
 	// No install -> no init container.
-	if ics := BuildDeployment(s, tmpl, nil).Spec.Template.Spec.InitContainers; len(ics) != 0 {
+	if ics := BuildDeployment(s, tmpl, "", nil).Spec.Template.Spec.InitContainers; len(ics) != 0 {
 		t.Fatalf("expected no init containers, got %d", len(ics))
 	}
 	// With an install script -> a marker-guarded init container mounting the data
 	// volume at the egg convention path.
 	tmpl.Install = &models.InstallScript{Image: "debian:slim", Script: "echo installing > /mnt/server/world.txt"}
-	ics := BuildDeployment(s, tmpl, nil).Spec.Template.Spec.InitContainers
+	ics := BuildDeployment(s, tmpl, "", nil).Spec.Template.Spec.InitContainers
 	if len(ics) != 1 || ics[0].Name != "install" {
 		t.Fatalf("expected one install init container, got %+v", ics)
 	}
@@ -196,7 +196,7 @@ func TestBuildNetworkPolicyBlocksMetadata(t *testing.T) {
 func TestBuildDeploymentSecretEnv(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
 	s.Env = map[string]string{"PUBLIC": "ok"}
-	dep := BuildDeployment(s, tmpl, []string{"RCON_PASSWORD"})
+	dep := BuildDeployment(s, tmpl, "", []string{"RCON_PASSWORD"})
 	c := dep.Spec.Template.Spec.Containers[0]
 
 	var public, secret *struct{}
@@ -244,7 +244,7 @@ func TestBuildNetworkPolicyPortlessDeniesIngress(t *testing.T) {
 
 func TestBuildDeploymentDropsServiceAccountToken(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
-	dep := BuildDeployment(s, tmpl, nil)
+	dep := BuildDeployment(s, tmpl, "", nil)
 	got := dep.Spec.Template.Spec.AutomountServiceAccountToken
 	if got == nil || *got {
 		t.Errorf("AutomountServiceAccountToken = %v, want false (untrusted game code)", got)
@@ -267,5 +267,102 @@ func TestBuildResourceQuotaCapsCountsNotCompute(t *testing.T) {
 		if _, ok := hard[r]; ok {
 			t.Errorf("quota must not cap compute resource %q", r)
 		}
+	}
+}
+
+func TestToShellTemplate(t *testing.T) {
+	cases := map[string]string{
+		"{{server.build.default.port}}":        "25565",
+		"{{server.build.env.RCON_PASSWORD}}":   "${RCON_PASSWORD}",
+		"{{ server.build.default.ip }}":        "0.0.0.0",
+		"{{MOTD}}":                             "${MOTD}",
+		"{{env.FOO}}":                          "${FOO}",
+		"prefix-{{server.build.default.port}}": "prefix-25565",
+		"{{unknown.thing}}":                    "{{unknown.thing}}", // left untouched
+		"literal":                              "literal",
+	}
+	for in, want := range cases {
+		if got := toShellTemplate(in, 25565); got != want {
+			t.Errorf("toShellTemplate(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestBuildDeploymentConfigFilesInitContainers(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	tmpl.ConfigFiles = []models.ConfigFile{{
+		Path:   "server.properties",
+		Parser: "properties",
+		Find: map[string]string{
+			"server-port":   "{{server.build.default.port}}",
+			"rcon.password": "{{server.build.env.RCON_PASSWORD}}",
+			"motd":          "{{MOTD}}",
+		},
+	}}
+	s.Env = map[string]string{"MOTD": "hi"}
+
+	// Without a system image, no render init containers are added.
+	if ics := BuildDeployment(s, tmpl, "", nil).Spec.Template.Spec.InitContainers; len(ics) != 0 {
+		t.Fatalf("expected no init containers without a system image, got %d", len(ics))
+	}
+
+	dep := BuildDeployment(s, tmpl, "quetzal:test", []string{"RCON_PASSWORD"})
+	ics := dep.Spec.Template.Spec.InitContainers
+	var copyC, renderC *corev1.Container
+	for i := range ics {
+		switch ics[i].Name {
+		case "render-copy":
+			copyC = &ics[i]
+		case "render-config":
+			renderC = &ics[i]
+		}
+	}
+	if copyC == nil || renderC == nil {
+		t.Fatalf("expected render-copy and render-config init containers, got %+v", ics)
+	}
+	if copyC.Image != "quetzal:test" {
+		t.Errorf("copy image = %q, want the system image", copyC.Image)
+	}
+	if renderC.Image != s.Image {
+		t.Errorf("render image = %q, want the game image %q (correct file ownership)", renderC.Image, s.Image)
+	}
+
+	// The spec carries shell templates, never the secret value.
+	var blob string
+	for _, e := range renderC.Env {
+		if e.Name == "QUETZAL_CONFIG_FILES" {
+			blob = e.Value
+		}
+	}
+	if !strings.Contains(blob, `"server-port":"25565"`) {
+		t.Errorf("port not substituted in spec: %s", blob)
+	}
+	if !strings.Contains(blob, `"rcon.password":"${RCON_PASSWORD}"`) {
+		t.Errorf("secret should be a ${VAR} template, not a value: %s", blob)
+	}
+	if !strings.Contains(blob, `"motd":"${MOTD}"`) {
+		t.Errorf("env ref not converted: %s", blob)
+	}
+
+	// The secret reaches the renderer via secretKeyRef (resolves ${RCON_PASSWORD}).
+	var hasSecretRef bool
+	for _, e := range renderC.Env {
+		if e.Name == "RCON_PASSWORD" && e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
+			hasSecretRef = true
+		}
+	}
+	if !hasSecretRef {
+		t.Error("render-config should receive RCON_PASSWORD via secretKeyRef")
+	}
+
+	// The shared bin volume exists.
+	var hasBinVol bool
+	for _, v := range dep.Spec.Template.Spec.Volumes {
+		if v.Name == renderBinVolume && v.EmptyDir != nil {
+			hasBinVol = true
+		}
+	}
+	if !hasBinVol {
+		t.Error("expected the shared render-bin emptyDir volume")
 	}
 }
