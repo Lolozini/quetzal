@@ -42,6 +42,11 @@ ingress:
 # Mark session cookies Secure (enable when served over HTTPS).
 secureCookies: false
 
+# Trust X-Forwarded-For for per-client rate limiting. Auto-enabled when
+# ingress.enabled is true; set explicitly if a different proxy fronts the panel.
+# Only safe behind a proxy that appends the real client IP (the rightmost hop).
+trustProxy: false
+
 # Controller HA leader election (recommended; harmless with a single replica).
 leaderElection: true
 resync: "15s"

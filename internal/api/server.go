@@ -92,12 +92,15 @@ func (s *Server) GCRateLimiters() {
 }
 
 // clientIP returns the caller's IP, honoring X-Forwarded-For only when behind a
-// trusted proxy (otherwise it is attacker-spoofable).
+// trusted proxy (it is attacker-spoofable otherwise). When trusted, it takes the
+// RIGHTMOST entry: a proxy that appends (Traefik, nginx) puts the real client
+// last, so any client-supplied X-Forwarded-For sits to the left and is ignored.
+// This assumes a single trusted proxy hop.
 func (s *Server) clientIP(r *http.Request) string {
 	if s.TrustProxy {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if i := strings.IndexByte(xff, ','); i >= 0 {
-				return strings.TrimSpace(xff[:i])
+			if i := strings.LastIndexByte(xff, ','); i >= 0 {
+				return strings.TrimSpace(xff[i+1:])
 			}
 			return strings.TrimSpace(xff)
 		}
