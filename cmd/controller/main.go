@@ -1,6 +1,6 @@
 // Command controller reconciles the Quetzal database (source of truth) into
-// native Kubernetes objects. It supports optional leader election for HA and
-// exposes health + Prometheus metrics endpoints.
+// native Kubernetes objects, across one or more registered clusters. It supports
+// optional leader election for HA and exposes health + Prometheus metrics.
 package main
 
 import (
@@ -21,10 +21,10 @@ import (
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/client-go/tools/remotecommand"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/lolozini/quetzal/internal/backup"
+	"github.com/lolozini/quetzal/internal/cluster"
 	"github.com/lolozini/quetzal/internal/console"
 	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/hibernate"
@@ -64,31 +64,18 @@ func main() {
 	if err != nil {
 		log.Fatalf("kube config: %v", err)
 	}
-	crClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	local, err := cluster.FromConfig(cfg)
 	if err != nil {
-		log.Fatalf("kube client: %v", err)
+		log.Fatalf("kube clients: %v", err)
 	}
-	cs, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		log.Fatalf("clientset: %v", err)
+	reg := cluster.New(st, local)
+	if _, err := st.EnsureLocalCluster(); err != nil {
+		log.Fatalf("ensure local cluster: %v", err)
 	}
 
-	rec := reconciler.New(crClient, st)
-	// Graceful stop: deliver the template stop command to the container's stdin
-	// (via the console attach path) before the workload is scaled down.
-	rec.OnStop = func(ctx context.Context, ns, slug, stopCommand string) error {
-		pod, err := console.FindRunningPod(ctx, cs, ns, slug)
-		if err != nil {
-			return err
-		}
-		cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		defer cancel()
-		return console.SendStdin(cctx, cs, cfg, ns, pod, stopCommand+"\n")
-	}
-
-	sched := scheduler.New(st, &executor{st: st, cs: cs, cfg: cfg})
-	bmgr := backup.NewManager(st, cs)
-	hmgr := hibernate.New(st, connProbe(cs, cfg))
+	sched := scheduler.New(st, &executor{st: st, reg: reg})
+	bmgr := backup.NewManager(st, reg)
+	hmgr := hibernate.New(st, connProbe(reg))
 
 	go serveOps(metricsAddr, st)
 
@@ -99,25 +86,26 @@ func main() {
 		log.Printf("quetzal-controller reconciling (db=%s, resync=%s)", dbDriver, resync)
 		ticker := time.NewTicker(resync)
 		defer ticker.Stop()
-		reconcileAll(ctx, rec, st)
-		sched.Tick(ctx)
-		bmgr.Process(ctx)
-		hmgr.Tick(ctx)
+		tick := func() {
+			reconcileAll(ctx, reg, st)
+			sched.Tick(ctx)
+			bmgr.Process(ctx)
+			hmgr.Tick(ctx)
+			refreshClusters(ctx, reg, st)
+		}
+		tick()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				reconcileAll(ctx, rec, st)
-				sched.Tick(ctx)
-				bmgr.Process(ctx)
-				hmgr.Tick(ctx)
+				tick()
 			}
 		}
 	}
 
 	if leaderEnabled {
-		runWithLeaderElection(ctx, cs, namespace, run)
+		runWithLeaderElection(ctx, local.Clientset, namespace, run)
 	} else {
 		run(ctx)
 	}
@@ -152,11 +140,10 @@ func runWithLeaderElection(ctx context.Context, cs kubernetes.Interface, namespa
 	})
 }
 
-// executor implements scheduler.Executor against the cluster + store.
+// executor implements scheduler.Executor against the cluster registry + store.
 type executor struct {
 	st  *store.Store
-	cs  kubernetes.Interface
-	cfg *rest.Config
+	reg *cluster.Registry
 }
 
 func (e *executor) Start(_ context.Context, srv *models.Server) error {
@@ -168,19 +155,27 @@ func (e *executor) Stop(_ context.Context, srv *models.Server) error {
 }
 
 func (e *executor) Restart(ctx context.Context, srv *models.Server) error {
-	return e.cs.CoreV1().Pods(srv.Namespace).DeleteCollection(ctx,
+	clients, err := e.reg.For(srv.ClusterID)
+	if err != nil {
+		return err
+	}
+	return clients.Clientset.CoreV1().Pods(srv.Namespace).DeleteCollection(ctx,
 		metav1.DeleteOptions{},
 		metav1.ListOptions{LabelSelector: reconciler.ServerLabel + "=" + srv.Slug})
 }
 
 func (e *executor) Command(ctx context.Context, srv *models.Server, cmd string) error {
-	pod, err := console.FindRunningPod(ctx, e.cs, srv.Namespace, srv.Slug)
+	clients, err := e.reg.For(srv.ClusterID)
+	if err != nil {
+		return err
+	}
+	pod, err := console.FindRunningPod(ctx, clients.Clientset, srv.Namespace, srv.Slug)
 	if err != nil {
 		return err
 	}
 	cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	return console.SendStdin(cctx, e.cs, e.cfg, srv.Namespace, pod, cmd+"\n")
+	return console.SendStdin(cctx, clients.Clientset, clients.Config, srv.Namespace, pod, cmd+"\n")
 }
 
 // Backup enqueues a backup operation; the backup Manager picks it up.
@@ -192,15 +187,20 @@ func (e *executor) Backup(_ context.Context, srv *models.Server) error {
 	})
 }
 
-// connProbe returns a hibernation probe that counts ESTABLISHED connections on
-// a server's game ports by reading /proc/net/tcp inside the running container.
-func connProbe(cs kubernetes.Interface, cfg *rest.Config) hibernate.ConnProbe {
+// connProbe returns a hibernation probe that counts ESTABLISHED connections on a
+// server's game ports by reading /proc/net/tcp inside its running container, on
+// whichever cluster the server lives.
+func connProbe(reg *cluster.Registry) hibernate.ConnProbe {
 	return func(ctx context.Context, srv *models.Server) (int, error) {
-		pod, err := console.FindRunningPod(ctx, cs, srv.Namespace, srv.Slug)
+		clients, err := reg.For(srv.ClusterID)
 		if err != nil {
 			return 0, err
 		}
-		out, err := execCapture(ctx, cs, cfg, srv.Namespace, pod, reconciler.WorkloadName,
+		pod, err := console.FindRunningPod(ctx, clients.Clientset, srv.Namespace, srv.Slug)
+		if err != nil {
+			return 0, err
+		}
+		out, err := execCapture(ctx, clients.Clientset, clients.Config, srv.Namespace, pod, reconciler.WorkloadName,
 			[]string{"sh", "-c", "cat /proc/net/tcp /proc/net/tcp6 2>/dev/null"})
 		if err != nil {
 			return 0, err
@@ -230,22 +230,87 @@ func execCapture(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config,
 	return stdout.String(), nil
 }
 
-func reconcileAll(ctx context.Context, rec *reconciler.Reconciler, st *store.Store) {
+// reconcileAll reconciles every server against its target cluster, then garbage
+// collects orphan namespaces per cluster. Servers are grouped by cluster so each
+// cluster's GC only ever sees its own servers' slugs.
+func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store) {
 	servers, err := st.ListServers()
 	if err != nil {
 		log.Printf("list servers: %v", err)
 		return
 	}
-	valid := make(map[string]bool, len(servers))
+	byCluster := map[uint][]models.Server{}
 	for i := range servers {
 		s := servers[i]
-		valid[s.Slug] = true
-		if err := rec.ReconcileServer(ctx, s.ID); err != nil {
-			log.Printf("reconcile server %s: %v", s.Slug, err)
+		byCluster[s.ClusterID] = append(byCluster[s.ClusterID], s)
+	}
+	clusters, err := st.ListClusters()
+	if err != nil {
+		log.Printf("list clusters: %v", err)
+		return
+	}
+	for ci := range clusters {
+		c := &clusters[ci]
+		clients, err := reg.For(c.ID)
+		if err != nil {
+			log.Printf("cluster %s unreachable, skipping reconcile: %v", c.Slug, err)
+			delete(byCluster, c.ID)
+			continue
+		}
+		rec := reconciler.New(clients.Client, st)
+		rec.OnStop = onStopFor(clients)
+		valid := make(map[string]bool, len(byCluster[c.ID]))
+		for _, s := range byCluster[c.ID] {
+			valid[s.Slug] = true
+			if err := rec.ReconcileServer(ctx, s.ID); err != nil {
+				log.Printf("reconcile server %s (cluster %s): %v", s.Slug, c.Slug, err)
+			}
+		}
+		if err := rec.GCOrphanNamespaces(ctx, valid); err != nil {
+			log.Printf("gc orphan namespaces (cluster %s): %v", c.Slug, err)
+		}
+		delete(byCluster, c.ID)
+	}
+	for id, group := range byCluster {
+		for _, s := range group {
+			log.Printf("server %s references unknown cluster %d; skipping", s.Slug, id)
 		}
 	}
-	if err := rec.GCOrphanNamespaces(ctx, valid); err != nil {
-		log.Printf("gc orphan namespaces: %v", err)
+}
+
+// onStopFor delivers a template's stop command to a running container (via the
+// console attach path) before the workload scales down, on the given cluster.
+func onStopFor(clients cluster.Clients) func(ctx context.Context, ns, slug, stopCommand string) error {
+	return func(ctx context.Context, ns, slug, stopCommand string) error {
+		pod, err := console.FindRunningPod(ctx, clients.Clientset, ns, slug)
+		if err != nil {
+			return err
+		}
+		cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		return console.SendStdin(cctx, clients.Clientset, clients.Config, ns, pod, stopCommand+"\n")
+	}
+}
+
+// refreshClusters probes each cluster and records its reachability/status.
+func refreshClusters(ctx context.Context, reg *cluster.Registry, st *store.Store) {
+	clusters, err := st.ListClusters()
+	if err != nil {
+		return
+	}
+	for ci := range clusters {
+		c := &clusters[ci]
+		clients, err := reg.For(c.ID)
+		if err != nil {
+			_ = st.SetClusterStatus(c.ID, false, "", 0, err.Error())
+			continue
+		}
+		version, nodes, err := cluster.Probe(ctx, clients)
+		if err != nil {
+			_ = st.SetClusterStatus(c.ID, false, "", 0, err.Error())
+			continue
+		}
+		_ = st.SetClusterStatus(c.ID, true, version, nodes, "")
 	}
 }
 

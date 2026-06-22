@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, AuditEntry, ExposeType, PowerAction, Server, ServerStats, User } from "../api";
+import { api, ApiError, AuditEntry, Cluster, ExposeType, PowerAction, Server, ServerStats, User } from "../api";
 import { Access } from "./Access";
 import { Backups } from "./Backups";
 import { Console } from "./Console";
@@ -14,6 +14,7 @@ function formatMem(bytes: number): string {
 
 export function ServerDetail({ id, user, onBack }: { id: number; user: User; onBack: () => void }) {
   const [srv, setSrv] = useState<Server | null>(null);
+  const [clusters, setClusters] = useState<Cluster[]>([]);
   const [stats, setStats] = useState<ServerStats | null>(null);
   const [statsMsg, setStatsMsg] = useState("");
   const [error, setError] = useState("");
@@ -43,12 +44,15 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
       }
     };
     load();
+    api.clusters().then((cs) => active && setClusters(cs)).catch(() => {});
     const t = setInterval(load, 4000);
     return () => {
       active = false;
       clearInterval(t);
     };
   }, [id]);
+
+  const clusterName = (cid?: number) => clusters.find((c) => c.id === cid)?.name;
 
   async function changeExpose(type: ExposeType) {
     setError("");
@@ -150,6 +154,12 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
           <span className="k">Namespace</span>
           <span>{srv.namespace}</span>
         </div>
+        {clusterName(srv.clusterId) && (
+          <div className="kv">
+            <span className="k">Cluster</span>
+            <span>{clusterName(srv.clusterId)}</span>
+          </div>
+        )}
         {srv.status.address && (
           <div className="kv">
             <span className="k">Connect</span>

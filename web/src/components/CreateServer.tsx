@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, CreateServerRequest, ExposeType, Template } from "../api";
+import { api, ApiError, Cluster, CreateServerRequest, ExposeType, Template } from "../api";
 
 export function CreateServer({
   onDone,
@@ -17,6 +17,8 @@ export function CreateServer({
   const [size, setSize] = useState("10Gi");
   const [hostPath, setHostPath] = useState("");
   const [expose, setExpose] = useState<ExposeType>("ClusterIP");
+  const [clusters, setClusters] = useState<Cluster[]>([]);
+  const [cluster, setCluster] = useState("");
   const [hibernate, setHibernate] = useState(false);
   const [idleMin, setIdleMin] = useState(15);
   const [env, setEnv] = useState<Record<string, string>>({});
@@ -43,6 +45,14 @@ export function CreateServer({
         if (ts[0]) selectTemplate(ts[0]);
       })
       .catch((e) => setError(String(e)));
+    api
+      .clusters()
+      .then((cs) => {
+        setClusters(cs);
+        const local = cs.find((c) => c.inCluster) || cs[0];
+        if (local) setCluster(local.slug);
+      })
+      .catch(() => {});
   }, []);
 
   const tpl = templates.find((t) => t.slug === tplSlug);
@@ -65,6 +75,7 @@ export function CreateServer({
         },
         expose: { type: expose },
         hibernation: { enabled: hibernate, idleMinutes: idleMin },
+        cluster: cluster || undefined,
         env,
       };
       await api.createServer(body);
@@ -106,6 +117,21 @@ export function CreateServer({
           ))}
         </select>
         {tpl?.description && <p className="muted">{tpl.description}</p>}
+
+        {clusters.length > 1 && (
+          <>
+            <label>Cluster</label>
+            <select value={cluster} onChange={(e) => setCluster(e.target.value)}>
+              {clusters.map((c) => (
+                <option key={c.id} value={c.slug} disabled={!c.reachable}>
+                  {c.name}
+                  {c.inCluster ? " (local)" : ""}
+                  {c.reachable ? "" : " — unreachable"}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
 
         <label>Name</label>
         <input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />

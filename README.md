@@ -10,9 +10,9 @@ Pterodactyl **egg**) can be deployed.
 
 ## Status
 
-🚧 Early development. **Phases 0–5 implemented** (foundations, MVP, networking &
+🚧 Early development. **Phases 0–6 implemented** (foundations, MVP, networking &
 observability, scheduled tasks + backups, multi-tenant access control,
-hibernation + egg install scripts); see [ROADMAP](#roadmap).
+hibernation + egg install scripts, multi-cluster); see [ROADMAP](#roadmap).
 
 ## Design highlights
 
@@ -40,6 +40,9 @@ hibernation + egg install scripts); see [ROADMAP](#roadmap).
   woken on demand — saves resources for dormant servers.
 - **Install scripts**: egg install scripts run as a one-time init container, so
   install-based eggs work out of the box.
+- **Multi-cluster**: register additional clusters by kubeconfig (stored
+  encrypted) and pick a deploy target per server; the controller reconciles each
+  server against its own cluster. The local cluster needs no credentials.
 - **Egg-compatible**: import existing Pterodactyl/Pelican eggs to ease migration.
 - **Secure by default**: namespace-per-server, NetworkPolicy, hardened
   securityContext, secrets kept out of the DB in clear text.
@@ -73,7 +76,10 @@ Browser ──HTTP/WS──▶ api-server (UI + REST/WS + console proxy)
   Idle is detected from TCP connection state, so auto-sleep currently applies to
   TCP servers only. _Deferred to later: UDP idle detection + wake-on-connect
   proxy, git template sync, sandboxed runtime._
-- **Phase 6** — Multi-cluster.
+- ✅ **Phase 6** — Multi-cluster: a kubeconfig-based cluster registry (encrypted
+  at rest), per-server deploy target, per-cluster reconcile + GC + status probes,
+  and read-only node listing. _Deferred to later: moving a server between
+  clusters, per-cluster backup targets / node-port pools, MariaDB/MySQL._
 
 ## License
 

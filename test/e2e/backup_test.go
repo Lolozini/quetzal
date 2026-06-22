@@ -21,6 +21,7 @@ import (
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/lolozini/quetzal/internal/backup"
+	"github.com/lolozini/quetzal/internal/cluster"
 	"github.com/lolozini/quetzal/internal/console"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
@@ -74,7 +75,7 @@ func TestE2EBackupRestore(t *testing.T) {
 	const marker = "quetzal-backup-marker-OK"
 	execInPod(ctx, t, cs, cfg, srv.Namespace, pod, []string{"sh", "-c", "echo " + marker + " > /data/marker.txt"})
 
-	mgr := backup.NewManager(st, cs)
+	mgr := backup.NewManager(st, cluster.New(st, cluster.Clients{Clientset: cs, Config: cfg}))
 
 	// Backup.
 	b := &models.Backup{ServerID: srv.ID, Direction: models.DirBackup, Phase: models.BackupPending}

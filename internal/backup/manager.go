@@ -11,23 +11,24 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/lolozini/quetzal/internal/cluster"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/store"
 )
 
 // Manager drives backup/restore operations to completion: it turns Pending rows
-// into Jobs and finalizes Running rows from their Job status. It runs in the
-// leader controller.
+// into Jobs and finalizes Running rows from their Job status, on whichever
+// cluster each server lives. It runs in the leader controller.
 type Manager struct {
 	Store *store.Store
-	CS    kubernetes.Interface
+	Reg   *cluster.Registry
 	Now   func() time.Time
 }
 
 // NewManager returns a backup Manager.
-func NewManager(st *store.Store, cs kubernetes.Interface) *Manager {
-	return &Manager{Store: st, CS: cs, Now: time.Now}
+func NewManager(st *store.Store, reg *cluster.Registry) *Manager {
+	return &Manager{Store: st, Reg: reg, Now: time.Now}
 }
 
 // Process advances all in-flight operations one step.
@@ -80,13 +81,19 @@ func (m *Manager) processPending(ctx context.Context) {
 			m.finish(b, models.BackupFailed, 0, "server not found")
 			continue
 		}
+		clients, err := m.Reg.For(srv.ClusterID)
+		if err != nil {
+			log.Printf("backup %d: cluster unreachable, retrying: %v", b.ID, err)
+			continue // leave Pending; retry next tick
+		}
+		cs := clients.Clientset
 		// A restore overwrites the data volume in place. Never start it while a
 		// pod still mounts that volume (the server must be stopped first): the
 		// two read-write mounts would corrupt the data. Leave the op Pending and
 		// retry once the pod has terminated. The API already refuses to enqueue a
 		// restore for a running server; this also covers the stop grace period.
 		if b.Direction == models.DirRestore {
-			has, err := m.serverHasPods(ctx, srv.Namespace, srv.Slug)
+			has, err := serverHasPods(ctx, cs, srv.Namespace, srv.Slug)
 			if err != nil || has {
 				continue
 			}
@@ -101,12 +108,12 @@ func (m *Manager) processPending(ctx context.Context) {
 			KeepLast: cfg.KeepLast, Repository: Repository(cfg, srv.Slug), Region: cfg.Region,
 			HostPath: hostPath, AccessKey: access, SecretKey: secret, RepoPassword: pass,
 		}
-		if err := m.ensureSecret(ctx, BuildSecret(p)); err != nil {
+		if err := ensureSecret(ctx, cs, BuildSecret(p)); err != nil {
 			m.finish(b, models.BackupFailed, 0, "create creds secret: "+err.Error())
 			continue
 		}
 		job := BuildJob(p)
-		if _, err := m.CS.BatchV1().Jobs(p.Namespace).Create(ctx, job, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		if _, err := cs.BatchV1().Jobs(p.Namespace).Create(ctx, job, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 			m.finish(b, models.BackupFailed, 0, "create job: "+err.Error())
 			continue
 		}
@@ -135,7 +142,12 @@ func (m *Manager) processRunning(ctx context.Context) {
 			m.finish(b, models.BackupFailed, 0, "server not found")
 			continue
 		}
-		job, err := m.CS.BatchV1().Jobs(srv.Namespace).Get(ctx, b.JobName, metav1.GetOptions{})
+		clients, err := m.Reg.For(srv.ClusterID)
+		if err != nil {
+			continue // cluster unreachable; retry next tick
+		}
+		cs := clients.Clientset
+		job, err := cs.BatchV1().Jobs(srv.Namespace).Get(ctx, b.JobName, metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
 			m.finish(b, models.BackupFailed, 0, "backup job disappeared")
 			continue
@@ -147,7 +159,7 @@ func (m *Manager) processRunning(ctx context.Context) {
 		case job.Status.Succeeded > 0:
 			size := int64(0)
 			if b.Direction == models.DirBackup {
-				size = ParseBackupSize(m.podLogs(ctx, srv.Namespace, b.JobName))
+				size = ParseBackupSize(podLogs(ctx, cs, srv.Namespace, b.JobName))
 			}
 			m.finish(b, models.BackupSucceeded, size, "")
 			if b.Direction == models.DirBackup {
@@ -155,22 +167,22 @@ func (m *Manager) processRunning(ctx context.Context) {
 					log.Printf("backup: prune %d: %v", srv.ID, err)
 				}
 			}
-			m.cleanup(ctx, srv.Namespace, b.JobName)
+			cleanup(ctx, cs, srv.Namespace, b.JobName)
 		case job.Status.Failed > 0:
-			msg := lastLogLine(m.podLogs(ctx, srv.Namespace, b.JobName))
+			msg := lastLogLine(podLogs(ctx, cs, srv.Namespace, b.JobName))
 			if msg == "" {
 				msg = "backup job failed"
 			}
 			m.finish(b, models.BackupFailed, 0, msg)
-			m.cleanup(ctx, srv.Namespace, b.JobName)
+			cleanup(ctx, cs, srv.Namespace, b.JobName)
 		}
 	}
 }
 
 // serverHasPods reports whether any pod (running or terminating) still exists
 // for a server — i.e. whether its data volume may still be mounted.
-func (m *Manager) serverHasPods(ctx context.Context, ns, slug string) (bool, error) {
-	pods, err := m.CS.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
+func serverHasPods(ctx context.Context, cs kubernetes.Interface, ns, slug string) (bool, error) {
+	pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
 		LabelSelector: reconciler.ServerLabel + "=" + slug,
 	})
 	if err != nil {
@@ -179,33 +191,33 @@ func (m *Manager) serverHasPods(ctx context.Context, ns, slug string) (bool, err
 	return len(pods.Items) > 0, nil
 }
 
-func (m *Manager) ensureSecret(ctx context.Context, sec *corev1.Secret) error {
-	_, err := m.CS.CoreV1().Secrets(sec.Namespace).Create(ctx, sec, metav1.CreateOptions{})
+func ensureSecret(ctx context.Context, cs kubernetes.Interface, sec *corev1.Secret) error {
+	_, err := cs.CoreV1().Secrets(sec.Namespace).Create(ctx, sec, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
-		existing, gerr := m.CS.CoreV1().Secrets(sec.Namespace).Get(ctx, sec.Name, metav1.GetOptions{})
+		existing, gerr := cs.CoreV1().Secrets(sec.Namespace).Get(ctx, sec.Name, metav1.GetOptions{})
 		if gerr != nil {
 			return gerr
 		}
 		existing.Data = nil
 		existing.StringData = sec.StringData
-		_, uerr := m.CS.CoreV1().Secrets(sec.Namespace).Update(ctx, existing, metav1.UpdateOptions{})
+		_, uerr := cs.CoreV1().Secrets(sec.Namespace).Update(ctx, existing, metav1.UpdateOptions{})
 		return uerr
 	}
 	return err
 }
 
-func (m *Manager) cleanup(ctx context.Context, ns, jobName string) {
+func cleanup(ctx context.Context, cs kubernetes.Interface, ns, jobName string) {
 	prop := metav1.DeletePropagationBackground
-	_ = m.CS.BatchV1().Jobs(ns).Delete(ctx, jobName, metav1.DeleteOptions{PropagationPolicy: &prop})
-	_ = m.CS.CoreV1().Secrets(ns).Delete(ctx, CredsSecretName, metav1.DeleteOptions{})
+	_ = cs.BatchV1().Jobs(ns).Delete(ctx, jobName, metav1.DeleteOptions{PropagationPolicy: &prop})
+	_ = cs.CoreV1().Secrets(ns).Delete(ctx, CredsSecretName, metav1.DeleteOptions{})
 }
 
-func (m *Manager) podLogs(ctx context.Context, ns, jobName string) string {
-	pods, err := m.CS.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: "job-name=" + jobName})
+func podLogs(ctx context.Context, cs kubernetes.Interface, ns, jobName string) string {
+	pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: "job-name=" + jobName})
 	if err != nil || len(pods.Items) == 0 {
 		return ""
 	}
-	data, err := m.CS.CoreV1().Pods(ns).GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{}).DoRaw(ctx)
+	data, err := cs.CoreV1().Pods(ns).GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{}).DoRaw(ctx)
 	if err != nil {
 		return ""
 	}

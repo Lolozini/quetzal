@@ -19,6 +19,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	"github.com/lolozini/quetzal/internal/cluster"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/store"
 )
@@ -30,6 +31,9 @@ type Server struct {
 	Store      *store.Store
 	Clientset  kubernetes.Interface
 	RestConfig *rest.Config
+	// Registry resolves per-cluster k8s clients (the passed-in clientset is the
+	// local cluster). Server-scoped handlers route to the server's own cluster.
+	Registry *cluster.Registry
 	// SessionTTL controls how long a login lasts.
 	SessionTTL time.Duration
 	// Secure marks cookies Secure (set when served over HTTPS).
@@ -48,10 +52,21 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 		Store:      st,
 		Clientset:  cs,
 		RestConfig: cfg,
+		Registry:   cluster.New(st, cluster.Clients{Clientset: cs, Config: cfg}),
 		SessionTTL: 7 * 24 * time.Hour,
 	}
 	s.upgrader = websocket.Upgrader{CheckOrigin: s.checkOrigin}
 	return s
+}
+
+// clientsFor returns the Kubernetes clientset + rest config for a server's
+// target cluster.
+func (s *Server) clientsFor(srv *models.Server) (kubernetes.Interface, *rest.Config, error) {
+	c, err := s.Registry.For(srv.ClusterID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return c.Clientset, c.Config, nil
 }
 
 // Handler returns the configured HTTP handler.
@@ -111,6 +126,15 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/apikeys", s.auth(s.handleListAPIKeys))
 	mux.Handle("POST /api/apikeys", s.auth(s.handleCreateAPIKey))
 	mux.Handle("DELETE /api/apikeys/{kid}", s.auth(s.handleDeleteAPIKey))
+
+	// Clusters (multi-cluster registry). Listing is open to any authenticated
+	// user (to pick a deploy target); mutations are admin-only.
+	mux.Handle("GET /api/clusters", s.auth(s.handleListClusters))
+	mux.Handle("POST /api/clusters", s.auth(s.handleCreateCluster))
+	mux.Handle("PATCH /api/clusters/{cid}", s.auth(s.handleUpdateCluster))
+	mux.Handle("DELETE /api/clusters/{cid}", s.auth(s.handleDeleteCluster))
+	mux.Handle("POST /api/clusters/{cid}/test", s.auth(s.handleTestCluster))
+	mux.Handle("GET /api/clusters/{cid}/nodes", s.auth(s.handleClusterNodes))
 
 	return logRequests(mux)
 }

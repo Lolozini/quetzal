@@ -1,10 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, AuditEntry, User } from "../api";
+import { Clusters } from "./Clusters";
 
 export function Admin() {
   return (
     <>
       <Users />
+      <Clusters />
       <GlobalAudit />
     </>
   );

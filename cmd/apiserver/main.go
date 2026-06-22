@@ -44,6 +44,9 @@ func main() {
 	if err := templates.Seed(st); err != nil {
 		log.Fatalf("seed templates: %v", err)
 	}
+	if _, err := st.EnsureLocalCluster(); err != nil {
+		log.Fatalf("ensure local cluster: %v", err)
+	}
 
 	// Migration-only mode (used by an init container so a single process owns
 	// schema creation/seeding, avoiding a race between the apiserver and

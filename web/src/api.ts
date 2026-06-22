@@ -119,6 +119,7 @@ export interface Server {
   expose: Expose;
   hibernation?: Hibernation;
   hibernated?: boolean;
+  clusterId?: number;
   status: ServerStatus;
 }
 
@@ -191,6 +192,28 @@ export interface Backup {
   message?: string;
   createdAt: string;
   completedAt?: string;
+}
+
+export interface Cluster {
+  id: number;
+  slug: string;
+  name: string;
+  inCluster: boolean;
+  reachable: boolean;
+  version?: string;
+  nodeCount?: number;
+  lastCheckedAt?: string;
+  statusMessage?: string;
+}
+
+export interface ClusterNode {
+  name: string;
+  ready: boolean;
+  version: string;
+  os: string;
+  cpu: string;
+  memory: string;
+  internalIP?: string;
 }
 
 export type PowerAction = "start" | "stop" | "restart" | "kill";
@@ -292,6 +315,16 @@ export const api = {
   createAPIKey: (name: string) =>
     req<{ key: APIKey; token: string }>("POST", "/api/apikeys", { name }),
   deleteAPIKey: (kid: number) => req<void>("DELETE", `/api/apikeys/${kid}`),
+
+  // Multi-cluster.
+  clusters: () => req<Cluster[]>("GET", "/api/clusters"),
+  createCluster: (name: string, kubeconfig: string) =>
+    req<Cluster>("POST", "/api/clusters", { name, kubeconfig }),
+  updateCluster: (id: number, body: { name?: string; kubeconfig?: string }) =>
+    req<Cluster>("PATCH", `/api/clusters/${id}`, body),
+  deleteCluster: (id: number) => req<void>("DELETE", `/api/clusters/${id}`),
+  testCluster: (id: number) => req<Cluster>("POST", `/api/clusters/${id}/test`),
+  clusterNodes: (id: number) => req<ClusterNode[]>("GET", `/api/clusters/${id}/nodes`),
 };
 
 export interface CreateServerRequest {
@@ -304,6 +337,7 @@ export interface CreateServerRequest {
   env?: Record<string, string>;
   expose?: Expose;
   hibernation?: Hibernation;
+  cluster?: string;
   start?: boolean;
 }
 

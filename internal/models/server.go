@@ -138,6 +138,10 @@ type Server struct {
 	// Namespace is the per-server Kubernetes namespace the controller manages.
 	Namespace string `gorm:"size:253" json:"namespace"`
 
+	// ClusterID is the target cluster (from the cluster registry). 0 / the
+	// in-cluster cluster means the control plane's own cluster.
+	ClusterID uint `gorm:"index" json:"clusterId"`
+
 	DesiredState DesiredState `gorm:"default:Stopped" json:"desiredState"`
 
 	Resources Resources         `gorm:"serializer:json" json:"resources"`

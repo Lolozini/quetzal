@@ -139,6 +139,7 @@ func (s *Store) Migrate() error {
 		&models.Session{}, &models.PortAllocation{}, &models.Schedule{},
 		&models.BackupConfig{}, &models.Backup{},
 		&models.ServerAccess{}, &models.AuditEntry{}, &models.APIKey{},
+		&models.Cluster{},
 	)
 }
 

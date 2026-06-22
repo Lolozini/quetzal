@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/lolozini/quetzal/internal/auth"
 	"github.com/lolozini/quetzal/internal/console"
@@ -175,6 +176,7 @@ type createServerRequest struct {
 	Env         map[string]string  `json:"env"`
 	Expose      models.Expose      `json:"expose"`
 	Hibernation models.Hibernation `json:"hibernation"`
+	Cluster     string             `json:"cluster"` // target cluster slug ("" = local)
 	Start       bool               `json:"start"`
 }
 
@@ -259,6 +261,13 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve the target cluster (default: the local / in-cluster cluster).
+	clusterID, err := s.resolveCluster(req.Cluster)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	owner := userFrom(r.Context())
 	if err := s.checkQuota(owner, req.Memory, req.CPU); err != nil {
 		writeError(w, http.StatusForbidden, err.Error())
@@ -278,6 +287,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		TemplateVersion: tmpl.Version,
 		Image:           image,
 		Namespace:       reconciler.NamespaceFor(slug),
+		ClusterID:       clusterID,
 		DesiredState:    state,
 		Resources:       models.Resources{Memory: req.Memory, CPU: req.CPU},
 		Env:             plainEnv,
@@ -310,6 +320,23 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, srv.ID, "server.create", srv.Slug)
 	writeJSON(w, http.StatusCreated, srv)
+}
+
+// resolveCluster maps a requested cluster slug to its ID, defaulting to the
+// control plane's own (local) cluster when none is given.
+func (s *Server) resolveCluster(slug string) (uint, error) {
+	if strings.TrimSpace(slug) == "" {
+		local, err := s.Store.EnsureLocalCluster()
+		if err != nil {
+			return 0, err
+		}
+		return local.ID, nil
+	}
+	c, err := s.Store.GetClusterBySlug(slug)
+	if err != nil {
+		return 0, fmt.Errorf("unknown cluster %q", slug)
+	}
+	return c.ID, nil
 }
 
 // resolveEnv merges template defaults with user-supplied values, enforcing the
@@ -519,8 +546,13 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	if q := r.URL.Query().Get("keepData"); q != "" {
 		keep = q == "true"
 	}
+	cs, _, err := s.clientsFor(srv)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "target cluster unavailable: "+err.Error())
+		return
+	}
 	// Retain the data volume first, while the PVC still exists to resolve its PV.
-	if err := s.retainDataIfKept(r.Context(), srv, keep); err != nil {
+	if err := s.retainDataIfKept(r.Context(), cs, srv, keep); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -538,7 +570,7 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	}
 	// Best-effort immediate namespace teardown; if it fails, GCOrphanNamespaces
 	// (which deletes managed namespaces with no matching server row) cleans up.
-	if err := s.deleteNamespace(r.Context(), srv.Namespace); err != nil {
+	if err := s.deleteNamespace(r.Context(), cs, srv.Namespace); err != nil {
 		log.Printf("delete server %s: namespace teardown deferred to GC: %v", srv.Slug, err)
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -548,16 +580,16 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 // underlying volume (and its data) survives the namespace/PVC deletion as a
 // Released PV. hostPath data is inherently retained (deleting the namespace never
 // touches the node path), so this is a no-op there.
-func (s *Server) retainDataIfKept(ctx context.Context, srv *models.Server, keepData bool) error {
+func (s *Server) retainDataIfKept(ctx context.Context, cs kubernetes.Interface, srv *models.Server, keepData bool) error {
 	if !keepData || srv.Storage.Type != models.StoragePVC {
 		return nil
 	}
-	pv := s.boundPV(ctx, srv.Namespace)
+	pv := boundPV(ctx, cs, srv.Namespace)
 	if pv == "" {
 		return nil
 	}
 	patch := []byte(`{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}`)
-	if _, err := s.Clientset.CoreV1().PersistentVolumes().Patch(ctx, pv, types.StrategicMergePatchType, patch, metav1.PatchOptions{}); err != nil {
+	if _, err := cs.CoreV1().PersistentVolumes().Patch(ctx, pv, types.StrategicMergePatchType, patch, metav1.PatchOptions{}); err != nil {
 		return fmt.Errorf("retain volume %s: %w", pv, err)
 	}
 	// Surface the retained PV so the operator can recover/rebind it later.
@@ -567,8 +599,8 @@ func (s *Server) retainDataIfKept(ctx context.Context, srv *models.Server, keepD
 
 // deleteNamespace removes a server's namespace (cascading its objects), treating
 // an already-absent namespace as success.
-func (s *Server) deleteNamespace(ctx context.Context, ns string) error {
-	err := s.Clientset.CoreV1().Namespaces().Delete(ctx, ns, metav1.DeleteOptions{})
+func (s *Server) deleteNamespace(ctx context.Context, cs kubernetes.Interface, ns string) error {
+	err := cs.CoreV1().Namespaces().Delete(ctx, ns, metav1.DeleteOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
@@ -576,8 +608,8 @@ func (s *Server) deleteNamespace(ctx context.Context, ns string) error {
 }
 
 // boundPV returns the PersistentVolume backing a server's data PVC, or "".
-func (s *Server) boundPV(ctx context.Context, ns string) string {
-	pvc, err := s.Clientset.CoreV1().PersistentVolumeClaims(ns).Get(ctx, reconciler.DataVolume, metav1.GetOptions{})
+func boundPV(ctx context.Context, cs kubernetes.Interface, ns string) string {
+	pvc, err := cs.CoreV1().PersistentVolumeClaims(ns).Get(ctx, reconciler.DataVolume, metav1.GetOptions{})
 	if err != nil {
 		return ""
 	}
@@ -675,7 +707,11 @@ func (s *Server) handleUnsuspend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deletePods(r *http.Request, srv *models.Server, grace *int64) error {
-	return s.Clientset.CoreV1().Pods(srv.Namespace).DeleteCollection(
+	cs, _, err := s.clientsFor(srv)
+	if err != nil {
+		return err
+	}
+	return cs.CoreV1().Pods(srv.Namespace).DeleteCollection(
 		r.Context(),
 		metav1.DeleteOptions{GracePeriodSeconds: grace},
 		metav1.ListOptions{LabelSelector: reconciler.ServerLabel + "=" + srv.Slug},
@@ -696,12 +732,17 @@ func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "server is not running")
 		return
 	}
+	cs, cfg, err := s.clientsFor(srv)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "target cluster unavailable: "+err.Error())
+		return
+	}
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return // Upgrade already wrote the response
 	}
 	defer conn.Close()
-	_ = console.Stream(r.Context(), conn, s.Clientset, s.RestConfig, srv.Namespace, srv.Slug)
+	_ = console.Stream(r.Context(), conn, cs, cfg, srv.Namespace, srv.Slug)
 }
 
 // ---- observability ----
@@ -711,12 +752,17 @@ func (s *Server) handleServerStats(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	pod, err := console.FindRunningPod(r.Context(), s.Clientset, srv.Namespace, srv.Slug)
+	cs, _, err := s.clientsFor(srv)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "target cluster unavailable: "+err.Error())
+		return
+	}
+	pod, err := console.FindRunningPod(r.Context(), cs, srv.Namespace, srv.Slug)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	u, err := stats.PodUsage(r.Context(), s.Clientset, srv.Namespace, pod)
+	u, err := stats.PodUsage(r.Context(), cs, srv.Namespace, pod)
 	if err != nil {
 		if errors.Is(err, stats.ErrUnavailable) {
 			writeError(w, http.StatusServiceUnavailable, err.Error())
