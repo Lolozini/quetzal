@@ -45,6 +45,9 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 type credentials struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	// Code is an optional TOTP or recovery code, supplied on the second step of
+	// login when the account has two-factor authentication enabled.
+	Code string `json:"code"`
 }
 
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
@@ -98,6 +101,21 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil || !ok {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
+	}
+	// Second factor: when 2FA is enabled, the password alone yields no session.
+	// A first request without a code gets a challenge; the client resubmits with
+	// a TOTP or recovery code.
+	if u.TOTPEnabled {
+		if strings.TrimSpace(req.Code) == "" {
+			writeJSON(w, http.StatusOK, map[string]bool{"twoFactorRequired": true})
+			return
+		}
+		if !s.verifyTwoFactor(u, req.Code) {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{
+				"error": "invalid two-factor code", "twoFactorRequired": true,
+			})
+			return
+		}
 	}
 	if err := s.startSession(w, u); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

@@ -134,6 +134,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/users/{uid}", s.auth(s.handleDeleteUser))
 	mux.Handle("POST /api/me/password", s.auth(s.handleChangePassword))
 
+	// Two-factor authentication (opt-in TOTP) for the current user, plus an
+	// admin reset for the lost-device lockout case.
+	mux.Handle("POST /api/me/2fa/setup", s.auth(s.handle2FASetup))
+	mux.Handle("POST /api/me/2fa/enable", s.auth(s.handle2FAEnable))
+	mux.Handle("POST /api/me/2fa/disable", s.auth(s.handle2FADisable))
+	mux.Handle("POST /api/users/{uid}/2fa/disable", s.auth(s.handleAdminDisable2FA))
+
 	// API keys (scoped bearer tokens for the public API).
 	mux.Handle("GET /api/apikeys", s.auth(s.handleListAPIKeys))
 	mux.Handle("POST /api/apikeys", s.auth(s.handleCreateAPIKey))
