@@ -21,6 +21,7 @@ import (
 
 	"github.com/lolozini/quetzal/internal/cluster"
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/store"
 )
 
@@ -45,6 +46,10 @@ type Server struct {
 	// WakeKey signs/verifies per-server wake-on-connect callback tokens (shared
 	// with the controller via QUETZAL_SECRET_KEY).
 	WakeKey []byte
+	// Dispatch delivers events to notification channels. When set, emit() nudges
+	// it for prompt delivery; nil disables notifications (events are still
+	// recorded for the activity feed).
+	Dispatch *notify.Dispatcher
 
 	upgrader websocket.Upgrader
 }
@@ -142,6 +147,18 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/clusters/{cid}", s.auth(s.handleDeleteCluster))
 	mux.Handle("POST /api/clusters/{cid}/test", s.auth(s.handleTestCluster))
 	mux.Handle("GET /api/clusters/{cid}/nodes", s.auth(s.handleClusterNodes))
+
+	// Notification channels (Discord/webhook/email) + activity feed. Global
+	// channels are admin-only; server-scoped ones need PermSettings on the server.
+	mux.Handle("GET /api/notifications/channels", s.auth(s.handleListChannels))
+	mux.Handle("POST /api/notifications/channels", s.auth(s.handleCreateChannel))
+	mux.Handle("GET /api/notifications/channels/{nid}", s.auth(s.handleGetChannel))
+	mux.Handle("PATCH /api/notifications/channels/{nid}", s.auth(s.handleUpdateChannel))
+	mux.Handle("DELETE /api/notifications/channels/{nid}", s.auth(s.handleDeleteChannel))
+	mux.Handle("POST /api/notifications/channels/{nid}/test", s.auth(s.handleTestChannel))
+	mux.Handle("GET /api/servers/{id}/notifications", s.auth(s.handleListServerChannels))
+	mux.Handle("GET /api/servers/{id}/events", s.auth(s.handleServerEvents))
+	mux.Handle("GET /api/events", s.auth(s.handleGlobalEvents))
 
 	return logRequests(mux)
 }

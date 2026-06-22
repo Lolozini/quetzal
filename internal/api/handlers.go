@@ -565,6 +565,7 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	_ = s.Store.DeleteSchedulesForServer(srv.ID)
 	_ = s.Store.DeleteBackupsForServer(srv.ID)
 	_ = s.Store.DeleteAccessForServer(srv.ID)
+	_ = s.Store.DeleteChannelsForServer(srv.ID)
 	s.audit(r, 0, "server.delete", srv.Slug+" (keepData="+strconv.FormatBool(keep)+")")
 	if err := s.Store.DeleteServer(srv.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

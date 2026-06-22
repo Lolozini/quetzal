@@ -19,6 +19,7 @@ import (
 	"github.com/lolozini/quetzal/internal/api"
 	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/metrics"
+	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/templates"
 	webui "github.com/lolozini/quetzal/web"
@@ -71,6 +72,10 @@ func main() {
 	apiSrv.NodePortMax = envInt32("QUETZAL_NODEPORT_MAX", 0)
 	apiSrv.WakeKey = crypto.KeyFromEnv("QUETZAL_SECRET_KEY")
 
+	// The notification dispatcher drains the event outbox to configured channels.
+	dispatcher := notify.New(st)
+	apiSrv.Dispatch = dispatcher
+
 	// /api/* -> API; /metrics + /healthz for ops; everything else -> React SPA.
 	root := http.NewServeMux()
 	root.Handle("/api/", apiSrv.Handler())
@@ -91,6 +96,7 @@ func main() {
 	defer stop()
 
 	go gcSessions(ctx, st)
+	go dispatcher.Run(ctx)
 
 	go func() {
 		log.Printf("quetzal-apiserver listening on %s (db=%s)", addr, dbDriver)

@@ -52,7 +52,8 @@ func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// audit records a mutating action (best-effort; failures never block).
+// audit records a mutating action (best-effort; failures never block) and emits
+// a matching event so the action can fan out to notification channels.
 func (s *Server) audit(r *http.Request, serverID uint, action, detail string) {
 	u := userFrom(r.Context())
 	e := &models.AuditEntry{ServerID: serverID, Action: action, Detail: detail}
@@ -61,4 +62,32 @@ func (s *Server) audit(r *http.Request, serverID uint, action, detail string) {
 		e.Username = u.Username
 	}
 	_ = s.Store.AddAudit(e)
+	s.emit(r, serverID, action, detail, nil)
+}
+
+// emit appends an event and, when notifications are enabled, nudges the
+// dispatcher for prompt delivery. Best-effort: failures never block the action.
+// For server-scoped events the server slug is prepended to the message so
+// notifications read naturally without a lookup downstream.
+func (s *Server) emit(r *http.Request, serverID uint, eventType, message string, data map[string]string) {
+	e := &models.Event{ServerID: serverID, Type: eventType, Message: message, Data: data}
+	if u := userFrom(r.Context()); u != nil {
+		e.UserID = u.ID
+		e.Username = u.Username
+	}
+	if serverID != 0 {
+		if srv, err := s.Store.GetServer(serverID); err == nil {
+			if message != "" {
+				e.Message = srv.Slug + ": " + message
+			} else {
+				e.Message = srv.Slug
+			}
+		}
+	}
+	if err := s.Store.AddEvent(e); err != nil {
+		return
+	}
+	if s.Dispatch != nil {
+		s.Dispatch.Notify()
+	}
 }
