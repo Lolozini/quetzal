@@ -1,12 +1,14 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, AuditEntry, User } from "../api";
 import { Clusters } from "./Clusters";
+import { Notifications } from "./Notifications";
 
 export function Admin() {
   return (
     <>
       <Users />
       <Clusters />
+      <Notifications serverId={0} />
       <GlobalAudit />
     </>
   );

@@ -218,6 +218,56 @@ export interface ClusterNode {
   internalIP?: string;
 }
 
+export type ChannelType = "discord" | "webhook" | "email";
+
+export interface NotificationChannel {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  name: string;
+  type: ChannelType;
+  enabled: boolean;
+  serverId: number;
+  events: string[];
+  // config holds the non-secret settings (e.g. email host/port/from/to/tls).
+  config: Record<string, string>;
+  // secrets reports which secret keys are configured, without their values.
+  secrets: Record<string, boolean>;
+}
+
+export interface ChannelInput {
+  name: string;
+  type: ChannelType;
+  enabled: boolean;
+  serverId: number;
+  events: string[];
+  config: Record<string, string>;
+}
+
+export interface EventEntry {
+  id: number;
+  createdAt: string;
+  type: string;
+  serverId?: number;
+  userId?: number;
+  username?: string;
+  message: string;
+  data?: Record<string, string>;
+}
+
+// Event types offered as filter checkboxes; an empty selection means "all".
+export const EVENT_TYPES = [
+  "server.running",
+  "server.crashed",
+  "server.hibernated",
+  "server.power",
+  "server.create",
+  "server.delete",
+  "backup.create",
+  "backup.restore",
+  "schedule.create",
+] as const;
+
 export type PowerAction = "start" | "stop" | "restart" | "kill";
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -327,6 +377,21 @@ export const api = {
   deleteCluster: (id: number) => req<void>("DELETE", `/api/clusters/${id}`),
   testCluster: (id: number) => req<Cluster>("POST", `/api/clusters/${id}/test`),
   clusterNodes: (id: number) => req<ClusterNode[]>("GET", `/api/clusters/${id}/nodes`),
+
+  // Notifications.
+  channels: () => req<NotificationChannel[]>("GET", "/api/notifications/channels"),
+  serverChannels: (id: number) =>
+    req<NotificationChannel[]>("GET", `/api/servers/${id}/notifications`),
+  createChannel: (body: ChannelInput) =>
+    req<NotificationChannel>("POST", "/api/notifications/channels", body),
+  updateChannel: (nid: number, body: Partial<ChannelInput>) =>
+    req<NotificationChannel>("PATCH", `/api/notifications/channels/${nid}`, body),
+  deleteChannel: (nid: number) =>
+    req<void>("DELETE", `/api/notifications/channels/${nid}`),
+  testChannel: (nid: number) =>
+    req<void>("POST", `/api/notifications/channels/${nid}/test`),
+  events: () => req<EventEntry[]>("GET", "/api/events"),
+  serverEvents: (id: number) => req<EventEntry[]>("GET", `/api/servers/${id}/events`),
 };
 
 export interface CreateServerRequest {

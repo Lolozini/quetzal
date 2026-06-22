@@ -3,6 +3,7 @@ import { api, ApiError, AuditEntry, Cluster, ExposeType, PowerAction, Server, Se
 import { Access } from "./Access";
 import { Backups } from "./Backups";
 import { Console } from "./Console";
+import { Notifications } from "./Notifications";
 import { Schedules } from "./Schedules";
 
 function formatMem(bytes: number): string {
@@ -307,6 +308,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
       <Schedules id={id} />
       <Backups id={id} />
       {canManage && <Access id={id} />}
+      {canManage && <Notifications serverId={id} />}
       <ServerAudit id={id} />
       <div className="card">
         <Console id={id} />
