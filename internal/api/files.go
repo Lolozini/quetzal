@@ -151,6 +151,50 @@ func (s *Server) handleArchiveFile(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// extractTimeout bounds an archive upload+extraction (modpacks can be large).
+const extractTimeout = 15 * time.Minute
+
+// extractScript unpacks an uploaded archive (read from stdin) into $1, choosing
+// the tool from $2 ("zip" or "tar"). It spools to a temp file first because both
+// tools need a seekable file to auto-detect the format: tar sniffs gz/bz2/xz
+// from the file (it can't from a pipe), and unzip requires a real file.
+const extractScript = `dir="$1"; fmt="$2"
+mkdir -p "$dir" || exit 1
+tmp="$dir/.quetzal-upload.$$"
+cat > "$tmp" || { rm -f "$tmp"; exit 1; }
+if [ "$fmt" = zip ]; then
+  unzip -o "$tmp" -d "$dir"; rc=$?
+else
+  tar -xf "$tmp" -C "$dir"; rc=$?
+fi
+rm -f "$tmp"
+exit $rc`
+
+// handleExtractArchive uploads an archive and unpacks it into a directory of the
+// server's data volume — for importing a world, a modpack, or a Pterodactyl
+// backup. The archive streams through the exec into tar/unzip in the pod.
+func (s *Server) handleExtractArchive(w http.ResponseWriter, r *http.Request) {
+	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
+	if !ok {
+		return
+	}
+	dir := jail(root, r.URL.Query().Get("path"))
+	format := "tar"
+	if strings.EqualFold(r.URL.Query().Get("format"), "zip") {
+		format = "zip"
+	}
+	body := http.MaxBytesReader(w, r.Body, 2<<30) // 2 GiB cap
+	ctx, cancel := context.WithTimeout(r.Context(), extractTimeout)
+	defer cancel()
+	cmd := []string{"sh", "-c", extractScript, "_", dir, format}
+	if err := console.Exec(ctx, cs, cfg, srv.Namespace, pod, cmd, body, io.Discard); err != nil {
+		writeError(w, http.StatusBadGateway, "extract failed (the image needs tar, or unzip for .zip): "+err.Error())
+		return
+	}
+	s.audit(r, srv.ID, "files.extract", relParam(r)+" ("+format+")")
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {
 	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
 	if !ok {

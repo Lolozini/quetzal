@@ -187,6 +187,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/servers/{id}/files/content", s.auth(s.handleReadFile))
 	mux.Handle("GET /api/servers/{id}/files/archive", s.auth(s.handleArchiveFile))
 	mux.Handle("PUT /api/servers/{id}/files/content", s.auth(s.handleWriteFile))
+	mux.Handle("POST /api/servers/{id}/files/extract", s.auth(s.handleExtractArchive))
 	mux.Handle("POST /api/servers/{id}/files/mkdir", s.auth(s.handleMkdir))
 	mux.Handle("POST /api/servers/{id}/files/rename", s.auth(s.handleRenameFile))
 	mux.Handle("DELETE /api/servers/{id}/files", s.auth(s.handleDeleteFile))

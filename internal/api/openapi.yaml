@@ -831,6 +831,27 @@ paths:
           content:
             application/gzip:
               schema: { type: string, format: binary }
+  /api/servers/{id}/files/extract:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    post:
+      tags: [Files]
+      summary: Upload an archive and extract it into a directory
+      description: >-
+        Imports a world, modpack or Pterodactyl backup: the request body is the
+        archive, streamed into tar/unzip in the pod. format is "tar" (gz/bz2/xz)
+        or "zip". The image must have the matching tool.
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+        - { name: format, in: query, schema: { type: string, enum: [tar, zip] } }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "204": { description: Extracted }
+        "502": { description: Extraction failed (missing tool or bad archive) }
   /api/servers/{id}/files/mkdir:
     parameters:
       - $ref: "#/components/parameters/ServerId"
