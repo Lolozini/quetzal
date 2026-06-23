@@ -141,6 +141,7 @@ func (s *Store) Migrate() error {
 		&models.ServerAccess{}, &models.AuditEntry{}, &models.APIKey{},
 		&models.Cluster{},
 		&models.NotificationChannel{}, &models.Event{}, &models.Setting{},
+		&models.SSHKey{},
 	)
 }
 

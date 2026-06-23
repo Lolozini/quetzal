@@ -62,6 +62,11 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 	if err := r.ensureResourceQuota(ctx, srv); err != nil {
 		return fmt.Errorf("resourcequota: %w", err)
 	}
+	// SFTP supporting objects (host key, authorized_keys, Service) must exist
+	// before the Deployment references them.
+	if err := r.ensureSFTP(ctx, srv); err != nil {
+		return fmt.Errorf("sftp: %w", err)
+	}
 	if pvc := BuildPVC(srv); pvc != nil {
 		if err := r.ensurePVC(ctx, pvc); err != nil {
 			return fmt.Errorf("pvc: %w", err)
@@ -166,6 +171,65 @@ func (r *Reconciler) ensureNamespace(ctx context.Context, s *models.Server) erro
 
 func (r *Reconciler) ensureResourceQuota(ctx context.Context, s *models.Server) error {
 	return r.apply(ctx, BuildResourceQuota(s))
+}
+
+// ensureSFTP reconciles the SFTP sidecar's supporting objects: a stable host key
+// (generated once), the authorized_keys ConfigMap (kept in sync with the users
+// who hold file access), and the NodePort Service. When SFTP is disabled the
+// Service and ConfigMap are removed (the host key is kept so re-enabling doesn't
+// change it). Requires a system image (the SFTP binary lives there).
+func (r *Reconciler) ensureSFTP(ctx context.Context, s *models.Server) error {
+	if !s.SFTP.Enabled || r.ActivatorImage == "" {
+		if !s.SFTP.Enabled {
+			r.deleteSFTP(ctx, s)
+		}
+		return nil
+	}
+	if err := r.ensureSFTPHostKey(ctx, s); err != nil {
+		return fmt.Errorf("sftp host key: %w", err)
+	}
+	keys, err := r.Store.ListAuthorizedSSHKeys(s.ID)
+	if err != nil {
+		return fmt.Errorf("sftp authorized keys: %w", err)
+	}
+	lines := make([]string, 0, len(keys))
+	for _, k := range keys {
+		lines = append(lines, k.PublicKey)
+	}
+	if err := r.apply(ctx, BuildSFTPAuthKeysConfigMap(s, lines)); err != nil {
+		return fmt.Errorf("sftp configmap: %w", err)
+	}
+	if err := r.apply(ctx, BuildSFTPService(s)); err != nil {
+		return fmt.Errorf("sftp service: %w", err)
+	}
+	return nil
+}
+
+// ensureSFTPHostKey creates a stable SSH host key Secret if absent.
+func (r *Reconciler) ensureSFTPHostKey(ctx context.Context, s *models.Server) error {
+	key := client.ObjectKey{Namespace: s.Namespace, Name: SFTPHostKeySecret}
+	if err := r.Client.Get(ctx, key, &corev1.Secret{}); err == nil {
+		return nil
+	} else if !apierrors.IsNotFound(err) {
+		return err
+	}
+	hostKey, err := crypto.GenerateSSHHostKey()
+	if err != nil {
+		return err
+	}
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: SFTPHostKeySecret, Namespace: s.Namespace, Labels: labelsFor(s)},
+		Data:       map[string][]byte{SFTPHostKeyField: hostKey},
+	}
+	if err := r.Client.Create(ctx, sec); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	return nil
+}
+
+func (r *Reconciler) deleteSFTP(ctx context.Context, s *models.Server) {
+	_ = r.Client.Delete(ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: SFTPServiceName, Namespace: s.Namespace}})
+	_ = r.Client.Delete(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: SFTPAuthKeysConfigMap, Namespace: s.Namespace}})
 }
 
 func (r *Reconciler) ensurePVC(ctx context.Context, want *corev1.PersistentVolumeClaim) error {

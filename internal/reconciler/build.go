@@ -156,13 +156,24 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 
 	noAutomount := false
 	initContainers := installInitContainers(t)
+	containers := []corev1.Container{container}
 	volumes := []corev1.Volume{buildDataVolume(s)}
-	// Egg config.files: render them at startup. Run as two init containers so the
-	// renderer executes as the server's own user (correct file ownership): a copy
-	// step (Quetzal image) drops the static binary onto a shared volume, then a
-	// render step (the game image) runs it against the data volume.
+
+	// Helper binaries (config render, sftp) are copied out of the Quetzal image
+	// into a shared volume by copy init containers, then executed from the game
+	// image so they run as the server's own user (correct file ownership).
+	sftp := systemImage != "" && s.SFTP.Enabled
+	needBin := systemImage != "" && (len(t.ConfigFiles) > 0 || sftp)
+
 	if systemImage != "" && len(t.ConfigFiles) > 0 {
 		initContainers = append(initContainers, configRenderInitContainers(s, t, systemImage, secretKeys, dataPath)...)
+	}
+	if sftp {
+		initContainers = append(initContainers, sftpCopyInitContainer(systemImage, t))
+		containers = append(containers, sftpSidecar(s, t, dataPath))
+		volumes = append(volumes, sftpVolumes()...)
+	}
+	if needBin {
 		volumes = append(volumes, corev1.Volume{
 			Name:         renderBinVolume,
 			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
@@ -170,7 +181,7 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 	}
 
 	pod := corev1.PodSpec{
-		Containers:     []corev1.Container{container},
+		Containers:     containers,
 		InitContainers: initContainers,
 		// Untrusted game code (mods/plugins) has no business talking to the
 		// Kubernetes API, so don't mount a ServiceAccount token into the pod.
@@ -661,6 +672,107 @@ func configRenderInitContainers(s *models.Server, t *models.Template, systemImag
 			},
 			SecurityContext: sc,
 		},
+	}
+}
+
+// ---- SFTP sidecar ----
+
+const (
+	// SFTPServiceName is the per-server NodePort Service exposing SFTP.
+	SFTPServiceName = "server-sftp"
+	// SFTPPort is the in-pod port the SFTP sidecar listens on.
+	SFTPPort int32 = 2022
+	// SFTPHostKeySecret holds the (stable) SSH host private key.
+	SFTPHostKeySecret = "quetzal-sftp-host"
+	// SFTPHostKeyField is the key within that Secret.
+	SFTPHostKeyField = "host_key"
+	// SFTPAuthKeysConfigMap holds the authorized_keys for the server.
+	SFTPAuthKeysConfigMap = "quetzal-sftp-authorized"
+	// SFTPAuthKeysField is the key within that ConfigMap.
+	SFTPAuthKeysField = "authorized_keys"
+
+	sftpBinPath    = "/quetzal-bin/sftp"
+	sftpHostKeyVol = "sftp-hostkey"
+	sftpAuthKeyVol = "sftp-authkeys"
+	sftpSecretDir  = "/quetzal-sftp"
+)
+
+// sftpCopyInitContainer installs the sftp binary from the Quetzal image onto the
+// shared bin volume (so the sidecar can run it from the game image).
+func sftpCopyInitContainer(systemImage string, t *models.Template) corev1.Container {
+	return corev1.Container{
+		Name:            "sftp-copy",
+		Image:           systemImage,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Command:         []string{"/usr/local/bin/quetzal-sftp"},
+		Env:             []corev1.EnvVar{{Name: "QUETZAL_INSTALL_TO", Value: sftpBinPath}},
+		VolumeMounts:    []corev1.VolumeMount{{Name: renderBinVolume, MountPath: renderBinMount}},
+		SecurityContext: buildContainerSecurityContext(t),
+	}
+}
+
+// sftpSidecar runs the SFTP server from the game image (same user as the server)
+// against the data volume, with the host key and authorized_keys mounted.
+func sftpSidecar(s *models.Server, t *models.Template, dataPath string) corev1.Container {
+	return corev1.Container{
+		Name:            "sftp",
+		Image:           s.Image,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Command:         []string{sftpBinPath},
+		Env: []corev1.EnvVar{
+			{Name: "QUETZAL_SFTP_ADDR", Value: fmt.Sprintf(":%d", SFTPPort)},
+			{Name: "QUETZAL_DATA_PATH", Value: dataPath},
+			{Name: "QUETZAL_SFTP_HOST_KEY", Value: sftpSecretDir + "/hostkey/" + SFTPHostKeyField},
+			{Name: "QUETZAL_SFTP_AUTHORIZED_KEYS", Value: sftpSecretDir + "/auth/" + SFTPAuthKeysField},
+		},
+		Ports: []corev1.ContainerPort{{Name: "sftp", ContainerPort: SFTPPort, Protocol: corev1.ProtocolTCP}},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: dataVolume, MountPath: dataPath},
+			{Name: renderBinVolume, MountPath: renderBinMount, ReadOnly: true},
+			{Name: sftpHostKeyVol, MountPath: sftpSecretDir + "/hostkey", ReadOnly: true},
+			{Name: sftpAuthKeyVol, MountPath: sftpSecretDir + "/auth", ReadOnly: true},
+		},
+		SecurityContext: buildContainerSecurityContext(t),
+	}
+}
+
+func sftpVolumes() []corev1.Volume {
+	return []corev1.Volume{
+		{
+			Name:         sftpHostKeyVol,
+			VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: SFTPHostKeySecret}},
+		},
+		{
+			Name: sftpAuthKeyVol,
+			VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: SFTPAuthKeysConfigMap},
+			}},
+		},
+	}
+}
+
+// BuildSFTPService is the NodePort Service exposing a server's SFTP sidecar.
+// The NodePort is assigned by Kubernetes (not from Quetzal's game-port pool).
+func BuildSFTPService(s *models.Server) *corev1.Service {
+	return &corev1.Service{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
+		ObjectMeta: metav1.ObjectMeta{Name: SFTPServiceName, Namespace: s.Namespace, Labels: labelsFor(s)},
+		Spec: corev1.ServiceSpec{
+			Type:     corev1.ServiceTypeNodePort,
+			Selector: map[string]string{serverLabel: s.Slug},
+			Ports: []corev1.ServicePort{{
+				Name: "sftp", Port: SFTPPort, TargetPort: intstr.FromInt32(SFTPPort), Protocol: corev1.ProtocolTCP,
+			}},
+		},
+	}
+}
+
+// BuildSFTPAuthKeysConfigMap renders authorized_keys from the given public keys.
+func BuildSFTPAuthKeysConfigMap(s *models.Server, keys []string) *corev1.ConfigMap {
+	return &corev1.ConfigMap{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "ConfigMap"},
+		ObjectMeta: metav1.ObjectMeta{Name: SFTPAuthKeysConfigMap, Namespace: s.Namespace, Labels: labelsFor(s)},
+		Data:       map[string]string{SFTPAuthKeysField: strings.Join(keys, "\n") + "\n"},
 	}
 }
 

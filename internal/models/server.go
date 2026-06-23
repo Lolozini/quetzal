@@ -63,6 +63,13 @@ const (
 	ExposeLoadBalancer ExposeType = "LoadBalancer"
 )
 
+// SFTPConfig configures opt-in SFTP access to a server's data volume. When
+// enabled, the controller runs a key-only SFTP sidecar (in the game image, so
+// files are owned by the server's user) and exposes it on a NodePort.
+type SFTPConfig struct {
+	Enabled bool `json:"enabled"`
+}
+
 // Expose configures external reachability for a server's ports.
 type Expose struct {
 	Type ExposeType `json:"type,omitempty"`
@@ -169,6 +176,9 @@ type Server struct {
 	Ports        []PortSpec        `gorm:"serializer:json" json:"ports,omitempty"`
 	Expose       Expose            `gorm:"serializer:json" json:"expose"`
 	NodeSelector map[string]string `gorm:"serializer:json" json:"nodeSelector,omitempty"`
+
+	// SFTP, when enabled, adds a key-only SFTP sidecar exposing the data volume.
+	SFTP SFTPConfig `gorm:"serializer:json" json:"sftp"`
 
 	// Hibernation policy and system-managed state.
 	Hibernation Hibernation `gorm:"serializer:json" json:"hibernation"`

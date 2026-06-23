@@ -366,3 +366,72 @@ func TestBuildDeploymentConfigFilesInitContainers(t *testing.T) {
 		t.Error("expected the shared render-bin emptyDir volume")
 	}
 }
+
+func TestBuildDeploymentSFTPSidecar(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	s.SFTP = models.SFTPConfig{Enabled: true}
+
+	// Without a system image, no SFTP sidecar.
+	dep0 := BuildDeployment(s, tmpl, "", nil)
+	for _, c := range dep0.Spec.Template.Spec.Containers {
+		if c.Name == "sftp" {
+			t.Fatal("no SFTP sidecar expected without a system image")
+		}
+	}
+
+	dep := BuildDeployment(s, tmpl, "quetzal:test", nil)
+	var sidecar, copyInit bool
+	for _, c := range dep.Spec.Template.Spec.Containers {
+		if c.Name == "sftp" {
+			sidecar = true
+			if c.Image != s.Image {
+				t.Errorf("sftp sidecar image = %q, want game image %q", c.Image, s.Image)
+			}
+			if len(c.Command) == 0 || c.Command[0] != sftpBinPath {
+				t.Errorf("sftp command = %v, want %s", c.Command, sftpBinPath)
+			}
+			if len(c.Ports) == 0 || c.Ports[0].ContainerPort != SFTPPort {
+				t.Errorf("sftp port = %v, want %d", c.Ports, SFTPPort)
+			}
+		}
+	}
+	for _, c := range dep.Spec.Template.Spec.InitContainers {
+		if c.Name == "sftp-copy" {
+			copyInit = true
+			if c.Image != "quetzal:test" {
+				t.Errorf("sftp-copy image = %q, want system image", c.Image)
+			}
+		}
+	}
+	if !sidecar || !copyInit {
+		t.Fatalf("expected sftp sidecar (%v) and sftp-copy init (%v)", sidecar, copyInit)
+	}
+	vols := map[string]bool{}
+	for _, v := range dep.Spec.Template.Spec.Volumes {
+		vols[v.Name] = true
+	}
+	for _, want := range []string{sftpHostKeyVol, sftpAuthKeyVol, renderBinVolume} {
+		if !vols[want] {
+			t.Errorf("missing volume %q", want)
+		}
+	}
+}
+
+func TestBuildSFTPServiceAndAuthKeys(t *testing.T) {
+	s, _ := testServerAndTemplate()
+	svc := BuildSFTPService(s)
+	if svc.Spec.Type != corev1.ServiceTypeNodePort {
+		t.Errorf("sftp service type = %v, want NodePort", svc.Spec.Type)
+	}
+	if len(svc.Spec.Ports) != 1 || svc.Spec.Ports[0].Port != SFTPPort {
+		t.Errorf("sftp service ports = %+v", svc.Spec.Ports)
+	}
+	if svc.Spec.Selector[serverLabel] != s.Slug {
+		t.Errorf("sftp service selector = %v", svc.Spec.Selector)
+	}
+	cm := BuildSFTPAuthKeysConfigMap(s, []string{"ssh-ed25519 AAAA alice", "ssh-ed25519 BBBB bob"})
+	got := cm.Data[SFTPAuthKeysField]
+	if !strings.Contains(got, "alice") || !strings.Contains(got, "bob") {
+		t.Errorf("authorized_keys = %q", got)
+	}
+}
