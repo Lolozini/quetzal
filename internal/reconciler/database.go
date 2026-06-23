@@ -125,7 +125,6 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword string) []client.Object
 	selector := map[string]string{dbHostLabel: strconv.FormatUint(uint64(h.ID), 10)}
 	replicas := int32(1)
 	noAutomount := false
-	noEsc := false
 
 	namespace := &corev1.Namespace{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
@@ -146,14 +145,18 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword string) []client.Object
 			},
 		},
 	}
+	// A TCP probe on the MySQL port: mariadbd only starts listening once the data
+	// directory is initialized, so "port open" is a sound readiness signal and
+	// avoids healthcheck.sh's need for credentials. The generous threshold covers
+	// a slow first-time initialization.
 	probe := &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
-			Exec: &corev1.ExecAction{Command: []string{"healthcheck.sh", "--connect", "--innodb_initialized"}},
+			TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(ManagedDBPort)},
 		},
 		InitialDelaySeconds: 10,
 		PeriodSeconds:       10,
 		TimeoutSeconds:      5,
-		FailureThreshold:    6,
+		FailureThreshold:    30,
 	}
 	deploy := &appsv1.Deployment{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
@@ -187,10 +190,11 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword string) []client.Object
 							},
 							Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
 						},
-						SecurityContext: &corev1.SecurityContext{
-							AllowPrivilegeEscalation: &noEsc,
-							Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
-						},
+						// No hardened securityContext here on purpose: the official
+						// MariaDB entrypoint runs as root to chown the data dir and
+						// gosu down to the mysql user, so dropping capabilities would
+						// break initialization. This is a trusted, Quetzal-owned image
+						// (not untrusted game code); the pod still mounts no SA token.
 					}},
 					Volumes: []corev1.Volume{{
 						Name: dbDataVolume,
