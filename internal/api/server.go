@@ -54,10 +54,15 @@ type Server struct {
 	Dispatch *notify.Dispatcher
 
 	// Rate limiters (per-process). LoginLimiter is keyed by username, AuthIPLimiter
-	// and InternalLimiter by client IP. Replaceable in tests.
+	// and InternalLimiter by client IP, ForgotLimiter by reset identifier.
+	// Replaceable in tests.
 	LoginLimiter    *ratelimit.Limiter
 	AuthIPLimiter   *ratelimit.Limiter
 	InternalLimiter *ratelimit.Limiter
+	ForgotLimiter   *ratelimit.Limiter
+	// Mailer sends outbound system email (password reset). Defaults to
+	// notify.SendMail; overridable in tests.
+	Mailer MailSender
 	// TrustProxy honors X-Forwarded-For when deriving the client IP (set when
 	// served behind a reverse proxy such as Traefik).
 	TrustProxy bool
@@ -79,16 +84,24 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 		LoginLimiter:    ratelimit.New(10, 15*time.Minute),
 		AuthIPLimiter:   ratelimit.New(60, 15*time.Minute),
 		InternalLimiter: ratelimit.New(120, time.Minute),
+		// Password-reset requests: cap per identifier to avoid emailing-bombing a
+		// victim and to blunt account enumeration via repeated probing.
+		ForgotLimiter: ratelimit.New(3, time.Hour),
+		Mailer:        notify.SendMail,
 	}
 	s.upgrader = websocket.Upgrader{CheckOrigin: s.checkOrigin}
 	return s
 }
+
+// MailSender sends a plain-text email; see notify.SendMail.
+type MailSender func(ctx context.Context, cfg map[string]string, to []string, subject, body string) error
 
 // GCRateLimiters drops expired counters from all limiters; call periodically.
 func (s *Server) GCRateLimiters() {
 	s.LoginLimiter.GC()
 	s.AuthIPLimiter.GC()
 	s.InternalLimiter.GC()
+	s.ForgotLimiter.GC()
 }
 
 // clientIP returns the caller's IP, honoring X-Forwarded-For only when behind a
@@ -137,6 +150,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/setup", s.handleSetup)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
+	// Self-service password reset (rate-limited; always responds uniformly).
+	mux.HandleFunc("POST /api/forgot-password", s.handleForgotPassword)
+	mux.HandleFunc("POST /api/reset-password", s.handleResetPassword)
 	// Wake-on-connect callbacks from a server's activator (token-authenticated,
 	// no session). Reachable in-cluster from server namespaces.
 	mux.HandleFunc("POST /api/internal/wake", s.handleWake)
@@ -150,6 +166,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Protected.
 	mux.Handle("GET /api/me", s.auth(s.handleMe))
+	mux.Handle("PUT /api/me/email", s.auth(s.handleSetMyEmail))
 	mux.Handle("GET /api/templates", s.auth(s.handleListTemplates))
 	mux.Handle("GET /api/servers", s.auth(s.handleListServers))
 	mux.Handle("POST /api/servers", s.auth(s.handleCreateServer))
@@ -195,6 +212,11 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PATCH /api/users/{uid}", s.auth(s.handleUpdateUser))
 	mux.Handle("DELETE /api/users/{uid}", s.auth(s.handleDeleteUser))
 	mux.Handle("POST /api/me/password", s.auth(s.handleChangePassword))
+
+	// System email settings (admin) — drives password-reset delivery.
+	mux.Handle("GET /api/email-settings", s.auth(s.handleGetEmailSettings))
+	mux.Handle("PUT /api/email-settings", s.auth(s.handleSetEmailSettings))
+	mux.Handle("POST /api/email-settings/test", s.auth(s.handleTestEmail))
 
 	// Two-factor authentication (opt-in TOTP) for the current user, plus an
 	// admin reset for the lost-device lockout case.

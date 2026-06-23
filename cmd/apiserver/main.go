@@ -114,7 +114,7 @@ func main() {
 	_ = srv.Shutdown(shutCtx)
 }
 
-// gcSessions periodically deletes expired sessions from the database.
+// gcSessions periodically deletes expired sessions and password-reset tokens.
 func gcSessions(ctx context.Context, st *store.Store) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
@@ -123,6 +123,9 @@ func gcSessions(ctx context.Context, st *store.Store) {
 			log.Printf("session gc: %v", err)
 		} else if n > 0 {
 			log.Printf("session gc: removed %d expired sessions", n)
+		}
+		if _, err := st.DeleteExpiredPasswordResets(); err != nil {
+			log.Printf("reset-token gc: %v", err)
 		}
 		select {
 		case <-ctx.Done():

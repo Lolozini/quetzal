@@ -45,6 +45,8 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 type credentials struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	// Email is optional, captured at first-run setup for password reset.
+	Email string `json:"email"`
 	// Code is an optional TOTP or recovery code, supplied on the second step of
 	// login when the account has two-factor authentication enabled.
 	Code string `json:"code"`
@@ -69,12 +71,17 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "username >=3 and password >=8 chars required")
 		return
 	}
+	email := strings.TrimSpace(req.Email)
+	if email != "" && !looksLikeEmail(email) {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "hash failed")
 		return
 	}
-	u := &models.User{Username: req.Username, PasswordHash: hash, IsAdmin: true}
+	u := &models.User{Username: req.Username, PasswordHash: hash, Email: email, IsAdmin: true}
 	if err := s.Store.CreateUser(u); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

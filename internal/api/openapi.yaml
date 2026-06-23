@@ -44,6 +44,8 @@ tags:
     description: Subuser access and per-server audit
   - name: Users
     description: User management (admin) and self-service
+  - name: Email
+    description: Self-service password reset and system SMTP settings
   - name: TwoFactor
     description: Opt-in TOTP two-factor authentication
   - name: APIKeys
@@ -153,6 +155,124 @@ paths:
       responses:
         "204": { description: Password changed }
         "400": { $ref: "#/components/responses/BadRequest" }
+  /api/me/email:
+    put:
+      tags: [Email]
+      summary: Set or clear your own email (used for password reset; not verified)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { email: { type: string, format: email } }
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/forgot-password:
+    post:
+      tags: [Email]
+      summary: Request a password-reset email
+      description: >-
+        Always responds 200 regardless of whether the identifier matched (no
+        account enumeration); the email is sent only if the account exists, has
+        an email, and SMTP + the public URL are configured. Rate-limited.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { identifier: { type: string, description: username or email } }
+      responses:
+        "200": { description: Always returned (uniform response) }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/reset-password:
+    post:
+      tags: [Email]
+      summary: Complete a password reset with an emailed token
+      description: >-
+        Validates the single-use token, sets the new password, then invalidates
+        the token and all of that user's sessions. 2FA is left untouched.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, format: password, minLength: 8 }
+      responses:
+        "204": { description: Password reset }
+        "400": { description: Invalid/expired token or weak password }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/email-settings:
+    get:
+      tags: [Email]
+      summary: Get system SMTP settings (admin)
+      description: The password is never returned, only whether one is set.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  configured: { type: boolean }
+                  host: { type: string }
+                  port: { type: string }
+                  username: { type: string }
+                  from: { type: string }
+                  tls: { type: string }
+                  hasPassword: { type: boolean }
+                  publicUrl: { type: string }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [Email]
+      summary: Update system SMTP settings + public URL (admin)
+      description: An empty host clears the SMTP config; a blank password keeps the stored one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                host: { type: string }
+                port: { type: string }
+                username: { type: string }
+                password: { type: string, format: password }
+                from: { type: string }
+                tls: { type: string, enum: [starttls, tls, none] }
+                publicUrl: { type: string }
+      responses:
+        "204": { description: Saved }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/email-settings/test:
+    post:
+      tags: [Email]
+      summary: Send a test email with the stored settings (admin)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { to: { type: string, description: defaults to your account email } }
+      responses:
+        "204": { description: Sent }
+        "400": { description: Not configured or no recipient }
+        "502": { description: Send failed }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /api/me/sshkeys:
     get:
@@ -1117,6 +1237,10 @@ components:
       properties:
         username: { type: string }
         password: { type: string, format: password }
+        email:
+          type: string
+          format: email
+          description: Optional, captured at first-run setup for password reset
         code:
           type: string
           description: TOTP or recovery code (second login step when 2FA is enabled)
@@ -1125,6 +1249,7 @@ components:
       properties:
         id: { type: integer }
         username: { type: string }
+        email: { type: string, format: email }
         isAdmin: { type: boolean }
         maxServers: { type: integer, description: "0 = unlimited" }
         maxMemoryMB: { type: integer, format: int64 }
@@ -1136,6 +1261,7 @@ components:
       properties:
         username: { type: string }
         password: { type: string, format: password }
+        email: { type: string, format: email }
         isAdmin: { type: boolean }
         maxServers: { type: integer }
         maxMemoryMB: { type: integer, format: int64 }

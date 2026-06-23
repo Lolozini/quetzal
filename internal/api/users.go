@@ -28,6 +28,7 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 type createUserRequest struct {
 	Username    string `json:"username"`
 	Password    string `json:"password"`
+	Email       string `json:"email"`
 	IsAdmin     bool   `json:"isAdmin"`
 	MaxServers  int    `json:"maxServers"`
 	MaxMemoryMB int64  `json:"maxMemoryMB"`
@@ -51,13 +52,18 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "username already taken")
 		return
 	}
+	email := strings.TrimSpace(req.Email)
+	if email != "" && !looksLikeEmail(email) {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "hash failed")
 		return
 	}
 	u := &models.User{
-		Username: req.Username, PasswordHash: hash, IsAdmin: req.IsAdmin,
+		Username: req.Username, PasswordHash: hash, Email: email, IsAdmin: req.IsAdmin,
 		MaxServers: req.MaxServers, MaxMemoryMB: req.MaxMemoryMB, MaxCPUMilli: req.MaxCPUMilli,
 	}
 	if err := s.Store.CreateUser(u); err != nil {
@@ -74,6 +80,7 @@ type updateUserRequest struct {
 	MaxMemoryMB int64   `json:"maxMemoryMB"`
 	MaxCPUMilli int64   `json:"maxCpuMilli"`
 	Password    *string `json:"password,omitempty"` // optional reset
+	Email       *string `json:"email,omitempty"`    // optional set/clear
 }
 
 func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
@@ -111,6 +118,17 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.Store.UpdateUserPassword(target.ID, hash); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	if req.Email != nil {
+		email := strings.TrimSpace(*req.Email)
+		if email != "" && !looksLikeEmail(email) {
+			writeError(w, http.StatusBadRequest, "invalid email")
+			return
+		}
+		if err := s.Store.UpdateUserEmail(target.ID, email); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -175,6 +193,38 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleSetMyEmail lets the current user set or clear their own email (used for
+// self-service password reset). Emails are not verified.
+func (s *Server) handleSetMyEmail(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r.Context())
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	email := strings.TrimSpace(req.Email)
+	if email != "" && !looksLikeEmail(email) {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+	if err := s.Store.UpdateUserEmail(u.ID, email); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	updated, _ := s.Store.GetUser(u.ID)
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// looksLikeEmail is a light sanity check (not full RFC validation): one '@' with
+// non-empty local and domain parts and no whitespace.
+func looksLikeEmail(s string) bool {
+	s = strings.TrimSpace(s)
+	at := strings.IndexByte(s, '@')
+	return at > 0 && at < len(s)-1 && !strings.ContainsAny(s, " \t\r\n")
 }
 
 func (s *Server) lookupUser(w http.ResponseWriter, r *http.Request) (*models.User, bool) {
