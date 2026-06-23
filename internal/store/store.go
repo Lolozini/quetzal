@@ -285,6 +285,19 @@ func (s *Store) UpdateServerHibernation(id uint, h models.Hibernation) error {
 		Select("hibernation").Updates(models.Server{Hibernation: h}).Error
 }
 
+// UpdateServerEnv persists the (re-resolved) plain env and sealed secret env,
+// e.g. when a user edits the server's startup variables.
+func (s *Store) UpdateServerEnv(id uint, env map[string]string, secretEnc string) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Select("env", "secret_env_enc").Updates(models.Server{Env: env, SecretEnvEnc: secretEnc}).Error
+}
+
+// UpdateServerResources persists only the CPU/memory limits.
+func (s *Store) UpdateServerResources(id uint, r models.Resources) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Select("resources").Updates(models.Server{Resources: r}).Error
+}
+
 // UpdateServerStatus persists only the status field. It uses Updates with a
 // typed struct (not Update with a raw value) so GORM applies the JSON
 // serializer registered on the Status field.

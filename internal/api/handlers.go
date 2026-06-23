@@ -471,6 +471,177 @@ func resourceTotals(rsc models.Resources) (mb, milli int64) {
 	return mb, milli
 }
 
+// httpErr carries a status + message out of the per-field update helpers.
+type httpErr struct {
+	code int
+	msg  string
+}
+
+func (e *httpErr) Error() string { return e.msg }
+
+// updateServerEnv re-resolves and persists the server's startup variables.
+// Unspecified known variables keep their current value, and a blank secret
+// variable is preserved (so saving the form never wipes a stored password).
+func (s *Server) updateServerEnv(r *http.Request, srv *models.Server, reqEnv map[string]string) *httpErr {
+	tmpl, err := s.Store.GetTemplate(srv.TemplateID)
+	if err != nil {
+		return &httpErr{http.StatusInternalServerError, "could not load template"}
+	}
+	currentSecret, err := s.Store.OpenSecrets(srv.SecretEnvEnc)
+	if err != nil {
+		return &httpErr{http.StatusInternalServerError, "could not read current secrets"}
+	}
+	current := map[string]string{}
+	for k, v := range srv.Env {
+		current[k] = v
+	}
+	for k, v := range currentSecret {
+		current[k] = v
+	}
+	merged, verr := resolveEnvUpdate(tmpl, current, reqEnv)
+	if verr != nil {
+		return &httpErr{http.StatusBadRequest, verr.Error()}
+	}
+	secretNames := map[string]bool{}
+	for _, v := range tmpl.Variables {
+		if v.Secret {
+			secretNames[v.EnvVariable] = true
+		}
+	}
+	plainEnv, secretEnv := map[string]string{}, map[string]string{}
+	for k, v := range merged {
+		if secretNames[k] {
+			secretEnv[k] = v
+		} else {
+			plainEnv[k] = v
+		}
+	}
+	sealed, err := s.Store.SealSecrets(secretEnv)
+	if err != nil {
+		return &httpErr{http.StatusInternalServerError, "failed to seal secrets"}
+	}
+	if err := s.Store.UpdateServerEnv(srv.ID, plainEnv, sealed); err != nil {
+		return &httpErr{http.StatusInternalServerError, err.Error()}
+	}
+	srv.Env = plainEnv
+	srv.SecretEnvEnc = sealed
+	s.audit(r, srv.ID, "server.env", "")
+	return nil
+}
+
+// resolveEnvUpdate is resolveEnv's sibling for edits: it seeds from the server's
+// current values (not just template defaults), keeps blank secrets, and enforces
+// the same editable/enum/required contract.
+func resolveEnvUpdate(tmpl *models.Template, current, reqEnv map[string]string) (map[string]string, error) {
+	byEnv := make(map[string]models.TemplateVariable, len(tmpl.Variables))
+	env := map[string]string{}
+	for _, v := range tmpl.Variables {
+		byEnv[v.EnvVariable] = v
+		if v.Default != "" {
+			env[v.EnvVariable] = v.Default
+		}
+	}
+	for k, v := range current {
+		if _, ok := byEnv[k]; ok {
+			env[k] = v
+		}
+	}
+	for k, val := range reqEnv {
+		v, ok := byEnv[k]
+		if !ok {
+			return nil, fmt.Errorf("unknown variable %q", k)
+		}
+		if !v.Editable {
+			return nil, fmt.Errorf("variable %q is not editable", k)
+		}
+		if v.Secret && strings.TrimSpace(val) == "" {
+			continue // keep the current secret
+		}
+		if v.Type == models.VarEnum && len(v.Options) > 0 && !slices.Contains(v.Options, val) {
+			return nil, fmt.Errorf("variable %q must be one of %v", k, v.Options)
+		}
+		env[k] = val
+	}
+	for _, v := range tmpl.Variables {
+		if v.Required && strings.TrimSpace(env[v.EnvVariable]) == "" {
+			return nil, fmt.Errorf("variable %q is required", v.EnvVariable)
+		}
+	}
+	return env, nil
+}
+
+// updateServerResources validates and persists new CPU/memory limits, enforcing
+// the owner's quota (admins bypass).
+func (s *Server) updateServerResources(r *http.Request, srv *models.Server, rsc models.Resources) *httpErr {
+	if err := validateResources(rsc); err != nil {
+		return &httpErr{http.StatusBadRequest, err.Error()}
+	}
+	if editor := userFrom(r.Context()); editor == nil || !editor.IsAdmin {
+		if owner, err := s.Store.GetUser(srv.OwnerID); err == nil {
+			if err := s.checkResourceQuotaForUpdate(owner, srv.ID, rsc.Memory, rsc.CPU); err != nil {
+				return &httpErr{http.StatusForbidden, err.Error()}
+			}
+		}
+	}
+	if err := s.Store.UpdateServerResources(srv.ID, rsc); err != nil {
+		return &httpErr{http.StatusInternalServerError, err.Error()}
+	}
+	srv.Resources = rsc
+	s.audit(r, srv.ID, "server.resources", strings.TrimSpace(rsc.Memory+" "+rsc.CPU))
+	return nil
+}
+
+func validateResources(rsc models.Resources) error {
+	if strings.TrimSpace(rsc.Memory) != "" {
+		if _, err := resource.ParseQuantity(rsc.Memory); err != nil {
+			return fmt.Errorf("invalid memory %q", rsc.Memory)
+		}
+	}
+	if strings.TrimSpace(rsc.CPU) != "" {
+		if _, err := resource.ParseQuantity(rsc.CPU); err != nil {
+			return fmt.Errorf("invalid cpu %q", rsc.CPU)
+		}
+	}
+	return nil
+}
+
+// checkResourceQuotaForUpdate re-checks the owner's memory/CPU quota for an
+// edited server, counting the owner's other servers plus the new request (the
+// edited server's old allocation is excluded since it's being replaced). Server
+// count is unaffected by an edit, so it isn't checked here.
+func (s *Server) checkResourceQuotaForUpdate(u *models.User, serverID uint, memory, cpu string) error {
+	if u.IsAdmin || (u.MaxMemoryMB == 0 && u.MaxCPUMilli == 0) {
+		return nil
+	}
+	if u.MaxMemoryMB > 0 && strings.TrimSpace(memory) == "" {
+		return errors.New("a memory limit is required (the owner has a memory quota)")
+	}
+	if u.MaxCPUMilli > 0 && strings.TrimSpace(cpu) == "" {
+		return errors.New("a CPU limit is required (the owner has a CPU quota)")
+	}
+	owned, err := s.Store.ListServersByOwner(u.ID)
+	if err != nil {
+		return err
+	}
+	memMB, cpuM := int64(0), int64(0)
+	for i := range owned {
+		if owned[i].ID == serverID {
+			continue
+		}
+		mb, c := resourceTotals(owned[i].Resources)
+		memMB += mb
+		cpuM += c
+	}
+	nmb, ncpu := resourceTotals(models.Resources{Memory: memory, CPU: cpu})
+	if u.MaxMemoryMB > 0 && memMB+nmb > u.MaxMemoryMB {
+		return fmt.Errorf("quota exceeded: memory limit %d MB", u.MaxMemoryMB)
+	}
+	if u.MaxCPUMilli > 0 && cpuM+ncpu > u.MaxCPUMilli {
+		return fmt.Errorf("quota exceeded: CPU limit %dm", u.MaxCPUMilli)
+	}
+	return nil
+}
+
 type updateServerRequest struct {
 	// Expose, when present, reconfigures external reachability (and reallocates
 	// or frees pool node ports accordingly).
@@ -479,6 +650,12 @@ type updateServerRequest struct {
 	Hibernation *models.Hibernation `json:"hibernation"`
 	// SFTP, when present, toggles the SFTP sidecar.
 	SFTP *models.SFTPConfig `json:"sftp"`
+	// Env, when present, edits the server's startup variables (validated against
+	// the template's variable contract). Secret variables left blank are kept.
+	Env *map[string]string `json:"env"`
+	// Resources, when present, updates the CPU/memory limits (re-checked against
+	// the owner's quota). Applied on the next reconcile, which restarts the pod.
+	Resources *models.Resources `json:"resources"`
 }
 
 func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
@@ -513,6 +690,18 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		}
 		srv.SFTP = *req.SFTP
 		s.audit(r, srv.ID, "server.sftp", strconv.FormatBool(req.SFTP.Enabled))
+	}
+	if req.Env != nil {
+		if err := s.updateServerEnv(r, srv, *req.Env); err != nil {
+			writeError(w, err.code, err.msg)
+			return
+		}
+	}
+	if req.Resources != nil {
+		if err := s.updateServerResources(r, srv, *req.Resources); err != nil {
+			writeError(w, err.code, err.msg)
+			return
+		}
 	}
 	if req.Expose == nil {
 		writeJSON(w, http.StatusOK, srv) // nothing else to change
