@@ -317,6 +317,12 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 		if err := rec.GCOrphanNamespaces(ctx, allSlugs); err != nil {
 			log.Printf("gc orphan namespaces (cluster %s): %v", c.Slug, err)
 		}
+		// Managed (Quetzal-owned) database hosts live on the local cluster.
+		if c.InCluster {
+			if err := rec.ReconcileDatabaseHosts(ctx); err != nil {
+				log.Printf("reconcile database hosts: %v", err)
+			}
+		}
 		delete(byCluster, c.ID)
 	}
 	for id, group := range byCluster {
