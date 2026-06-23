@@ -92,18 +92,21 @@ func (s *Server) handleServerSFTP(w http.ResponseWriter, r *http.Request) {
 		"port":     0,
 	}
 	if srv.SFTP.Enabled {
-		if cs, _, err := s.clientsFor(srv); err == nil {
-			svc, err := cs.CoreV1().Services(srv.Namespace).Get(r.Context(), reconciler.SFTPServiceName, metav1.GetOptions{})
-			if err == nil {
-				for _, p := range svc.Spec.Ports {
-					if p.NodePort > 0 {
-						resp["port"] = p.NodePort
-					}
+		cs, _, err := s.clientsFor(srv)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "could not reach the server's cluster")
+			return
+		}
+		svc, err := cs.CoreV1().Services(srv.Namespace).Get(r.Context(), reconciler.SFTPServiceName, metav1.GetOptions{})
+		if err == nil {
+			for _, p := range svc.Spec.Ports {
+				if p.NodePort > 0 {
+					resp["port"] = p.NodePort
 				}
-			} else if !apierrors.IsNotFound(err) {
-				writeError(w, http.StatusServiceUnavailable, "could not read SFTP service")
-				return
 			}
+		} else if !apierrors.IsNotFound(err) {
+			writeError(w, http.StatusServiceUnavailable, "could not read SFTP service")
+			return
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
