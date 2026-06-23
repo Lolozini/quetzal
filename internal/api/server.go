@@ -218,6 +218,19 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/email-settings", s.auth(s.handleSetEmailSettings))
 	mux.Handle("POST /api/email-settings/test", s.auth(s.handleTestEmail))
 
+	// Database hosts (admin registry) + per-server databases.
+	mux.Handle("GET /api/database-hosts", s.auth(s.handleListDatabaseHosts))
+	mux.Handle("POST /api/database-hosts", s.auth(s.handleCreateDatabaseHost))
+	mux.Handle("PATCH /api/database-hosts/{hid}", s.auth(s.handleUpdateDatabaseHost))
+	mux.Handle("DELETE /api/database-hosts/{hid}", s.auth(s.handleDeleteDatabaseHost))
+	mux.Handle("POST /api/database-hosts/{hid}/test", s.auth(s.handleTestDatabaseHost))
+	mux.Handle("GET /api/servers/{id}/database-hosts", s.auth(s.handleListServerDatabaseHosts))
+	mux.Handle("GET /api/servers/{id}/databases", s.auth(s.handleListServerDatabases))
+	mux.Handle("POST /api/servers/{id}/databases", s.auth(s.handleCreateServerDatabase))
+	mux.Handle("GET /api/servers/{id}/databases/{dbid}", s.auth(s.handleGetServerDatabase))
+	mux.Handle("POST /api/servers/{id}/databases/{dbid}/rotate", s.auth(s.handleRotateServerDatabase))
+	mux.Handle("DELETE /api/servers/{id}/databases/{dbid}", s.auth(s.handleDeleteServerDatabase))
+
 	// Two-factor authentication (opt-in TOTP) for the current user, plus an
 	// admin reset for the lost-device lockout case.
 	mux.Handle("GET /api/me/sshkeys", s.auth(s.handleListSSHKeys))
