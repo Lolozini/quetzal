@@ -7,6 +7,7 @@ import { Databases } from "./Databases";
 import { Files } from "./Files";
 import { Notifications } from "./Notifications";
 import { Schedules } from "./Schedules";
+import { ServerSettings } from "./ServerSettings";
 
 function formatMem(bytes: number): string {
   if (bytes <= 0) return "0 MiB";
@@ -416,6 +417,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
         {error && <div className="error">{error}</div>}
       </div>
       <Schedules id={id} />
+      {canManage && srv && <ServerSettings server={srv} onSaved={setSrv} />}
       {canManage && <Files id={id} />}
       {canManage && <SFTPCard id={id} initialEnabled={!!srv?.sftp?.enabled} username={user.username} />}
       {canManage && <Databases serverId={id} />}

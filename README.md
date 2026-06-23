@@ -63,6 +63,9 @@ Then open the panel and complete the first-run admin setup. See
 - **Multi-tenant**: per-server ownership, subusers with scoped permissions,
   admin suspend, per-user quotas, an append-only audit log, and API keys
   (bearer tokens for the public API).
+- **Editable startup & resources**: change a server's startup variables (validated
+  against the template's contract; blank secrets are kept) and its CPU/memory
+  limits after creation — applied on the next reconcile, which restarts the pod.
 - **Per-server databases**: provision a MySQL/MariaDB database + scoped user for
   a server from the panel. Admins register **external** hosts (existing servers,
   RDS…) *or* have Quetzal deploy and own a **managed MariaDB** in-cluster

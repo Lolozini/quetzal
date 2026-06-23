@@ -198,7 +198,9 @@ export interface Server {
   namespace: string;
   desiredState: string;
   ownerId?: number;
+  templateId?: number;
   image: string;
+  env?: Record<string, string>;
   resources: { memory?: string; cpu?: string };
   storage: { type: string; size?: string; hostPath?: string };
   ports?: Port[];
@@ -428,6 +430,10 @@ export const api = {
     req<Server>("PATCH", `/api/servers/${id}`, { expose }),
   setHibernation: (id: number, hibernation: Hibernation) =>
     req<Server>("PATCH", `/api/servers/${id}`, { hibernation }),
+  setServerEnv: (id: number, env: Record<string, string>) =>
+    req<Server>("PATCH", `/api/servers/${id}`, { env }),
+  setServerResources: (id: number, resources: { memory: string; cpu: string }) =>
+    req<Server>("PATCH", `/api/servers/${id}`, { resources }),
   stats: (id: number) => req<ServerStats>("GET", `/api/servers/${id}/stats`),
 
   schedules: (id: number) => req<Schedule[]>("GET", `/api/servers/${id}/schedules`),
