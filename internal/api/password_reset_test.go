@@ -132,7 +132,7 @@ func TestPasswordResetFlow(t *testing.T) {
 	if msgs[0].to[0] != "alice@example.com" {
 		t.Errorf("mail to = %v", msgs[0].to)
 	}
-	if !strings.Contains(msgs[0].body, "https://panel.example/?reset=") {
+	if !strings.Contains(msgs[0].body, "https://panel.example/#reset=") {
 		t.Errorf("body missing reset link:\n%s", msgs[0].body)
 	}
 	token := tokenFromBody(t, msgs[0].body)

@@ -79,7 +79,10 @@ func (s *Server) handleForgotPassword(w http.ResponseWriter, r *http.Request) {
 		log.Printf("password reset: store: %v", err)
 		return
 	}
-	link := strings.TrimRight(base, "/") + "/?reset=" + token
+	// The token rides in the URL *fragment*, not the query: fragments are never
+	// sent to the server, so the token can't land in apiserver or upstream proxy
+	// access logs. The SPA reads it client-side and POSTs it in the request body.
+	link := strings.TrimRight(base, "/") + "/#reset=" + token
 	go s.sendResetEmail(cfg, u, link)
 }
 

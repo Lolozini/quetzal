@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { api, ApiError } from "../api";
 
-// ResetPassword is shown when the app loads with a ?reset=<token> link from a
+// ResetPassword is shown when the app loads with a #reset=<token> link from a
 // password-reset email. On success it returns to the login screen.
 export function ResetPassword({ token, onDone }: { token: string; onDone: () => void }) {
   const [password, setPassword] = useState("");

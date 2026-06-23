@@ -148,6 +148,11 @@ function EmailCard({ initial }: { initial: string }) {
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
 
+  // The user prop is captured at login and can be stale; sync on mount.
+  useEffect(() => {
+    api.me().then((m) => setEmail(m.email || "")).catch(() => {});
+  }, []);
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setMsg("");

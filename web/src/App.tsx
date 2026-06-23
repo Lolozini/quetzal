@@ -8,9 +8,10 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [setupNeeded, setSetupNeeded] = useState(false);
   const [user, setUser] = useState<User | null>(null);
-  // A reset link (emailed as <panel>/?reset=<token>) lands here.
+  // A reset link (emailed as <panel>/#reset=<token>) lands here. The token is in
+  // the URL fragment so it's never sent to the server (or upstream proxy logs).
   const [resetToken, setResetToken] = useState<string | null>(
-    () => new URLSearchParams(window.location.search).get("reset"),
+    () => new URLSearchParams(window.location.hash.replace(/^#/, "")).get("reset"),
   );
 
   useEffect(() => {
