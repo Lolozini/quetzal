@@ -16,6 +16,7 @@ export function Files({ id }: { id: number }) {
   const [saved, setSaved] = useState("");
   const [mut, setMut] = useState(0); // bumped on changes so the tree refreshes
   const uploadRef = useRef<HTMLInputElement>(null);
+  const archiveRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setError("");
@@ -125,6 +126,24 @@ export function Files({ id }: { id: number }) {
     }
   }
 
+  async function uploadArchive(ev: React.ChangeEvent<HTMLInputElement>) {
+    const file = ev.target.files?.[0];
+    ev.target.value = "";
+    if (!file) return;
+    const format = /\.zip$/i.test(file.name) ? "zip" : "tar";
+    if (!window.confirm(`Extract "${file.name}" into /${path || ""}? Existing files with the same names are overwritten.`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.extractArchive(id, path, format, file);
+      changed();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const segs = path ? path.split("/") : [];
 
   return (
@@ -147,8 +166,10 @@ export function Files({ id }: { id: number }) {
         <button onClick={load} disabled={busy}>Refresh</button>
         <button onClick={newFolder}>New folder</button>
         <button onClick={() => uploadRef.current?.click()}>Upload</button>
+        <button onClick={() => archiveRef.current?.click()} disabled={busy}>Upload archive</button>
         <a href={api.fileArchiveUrl(id, path)}><button type="button">Download folder</button></a>
         <input ref={uploadRef} type="file" style={{ display: "none" }} onChange={upload} />
+        <input ref={archiveRef} type="file" accept=".zip,.tar,.gz,.tgz,.bz2,.xz" style={{ display: "none" }} onChange={uploadArchive} />
       </div>
 
       {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}

@@ -556,6 +556,19 @@ export const api = {
       throw new ApiError(res.status, msg);
     }
   },
+  // Upload an archive (world/modpack/Pterodactyl backup) and extract it into a
+  // directory. format is "zip" or "tar" (covers .tar.gz/.tgz/.tar.bz2/.tar.xz).
+  extractArchive: async (id: number, path: string, format: "zip" | "tar", file: File): Promise<void> => {
+    const res = await fetch(
+      `/api/servers/${id}/files/extract?path=${encodeURIComponent(path)}&format=${format}`,
+      { method: "POST", credentials: "include", headers: { "Content-Type": "application/octet-stream" }, body: file },
+    );
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { msg = (await res.json()).error || msg; } catch { /* ignore */ }
+      throw new ApiError(res.status, msg);
+    }
+  },
   mkdir: (id: number, path: string) =>
     req<void>("POST", `/api/servers/${id}/files/mkdir?path=${encodeURIComponent(path)}`),
   renameFile: (id: number, path: string, to: string) =>
