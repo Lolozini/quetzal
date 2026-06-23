@@ -308,6 +308,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
       </div>
       <Schedules id={id} />
       {canManage && <Files id={id} />}
+      {canManage && <SFTPCard id={id} initialEnabled={!!srv?.sftp?.enabled} username={user.username} />}
       <Backups id={id} />
       {canManage && <Access id={id} />}
       {canManage && <Notifications serverId={id} />}
@@ -316,6 +317,69 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
         <Console id={id} />
       </div>
     </>
+  );
+}
+
+function SFTPCard({ id, initialEnabled, username }: { id: number; initialEnabled: boolean; username: string }) {
+  const [enabled, setEnabled] = useState(initialEnabled);
+  const [port, setPort] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function refresh() {
+    try {
+      const info = await api.sftpInfo(id);
+      setEnabled(info.enabled);
+      setPort(info.port);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+  useEffect(() => {
+    if (initialEnabled) refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function toggle() {
+    setBusy(true);
+    setError("");
+    try {
+      await api.setSFTP(id, !enabled);
+      setEnabled(!enabled);
+      if (!enabled) setTimeout(refresh, 1500); // give the controller a moment
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2>SFTP</h2>
+      <p className="muted">
+        Access this server's files over SFTP using an SSH key from your{" "}
+        <strong>Account → SSH keys</strong>. Available while the server is running.
+      </p>
+      <label className="row">
+        <input type="checkbox" style={{ width: "auto" }} checked={enabled} disabled={busy} onChange={toggle} />
+        &nbsp;Enable SFTP
+      </label>
+      {enabled && (
+        <div style={{ marginTop: 8 }}>
+          <div className="kv"><span className="k">Port</span><span>{port > 0 ? port : "provisioning…"}</span></div>
+          <div className="kv"><span className="k">Username</span><span>{username}</span></div>
+          {port > 0 && (
+            <div className="kv">
+              <span className="k">Connect</span>
+              <code>sftp -P {port} {username}@&lt;node-ip&gt;</code>
+            </div>
+          )}
+          <button onClick={refresh} style={{ marginTop: 8 }}>Refresh</button>
+        </div>
+      )}
+      {error && <div className="error">{error}</div>}
+    </div>
   );
 }
 

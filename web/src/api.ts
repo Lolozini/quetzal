@@ -42,6 +42,21 @@ export interface FileEntry {
   dir: boolean;
 }
 
+export interface SSHKey {
+  id: number;
+  createdAt: string;
+  userId: number;
+  name: string;
+  publicKey: string;
+  fingerprint: string;
+}
+
+export interface SFTPInfo {
+  enabled: boolean;
+  username: string;
+  port: number;
+}
+
 export interface AuditEntry {
   id: number;
   createdAt: string;
@@ -134,6 +149,7 @@ export interface Server {
   expose: Expose;
   hibernation?: Hibernation;
   hibernated?: boolean;
+  sftp?: { enabled: boolean };
   clusterId?: number;
   status: ServerStatus;
 }
@@ -436,6 +452,15 @@ export const api = {
     `/api/servers/${id}/files/content?path=${encodeURIComponent(path)}&download=1`,
   fileArchiveUrl: (id: number, path: string) =>
     `/api/servers/${id}/files/archive?path=${encodeURIComponent(path)}`,
+
+  // SSH keys (for SFTP auth) + per-server SFTP.
+  sshKeys: () => req<SSHKey[]>("GET", "/api/me/sshkeys"),
+  addSSHKey: (name: string, publicKey: string) =>
+    req<SSHKey>("POST", "/api/me/sshkeys", { name, publicKey }),
+  deleteSSHKey: (kid: number) => req<void>("DELETE", `/api/me/sshkeys/${kid}`),
+  sftpInfo: (id: number) => req<SFTPInfo>("GET", `/api/servers/${id}/sftp`),
+  setSFTP: (id: number, enabled: boolean) =>
+    req<Server>("PATCH", `/api/servers/${id}`, { sftp: { enabled } }),
 
   // Notifications.
   channels: () => req<NotificationChannel[]>("GET", "/api/notifications/channels"),

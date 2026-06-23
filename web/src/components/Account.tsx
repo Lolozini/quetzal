@@ -1,11 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, APIKey, ApiError, User } from "../api";
+import { api, APIKey, ApiError, SSHKey, User } from "../api";
 
 export function Account({ user }: { user: User }) {
   return (
     <>
       <ChangePassword />
       <TwoFactor initialEnabled={!!user.twoFactorEnabled} username={user.username} />
+      <SSHKeys />
       <APIKeys />
       <div className="card">
         <h3>Account</h3>
@@ -172,6 +173,83 @@ function ChangePassword() {
         {msg && <div className="notice">{msg}</div>}
         {error && <div className="error">{error}</div>}
         <button className="primary" style={{ marginTop: 12 }} disabled={!oldPassword || !newPassword}>Update password</button>
+      </form>
+    </div>
+  );
+}
+
+function SSHKeys() {
+  const [keys, setKeys] = useState<SSHKey[]>([]);
+  const [name, setName] = useState("");
+  const [pub, setPub] = useState("");
+  const [error, setError] = useState("");
+
+  async function load() {
+    try {
+      setKeys(await api.sshKeys());
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    try {
+      await api.addSSHKey(name.trim(), pub.trim());
+      setName("");
+      setPub("");
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    }
+  }
+
+  async function remove(k: SSHKey) {
+    if (!window.confirm(`Delete SSH key "${k.name}"?`)) return;
+    await api.deleteSSHKey(k.id).catch((e) => setError(String(e)));
+    await load();
+  }
+
+  return (
+    <div className="card">
+      <h2>SSH keys</h2>
+      <p className="muted">
+        Public keys authorized for SFTP access to servers you can manage files on.
+      </p>
+      {keys.length === 0 ? (
+        <p className="muted">No SSH keys.</p>
+      ) : (
+        <table>
+          <thead><tr><th>Name</th><th>Fingerprint</th><th></th></tr></thead>
+          <tbody>
+            {keys.map((k) => (
+              <tr key={k.id}>
+                <td>{k.name}</td>
+                <td><code style={{ fontSize: 12 }}>{k.fingerprint}</code></td>
+                <td><button className="danger" onClick={() => remove(k)}>Delete</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <form onSubmit={add} style={{ marginTop: 12 }}>
+        <h3>Add a key</h3>
+        <label>Name (optional)</label>
+        <input value={name} placeholder="laptop" onChange={(e) => setName(e.target.value)} />
+        <label>Public key</label>
+        <textarea
+          value={pub}
+          onChange={(e) => setPub(e.target.value)}
+          placeholder="ssh-ed25519 AAAA… you@host"
+          spellCheck={false}
+          style={{ width: "100%", minHeight: 70, fontFamily: "monospace" }}
+        />
+        {error && <div className="error">{error}</div>}
+        <button className="primary" style={{ marginTop: 8 }} disabled={!pub.trim()}>Add key</button>
       </form>
     </div>
   );
