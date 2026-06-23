@@ -375,6 +375,18 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 		}
 	}
 
+	// Surface the silent no-op: enabling SFTP needs a system image (the SFTP
+	// binary ships in it), otherwise the sidecar is never added and the toggle
+	// looks active while nothing serves.
+	if s.SFTP.Enabled && r.ActivatorImage == "" {
+		warn := "SFTP is enabled but no system image is configured (set QUETZAL_IMAGE); the SFTP sidecar will not start"
+		if st.Message == "" {
+			st.Message = warn
+		} else {
+			st.Message += "; " + warn
+		}
+	}
+
 	r.emitTransition(s, s.Status.Phase, st)
 	return r.Store.UpdateServerStatus(s.ID, st)
 }

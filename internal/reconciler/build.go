@@ -732,6 +732,21 @@ func sftpSidecar(s *models.Server, t *models.Template, dataPath string) corev1.C
 			{Name: sftpHostKeyVol, MountPath: sftpSecretDir + "/hostkey", ReadOnly: true},
 			{Name: sftpAuthKeyVol, MountPath: sftpSecretDir + "/auth", ReadOnly: true},
 		},
+		// Gate pod readiness on the listener actually being bound.
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(SFTPPort)},
+			},
+			PeriodSeconds:    10,
+			FailureThreshold: 3,
+		},
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("10m"),
+				corev1.ResourceMemory: resource.MustParse("16Mi"),
+			},
+			Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("64Mi")},
+		},
 		SecurityContext: buildContainerSecurityContext(t),
 	}
 }
