@@ -154,8 +154,10 @@ export interface Template {
   id: number;
   slug: string;
   name: string;
+  author?: string;
   category?: string;
   description?: string;
+  version?: number;
   images: TemplateImage[];
   variables: TemplateVariable[];
   ports?: { name: string; port: number; protocol: string }[];
@@ -394,6 +396,28 @@ export class ApiError extends Error {
   }
 }
 
+// rawTemplate sends a raw JSON string body (the egg / native template), not a
+// JSON.stringify of an object, since the server reads the body verbatim.
+async function rawTemplate(method: string, path: string, body: string): Promise<Template> {
+  const res = await fetch(path, {
+    method,
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try {
+      msg = (await res.json()).error || msg;
+    } catch {
+      /* ignore */
+    }
+    if (res.status === 401) window.dispatchEvent(new Event("quetzal:unauthorized"));
+    throw new ApiError(res.status, msg);
+  }
+  return (await res.json()) as Template;
+}
+
 export const api = {
   setupStatus: () => req<{ needed: boolean }>("GET", "/api/setup/status"),
   setup: (username: string, password: string, email?: string) =>
@@ -416,6 +440,13 @@ export const api = {
   testEmail: (to?: string) => req<void>("POST", "/api/email-settings/test", { to }),
 
   templates: () => req<Template[]>("GET", "/api/templates"),
+  template: (slug: string) => req<Template>("GET", `/api/templates/${slug}`),
+  // Egg/template management (admin). Import/update send raw JSON bodies.
+  importEgg: async (eggJson: string): Promise<Template> => rawTemplate("POST", "/api/templates/import", eggJson),
+  updateTemplate: async (slug: string, templateJson: string): Promise<Template> =>
+    rawTemplate("PUT", `/api/templates/${slug}`, templateJson),
+  deleteTemplate: (slug: string) => req<void>("DELETE", `/api/templates/${slug}`),
+  templateExportUrl: (slug: string) => `/api/templates/${slug}/export`,
   servers: () => req<Server[]>("GET", "/api/servers"),
   server: (id: number) => req<Server>("GET", `/api/servers/${id}`),
   createServer: (body: CreateServerRequest) =>

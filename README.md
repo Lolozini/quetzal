@@ -112,9 +112,11 @@ Then open the panel and complete the first-run admin setup. See
 - **Multi-cluster**: register additional clusters by kubeconfig (stored
   encrypted) and pick a deploy target per server; the controller reconciles each
   server against its own cluster. The local cluster needs no credentials.
-- **Egg-compatible**: import existing Pterodactyl/Pelican eggs to ease migration,
-  including **config.files rendering** at startup (properties/json/yaml/ini) so
-  imported eggs configure themselves like they do under Wings.
+- **Egg-compatible**: import existing Pterodactyl/Pelican eggs from the admin UI
+  (paste the egg JSON), then browse, edit (as native JSON), export and delete
+  templates — including **config.files rendering** at startup
+  (properties/json/yaml/ini) so imported eggs configure themselves like they do
+  under Wings.
 - **Secure by default**: namespace-per-server, NetworkPolicy, hardened
   securityContext, no ServiceAccount token mounted into game pods, a per-namespace
   ResourceQuota, secrets kept out of the DB in clear text; brute-force rate

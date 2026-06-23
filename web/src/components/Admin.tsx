@@ -3,11 +3,13 @@ import { api, ApiError, AuditEntry, EmailSettingsInput, User } from "../api";
 import { Clusters } from "./Clusters";
 import { DatabaseHosts } from "./DatabaseHosts";
 import { Notifications } from "./Notifications";
+import { Templates } from "./Templates";
 
 export function Admin() {
   return (
     <>
       <Users />
+      <Templates />
       <EmailSettingsCard />
       <DatabaseHosts />
       <Clusters />
