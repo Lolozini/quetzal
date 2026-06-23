@@ -52,8 +52,9 @@ Then open the panel and complete the first-run admin setup. See
   (NodePort, from a stable control-plane port pool), or via a LoadBalancer —
   with `externalTrafficPolicy: Local` by default so the game sees the real
   player IP, and provider-neutral Service annotations (external-dns, MetalLB…).
-- **Per-server observability**: live CPU/memory from metrics-server, plus
-  Prometheus `/metrics` for the panel itself.
+- **Per-server observability**: live CPU/memory from metrics-server plus
+  network throughput and disk usage (read from the pod), shown as rolling
+  time-series charts in the UI; plus Prometheus `/metrics` for the panel itself.
 - **Scheduled tasks**: cron schedules per server (start / stop / restart /
   console command / backup), run by the leader controller.
 - **Backups & restore**: per-server data backup/restore to any S3-compatible

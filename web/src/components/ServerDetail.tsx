@@ -14,10 +14,120 @@ function formatMem(bytes: number): string {
   return `${mib.toFixed(0)} MiB`;
 }
 
+function formatRate(bps: number): string {
+  if (!isFinite(bps) || bps <= 0) return "0 B/s";
+  const units = ["B", "KiB", "MiB", "GiB"];
+  let v = bps;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}/s`;
+}
+
+// A rolling sample of a server's live resource usage, kept client-side to draw
+// the time-series charts (CPU/RAM/network); rx/tx are cumulative counters.
+interface Sample {
+  t: number;
+  cpu: number;
+  mem: number;
+  rx?: number;
+  tx?: number;
+}
+
+// Roughly 4 minutes of history at the 4s poll interval.
+const MAX_SAMPLES = 60;
+
+// Chart is a dependency-free SVG sparkline (filled area + line) for one series.
+function Chart({ label, value, points, color }: { label: string; value: string; points: number[]; color: string }) {
+  const w = 240;
+  const h = 48;
+  const max = Math.max(1, ...points);
+  const path = points
+    .map((p, i) => {
+      const x = points.length <= 1 ? 0 : (i / (points.length - 1)) * w;
+      const y = h - (Math.max(0, p) / max) * (h - 2) - 1;
+      return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  return (
+    <div className="chart">
+      <div className="chart-head">
+        <span className="muted">{label}</span>
+        <strong>{value}</strong>
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="spark">
+        {points.length > 1 && <path d={`${path} L${w},${h} L0,${h} Z`} fill={color} fillOpacity={0.15} />}
+        {points.length > 1 && <path d={path} fill="none" stroke={color} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />}
+      </svg>
+    </div>
+  );
+}
+
+function DiskBar({ used, total }: { used: number; total: number }) {
+  const pct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
+  return (
+    <div className="chart">
+      <div className="chart-head">
+        <span className="muted">Disk</span>
+        <strong>{`${formatMem(used)} / ${formatMem(total)} (${pct.toFixed(0)}%)`}</strong>
+      </div>
+      <div className="diskbar-track">
+        <div className="diskbar-fill" style={{ width: `${pct}%`, background: pct > 90 ? "var(--danger)" : "var(--accent-2)" }} />
+      </div>
+    </div>
+  );
+}
+
+function StatsPanel({ stats, history, statsMsg }: { stats: ServerStats | null; history: Sample[]; statsMsg: string }) {
+  if (!stats) {
+    return (
+      <div className="kv">
+        <span className="k">Resources</span>
+        <span>{statsMsg || "—"}</span>
+      </div>
+    );
+  }
+  // Derive network rates from successive cumulative counters; a counter reset
+  // (pod restart) shows up as a negative delta, clamped to 0.
+  const rxRate: number[] = [];
+  const txRate: number[] = [];
+  for (let i = 1; i < history.length; i++) {
+    const dt = (history[i].t - history[i - 1].t) / 1000;
+    if (dt <= 0) continue;
+    const drx = (history[i].rx ?? 0) - (history[i - 1].rx ?? 0);
+    const dtx = (history[i].tx ?? 0) - (history[i - 1].tx ?? 0);
+    rxRate.push(drx >= 0 ? drx / dt : 0);
+    txRate.push(dtx >= 0 ? dtx / dt : 0);
+  }
+  const hasNet = history.some((s) => s.rx !== undefined);
+  return (
+    <div className="charts">
+      <Chart
+        label="CPU"
+        value={`${stats.cpuMillicores}m${stats.cpuLimit ? ` / ${stats.cpuLimit}` : ""}`}
+        points={history.map((s) => s.cpu)}
+        color="var(--accent)"
+      />
+      <Chart
+        label="Memory"
+        value={`${formatMem(stats.memoryBytes)}${stats.memoryLimit ? ` / ${stats.memoryLimit}` : ""}`}
+        points={history.map((s) => s.mem)}
+        color="var(--accent-2)"
+      />
+      {hasNet && <Chart label="Net in" value={formatRate(rxRate[rxRate.length - 1] ?? 0)} points={rxRate} color="#3fb950" />}
+      {hasNet && <Chart label="Net out" value={formatRate(txRate[txRate.length - 1] ?? 0)} points={txRate} color="#d29922" />}
+      {stats.diskTotalBytes ? <DiskBar used={stats.diskUsedBytes ?? 0} total={stats.diskTotalBytes} /> : null}
+    </div>
+  );
+}
+
 export function ServerDetail({ id, user, onBack }: { id: number; user: User; onBack: () => void }) {
   const [srv, setSrv] = useState<Server | null>(null);
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [stats, setStats] = useState<ServerStats | null>(null);
+  const [history, setHistory] = useState<Sample[]>([]);
   const [statsMsg, setStatsMsg] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -25,6 +135,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
 
   useEffect(() => {
     let active = true;
+    setHistory([]); // fresh buffer per server
     const load = async () => {
       try {
         const s = await api.server(id);
@@ -37,6 +148,9 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
         if (active) {
           setStats(st);
           setStatsMsg("");
+          setHistory((h) =>
+            [...h, { t: Date.now(), cpu: st.cpuMillicores, mem: st.memoryBytes, rx: st.rxBytes, tx: st.txBytes }].slice(-MAX_SAMPLES),
+          );
         }
       } catch (e) {
         if (active) {
@@ -204,18 +318,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
             </span>
           </div>
         )}
-        <div className="kv">
-          <span className="k">CPU / Memory</span>
-          <span>
-            {stats
-              ? `${stats.cpuMillicores}m${
-                  stats.cpuLimit ? ` / ${stats.cpuLimit}` : ""
-                }  ·  ${formatMem(stats.memoryBytes)}${
-                  stats.memoryLimit ? ` / ${stats.memoryLimit}` : ""
-                }`
-              : statsMsg || "—"}
-          </span>
-        </div>
+        <StatsPanel stats={stats} history={history} statsMsg={statsMsg} />
         {srv.status.message && (
           <div className="kv">
             <span className="k">Message</span>

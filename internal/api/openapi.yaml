@@ -512,7 +512,7 @@ paths:
       - $ref: "#/components/parameters/ServerId"
     get:
       tags: [Servers]
-      summary: Live CPU/memory usage (from metrics-server)
+      summary: Live CPU/memory (metrics-server) + network/disk (pod exec)
       responses:
         "200":
           description: OK
@@ -1361,6 +1361,10 @@ components:
         memoryBytes: { type: integer, format: int64 }
         cpuLimit: { type: string }
         memoryLimit: { type: string }
+        rxBytes: { type: integer, format: int64, description: Cumulative received bytes (derive a rate from successive samples) }
+        txBytes: { type: integer, format: int64, description: Cumulative transmitted bytes }
+        diskTotalBytes: { type: integer, format: int64 }
+        diskUsedBytes: { type: integer, format: int64 }
     TemplateVariable:
       type: object
       properties:

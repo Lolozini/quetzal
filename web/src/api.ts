@@ -181,6 +181,12 @@ export interface ServerStats {
   memoryBytes: number;
   cpuLimit?: string;
   memoryLimit?: string;
+  // Cumulative network counters (client derives a rate) + disk usage. Present
+  // only when the pod exposes them (a shell + df in the image).
+  rxBytes?: number;
+  txBytes?: number;
+  diskTotalBytes?: number;
+  diskUsedBytes?: number;
 }
 
 export type ScheduleAction = "start" | "stop" | "restart" | "command" | "backup";

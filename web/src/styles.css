@@ -68,6 +68,20 @@ button.link {
 }
 button.link:hover { background: none; color: var(--accent); }
 
+.charts {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px; margin: 10px 0;
+}
+.chart {
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px;
+}
+.chart-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+.chart-head strong { font-weight: 600; }
+.spark { width: 100%; height: 48px; display: block; }
+.diskbar-track { height: 10px; margin-top: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.diskbar-fill { height: 100%; transition: width 0.4s ease; }
+
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .spacer { flex: 1; }
 
