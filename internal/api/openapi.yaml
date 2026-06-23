@@ -532,6 +532,72 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/Template" }
+  /api/templates/import:
+    post:
+      tags: [Servers]
+      summary: Import a Pterodactyl/Pelican egg as a template (admin)
+      description: >-
+        The request body is the raw egg JSON. Importing an egg whose name
+        slugifies to an existing template updates it (bumping its version).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, description: A Pterodactyl/Pelican egg }
+      responses:
+        "201":
+          description: Imported
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Template" }
+        "400": { description: Invalid egg JSON }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/templates/{slug}:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Servers]
+      summary: Get one template
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Template" }
+        "404": { description: Not found }
+    put:
+      tags: [Servers]
+      summary: Replace a template from native JSON (admin)
+      description: Round-trips with export. The slug is fixed; the version is bumped.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Template" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Template" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      tags: [Servers]
+      summary: Delete a template (admin)
+      description: Refused with 409 while servers still use it. Built-ins return on restart.
+      responses:
+        "204": { description: Deleted }
+        "409": { description: Template still in use }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/templates/{slug}/export:
+    parameters:
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Servers]
+      summary: Export a template as native JSON (admin)
+      responses:
+        "200": { description: Native template JSON (re-importable via PUT) }
+        "403": { $ref: "#/components/responses/Forbidden" }
 
   /api/servers:
     get:

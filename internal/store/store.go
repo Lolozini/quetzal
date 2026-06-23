@@ -176,6 +176,19 @@ func (s *Store) UpsertTemplate(t *models.Template) (*models.Template, error) {
 	return t, nil
 }
 
+// DeleteTemplate removes a template row.
+func (s *Store) DeleteTemplate(id uint) error {
+	return s.db.Delete(&models.Template{}, id).Error
+}
+
+// CountServersByTemplate counts servers created from a template (guards deletion
+// and destructive edits).
+func (s *Store) CountServersByTemplate(templateID uint) (int64, error) {
+	var n int64
+	err := s.db.Model(&models.Server{}).Where("template_id = ?", templateID).Count(&n).Error
+	return n, err
+}
+
 // GetTemplate returns a template by ID.
 func (s *Store) GetTemplate(id uint) (*models.Template, error) {
 	var t models.Template
