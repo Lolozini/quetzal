@@ -96,7 +96,7 @@ export function Templates() {
                 <td>{t.version ?? "—"}</td>
                 <td style={{ whiteSpace: "nowrap" }}>
                   <button onClick={() => openEdit(t.slug)}>Edit</button>{" "}
-                  <a href={api.templateExportUrl(t.slug)}><button type="button">Export</button></a>{" "}
+                  <button type="button" onClick={() => { window.location.href = api.templateExportUrl(t.slug); }}>Export</button>{" "}
                   <button className="danger" onClick={() => remove(t)}>Delete</button>
                 </td>
               </tr>

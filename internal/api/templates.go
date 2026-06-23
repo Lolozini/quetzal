@@ -78,9 +78,12 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "template name is required")
 		return
 	}
-	// Pin identity to the existing row; everything else comes from the payload.
+	// Pin identity + creation time to the existing row (Save writes every column,
+	// so a hand-edited body that omits createdAt would otherwise zero it);
+	// everything else comes from the payload.
 	t.ID = existing.ID
 	t.Slug = existing.Slug
+	t.CreatedAt = existing.CreatedAt
 	saved, err := s.Store.UpsertTemplate(&t)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
