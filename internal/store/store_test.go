@@ -50,6 +50,72 @@ func TestSetDesiredStateKeepsStatus(t *testing.T) {
 	}
 }
 
+func TestGetUserByEmailCaseInsensitive(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.CreateUser(&models.User{Username: "ann", PasswordHash: "x", Email: "Ann@Example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if u, err := s.GetUserByEmail("ann@example.com"); err != nil || u.Username != "ann" {
+		t.Fatalf("lookup = %v, %v", u, err)
+	}
+	if _, err := s.GetUserByEmail(""); err != ErrNotFound {
+		t.Error("empty email should not match")
+	}
+	if err := s.UpdateUserEmail(1, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetUserByEmail("ann@example.com"); err != ErrNotFound {
+		t.Error("email should be cleared")
+	}
+}
+
+func TestPasswordResetTokensAndSessions(t *testing.T) {
+	s := newTestStore(t)
+	_ = s.CreateSession(&models.Session{Token: "a", UserID: 7, ExpiresAt: time.Now().Add(time.Hour)})
+	_ = s.CreateSession(&models.Session{Token: "b", UserID: 7, ExpiresAt: time.Now().Add(time.Hour)})
+	_ = s.CreatePasswordReset(&models.PasswordReset{UserID: 7, TokenHash: "live", ExpiresAt: time.Now().Add(time.Hour)})
+	_ = s.CreatePasswordReset(&models.PasswordReset{UserID: 7, TokenHash: "stale", ExpiresAt: time.Now().Add(-time.Hour)})
+
+	if pr, err := s.GetPasswordResetByHash("live"); err != nil || pr.UserID != 7 {
+		t.Fatalf("get live = %v, %v", pr, err)
+	}
+	if n, err := s.DeleteExpiredPasswordResets(); err != nil || n != 1 {
+		t.Fatalf("expired purge = %d, %v, want 1", n, err)
+	}
+	if err := s.DeleteSessionsForUser(7); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetSession("a"); err != ErrNotFound {
+		t.Error("sessions should be cleared for the user")
+	}
+	if err := s.DeletePasswordResetsForUser(7); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetPasswordResetByHash("live"); err != ErrNotFound {
+		t.Error("reset tokens should be cleared for the user")
+	}
+}
+
+func TestSMTPConfigSeal(t *testing.T) {
+	s := newTestStore(t)
+	if cfg, err := s.GetSMTPConfig(); err != nil || len(cfg) != 0 {
+		t.Fatalf("empty = %v, %v", cfg, err)
+	}
+	in := map[string]string{"host": "smtp.example", "from": "a@b", "password": "s3cret"}
+	if err := s.SetSMTPConfig(in); err != nil {
+		t.Fatal(err)
+	}
+	// Stored value must not be clear text (a SecretKey is configured).
+	blob, _ := s.GetSetting(SettingSMTP)
+	if strings.Contains(blob, "s3cret") {
+		t.Error("SMTP password stored in clear text")
+	}
+	got, err := s.GetSMTPConfig()
+	if err != nil || got["password"] != "s3cret" || got["host"] != "smtp.example" {
+		t.Fatalf("round-trip = %v, %v", got, err)
+	}
+}
+
 func TestDeleteExpiredSessions(t *testing.T) {
 	s := newTestStore(t)
 	_ = s.CreateSession(&models.Session{Token: "old", UserID: 1, ExpiresAt: time.Now().Add(-time.Hour)})

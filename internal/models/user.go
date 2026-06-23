@@ -5,12 +5,15 @@ import "time"
 // User is a panel account. Admins have unrestricted access; regular users own
 // their servers and may be granted scoped access to others as subusers.
 type User struct {
-	ID           uint      `gorm:"primaryKey" json:"id"`
-	Username     string    `gorm:"uniqueIndex;size:190" json:"username"`
-	PasswordHash string    `json:"-"` // argon2id encoded string, never serialized
-	IsAdmin      bool      `json:"isAdmin"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID           uint   `gorm:"primaryKey" json:"id"`
+	Username     string `gorm:"uniqueIndex;size:190" json:"username"`
+	PasswordHash string `json:"-"` // argon2id encoded string, never serialized
+	// Email is optional and used for self-service password reset. It is not
+	// verified (no confirmation flow); login is always by username.
+	Email     string    `gorm:"index;size:190" json:"email,omitempty"`
+	IsAdmin   bool      `json:"isAdmin"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 
 	// Per-user quotas (0 = unlimited), enforced at server creation. Admins are
 	// exempt.

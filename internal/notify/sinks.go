@@ -105,9 +105,21 @@ func doExpect2xx(client *http.Client, req *http.Request) error {
 // ---- Email (SMTP) ----
 
 func deliverEmail(ctx context.Context, cfg map[string]string, e models.Event) error {
+	to := splitList(cfg["to"])
+	if len(to) == 0 {
+		return fmt.Errorf("email: to is required")
+	}
+	return SendMail(ctx, cfg, to, "[Quetzal] "+e.Type, summary(e))
+}
+
+// SendMail sends a plain-text email to the given recipients using the SMTP
+// settings in cfg (host, port, username, password, from, tls). It is used both
+// for notification email channels and for system mail such as password reset.
+// net/smtp takes no context, so the whole conversation is bounded by a socket
+// deadline derived from ctx.
+func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, body string) error {
 	host := strings.TrimSpace(cfg["host"])
 	from := strings.TrimSpace(cfg["from"])
-	to := splitList(cfg["to"])
 	if host == "" || from == "" || len(to) == 0 {
 		return fmt.Errorf("email: host, from and to are required")
 	}
@@ -118,8 +130,7 @@ func deliverEmail(ctx context.Context, cfg map[string]string, e models.Event) er
 	addr := net.JoinHostPort(host, port)
 	mode := strings.ToLower(strings.TrimSpace(cfg["tls"]))
 
-	subject := "[Quetzal] " + e.Type
-	msg := buildMessage(from, to, subject, summary(e))
+	msg := buildMessage(from, to, subject, body)
 
 	var auth smtp.Auth
 	if u := cfg["username"]; u != "" {
