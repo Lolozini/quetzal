@@ -5,6 +5,7 @@ export function Account({ user }: { user: User }) {
   return (
     <>
       <ChangePassword />
+      <EmailCard initial={user.email || ""} />
       <TwoFactor initialEnabled={!!user.twoFactorEnabled} username={user.username} />
       <SSHKeys />
       <APIKeys />
@@ -138,6 +139,44 @@ function TwoFactor({ initialEnabled, username }: { initialEnabled: boolean; user
       )}
 
       {error && <div className="error">{error}</div>}
+    </div>
+  );
+}
+
+function EmailCard({ initial }: { initial: string }) {
+  const [email, setEmail] = useState(initial);
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setMsg("");
+    setError("");
+    try {
+      const u = await api.setMyEmail(email.trim());
+      setEmail(u.email || "");
+      setMsg("Email saved.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2>Email</h2>
+      <p className="muted">Used for self-service password reset. Optional and not verified.</p>
+      <form onSubmit={submit}>
+        <label>Email address</label>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@example.com"
+        />
+        {msg && <div className="notice">{msg}</div>}
+        {error && <div className="error">{error}</div>}
+        <button className="primary" style={{ marginTop: 12 }}>Save email</button>
+      </form>
     </div>
   );
 }

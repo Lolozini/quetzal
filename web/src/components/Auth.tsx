@@ -10,8 +10,10 @@ export function Auth({
 }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [twoFactor, setTwoFactor] = useState(false);
+  const [forgot, setForgot] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -21,7 +23,7 @@ export function Auth({
     setError("");
     try {
       if (setupNeeded) {
-        onAuthed(await api.setup(username, password));
+        onAuthed(await api.setup(username, password, email.trim() || undefined));
         return;
       }
       const res = await api.login(username, password, twoFactor ? code : undefined);
@@ -35,6 +37,10 @@ export function Auth({
     } finally {
       setBusy(false);
     }
+  }
+
+  if (forgot) {
+    return <Forgot onBack={() => setForgot(false)} />;
   }
 
   return (
@@ -60,6 +66,17 @@ export function Auth({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
+            {setupNeeded && (
+              <>
+                <label>Email (optional, for password reset)</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                />
+              </>
+            )}
           </>
         )}
         {twoFactor && (
@@ -79,6 +96,60 @@ export function Auth({
         {error && <div className="error">{error}</div>}
         <button className="primary" style={{ marginTop: 16, width: "100%" }} disabled={busy}>
           {busy ? "…" : setupNeeded ? "Create admin" : twoFactor ? "Verify" : "Sign in"}
+        </button>
+        {!setupNeeded && !twoFactor && (
+          <button type="button" className="link" style={{ marginTop: 8, width: "100%" }} onClick={() => setForgot(true)}>
+            Forgot password?
+          </button>
+        )}
+      </form>
+    </div>
+  );
+}
+
+// Forgot asks for an identifier and requests a reset email. The response is
+// intentionally uniform (it never reveals whether the account exists).
+function Forgot({ onBack }: { onBack: () => void }) {
+  const [identifier, setIdentifier] = useState("");
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api.forgotPassword(identifier.trim());
+    } catch {
+      /* uniform response: ignore errors */
+    } finally {
+      setBusy(false);
+      setSent(true);
+    }
+  }
+
+  return (
+    <div className="center">
+      <form className="card" style={{ width: 360 }} onSubmit={submit}>
+        <h1>
+          Quetz<span style={{ color: "var(--accent)" }}>al</span>
+        </h1>
+        {sent ? (
+          <p className="muted">
+            If an account with that username or email exists and email is configured, a reset
+            link is on its way.
+          </p>
+        ) : (
+          <>
+            <p className="muted">Reset your password</p>
+            <label>Username or email</label>
+            <input value={identifier} onChange={(e) => setIdentifier(e.target.value)} autoFocus />
+            <button className="primary" style={{ marginTop: 16, width: "100%" }} disabled={busy || !identifier.trim()}>
+              {busy ? "…" : "Send reset link"}
+            </button>
+          </>
+        )}
+        <button type="button" className="link" style={{ marginTop: 8, width: "100%" }} onClick={onBack}>
+          Back to sign in
         </button>
       </form>
     </div>

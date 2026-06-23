@@ -65,6 +65,13 @@ Then open the panel and complete the first-run admin setup. See
 - **Two-factor auth**: opt-in TOTP (RFC 6238) with one-time recovery codes;
   login becomes a password + code challenge, and admins can reset a locked-out
   user. Secrets are encrypted at rest.
+- **Self-service password reset**: users with an email on file can request a
+  reset link (single-use, hashed token, 1-hour expiry); completing it
+  invalidates their other sessions. Requests are rate-limited and answered
+  uniformly so they don't reveal which accounts exist; reset still requires the
+  user's TOTP at next login. Admins configure SMTP and the panel's public URL in
+  the UI (link host comes from that setting, not request headers). 2FA is
+  unaffected by a reset, so a compromised mailbox alone can't take over.
 - **File manager**: a tree/breadcrumb file browser to edit, upload, rename,
   delete and download a server's files — including whole folders as `.tar.gz`
   archives. Served by exec-ing into the running pod (no sidecar), with paths

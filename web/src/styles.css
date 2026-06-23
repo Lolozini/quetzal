@@ -62,6 +62,11 @@ button.primary { background: var(--accent-2); border-color: var(--accent-2); col
 button.primary:hover { background: var(--accent); }
 button.danger { color: var(--danger); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.link {
+  background: none; border: none; padding: 4px; color: var(--muted);
+  text-decoration: underline; font-size: 13px;
+}
+button.link:hover { background: none; color: var(--accent); }
 
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .spacer { flex: 1; }

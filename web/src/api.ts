@@ -4,12 +4,34 @@
 export interface User {
   id: number;
   username: string;
+  email?: string;
   isAdmin: boolean;
   maxServers?: number;
   maxMemoryMB?: number;
   maxCpuMilli?: number;
   twoFactorEnabled?: boolean;
   createdAt?: string;
+}
+
+export interface EmailSettings {
+  configured: boolean;
+  host: string;
+  port: string;
+  username: string;
+  from: string;
+  tls: string;
+  hasPassword: boolean;
+  publicUrl: string;
+}
+
+export interface EmailSettingsInput {
+  host: string;
+  port: string;
+  username: string;
+  password: string;
+  from: string;
+  tls: string;
+  publicUrl: string;
 }
 
 // LoginResult is either the authenticated user or a 2FA challenge: when the
@@ -332,12 +354,24 @@ export class ApiError extends Error {
 
 export const api = {
   setupStatus: () => req<{ needed: boolean }>("GET", "/api/setup/status"),
-  setup: (username: string, password: string) =>
-    req<User>("POST", "/api/setup", { username, password }),
+  setup: (username: string, password: string, email?: string) =>
+    req<User>("POST", "/api/setup", { username, password, email }),
   login: (username: string, password: string, code?: string) =>
     req<LoginResult>("POST", "/api/login", { username, password, code }),
   logout: () => req<void>("POST", "/api/logout"),
   me: () => req<User>("GET", "/api/me"),
+
+  // Self-service password reset.
+  forgotPassword: (identifier: string) =>
+    req<{ ok: boolean }>("POST", "/api/forgot-password", { identifier }),
+  resetPassword: (token: string, password: string) =>
+    req<void>("POST", "/api/reset-password", { token, password }),
+  setMyEmail: (email: string) => req<User>("PUT", "/api/me/email", { email }),
+  // System email settings (admin).
+  emailSettings: () => req<EmailSettings>("GET", "/api/email-settings"),
+  setEmailSettings: (body: EmailSettingsInput) =>
+    req<void>("PUT", "/api/email-settings", body),
+  testEmail: (to?: string) => req<void>("POST", "/api/email-settings/test", { to }),
 
   templates: () => req<Template[]>("GET", "/api/templates"),
   servers: () => req<Server[]>("GET", "/api/servers"),
