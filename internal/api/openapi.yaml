@@ -54,6 +54,8 @@ tags:
     description: Multi-cluster registry
   - name: Notifications
     description: Notification channels and the event feed
+  - name: Databases
+    description: Database host registry (admin) and per-server databases
   - name: Internal
     description: In-cluster callbacks (not for external use)
 
@@ -273,6 +275,128 @@ paths:
         "400": { description: Not configured or no recipient }
         "502": { description: Send failed }
         "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/database-hosts:
+    get:
+      tags: [Databases]
+      summary: List database hosts (admin)
+      responses:
+        "200": { description: OK }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      tags: [Databases]
+      summary: Register a database host (admin)
+      description: >-
+        kind=external registers an existing MySQL/MariaDB (host/port/adminUser/
+        adminPassword required). kind=managed has Quetzal deploy and own a MariaDB
+        in-cluster (image/storageSize/namespace optional; root password generated).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DatabaseHostInput" }
+      responses:
+        "201": { description: Created }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/database-hosts/{hid}:
+    parameters:
+      - { name: hid, in: path, required: true, schema: { type: integer } }
+    patch:
+      tags: [Databases]
+      summary: Update a database host (admin)
+      responses:
+        "200": { description: Updated }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      tags: [Databases]
+      summary: Delete a database host (admin)
+      description: Rejected with 409 while the host still holds databases.
+      responses:
+        "204": { description: Deleted }
+        "409": { description: Host still has databases }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/database-hosts/{hid}/test:
+    parameters:
+      - { name: hid, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [Databases]
+      summary: Probe a host's connectivity (admin)
+      responses:
+        "200": { description: Host with refreshed reachability }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/servers/{id}/database-hosts:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Databases]
+      summary: Hosts a server may create databases on (minimal view)
+      description: Requires the databases permission; no admin secrets returned.
+      responses:
+        "200": { description: OK }
+  /api/servers/{id}/databases:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Databases]
+      summary: List a server's databases
+      description: Requires the databases permission. Passwords are not included.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ServerDatabase" } }
+    post:
+      tags: [Databases]
+      summary: Provision a database + scoped user for the server
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hostId]
+              properties: { hostId: { type: integer } }
+      responses:
+        "201":
+          description: Created (response includes the generated password once)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServerDatabase" }
+        "409": { description: Host at capacity }
+        "502": { description: Provisioning failed on the host }
+  /api/servers/{id}/databases/{dbid}:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+      - { name: dbid, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [Databases]
+      summary: A database with its current credentials (incl. password)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServerDatabase" }
+    delete:
+      tags: [Databases]
+      summary: Drop the database and its user
+      responses:
+        "204": { description: Deleted }
+  /api/servers/{id}/databases/{dbid}/rotate:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+      - { name: dbid, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [Databases]
+      summary: Rotate the database user's password
+      responses:
+        "200":
+          description: New credentials (includes the new password)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServerDatabase" }
 
   /api/me/sshkeys:
     get:
@@ -1354,6 +1478,36 @@ components:
         hibernation: { $ref: "#/components/schemas/Hibernation" }
         cluster: { type: string, description: Target cluster slug (empty = local) }
         start: { type: boolean }
+    DatabaseHostInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        kind: { type: string, enum: [external, managed] }
+        host: { type: string }
+        port: { type: integer }
+        connectHost: { type: string }
+        connectPort: { type: integer }
+        adminUser: { type: string }
+        adminPassword: { type: string, format: password }
+        maxDatabases: { type: integer, description: "0 = unlimited" }
+        namespace: { type: string, description: managed only }
+        image: { type: string, description: managed only }
+        storageSize: { type: string, description: managed only }
+    ServerDatabase:
+      type: object
+      properties:
+        id: { type: integer }
+        serverId: { type: integer }
+        hostId: { type: integer }
+        databaseName: { type: string }
+        username: { type: string }
+        password: { type: string, description: only present on create/get/rotate }
+        remote: { type: string, description: MySQL allowed-from host (default %) }
+        host: { type: string, description: address to connect to }
+        port: { type: integer }
+        hostName: { type: string }
+        createdAt: { type: string, format: date-time }
     ServerStats:
       type: object
       properties:

@@ -3,6 +3,7 @@ import { api, ApiError, AuditEntry, Cluster, ExposeType, PowerAction, Server, Se
 import { Access } from "./Access";
 import { Backups } from "./Backups";
 import { Console } from "./Console";
+import { Databases } from "./Databases";
 import { Files } from "./Files";
 import { Notifications } from "./Notifications";
 import { Schedules } from "./Schedules";
@@ -417,6 +418,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
       <Schedules id={id} />
       {canManage && <Files id={id} />}
       {canManage && <SFTPCard id={id} initialEnabled={!!srv?.sftp?.enabled} username={user.username} />}
+      {canManage && <Databases serverId={id} />}
       <Backups id={id} />
       {canManage && <Access id={id} />}
       {canManage && <Notifications serverId={id} />}

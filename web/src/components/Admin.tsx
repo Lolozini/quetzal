@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, AuditEntry, EmailSettingsInput, User } from "../api";
 import { Clusters } from "./Clusters";
+import { DatabaseHosts } from "./DatabaseHosts";
 import { Notifications } from "./Notifications";
 
 export function Admin() {
@@ -8,6 +9,7 @@ export function Admin() {
     <>
       <Users />
       <EmailSettingsCard />
+      <DatabaseHosts />
       <Clusters />
       <Notifications serverId={0} />
       <GlobalAudit />

@@ -55,8 +55,42 @@ export const ALL_PERMISSIONS = [
   "backups",
   "files",
   "settings",
+  "databases",
   "delete",
 ] as const;
+
+export interface DatabaseHost {
+  id: number;
+  name: string;
+  kind: "external" | "managed";
+  host: string;
+  port: number;
+  connectHost: string;
+  connectPort: number;
+  adminUser: string;
+  maxDatabases: number;
+  namespace?: string;
+  image?: string;
+  storageSize?: string;
+  reachable: boolean;
+  statusMessage?: string;
+  lastCheckedAt?: string;
+  databases?: number;
+}
+
+export interface ServerDatabase {
+  id: number;
+  serverId: number;
+  hostId: number;
+  databaseName: string;
+  username: string;
+  remote: string;
+  host?: string;
+  port?: number;
+  hostName?: string;
+  password?: string; // only present on create/get/rotate
+  createdAt: string;
+}
 
 export interface FileEntry {
   name: string;
@@ -501,6 +535,26 @@ export const api = {
   sftpInfo: (id: number) => req<SFTPInfo>("GET", `/api/servers/${id}/sftp`),
   setSFTP: (id: number, enabled: boolean) =>
     req<Server>("PATCH", `/api/servers/${id}`, { sftp: { enabled } }),
+
+  // Database hosts (admin) + per-server databases.
+  databaseHosts: () => req<DatabaseHost[]>("GET", "/api/database-hosts"),
+  createDatabaseHost: (body: Record<string, unknown>) =>
+    req<DatabaseHost>("POST", "/api/database-hosts", body),
+  updateDatabaseHost: (hid: number, body: Record<string, unknown>) =>
+    req<DatabaseHost>("PATCH", `/api/database-hosts/${hid}`, body),
+  deleteDatabaseHost: (hid: number) => req<void>("DELETE", `/api/database-hosts/${hid}`),
+  testDatabaseHost: (hid: number) => req<DatabaseHost>("POST", `/api/database-hosts/${hid}/test`),
+  serverDatabaseHosts: (id: number) =>
+    req<{ id: number; name: string; kind: string; full: boolean }[]>("GET", `/api/servers/${id}/database-hosts`),
+  serverDatabases: (id: number) => req<ServerDatabase[]>("GET", `/api/servers/${id}/databases`),
+  createServerDatabase: (id: number, hostId: number) =>
+    req<ServerDatabase>("POST", `/api/servers/${id}/databases`, { hostId }),
+  getServerDatabase: (id: number, dbid: number) =>
+    req<ServerDatabase>("GET", `/api/servers/${id}/databases/${dbid}`),
+  rotateServerDatabase: (id: number, dbid: number) =>
+    req<ServerDatabase>("POST", `/api/servers/${id}/databases/${dbid}/rotate`),
+  deleteServerDatabase: (id: number, dbid: number) =>
+    req<void>("DELETE", `/api/servers/${id}/databases/${dbid}`),
 
   // Notifications.
   channels: () => req<NotificationChannel[]>("GET", "/api/notifications/channels"),

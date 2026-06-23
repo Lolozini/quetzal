@@ -63,6 +63,12 @@ Then open the panel and complete the first-run admin setup. See
 - **Multi-tenant**: per-server ownership, subusers with scoped permissions,
   admin suspend, per-user quotas, an append-only audit log, and API keys
   (bearer tokens for the public API).
+- **Per-server databases**: provision a MySQL/MariaDB database + scoped user for
+  a server from the panel. Admins register **external** hosts (existing servers,
+  RDS…) *or* have Quetzal deploy and own a **managed MariaDB** in-cluster
+  (Deployment + PVC + Service, root password generated and kept in a Secret).
+  Names/passwords are generated and validated (identifiers can't be injected),
+  passwords are encrypted at rest, and deleting a server drops its databases.
 - **Two-factor auth**: opt-in TOTP (RFC 6238) with one-time recovery codes;
   login becomes a password + code challenge, and admins can reset a locked-out
   user. Secrets are encrypted at rest.
