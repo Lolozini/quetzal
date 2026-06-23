@@ -311,6 +311,17 @@ func (s *Store) UpdateServerResources(id uint, r models.Resources) error {
 		Select("resources").Updates(models.Server{Resources: r}).Error
 }
 
+// BumpInstallGeneration increments a server's install generation (triggering a
+// reinstall on the next start/reconcile) and sets the one-shot wipe flag. The
+// increment is done in SQL so concurrent reinstalls don't lose a bump.
+func (s *Store) BumpInstallGeneration(id uint, wipe bool) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Updates(map[string]any{
+			"install_generation": gorm.Expr("install_generation + 1"),
+			"install_wipe":       wipe,
+		}).Error
+}
+
 // UpdateServerStatus persists only the status field. It uses Updates with a
 // typed struct (not Update with a raw value) so GORM applies the JSON
 // serializer registered on the Status field.

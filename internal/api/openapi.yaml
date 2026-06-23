@@ -708,6 +708,26 @@ paths:
                 properties:
                   action: { type: string }
                   result: { type: string }
+  /api/servers/{id}/reinstall:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    post:
+      tags: [Servers]
+      summary: Reinstall the server (re-run the install script)
+      description: >-
+        Bumps the install generation so the install init container re-runs; the
+        change rolls the pod on the next reconcile (a stopped server reinstalls
+        on its next start). Requires the template to have an install script.
+        wipeData also clears the data volume before the script runs.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { wipeData: { type: boolean } }
+      responses:
+        "200": { description: Reinstall triggered }
+        "400": { description: Template has no install script }
   /api/servers/{id}/stats:
     parameters:
       - $ref: "#/components/parameters/ServerId"

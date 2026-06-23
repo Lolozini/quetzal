@@ -180,6 +180,16 @@ type Server struct {
 	// SFTP, when enabled, adds a key-only SFTP sidecar exposing the data volume.
 	SFTP SFTPConfig `gorm:"serializer:json" json:"sftp"`
 
+	// InstallGeneration drives reinstall: the install init container writes it to
+	// the install marker and re-runs the install script whenever the marker's
+	// generation differs (so bumping it triggers a reinstall on the next start).
+	// New servers start at 1; a 0/legacy marker is treated as installed.
+	InstallGeneration int `json:"installGeneration"`
+	// InstallWipe, when set, makes the next install run wipe the data volume
+	// first (reinstall-from-scratch). It only takes effect when the install
+	// actually re-runs (generation mismatch).
+	InstallWipe bool `json:"-"`
+
 	// Hibernation policy and system-managed state.
 	Hibernation Hibernation `gorm:"serializer:json" json:"hibernation"`
 	// Hibernated is set by the controller when an idle server is scaled to zero.

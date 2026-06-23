@@ -323,23 +323,24 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	srv := &models.Server{
-		Slug:            slug,
-		DisplayName:     req.Name,
-		OwnerID:         owner.ID,
-		TemplateID:      tmpl.ID,
-		TemplateVersion: tmpl.Version,
-		Image:           image,
-		Namespace:       reconciler.NamespaceFor(slug),
-		ClusterID:       clusterID,
-		DesiredState:    state,
-		Resources:       models.Resources{Memory: req.Memory, CPU: req.CPU},
-		Env:             plainEnv,
-		SecretEnvEnc:    sealed,
-		Storage:         storage,
-		Ports:           tmpl.Ports,
-		Expose:          req.Expose,
-		Hibernation:     req.Hibernation,
-		Status:          models.Status{Phase: models.PhaseStopped},
+		Slug:              slug,
+		DisplayName:       req.Name,
+		OwnerID:           owner.ID,
+		TemplateID:        tmpl.ID,
+		TemplateVersion:   tmpl.Version,
+		Image:             image,
+		Namespace:         reconciler.NamespaceFor(slug),
+		ClusterID:         clusterID,
+		DesiredState:      state,
+		Resources:         models.Resources{Memory: req.Memory, CPU: req.CPU},
+		Env:               plainEnv,
+		SecretEnvEnc:      sealed,
+		InstallGeneration: 1,
+		Storage:           storage,
+		Ports:             tmpl.Ports,
+		Expose:            req.Expose,
+		Hibernation:       req.Hibernation,
+		Status:            models.Status{Phase: models.PhaseStopped},
 	}
 	if err := s.Store.CreateServer(srv); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -735,6 +736,36 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	srv.Ports = ports
 	s.audit(r, srv.ID, "server.update", "expose="+string(expose.ServiceType()))
 	writeJSON(w, http.StatusOK, srv)
+}
+
+// handleReinstallServer re-runs a server's install script (egg
+// scripts.installation), optionally wiping the data volume first. It bumps the
+// install generation so the install init container re-runs; the change rolls the
+// pod on the next reconcile (and, for a stopped server, runs on next start).
+func (s *Server) handleReinstallServer(w http.ResponseWriter, r *http.Request) {
+	srv, ok := s.requireServer(w, r, models.PermSettings)
+	if !ok {
+		return
+	}
+	tmpl, err := s.Store.GetTemplate(srv.TemplateID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load template")
+		return
+	}
+	if tmpl.Install == nil || strings.TrimSpace(tmpl.Install.Script) == "" {
+		writeError(w, http.StatusBadRequest, "this server's template has no install script to run")
+		return
+	}
+	var req struct {
+		WipeData bool `json:"wipeData"`
+	}
+	_ = decodeJSON(r, &req) // body optional; default is keep-data
+	if err := s.Store.BumpInstallGeneration(srv.ID, req.WipeData); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.audit(r, srv.ID, "server.reinstall", fmt.Sprintf("wipeData=%v", req.WipeData))
+	writeJSON(w, http.StatusOK, map[string]any{"status": "reinstalling", "wipeData": req.WipeData})
 }
 
 // allocateNodePorts reserves a stable pool node port for each of a server's

@@ -74,6 +74,55 @@ func TestEggImportExportDelete(t *testing.T) {
 	}
 }
 
+func TestReinstall(t *testing.T) {
+	ts, c, st := newTestServerStore(t)
+	setupAdmin(t, ts.URL, c)
+
+	// A server from an egg WITH an install script can be reinstalled.
+	r, _ := c.Post(ts.URL+"/api/templates/import", "application/json", strings.NewReader(testEgg))
+	r.Body.Close()
+	cr := post(t, c, ts.URL+"/api/servers", map[string]any{"name": "egg server", "template": "test-egg"})
+	if cr.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d", cr.StatusCode)
+	}
+	var servers []struct {
+		ID                uint
+		InstallGeneration int
+	}
+	getJSON(t, c, ts.URL+"/api/servers", &servers)
+	if len(servers) != 1 || servers[0].InstallGeneration != 1 {
+		t.Fatalf("server install generation = %+v, want 1", servers)
+	}
+	id := servers[0].ID
+
+	if rr := post(t, c, ts.URL+"/api/servers/"+itoa(id)+"/reinstall", map[string]any{"wipeData": true}); rr.StatusCode != http.StatusOK {
+		t.Fatalf("reinstall = %d", rr.StatusCode)
+	}
+	srv, _ := st.GetServer(id)
+	if srv.InstallGeneration != 2 {
+		t.Errorf("generation after reinstall = %d, want 2", srv.InstallGeneration)
+	}
+	if !srv.InstallWipe {
+		t.Error("wipe flag should be set")
+	}
+
+	// A server whose template has no install script can't be reinstalled.
+	cr2 := post(t, c, ts.URL+"/api/servers", map[string]any{"name": "plain", "template": "generic-process"})
+	if cr2.StatusCode != http.StatusCreated {
+		t.Fatalf("create plain = %d", cr2.StatusCode)
+	}
+	getJSON(t, c, ts.URL+"/api/servers", &servers)
+	var plainID uint
+	for _, s := range servers {
+		if s.ID != id {
+			plainID = s.ID
+		}
+	}
+	if rr := post(t, c, ts.URL+"/api/servers/"+itoa(plainID)+"/reinstall", map[string]any{}); rr.StatusCode != http.StatusBadRequest {
+		t.Errorf("reinstall without install script = %d, want 400", rr.StatusCode)
+	}
+}
+
 func TestEggDeleteBlockedWhileInUse(t *testing.T) {
 	ts, c, _ := newTestServerStore(t)
 	setupAdmin(t, ts.URL, c)

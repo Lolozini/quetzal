@@ -86,10 +86,20 @@ func TestBuildDeploymentInstallInitContainer(t *testing.T) {
 		t.Errorf("install image = %q", ic.Image)
 	}
 	script := ic.Command[len(ic.Command)-1]
-	for _, want := range []string{".quetzal-installed", "echo installing > /mnt/server/world.txt", "touch"} {
+	for _, want := range []string{".quetzal-installed", "echo installing > /mnt/server/world.txt", "QUETZAL_INSTALL_GEN"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("install script missing %q:\n%s", want, script)
 		}
+	}
+	// The install generation is passed as env so a bump (reinstall) re-runs it.
+	var hasGen bool
+	for _, e := range ic.Env {
+		if e.Name == "QUETZAL_INSTALL_GEN" {
+			hasGen = true
+		}
+	}
+	if !hasGen {
+		t.Errorf("install container missing QUETZAL_INSTALL_GEN env: %+v", ic.Env)
 	}
 	if ic.VolumeMounts[0].MountPath != "/mnt/server" || ic.VolumeMounts[0].Name != "data" {
 		t.Errorf("install mount = %+v, want data at /mnt/server", ic.VolumeMounts[0])

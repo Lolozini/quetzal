@@ -155,7 +155,7 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 	}
 
 	noAutomount := false
-	initContainers := installInitContainers(t)
+	initContainers := installInitContainers(s, t)
 	containers := []corev1.Container{container}
 	volumes := []corev1.Volume{buildDataVolume(s)}
 
@@ -834,7 +834,28 @@ func toShellTemplate(v string, primary int32) string {
 
 var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-func installInitContainers(t *models.Template) []corev1.Container {
+// buildInstallScript wraps a template's install script with the
+// generation-marker logic: skip when the marker already records the current
+// generation; treat a legacy/empty marker (generation 0) as installed so
+// upgrading never re-runs install on existing servers; on a generation mismatch
+// (reinstall) optionally wipe the volume, run the script, then record the new
+// generation. QUETZAL_INSTALL_GEN / QUETZAL_INSTALL_WIPE are passed as env.
+func buildInstallScript(mount, userScript string) string {
+	return fmt.Sprintf(`marker="%[1]s/.quetzal-installed"
+if [ -f "$marker" ]; then
+  cur="$(cat "$marker" 2>/dev/null)"
+  [ "$cur" = "$QUETZAL_INSTALL_GEN" ] && exit 0
+  { [ "$QUETZAL_INSTALL_GEN" = "0" ] || [ -z "$QUETZAL_INSTALL_GEN" ]; } && exit 0
+fi
+if [ "$QUETZAL_INSTALL_WIPE" = "1" ]; then
+  rm -rf "%[1]s/"* "%[1]s/".[!.]* 2>/dev/null || true
+fi
+%[2]s
+printf '%%s' "$QUETZAL_INSTALL_GEN" > "$marker"
+`, mount, userScript)
+}
+
+func installInitContainers(s *models.Server, t *models.Template) []corev1.Container {
 	if t.Install == nil || t.Install.Script == "" {
 		return nil
 	}
@@ -846,14 +867,21 @@ func installInitContainers(t *models.Template) []corev1.Container {
 	if entrypoint == "" {
 		entrypoint = "sh"
 	}
-	script := fmt.Sprintf("if [ -f %[1]s/.quetzal-installed ]; then exit 0; fi\n%[2]s\ntouch %[1]s/.quetzal-installed\n",
-		installMountPath, t.Install.Script)
+	wrapped := buildInstallScript(installMountPath, t.Install.Script)
+	wipe := "0"
+	if s.InstallWipe {
+		wipe = "1"
+	}
 	return []corev1.Container{{
 		Name:            "install",
 		Image:           image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
-		Command:         []string{entrypoint, "-c", script},
-		VolumeMounts:    []corev1.VolumeMount{{Name: dataVolume, MountPath: installMountPath}},
+		Command:         []string{entrypoint, "-c", wrapped},
+		Env: []corev1.EnvVar{
+			{Name: "QUETZAL_INSTALL_GEN", Value: strconv.Itoa(s.InstallGeneration)},
+			{Name: "QUETZAL_INSTALL_WIPE", Value: wipe},
+		},
+		VolumeMounts: []corev1.VolumeMount{{Name: dataVolume, MountPath: installMountPath}},
 	}}
 }
 
