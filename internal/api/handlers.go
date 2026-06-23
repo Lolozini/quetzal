@@ -17,6 +17,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/lolozini/quetzal/internal/auth"
 	"github.com/lolozini/quetzal/internal/console"
@@ -871,7 +872,7 @@ func (s *Server) handleServerStats(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	cs, _, err := s.clientsFor(srv)
+	cs, cfg, err := s.clientsFor(srv)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "target cluster unavailable: "+err.Error())
 		return
@@ -890,12 +891,39 @@ func (s *Server) handleServerStats(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"cpuMillicores": u.CPUMillicores,
 		"memoryBytes":   u.MemoryBytes,
 		"cpuLimit":      srv.Resources.CPU,
 		"memoryLimit":   srv.Resources.Memory,
-	})
+	}
+	// Network + disk aren't in metrics-server, so read them from the pod in one
+	// exec: cumulative net counters (the client derives a rate) and df of the
+	// data volume. Best-effort — a distroless image without a shell just omits
+	// these fields rather than failing the whole stats call.
+	s.addIOStats(r.Context(), cs, cfg, srv, pod, resp)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// addIOStats augments resp with rxBytes/txBytes (cumulative) and disk
+// total/used, read from the running pod. Errors are swallowed by design.
+func (s *Server) addIOStats(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, srv *models.Server, pod string, resp map[string]any) {
+	ioCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	root := s.dataRoot(srv)
+	cmd := []string{"sh", "-c", `cat /proc/net/dev 2>/dev/null; echo "@@DF@@"; df -kP "$1" 2>/dev/null`, "_", root}
+	var out strings.Builder
+	if err := console.Exec(ioCtx, cs, cfg, srv.Namespace, pod, cmd, nil, &out); err != nil {
+		return
+	}
+	netPart, dfPart, _ := strings.Cut(out.String(), "@@DF@@")
+	rx, tx := stats.ParseNetDev([]byte(netPart))
+	resp["rxBytes"] = rx
+	resp["txBytes"] = tx
+	if total, used := stats.ParseDiskUsage([]byte(dfPart)); total > 0 {
+		resp["diskTotalBytes"] = total
+		resp["diskUsedBytes"] = used
+	}
 }
 
 // ---- helpers ----

@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -67,4 +69,51 @@ func parseUsage(raw []byte) (Usage, error) {
 		}
 	}
 	return u, nil
+}
+
+// ParseNetDev sums cumulative receive/transmit bytes across a pod's network
+// interfaces (loopback excluded) from the contents of /proc/net/dev. The
+// counters are cumulative since boot; callers derive a rate from successive
+// samples. Pods share a network namespace, so this covers all containers.
+func ParseNetDev(raw []byte) (rxBytes, txBytes int64) {
+	for _, line := range strings.Split(string(raw), "\n") {
+		colon := strings.IndexByte(line, ':')
+		if colon < 0 {
+			continue // header lines have no "iface:" prefix
+		}
+		iface := strings.TrimSpace(line[:colon])
+		if iface == "" || iface == "lo" {
+			continue
+		}
+		// Receive block is the first 8 columns; transmit bytes is column 9 (idx 8).
+		fields := strings.Fields(line[colon+1:])
+		if len(fields) < 9 {
+			continue
+		}
+		if v, err := strconv.ParseInt(fields[0], 10, 64); err == nil {
+			rxBytes += v
+		}
+		if v, err := strconv.ParseInt(fields[8], 10, 64); err == nil {
+			txBytes += v
+		}
+	}
+	return rxBytes, txBytes
+}
+
+// ParseDiskUsage reads total/used bytes for a filesystem from `df -kP <path>`
+// output (POSIX format: one record per filesystem, blocks in 1 KiB units). It
+// returns the last data row, so a header + single row parses correctly.
+func ParseDiskUsage(raw []byte) (totalBytes, usedBytes int64) {
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 || f[0] == "Filesystem" {
+			continue
+		}
+		total, err1 := strconv.ParseInt(f[1], 10, 64)
+		used, err2 := strconv.ParseInt(f[2], 10, 64)
+		if err1 == nil && err2 == nil {
+			totalBytes, usedBytes = total*1024, used*1024
+		}
+	}
+	return totalBytes, usedBytes
 }
