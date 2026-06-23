@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -47,6 +48,32 @@ func TestSetDesiredStateKeepsStatus(t *testing.T) {
 	}
 	if got.Status.Phase != models.PhaseRunning {
 		t.Errorf("status was clobbered: phase = %q, want Running", got.Status.Phase)
+	}
+}
+
+func TestIsConcurrentMigrationError(t *testing.T) {
+	for _, s := range []string{
+		"SQL logic error: duplicate column name: install_generation (1)",
+		"ERROR: column \"x\" of relation \"servers\" already exists (SQLSTATE 42701)",
+	} {
+		if !isConcurrentMigrationError(errors.New(s)) {
+			t.Errorf("expected concurrent-migration match for %q", s)
+		}
+	}
+	for _, s := range []string{"connection refused", "no such table: servers", ""} {
+		if isConcurrentMigrationError(errors.New(s)) {
+			t.Errorf("did not expect match for %q", s)
+		}
+	}
+	if isConcurrentMigrationError(nil) {
+		t.Error("nil should not match")
+	}
+}
+
+func TestMigrateIsIdempotent(t *testing.T) {
+	s := newTestStore(t) // already migrates once
+	if err := s.Migrate(); err != nil {
+		t.Fatalf("second migrate: %v", err)
 	}
 }
 

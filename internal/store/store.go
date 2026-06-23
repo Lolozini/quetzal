@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -133,7 +134,26 @@ func (s *Store) OpenSecrets(blob string) (map[string]string, error) {
 }
 
 // Migrate creates/updates the schema.
+//
+// The apiserver and controller each run Migrate at startup against the same
+// database, so a schema change (a new column) can race: both AutoMigrate calls
+// see the column missing and both issue ALTER TABLE ADD COLUMN, and the loser
+// fails with "duplicate column"/"already exists". That's benign — the schema is
+// correct either way — so retry on exactly that error: once the other process
+// finishes, AutoMigrate is a no-op and succeeds.
 func (s *Store) Migrate() error {
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		if err = s.autoMigrate(); err == nil || !isConcurrentMigrationError(err) {
+			return err
+		}
+		// Back off with a little jitter so the two processes don't lock-step.
+		time.Sleep(time.Duration(100*(attempt+1))*time.Millisecond + time.Duration(rand.Intn(50))*time.Millisecond)
+	}
+	return err
+}
+
+func (s *Store) autoMigrate() error {
 	return s.db.AutoMigrate(
 		&models.Template{}, &models.Server{}, &models.User{},
 		&models.Session{}, &models.PortAllocation{}, &models.Schedule{},
@@ -144,6 +164,18 @@ func (s *Store) Migrate() error {
 		&models.SSHKey{}, &models.PasswordReset{},
 		&models.DatabaseHost{}, &models.ServerDatabase{},
 	)
+}
+
+// isConcurrentMigrationError reports whether err is the artifact of two
+// processes adding the same column/table at once (SQLite: "duplicate column
+// name"; Postgres: "already exists"). Matching is by message since the drivers
+// surface different error types.
+func isConcurrentMigrationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate column") || strings.Contains(msg, "already exists")
 }
 
 // DB exposes the underlying handle (for advanced/transactional use).
