@@ -3,6 +3,11 @@
 /dist/
 quetzal-apiserver
 quetzal-controller
+quetzal-sftp
+# bare `go build ./cmd/<x>` outputs at the repo root
+/sftp
+/configrender
+/activator
 *.exe
 
 # Local data / DB

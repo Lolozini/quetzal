@@ -71,7 +71,13 @@ Then open the panel and complete the first-run admin setup. See
   confined to the data volume.
 - **SFTP**: opt-in per server — a key-only SFTP sidecar (authenticated by the
   SSH public keys users register in the panel) exposes the data volume over a
-  NodePort, confined to that directory and running as the server's own user.
+  NodePort, running as the server's own user. Access is **lexically confined** to
+  the data directory (`..` can't escape); symlinks already present in the data
+  follow as the OS would, the same as the file manager. Authorized keys are the
+  owner's, admins', and subusers' with file access; **revoking a key cuts live
+  sessions** (re-checked periodically), though propagating the change to the
+  pod takes up to a controller resync plus ConfigMap refresh. Needs a configured
+  system image (the SFTP binary ships in it); the server status flags it if not.
 - **Documented API**: the full REST API has an OpenAPI 3.0 spec at
   `/api/openapi.yaml` (use it with any client generator) rendered as browsable
   docs at `/api/docs`.

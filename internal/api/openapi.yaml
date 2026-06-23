@@ -200,7 +200,13 @@ paths:
     get:
       tags: [SFTP]
       summary: SFTP connection details for a server
-      description: Requires the files permission. Port is the assigned NodePort (0 until ready).
+      description: >-
+        Requires the files permission. Port is the assigned NodePort (0 until
+        Kubernetes assigns it, or if no system image is configured — the server
+        status reports the latter). Auth is key-only (register keys via
+        /api/me/sshkeys); the username is cosmetic. Access is confined to the
+        data directory. Revoking a key cuts live sessions, but the change takes
+        up to a controller resync plus ConfigMap refresh to reach the pod.
       responses:
         "200":
           description: OK
