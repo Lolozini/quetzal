@@ -89,15 +89,20 @@ function StatsPanel({ stats, history, statsMsg }: { stats: ServerStats | null; h
       </div>
     );
   }
-  // Derive network rates from successive cumulative counters; a counter reset
-  // (pod restart) shows up as a negative delta, clamped to 0.
+  // Derive network rates from successive cumulative counters. Only rate a pair
+  // when both samples carry counters (a gap from an intermittent exec failure
+  // would otherwise read as a huge spike on recovery); a counter reset from a
+  // pod restart shows as a negative delta, clamped to 0.
   const rxRate: number[] = [];
   const txRate: number[] = [];
   for (let i = 1; i < history.length; i++) {
-    const dt = (history[i].t - history[i - 1].t) / 1000;
+    const a = history[i - 1];
+    const b = history[i];
+    if (a.rx === undefined || b.rx === undefined || a.tx === undefined || b.tx === undefined) continue;
+    const dt = (b.t - a.t) / 1000;
     if (dt <= 0) continue;
-    const drx = (history[i].rx ?? 0) - (history[i - 1].rx ?? 0);
-    const dtx = (history[i].tx ?? 0) - (history[i - 1].tx ?? 0);
+    const drx = b.rx - a.rx;
+    const dtx = b.tx - a.tx;
     rxRate.push(drx >= 0 ? drx / dt : 0);
     txRate.push(dtx >= 0 ? dtx / dt : 0);
   }
