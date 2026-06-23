@@ -69,6 +69,9 @@ Then open the panel and complete the first-run admin setup. See
   delete and download a server's files — including whole folders as `.tar.gz`
   archives. Served by exec-ing into the running pod (no sidecar), with paths
   confined to the data volume.
+- **SFTP**: opt-in per server — a key-only SFTP sidecar (authenticated by the
+  SSH public keys users register in the panel) exposes the data volume over a
+  NodePort, confined to that directory and running as the server's own user.
 - **Documented API**: the full REST API has an OpenAPI 3.0 spec at
   `/api/openapi.yaml` (use it with any client generator) rendered as browsable
   docs at `/api/docs`.
