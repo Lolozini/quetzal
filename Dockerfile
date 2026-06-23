@@ -19,7 +19,8 @@ COPY --from=web /web/dist ./web/dist
 RUN go build -trimpath -o /out/quetzal-apiserver ./cmd/apiserver \
  && go build -trimpath -o /out/quetzal-controller ./cmd/controller \
  && go build -trimpath -o /out/quetzal-activator ./cmd/activator \
- && go build -trimpath -o /out/quetzal-configrender ./cmd/configrender
+ && go build -trimpath -o /out/quetzal-configrender ./cmd/configrender \
+ && go build -trimpath -o /out/quetzal-sftp ./cmd/sftp
 
 # 3) Minimal runtime image.
 FROM gcr.io/distroless/static:nonroot
@@ -27,6 +28,7 @@ COPY --from=build /out/quetzal-apiserver /usr/local/bin/quetzal-apiserver
 COPY --from=build /out/quetzal-controller /usr/local/bin/quetzal-controller
 COPY --from=build /out/quetzal-activator /usr/local/bin/quetzal-activator
 COPY --from=build /out/quetzal-configrender /usr/local/bin/quetzal-configrender
+COPY --from=build /out/quetzal-sftp /usr/local/bin/quetzal-sftp
 USER nonroot:nonroot
 EXPOSE 8080 9090
 ENTRYPOINT ["/usr/local/bin/quetzal-apiserver"]

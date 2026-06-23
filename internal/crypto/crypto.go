@@ -5,14 +5,32 @@ package crypto
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"io"
 	"os"
+
+	"golang.org/x/crypto/ssh"
 )
+
+// GenerateSSHHostKey returns a new ed25519 SSH host key in OpenSSH PEM form,
+// used as the stable host key for a server's SFTP sidecar.
+func GenerateSSHHostKey() ([]byte, error) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	block, err := ssh.MarshalPrivateKey(priv, "")
+	if err != nil {
+		return nil, err
+	}
+	return pem.EncodeToMemory(block), nil
+}
 
 // WakeToken derives a per-server wake-on-connect token from the secret key. The
 // controller injects it into a server's activator; the apiserver recomputes and
