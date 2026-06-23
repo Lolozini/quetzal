@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -48,11 +49,6 @@ func startServer(t *testing.T, root string, authorized []ssh.PublicKey, client s
 	}
 	go srv.Serve()
 	t.Cleanup(func() { srv.Close() })
-	// Wait for the listener.
-	deadline := time.Now().Add(2 * time.Second)
-	for srv.listener == nil && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
-	}
 
 	conn, err := ssh.Dial("tcp", srv.Addr().String(), &ssh.ClientConfig{
 		User:            "anyone",
@@ -152,6 +148,68 @@ func TestSFTPPathConfinement(t *testing.T) {
 			t.Errorf("traversal %q leaked: %q", p, b)
 		}
 	}
+}
+
+func TestSFTPRevokesLiveSession(t *testing.T) {
+	root := t.TempDir()
+	signer, pub := newKeyPair(t)
+
+	// A mutable authorized set, guarded for the revoke loop's concurrent reads.
+	var mu sync.Mutex
+	authorized := []ssh.PublicKey{pub}
+
+	hostKey, err := crypto.GenerateSSHHostKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := New(Config{
+		Addr: "127.0.0.1:0", Root: root, HostKey: hostKey,
+		RevokeCheckInterval: 25 * time.Millisecond,
+		AuthorizedKeys: func() []ssh.PublicKey {
+			mu.Lock()
+			defer mu.Unlock()
+			return append([]ssh.PublicKey(nil), authorized...)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Serve()
+	t.Cleanup(func() { srv.Close() })
+
+	conn, err := ssh.Dial("tcp", srv.Addr().String(), &ssh.ClientConfig{
+		User:            "anyone",
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	sc, err := sftp.NewClient(conn)
+	if err != nil {
+		t.Fatalf("sftp client: %v", err)
+	}
+	defer sc.Close()
+
+	// The session works while authorized.
+	if _, err := sc.ReadDir("/"); err != nil {
+		t.Fatalf("readdir before revoke: %v", err)
+	}
+
+	// Revoke the key; the live session must be dropped, not just blocked next time.
+	mu.Lock()
+	authorized = nil
+	mu.Unlock()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := sc.ReadDir("/"); err != nil {
+			return // session was cut, as intended
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Error("live session was not dropped after the key was revoked")
 }
 
 func TestSFTPRejectsUnauthorizedKey(t *testing.T) {

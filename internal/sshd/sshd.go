@@ -7,16 +7,27 @@ package sshd
 
 import (
 	"crypto/subtle"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
+
+// defaultRevokeInterval is how often live sessions are re-checked against the
+// authorized keys so a revoked key is cut off, not just blocked at next connect.
+const defaultRevokeInterval = 30 * time.Second
+
+// pubkeyExt carries the authenticated public key (base64 of its wire form) from
+// the auth callback to the connection handler, so we can re-check it later.
+const pubkeyExt = "quetzal-pubkey"
 
 // Config configures the server.
 type Config struct {
@@ -26,6 +37,10 @@ type Config struct {
 	// AuthorizedKeys returns the currently-authorized public keys. It is called
 	// on every authentication attempt so changes apply without a restart.
 	AuthorizedKeys func() []ssh.PublicKey
+	// RevokeCheckInterval is how often open sessions are re-checked against
+	// AuthorizedKeys; a session whose key is no longer authorized is closed.
+	// Defaults to defaultRevokeInterval.
+	RevokeCheckInterval time.Duration
 }
 
 // Server is a key-only SFTP server.
@@ -33,6 +48,14 @@ type Server struct {
 	cfg      Config
 	sshConf  *ssh.ServerConfig
 	listener net.Listener
+
+	done  chan struct{}
+	ready chan struct{} // closed once Serve has bound (or failed to bind)
+	mu    sync.Mutex
+	// conns maps each live connection to the wire form of the key it
+	// authenticated with, so the revoke loop can drop sessions whose key is
+	// no longer authorized.
+	conns map[*ssh.ServerConn]string
 }
 
 // New validates the config and prepares the SSH server config.
@@ -52,14 +75,22 @@ func New(cfg Config) (*Server, error) {
 			want := key.Marshal()
 			for _, ak := range cfg.AuthorizedKeys() {
 				if subtle.ConstantTimeCompare(want, ak.Marshal()) == 1 {
-					return &ssh.Permissions{}, nil
+					return &ssh.Permissions{Extensions: map[string]string{
+						pubkeyExt: base64.StdEncoding.EncodeToString(want),
+					}}, nil
 				}
 			}
 			return nil, fmt.Errorf("sshd: unauthorized key")
 		},
 	}
 	sc.AddHostKey(signer)
-	return &Server{cfg: cfg, sshConf: sc}, nil
+	return &Server{
+		cfg:     cfg,
+		sshConf: sc,
+		done:    make(chan struct{}),
+		ready:   make(chan struct{}),
+		conns:   make(map[*ssh.ServerConn]string),
+	}, nil
 }
 
 // Serve listens and serves until the listener is closed. It accepts connections
@@ -67,9 +98,14 @@ func New(cfg Config) (*Server, error) {
 func (s *Server) Serve() error {
 	ln, err := net.Listen("tcp", s.cfg.Addr)
 	if err != nil {
+		close(s.ready) // unblock Addr() even on bind failure
 		return err
 	}
+	s.mu.Lock()
 	s.listener = ln
+	s.mu.Unlock()
+	close(s.ready)
+	go s.revokeLoop()
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -79,15 +115,70 @@ func (s *Server) Serve() error {
 	}
 }
 
-// Addr returns the bound address (useful when Addr was ":0" in tests).
-func (s *Server) Addr() net.Addr { return s.listener.Addr() }
+// Addr returns the bound address (useful when Addr was ":0" in tests). It blocks
+// until the listener is bound.
+func (s *Server) Addr() net.Addr {
+	<-s.ready
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.listener == nil {
+		return nil
+	}
+	return s.listener.Addr()
+}
 
-// Close stops accepting connections.
+// Close stops accepting connections and the revoke loop.
 func (s *Server) Close() error {
-	if s.listener != nil {
-		return s.listener.Close()
+	select {
+	case <-s.done:
+	default:
+		close(s.done)
+	}
+	s.mu.Lock()
+	ln := s.listener
+	s.mu.Unlock()
+	if ln != nil {
+		return ln.Close()
 	}
 	return nil
+}
+
+// revokeLoop periodically drops live sessions whose key is no longer authorized.
+func (s *Server) revokeLoop() {
+	interval := s.cfg.RevokeCheckInterval
+	if interval <= 0 {
+		interval = defaultRevokeInterval
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-t.C:
+			s.dropRevoked()
+		}
+	}
+}
+
+// dropRevoked closes any open connection whose authenticated key is no longer
+// returned by AuthorizedKeys (revoked key, or a subuser who lost file access).
+func (s *Server) dropRevoked() {
+	authorized := make(map[string]bool)
+	for _, ak := range s.cfg.AuthorizedKeys() {
+		authorized[string(ak.Marshal())] = true
+	}
+	s.mu.Lock()
+	var revoked []*ssh.ServerConn
+	for c, blob := range s.conns {
+		if !authorized[blob] {
+			revoked = append(revoked, c)
+		}
+	}
+	s.mu.Unlock()
+	for _, c := range revoked {
+		_ = c.Close()
+	}
 }
 
 func (s *Server) handleConn(c net.Conn) {
@@ -97,6 +188,24 @@ func (s *Server) handleConn(c net.Conn) {
 		return // failed handshake/auth
 	}
 	defer sconn.Close()
+
+	// Track the connection by the key it authenticated with so the revoke loop
+	// can cut it off if that key is later removed.
+	var blob string
+	if sconn.Permissions != nil {
+		if raw, err := base64.StdEncoding.DecodeString(sconn.Permissions.Extensions[pubkeyExt]); err == nil {
+			blob = string(raw)
+		}
+	}
+	s.mu.Lock()
+	s.conns[sconn] = blob
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.conns, sconn)
+		s.mu.Unlock()
+	}()
+
 	go ssh.DiscardRequests(reqs)
 
 	for nc := range chans {
@@ -158,9 +267,8 @@ func (r *root) Filewrite(req *sftp.Request) (io.WriterAt, error) {
 	if pf.Excl {
 		flags |= os.O_EXCL
 	}
-	if pf.Append {
-		flags |= os.O_APPEND
-	}
+	// Deliberately not honoring pf.Append: the request server writes via
+	// WriteAt at explicit offsets, which is invalid on a file opened O_APPEND.
 	return os.OpenFile(p, flags, 0o644)
 }
 
