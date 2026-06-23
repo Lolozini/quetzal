@@ -18,6 +18,48 @@ export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (
       <p className="muted">Changes apply on the next reconcile, which restarts the server.</p>
       {editable.length > 0 && <Variables serverId={server.id} vars={editable} env={server.env ?? {}} onSaved={onSaved} />}
       <ResourcesForm server={server} onSaved={onSaved} />
+      {tmpl?.install?.script && <Reinstall serverId={server.id} />}
+    </div>
+  );
+}
+
+function Reinstall({ serverId }: { serverId: number }) {
+  const [wipe, setWipe] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function run() {
+    const warning = wipe
+      ? "Reinstall AND WIPE all data? This permanently deletes the server's files, then re-runs the install script."
+      : "Reinstall this server? It re-runs the install script and restarts the server (data is kept).";
+    if (!window.confirm(warning)) return;
+    setBusy(true);
+    setMsg("");
+    setError("");
+    try {
+      await api.reinstallServer(serverId, wipe);
+      setMsg("Reinstall triggered — the server will re-run its install script on the next start/reconcile.");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <h3>Reinstall</h3>
+      <p className="muted">Re-runs the template's install script. Applied on the next reconcile, which restarts the server.</p>
+      <label className="row" style={{ gap: 6 }}>
+        <input type="checkbox" style={{ width: "auto" }} checked={wipe} onChange={(e) => setWipe(e.target.checked)} />
+        Also wipe the data volume (delete all files first)
+      </label>
+      {msg && <div className="notice">{msg}</div>}
+      {error && <div className="error">{error}</div>}
+      <button className={wipe ? "danger" : ""} style={{ marginTop: 8 }} onClick={run} disabled={busy}>
+        {busy ? "…" : wipe ? "Reinstall & wipe" : "Reinstall"}
+      </button>
     </div>
   );
 }

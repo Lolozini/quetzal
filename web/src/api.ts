@@ -161,6 +161,7 @@ export interface Template {
   images: TemplateImage[];
   variables: TemplateVariable[];
   ports?: { name: string; port: number; protocol: string }[];
+  install?: { image?: string; entrypoint?: string; script?: string };
 }
 
 export interface ServerStatus {
@@ -465,6 +466,8 @@ export const api = {
     req<Server>("PATCH", `/api/servers/${id}`, { env }),
   setServerResources: (id: number, resources: { memory: string; cpu: string }) =>
     req<Server>("PATCH", `/api/servers/${id}`, { resources }),
+  reinstallServer: (id: number, wipeData: boolean) =>
+    req<{ status: string; wipeData: boolean }>("POST", `/api/servers/${id}/reinstall`, { wipeData }),
   stats: (id: number) => req<ServerStats>("GET", `/api/servers/${id}/stats`),
 
   schedules: (id: number) => req<Schedule[]>("GET", `/api/servers/${id}/schedules`),

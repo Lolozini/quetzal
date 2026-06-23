@@ -66,6 +66,10 @@ Then open the panel and complete the first-run admin setup. See
 - **Editable startup & resources**: change a server's startup variables (validated
   against the template's contract; blank secrets are kept) and its CPU/memory
   limits after creation — applied on the next reconcile, which restarts the pod.
+- **Reinstall**: re-run a server's install script on demand, optionally wiping the
+  data volume first — driven by an install-generation marker (so a normal restart
+  never re-installs, and upgrading existing servers never triggers a surprise
+  reinstall).
 - **Per-server databases**: provision a MySQL/MariaDB database + scoped user for
   a server from the panel. Admins register **external** hosts (existing servers,
   RDS…) *or* have Quetzal deploy and own a **managed MariaDB** in-cluster
