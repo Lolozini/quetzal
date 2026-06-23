@@ -198,6 +198,10 @@ func (s *Server) Handler() http.Handler {
 
 	// Two-factor authentication (opt-in TOTP) for the current user, plus an
 	// admin reset for the lost-device lockout case.
+	mux.Handle("GET /api/me/sshkeys", s.auth(s.handleListSSHKeys))
+	mux.Handle("POST /api/me/sshkeys", s.auth(s.handleAddSSHKey))
+	mux.Handle("DELETE /api/me/sshkeys/{kid}", s.auth(s.handleDeleteSSHKey))
+	mux.Handle("GET /api/servers/{id}/sftp", s.auth(s.handleServerSFTP))
 	mux.Handle("POST /api/me/2fa/setup", s.auth(s.handle2FASetup))
 	mux.Handle("POST /api/me/2fa/enable", s.auth(s.handle2FAEnable))
 	mux.Handle("POST /api/me/2fa/disable", s.auth(s.handle2FADisable))

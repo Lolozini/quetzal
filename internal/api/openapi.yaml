@@ -34,6 +34,8 @@ tags:
     description: Live console (logs + attach) over WebSocket
   - name: Files
     description: File manager (exec into the running pod; requires the files permission)
+  - name: SFTP
+    description: SSH keys and per-server SFTP access
   - name: Schedules
     description: Cron schedules per server
   - name: Backups
@@ -151,6 +153,65 @@ paths:
       responses:
         "204": { description: Password changed }
         "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/me/sshkeys:
+    get:
+      tags: [SFTP]
+      summary: List your SSH public keys
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SSHKey" }
+    post:
+      tags: [SFTP]
+      summary: Add an SSH public key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [publicKey]
+              properties:
+                name: { type: string }
+                publicKey: { type: string, description: An authorized_keys line }
+      responses:
+        "201":
+          description: Added
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SSHKey" }
+        "400": { description: Invalid SSH public key }
+  /api/me/sshkeys/{kid}:
+    parameters:
+      - { name: kid, in: path, required: true, schema: { type: integer } }
+    delete:
+      tags: [SFTP]
+      summary: Delete one of your SSH keys
+      responses:
+        "204": { description: Deleted }
+  /api/servers/{id}/sftp:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [SFTP]
+      summary: SFTP connection details for a server
+      description: Requires the files permission. Port is the assigned NodePort (0 until ready).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled: { type: boolean }
+                  username: { type: string }
+                  port: { type: integer }
 
   /api/me/2fa/setup:
     post:
@@ -275,6 +336,9 @@ paths:
               properties:
                 expose: { $ref: "#/components/schemas/Expose" }
                 hibernation: { $ref: "#/components/schemas/Hibernation" }
+                sftp:
+                  type: object
+                  properties: { enabled: { type: boolean } }
       responses:
         "200":
           description: Updated
@@ -1136,6 +1200,9 @@ components:
         expose: { $ref: "#/components/schemas/Expose" }
         hibernation: { $ref: "#/components/schemas/Hibernation" }
         hibernated: { type: boolean }
+        sftp:
+          type: object
+          properties: { enabled: { type: boolean } }
         clusterId: { type: integer }
         status: { $ref: "#/components/schemas/Status" }
     CreateServerRequest:
@@ -1354,6 +1421,15 @@ components:
           description: >
             Type-specific settings. discord: url. webhook: url, secret.
             email: host, port, username, password, from, to, tls.
+    SSHKey:
+      type: object
+      properties:
+        id: { type: integer }
+        createdAt: { type: string, format: date-time }
+        userId: { type: integer }
+        name: { type: string }
+        publicKey: { type: string }
+        fingerprint: { type: string }
     APIKey:
       type: object
       properties:

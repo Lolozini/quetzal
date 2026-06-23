@@ -469,6 +469,8 @@ type updateServerRequest struct {
 	Expose *models.Expose `json:"expose"`
 	// Hibernation, when present, updates the idle scale-to-zero policy.
 	Hibernation *models.Hibernation `json:"hibernation"`
+	// SFTP, when present, toggles the SFTP sidecar.
+	SFTP *models.SFTPConfig `json:"sftp"`
 }
 
 func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
@@ -495,6 +497,14 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 			srv.Hibernated = false
 		}
 		s.audit(r, srv.ID, "server.hibernation", strconv.FormatBool(req.Hibernation.Enabled))
+	}
+	if req.SFTP != nil {
+		if err := s.Store.UpdateServerSFTP(srv.ID, *req.SFTP); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		srv.SFTP = *req.SFTP
+		s.audit(r, srv.ID, "server.sftp", strconv.FormatBool(req.SFTP.Enabled))
 	}
 	if req.Expose == nil {
 		writeJSON(w, http.StatusOK, srv) // nothing else to change
