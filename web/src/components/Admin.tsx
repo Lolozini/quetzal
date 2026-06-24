@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { AdminPermInfo, AdminRole, api, ApiError, AuditEntry, EmailSettingsInput, hasAdminPerm, User } from "../api";
+import { useT } from "../i18n";
 import { Clusters } from "./Clusters";
 import { DatabaseHosts } from "./DatabaseHosts";
 import { Notifications } from "./Notifications";
@@ -25,6 +26,7 @@ export function Admin({ user }: { user: User }) {
 // admin-role controls are superadmin-only (me.isAdmin) — a scoped users-admin
 // manages regular accounts but can't escalate privileges.
 function Users({ me }: { me: User }) {
+  const { t } = useT();
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<AdminRole[]>([]);
   const [error, setError] = useState("");
@@ -50,13 +52,13 @@ function Users({ me }: { me: User }) {
 
   // Describe a user's administrative standing for the Role column.
   function roleLabel(u: User): string {
-    if (u.isAdmin) return "superadmin";
+    if (u.isAdmin) return t("superadmin");
     if (u.adminRoleId != null) {
       // roles are only loaded for superadmins; fall back to a generic label.
       const r = roles.find((x) => x.id === u.adminRoleId);
-      return r ? `admin: ${r.name}` : "scoped admin";
+      return r ? t("admin: {role}", { role: r.name }) : t("scoped admin");
     }
-    return "user";
+    return t("user");
   }
 
   async function setAdminRole(u: User, roleId: number | null) {
@@ -105,7 +107,7 @@ function Users({ me }: { me: User }) {
   }
 
   async function remove(u: User) {
-    if (!window.confirm(`Delete user "${u.username}"? Their servers are NOT deleted.`)) return;
+    if (!window.confirm(t('Delete user "{name}"? Their servers are NOT deleted.', { name: u.username }))) return;
     try {
       await api.deleteUser(u.id);
       await load();
@@ -115,7 +117,7 @@ function Users({ me }: { me: User }) {
   }
 
   async function reset2FA(u: User) {
-    if (!window.confirm(`Reset two-factor authentication for "${u.username}"? They will sign in with just their password until they re-enable it.`)) return;
+    if (!window.confirm(t('Reset two-factor authentication for "{name}"? They will sign in with just their password until they re-enable it.', { name: u.username }))) return;
     try {
       await api.adminDisable2FA(u.id);
       await load();
@@ -126,10 +128,10 @@ function Users({ me }: { me: User }) {
 
   return (
     <div className="card">
-      <h2>Users</h2>
+      <h2>{t("Users")}</h2>
       <table>
         <thead>
-          <tr><th>User</th><th>Role</th><th>2FA</th><th>Quota (servers / mem MB)</th><th></th></tr>
+          <tr><th>{t("User")}</th><th>{t("Role")}</th><th>{t("2FA")}</th><th>{t("Quota (servers / mem MB)")}</th><th></th></tr>
         </thead>
         <tbody>
           {users.map((u) => (
@@ -146,7 +148,7 @@ function Users({ me }: { me: User }) {
                       onChange={(e) => setAdminRole(u, e.target.value ? Number(e.target.value) : null)}
                       style={{ width: "auto" }}
                     >
-                      <option value="">user (no admin)</option>
+                      <option value="">{t("user (no admin)")}</option>
                       {roles.map((r) => (
                         <option key={r.id} value={r.id}>{r.name}</option>
                       ))}
@@ -154,14 +156,14 @@ function Users({ me }: { me: User }) {
                   </>
                 )}
               </td>
-              <td>{u.twoFactorEnabled ? "on" : <span className="muted">off</span>}</td>
+              <td>{u.twoFactorEnabled ? t("on") : <span className="muted">{t("off")}</span>}</td>
               <td>{(u.maxServers || "∞") + " / " + (u.maxMemoryMB || "∞")}</td>
               <td style={{ whiteSpace: "nowrap" }}>
                 {me.isAdmin && (
-                  <><button onClick={() => toggleAdmin(u)}>{u.isAdmin ? "Demote" : "Make admin"}</button>{" "}</>
+                  <><button onClick={() => toggleAdmin(u)}>{u.isAdmin ? t("Demote") : t("Make admin")}</button>{" "}</>
                 )}
-                {u.twoFactorEnabled && <><button onClick={() => reset2FA(u)}>Reset 2FA</button>{" "}</>}
-                <button className="danger" onClick={() => remove(u)}>Delete</button>
+                {u.twoFactorEnabled && <><button onClick={() => reset2FA(u)}>{t("Reset 2FA")}</button>{" "}</>}
+                <button className="danger" onClick={() => remove(u)}>{t("Delete")}</button>
               </td>
             </tr>
           ))}
@@ -169,22 +171,22 @@ function Users({ me }: { me: User }) {
       </table>
 
       <form onSubmit={add} style={{ marginTop: 12 }}>
-        <h3>New user</h3>
+        <h3>{t("New user")}</h3>
         <div className="grid2">
-          <div><label>Username</label><input value={username} onChange={(e) => setUsername(e.target.value)} required /></div>
-          <div><label>Password</label><input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
+          <div><label>{t("Username")}</label><input value={username} onChange={(e) => setUsername(e.target.value)} required /></div>
+          <div><label>{t("Password")}</label><input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
         </div>
-        <div><label>Email (optional, for password reset)</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@example.com" /></div>
+        <div><label>{t("Email (optional, for password reset)")}</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@example.com" /></div>
         <div className="grid2">
-          <div><label>Max servers (0 = ∞)</label><input type="number" min={0} value={maxServers} onChange={(e) => setMaxServers(Number(e.target.value))} /></div>
-          <div><label>Max memory MB (0 = ∞)</label><input type="number" min={0} value={maxMemoryMB} onChange={(e) => setMaxMemoryMB(Number(e.target.value))} /></div>
+          <div><label>{t("Max servers (0 = ∞)")}</label><input type="number" min={0} value={maxServers} onChange={(e) => setMaxServers(Number(e.target.value))} /></div>
+          <div><label>{t("Max memory MB (0 = ∞)")}</label><input type="number" min={0} value={maxMemoryMB} onChange={(e) => setMaxMemoryMB(Number(e.target.value))} /></div>
         </div>
         {me.isAdmin && (
-          <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />&nbsp;Administrator (superadmin)</label>
+          <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />&nbsp;{t("Administrator (superadmin)")}</label>
         )}
         {error && <div className="error">{error}</div>}
         <button className="primary" style={{ marginTop: 12 }} disabled={busy || !username || !password}>
-          {busy ? "Creating…" : "Create user"}
+          {busy ? t("Creating…") : t("Create user")}
         </button>
       </form>
     </div>
@@ -194,6 +196,7 @@ function Users({ me }: { me: User }) {
 // Roles manages named bundles of admin permissions (superadmin only). Assigning
 // a role to a user happens in the Users card.
 function Roles() {
+  const { t } = useT();
   const [roles, setRoles] = useState<AdminRole[]>([]);
   const [catalog, setCatalog] = useState<AdminPermInfo[]>([]);
   const [error, setError] = useState("");
@@ -256,7 +259,7 @@ function Roles() {
   }
 
   async function remove(r: AdminRole) {
-    if (!window.confirm(`Delete role "${r.name}"?`)) return;
+    if (!window.confirm(t('Delete role "{name}"?', { name: r.name }))) return;
     setError("");
     try {
       await api.deleteAdminRole(r.id);
@@ -269,37 +272,36 @@ function Roles() {
 
   return (
     <div className="card">
-      <h2>Admin roles</h2>
+      <h2>{t("Admin roles")}</h2>
       <p className="muted">
-        Bundles of admin permissions you can assign to users for scoped admin
-        access. Assign a role to a user in the Users card above.
+        {t("Bundles of admin permissions you can assign to users for scoped admin access. Assign a role to a user in the Users card above.")}
       </p>
       <table>
         <thead>
-          <tr><th>Name</th><th>Permissions</th><th></th></tr>
+          <tr><th>{t("Name")}</th><th>{t("Permissions")}</th><th></th></tr>
         </thead>
         <tbody>
           {roles.map((r) => (
             <tr key={r.id}>
               <td>{r.name}{r.description && <div className="muted" style={{ fontSize: 12 }}>{r.description}</div>}</td>
-              <td>{r.permissions.length ? r.permissions.join(", ") : <span className="muted">none</span>}</td>
+              <td>{r.permissions.length ? r.permissions.join(", ") : <span className="muted">{t("none")}</span>}</td>
               <td style={{ whiteSpace: "nowrap" }}>
-                <button onClick={() => startEdit(r)}>Edit</button>{" "}
-                <button className="danger" onClick={() => remove(r)}>Delete</button>
+                <button onClick={() => startEdit(r)}>{t("Edit")}</button>{" "}
+                <button className="danger" onClick={() => remove(r)}>{t("Delete")}</button>
               </td>
             </tr>
           ))}
-          {roles.length === 0 && <tr><td colSpan={3} className="muted">No roles yet.</td></tr>}
+          {roles.length === 0 && <tr><td colSpan={3} className="muted">{t("No roles yet.")}</td></tr>}
         </tbody>
       </table>
 
       <form onSubmit={save} style={{ marginTop: 12 }}>
-        <h3>{editing != null ? "Edit role" : "New role"}</h3>
+        <h3>{editing != null ? t("Edit role") : t("New role")}</h3>
         <div className="grid2">
-          <div><label>Name</label><input value={name} onChange={(e) => setName(e.target.value)} required /></div>
-          <div><label>Description</label><input value={description} onChange={(e) => setDescription(e.target.value)} /></div>
+          <div><label>{t("Name")}</label><input value={name} onChange={(e) => setName(e.target.value)} required /></div>
+          <div><label>{t("Description")}</label><input value={description} onChange={(e) => setDescription(e.target.value)} /></div>
         </div>
-        <label>Permissions</label>
+        <label>{t("Permissions")}</label>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginTop: 4 }}>
           {catalog.map((p) => (
             <label key={p.key} className="row" title={p.description}>
@@ -311,9 +313,9 @@ function Roles() {
         {error && <div className="error">{error}</div>}
         <div className="row" style={{ marginTop: 12 }}>
           <button className="primary" disabled={busy || !name.trim()}>
-            {busy ? "Saving…" : editing != null ? "Save role" : "Create role"}
+            {busy ? t("Saving…") : editing != null ? t("Save role") : t("Create role")}
           </button>
-          {editing != null && <button type="button" onClick={resetForm}>Cancel</button>}
+          {editing != null && <button type="button" onClick={resetForm}>{t("Cancel")}</button>}
         </div>
       </form>
     </div>
@@ -321,6 +323,7 @@ function Roles() {
 }
 
 function EmailSettingsCard() {
+  const { t } = useT();
   const empty: EmailSettingsInput = {
     host: "", port: "", username: "", password: "", from: "", tls: "starttls", publicUrl: "",
   };
@@ -359,7 +362,7 @@ function EmailSettingsCard() {
     setError("");
     try {
       await api.setEmailSettings(form);
-      setMsg("Saved.");
+      setMsg(t("Saved."));
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -373,7 +376,7 @@ function EmailSettingsCard() {
     setError("");
     try {
       await api.testEmail(testTo.trim() || undefined);
-      setMsg("Test email sent.");
+      setMsg(t("Test email sent."));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     }
@@ -381,61 +384,62 @@ function EmailSettingsCard() {
 
   return (
     <div className="card">
-      <h2>Email (SMTP)</h2>
+      <h2>{t("Email (SMTP)")}</h2>
       <p className="muted">
-        Outbound email for self-service password reset.{" "}
-        {configured ? "Currently configured." : "Not configured — password reset is disabled."}
+        {t("Outbound email for self-service password reset.")}{" "}
+        {configured ? t("Currently configured.") : t("Not configured — password reset is disabled.")}
       </p>
       <form onSubmit={save}>
         <div className="grid2">
-          <div><label>SMTP host (blank = disable)</label><input value={form.host} onChange={set("host")} placeholder="smtp.example.com" /></div>
-          <div><label>Port</label><input value={form.port} onChange={set("port")} placeholder="587" /></div>
+          <div><label>{t("SMTP host (blank = disable)")}</label><input value={form.host} onChange={set("host")} placeholder="smtp.example.com" /></div>
+          <div><label>{t("Port")}</label><input value={form.port} onChange={set("port")} placeholder="587" /></div>
         </div>
         <div className="grid2">
-          <div><label>Username</label><input value={form.username} onChange={set("username")} autoComplete="off" /></div>
+          <div><label>{t("Username")}</label><input value={form.username} onChange={set("username")} autoComplete="off" /></div>
           <div>
-            <label>Password</label>
+            <label>{t("Password")}</label>
             <input type="password" value={form.password} onChange={set("password")} autoComplete="new-password"
-              placeholder={hasPassword ? "•••••• (leave blank to keep)" : ""} />
+              placeholder={hasPassword ? t("•••••• (leave blank to keep)") : ""} />
           </div>
         </div>
         <div className="grid2">
-          <div><label>From address</label><input value={form.from} onChange={set("from")} placeholder="quetzal@example.com" /></div>
+          <div><label>{t("From address")}</label><input value={form.from} onChange={set("from")} placeholder="quetzal@example.com" /></div>
           <div>
-            <label>TLS</label>
+            <label>{t("TLS")}</label>
             <select value={form.tls} onChange={set("tls")}>
               <option value="starttls">STARTTLS</option>
-              <option value="tls">Implicit TLS</option>
-              <option value="none">None</option>
+              <option value="tls">{t("Implicit TLS")}</option>
+              <option value="none">{t("None")}</option>
             </select>
           </div>
         </div>
-        <div><label>Panel public URL (for reset links)</label><input value={form.publicUrl} onChange={set("publicUrl")} placeholder="https://quetzal.example.com" /></div>
+        <div><label>{t("Panel public URL (for reset links)")}</label><input value={form.publicUrl} onChange={set("publicUrl")} placeholder="https://quetzal.example.com" /></div>
         {msg && <div className="notice">{msg}</div>}
         {error && <div className="error">{error}</div>}
-        <button className="primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+        <button className="primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? t("Saving…") : t("Save")}</button>
       </form>
       <div className="row" style={{ marginTop: 12 }}>
-        <input value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder="test recipient (or your email)" style={{ flex: 1 }} />
-        <button type="button" onClick={test} disabled={!configured}>Send test email</button>
+        <input value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder={t("test recipient (or your email)")} style={{ flex: 1 }} />
+        <button type="button" onClick={test} disabled={!configured}>{t("Send test email")}</button>
       </div>
     </div>
   );
 }
 
 function GlobalAudit() {
+  const { t } = useT();
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   useEffect(() => {
     api.globalAudit().then(setEntries).catch(() => {});
   }, []);
   return (
     <div className="card">
-      <h2>Activity log</h2>
+      <h2>{t("Activity log")}</h2>
       {entries.length === 0 ? (
-        <p className="muted">No activity yet.</p>
+        <p className="muted">{t("No activity yet.")}</p>
       ) : (
         <table>
-          <thead><tr><th>When</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
+          <thead><tr><th>{t("When")}</th><th>{t("User")}</th><th>{t("Action")}</th><th>{t("Detail")}</th></tr></thead>
           <tbody>
             {entries.map((e) => (
               <tr key={e.id}>

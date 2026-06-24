@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, Cluster, ClusterNode } from "../api";
+import { useT } from "../i18n";
 
 export function Clusters() {
+  const { t } = useT();
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [error, setError] = useState("");
   const [name, setName] = useState("");
@@ -48,7 +50,7 @@ export function Clusters() {
   }
 
   async function remove(c: Cluster) {
-    if (!window.confirm(`Remove cluster "${c.name}"? Servers on it must be deleted first.`)) return;
+    if (!window.confirm(t('Remove cluster "{name}"? Servers on it must be deleted first.', { name: c.name }))) return;
     setError("");
     try {
       await api.deleteCluster(c.id);
@@ -74,32 +76,31 @@ export function Clusters() {
 
   return (
     <div className="card">
-      <h2>Clusters</h2>
+      <h2>{t("Clusters")}</h2>
       <p className="muted">
-        Deploy targets. The local cluster is the one the control plane runs in;
-        add remote clusters by registering their kubeconfig (stored encrypted).
+        {t("Deploy targets. The local cluster is the one the control plane runs in; add remote clusters by registering their kubeconfig (stored encrypted).")}
       </p>
       <table>
         <thead>
-          <tr><th>Name</th><th>Type</th><th>Status</th><th>Nodes</th><th></th></tr>
+          <tr><th>{t("Name")}</th><th>{t("Type")}</th><th>{t("Status")}</th><th>{t("Nodes")}</th><th></th></tr>
         </thead>
         <tbody>
           {clusters.map((c) => (
             <tr key={c.id}>
               <td>{c.name}<div className="muted" style={{ fontSize: 12 }}>{c.slug}</div></td>
-              <td>{c.inCluster ? "local" : "remote"}</td>
+              <td>{c.inCluster ? t("local") : t("remote")}</td>
               <td>
                 <span className={`badge ${c.reachable ? "Running" : "Crashed"}`}>
-                  {c.reachable ? "reachable" : "unreachable"}
+                  {c.reachable ? t("reachable") : t("unreachable")}
                 </span>
                 {c.version && <span className="muted" style={{ fontSize: 12 }}> {c.version}</span>}
                 {c.statusMessage && <div className="muted" style={{ fontSize: 12 }} title={c.statusMessage}>{c.statusMessage.slice(0, 60)}</div>}
               </td>
               <td>{c.nodeCount ?? "—"}</td>
               <td style={{ whiteSpace: "nowrap" }}>
-                <button onClick={() => test(c)}>Test</button>{" "}
-                <button onClick={() => showNodes(c)}>{nodesFor === c.id ? "Hide" : "Nodes"}</button>{" "}
-                {!c.inCluster && <button className="danger" onClick={() => remove(c)}>Remove</button>}
+                <button onClick={() => test(c)}>{t("Test")}</button>{" "}
+                <button onClick={() => showNodes(c)}>{nodesFor === c.id ? t("Hide") : t("Nodes")}</button>{" "}
+                {!c.inCluster && <button className="danger" onClick={() => remove(c)}>{t("Remove")}</button>}
               </td>
             </tr>
           ))}
@@ -109,11 +110,11 @@ export function Clusters() {
       {nodesFor !== null && (
         <table style={{ marginTop: 8 }}>
           <thead>
-            <tr><th>Node</th><th>Ready</th><th>Version</th><th>CPU</th><th>Memory</th><th>IP</th></tr>
+            <tr><th>{t("Node")}</th><th>{t("Ready")}</th><th>{t("Version")}</th><th>{t("CPU")}</th><th>{t("Memory")}</th><th>{t("IP")}</th></tr>
           </thead>
           <tbody>
             {nodes.length === 0 ? (
-              <tr><td colSpan={6} className="muted">No nodes (or not listable).</td></tr>
+              <tr><td colSpan={6} className="muted">{t("No nodes (or not listable).")}</td></tr>
             ) : (
               nodes.map((n) => (
                 <tr key={n.name}>
@@ -131,10 +132,10 @@ export function Clusters() {
       )}
 
       <form onSubmit={add} style={{ marginTop: 12 }}>
-        <h3>Register a remote cluster</h3>
-        <label>Name</label>
+        <h3>{t("Register a remote cluster")}</h3>
+        <label>{t("Name")}</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="edge-1" required />
-        <label>Kubeconfig (YAML)</label>
+        <label>{t("Kubeconfig (YAML)")}</label>
         <textarea
           value={kubeconfig}
           onChange={(e) => setKubeconfig(e.target.value)}
@@ -145,7 +146,7 @@ export function Clusters() {
         />
         {error && <div className="error">{error}</div>}
         <button className="primary" style={{ marginTop: 12 }} disabled={busy || !name || !kubeconfig}>
-          {busy ? "Registering…" : "Register cluster"}
+          {busy ? t("Registering…") : t("Register cluster")}
         </button>
       </form>
     </div>

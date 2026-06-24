@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, Template } from "../api";
+import { useT } from "../i18n";
 
 // Templates is the admin egg catalog: import Pterodactyl/Pelican eggs, browse,
 // edit (as native JSON), export and delete templates.
 export function Templates() {
+  const { t: tr } = useT();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
@@ -29,7 +31,7 @@ export function Templates() {
     try {
       const t = await api.importEgg(importJson);
       setImportJson("");
-      setMsg(`Imported "${t.name}".`);
+      setMsg(tr('Imported "{name}".', { name: t.name }));
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -56,7 +58,7 @@ export function Templates() {
     try {
       await api.updateTemplate(editing.slug, editing.json);
       setEditing(null);
-      setMsg("Template saved.");
+      setMsg(tr("Template saved."));
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -66,7 +68,7 @@ export function Templates() {
   }
 
   async function remove(t: Template) {
-    if (!window.confirm(`Delete template "${t.name}"? (Built-in ones return on restart.)`)) return;
+    if (!window.confirm(tr('Delete template "{name}"? (Built-in ones return on restart.)', { name: t.name }))) return;
     setError("");
     try {
       await api.deleteTemplate(t.slug);
@@ -78,13 +80,13 @@ export function Templates() {
 
   return (
     <div className="card">
-      <h2>Eggs / templates</h2>
-      <p className="muted">The catalog of game/app templates. Import existing Pterodactyl/Pelican eggs, or edit and export your own.</p>
+      <h2>{tr("Eggs / templates")}</h2>
+      <p className="muted">{tr("The catalog of game/app templates. Import existing Pterodactyl/Pelican eggs, or edit and export your own.")}</p>
 
       {templates.length > 0 && (
         <table>
           <thead>
-            <tr><th>Name</th><th>Slug</th><th>Images</th><th>Vars</th><th>Ver</th><th></th></tr>
+            <tr><th>{tr("Name")}</th><th>{tr("Slug")}</th><th>{tr("Images")}</th><th>{tr("Vars")}</th><th>{tr("Ver")}</th><th></th></tr>
           </thead>
           <tbody>
             {templates.map((t) => (
@@ -95,9 +97,9 @@ export function Templates() {
                 <td>{t.variables?.length ?? 0}</td>
                 <td>{t.version ?? "—"}</td>
                 <td style={{ whiteSpace: "nowrap" }}>
-                  <button onClick={() => openEdit(t.slug)}>Edit</button>{" "}
-                  <button type="button" onClick={() => { window.location.href = api.templateExportUrl(t.slug); }}>Export</button>{" "}
-                  <button className="danger" onClick={() => remove(t)}>Delete</button>
+                  <button onClick={() => openEdit(t.slug)}>{tr("Edit")}</button>{" "}
+                  <button type="button" onClick={() => { window.location.href = api.templateExportUrl(t.slug); }}>{tr("Export")}</button>{" "}
+                  <button className="danger" onClick={() => remove(t)}>{tr("Delete")}</button>
                 </td>
               </tr>
             ))}
@@ -107,8 +109,8 @@ export function Templates() {
 
       {editing ? (
         <div style={{ marginTop: 12 }}>
-          <h3>Edit {editing.slug}</h3>
-          <p className="muted">Native template JSON. The slug is fixed; changes bump the version and restart affected servers on the next reconcile.</p>
+          <h3>{tr("Edit {slug}", { slug: editing.slug })}</h3>
+          <p className="muted">{tr("Native template JSON. The slug is fixed; changes bump the version and restart affected servers on the next reconcile.")}</p>
           <textarea
             value={editing.json}
             onChange={(e) => setEditing({ ...editing, json: e.target.value })}
@@ -116,14 +118,14 @@ export function Templates() {
             style={{ width: "100%", minHeight: 280, fontFamily: "monospace" }}
           />
           <div className="row" style={{ marginTop: 8 }}>
-            <button className="primary" onClick={saveEdit} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
-            <button onClick={() => setEditing(null)}>Cancel</button>
+            <button className="primary" onClick={saveEdit} disabled={busy}>{busy ? tr("Saving…") : tr("Save")}</button>
+            <button onClick={() => setEditing(null)}>{tr("Cancel")}</button>
           </div>
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
-          <h3>Import an egg</h3>
-          <p className="muted">Paste a Pterodactyl/Pelican egg JSON. Importing one whose name matches an existing template updates it.</p>
+          <h3>{tr("Import an egg")}</h3>
+          <p className="muted">{tr("Paste a Pterodactyl/Pelican egg JSON. Importing one whose name matches an existing template updates it.")}</p>
           <textarea
             value={importJson}
             onChange={(e) => setImportJson(e.target.value)}
@@ -132,7 +134,7 @@ export function Templates() {
             style={{ width: "100%", minHeight: 160, fontFamily: "monospace" }}
           />
           <button className="primary" style={{ marginTop: 8 }} onClick={doImport} disabled={busy || !importJson.trim()}>
-            {busy ? "Importing…" : "Import egg"}
+            {busy ? tr("Importing…") : tr("Import egg")}
           </button>
         </div>
       )}

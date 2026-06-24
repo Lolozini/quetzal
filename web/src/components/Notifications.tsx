@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, ChannelType, EVENT_TYPES, NotificationChannel } from "../api";
+import { useT } from "../i18n";
 
 type FieldDef = {
   key: string;
@@ -42,6 +43,7 @@ const blankForm = (serverId: number) => ({
 });
 
 export function Notifications({ serverId }: { serverId: number }) {
+  const { t } = useT();
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [form, setForm] = useState(blankForm(serverId));
   const [error, setError] = useState("");
@@ -142,7 +144,7 @@ export function Notifications({ serverId }: { serverId: number }) {
   }
 
   async function remove(c: NotificationChannel) {
-    if (!window.confirm(`Delete notification channel "${c.name}"?`)) return;
+    if (!window.confirm(t('Delete notification channel "{name}"?', { name: c.name }))) return;
     try {
       await api.deleteChannel(c.id);
       await load();
@@ -153,35 +155,35 @@ export function Notifications({ serverId }: { serverId: number }) {
 
   return (
     <div className="card">
-      <h2>Notifications</h2>
+      <h2>{t("Notifications")}</h2>
       <p className="muted">
         {serverId === 0
-          ? "Global channels receive every event (panel and all servers)."
-          : "Channels here receive only this server's events."}
+          ? t("Global channels receive every event (panel and all servers).")
+          : t("Channels here receive only this server's events.")}
       </p>
 
       {channels.length === 0 ? (
-        <p className="muted">No channels yet.</p>
+        <p className="muted">{t("No channels yet.")}</p>
       ) : (
         <table>
           <thead>
-            <tr><th>Name</th><th>Type</th><th>Events</th><th>Status</th><th></th></tr>
+            <tr><th>{t("Name")}</th><th>{t("Type")}</th><th>{t("Events")}</th><th>{t("Status")}</th><th></th></tr>
           </thead>
           <tbody>
             {channels.map((c) => (
               <tr key={c.id}>
                 <td>{c.name}</td>
                 <td><code>{c.type}</code></td>
-                <td>{c.events && c.events.length ? c.events.join(", ") : <span className="muted">all</span>}</td>
+                <td>{c.events && c.events.length ? c.events.join(", ") : <span className="muted">{t("all")}</span>}</td>
                 <td>
-                  {c.enabled ? "enabled" : <span className="muted">disabled</span>}
+                  {c.enabled ? t("enabled") : <span className="muted">{t("disabled")}</span>}
                   {status[c.id] && <div className="muted">{status[c.id]}</div>}
                 </td>
                 <td style={{ whiteSpace: "nowrap" }}>
-                  <button onClick={() => test(c)}>Test</button>{" "}
-                  <button onClick={() => toggle(c)}>{c.enabled ? "Disable" : "Enable"}</button>{" "}
-                  <button onClick={() => edit(c)}>Edit</button>{" "}
-                  <button className="danger" onClick={() => remove(c)}>Delete</button>
+                  <button onClick={() => test(c)}>{t("Test")}</button>{" "}
+                  <button onClick={() => toggle(c)}>{c.enabled ? t("Disable") : t("Enable")}</button>{" "}
+                  <button onClick={() => edit(c)}>{t("Edit")}</button>{" "}
+                  <button className="danger" onClick={() => remove(c)}>{t("Delete")}</button>
                 </td>
               </tr>
             ))}
@@ -190,14 +192,14 @@ export function Notifications({ serverId }: { serverId: number }) {
       )}
 
       <form onSubmit={submit} style={{ marginTop: 12 }}>
-        <h3>{form.id === 0 ? "New channel" : `Edit "${form.name}"`}</h3>
+        <h3>{form.id === 0 ? t("New channel") : t('Edit "{name}"', { name: form.name })}</h3>
         <div className="grid2">
           <div>
-            <label>Name</label>
+            <label>{t("Name")}</label>
             <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
           </div>
           <div>
-            <label>Type</label>
+            <label>{t("Type")}</label>
             <select
               value={form.type}
               disabled={form.id !== 0}
@@ -215,7 +217,7 @@ export function Notifications({ serverId }: { serverId: number }) {
           if (fld.select) {
             return (
               <div key={fld.key}>
-                <label>{fld.label}</label>
+                <label>{t(fld.label)}</label>
                 <select value={form.config[fld.key] ?? fld.select[0]} onChange={(e) => setConfig(fld.key, e.target.value)}>
                   {fld.select.map((o) => <option key={o} value={o}>{o}</option>)}
                 </select>
@@ -224,7 +226,7 @@ export function Notifications({ serverId }: { serverId: number }) {
           }
           return (
             <div key={fld.key}>
-              <label>{fld.label}{fld.secret && configured ? " (configured — leave blank to keep)" : ""}</label>
+              <label>{t(fld.label)}{fld.secret && configured ? t(" (configured — leave blank to keep)") : ""}</label>
               <input
                 type={fld.secret ? "password" : "text"}
                 autoComplete={fld.secret ? "new-password" : "off"}
@@ -236,7 +238,7 @@ export function Notifications({ serverId }: { serverId: number }) {
           );
         })}
 
-        <label style={{ marginTop: 8 }}>Events (none selected = all)</label>
+        <label style={{ marginTop: 8 }}>{t("Events (none selected = all)")}</label>
         <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
           {EVENT_TYPES.map((ev) => (
             <label key={ev} className="row" style={{ gap: 4 }}>
@@ -258,15 +260,15 @@ export function Notifications({ serverId }: { serverId: number }) {
             checked={form.enabled}
             onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
           />
-          &nbsp;Enabled
+          &nbsp;{t("Enabled")}
         </label>
 
         {error && <div className="error">{error}</div>}
         <div className="row" style={{ marginTop: 12 }}>
           <button className="primary" disabled={busy || !form.name}>
-            {busy ? "Saving…" : form.id === 0 ? "Add channel" : "Save changes"}
+            {busy ? t("Saving…") : form.id === 0 ? t("Add channel") : t("Save changes")}
           </button>
-          {form.id !== 0 && <button type="button" onClick={reset}>Cancel</button>}
+          {form.id !== 0 && <button type="button" onClick={reset}>{t("Cancel")}</button>}
         </div>
       </form>
     </div>
