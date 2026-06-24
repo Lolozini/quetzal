@@ -179,16 +179,24 @@ func (m *Manager) processRunning(ctx context.Context) {
 	}
 }
 
-// serverHasPods reports whether any pod (running or terminating) still exists
-// for a server — i.e. whether its data volume may still be mounted.
+// serverHasPods reports whether any pod that mounts the data volume still exists
+// for a server — i.e. whether its data volume may still be mounted. That is the
+// workload pod (ServerLabel) or the offline maintenance pod (MaintLabel); the
+// activator never mounts data, so it is intentionally excluded.
 func serverHasPods(ctx context.Context, cs kubernetes.Interface, ns, slug string) (bool, error) {
-	pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
-		LabelSelector: reconciler.ServerLabel + "=" + slug,
-	})
-	if err != nil {
-		return false, err
+	for _, sel := range []string{
+		reconciler.ServerLabel + "=" + slug,
+		reconciler.MaintLabel + "=" + slug,
+	} {
+		pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
+		if err != nil {
+			return false, err
+		}
+		if len(pods.Items) > 0 {
+			return true, nil
+		}
 	}
-	return len(pods.Items) > 0, nil
+	return false, nil
 }
 
 func ensureSecret(ctx context.Context, cs kubernetes.Interface, sec *corev1.Secret) error {

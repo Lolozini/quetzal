@@ -295,6 +295,8 @@ export const fr: Record<string, string> = {
   Rename: "Renommer",
   Size: "Taille",
   "Empty directory.": "Dossier vide.",
+  "Server is stopped — files are served by a temporary maintenance pod. The first action may take a few seconds while it starts.":
+    "Le serveur est arrêté — les fichiers sont servis par un pod de maintenance temporaire. La première action peut prendre quelques secondes le temps qu'il démarre.",
   Editing: "Édition de",
   "New folder name:": "Nom du nouveau dossier :",
   'Rename "{name}" to:': "Renommer « {name} » en :",

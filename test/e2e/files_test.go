@@ -12,7 +12,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -126,6 +129,107 @@ func TestE2EFiles(t *testing.T) {
 
 	// Delete the directory.
 	mustStatus(t, doFile(t, hc, http.MethodDelete, base+"?path=sub", ""), http.StatusNoContent)
+}
+
+// TestE2EOfflineFiles proves files can be managed while the server is STOPPED:
+// stopping scales the workload to zero (freeing the ReadWriteOnce volume), the
+// file API spins up an ephemeral maintenance pod on demand, offline writes
+// persist to the same volume, and starting the server force-removes the
+// maintenance pod (so it never blocks the real workload's mount).
+func TestE2EOfflineFiles(t *testing.T) {
+	ctx := context.Background()
+	cfg, err := ctrlconfig.GetConfig()
+	if err != nil {
+		t.Fatalf("kube config: %v", err)
+	}
+	crClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	if err != nil {
+		t.Fatalf("ctrl client: %v", err)
+	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		t.Fatalf("clientset: %v", err)
+	}
+	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "offline.db"), Silent: true})
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	if err := st.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := templates.Seed(st); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	rec := reconciler.New(crClient, st)
+
+	ts := httptest.NewServer(api.New(st, cs, cfg).Handler())
+	defer ts.Close()
+	jar, _ := cookiejar.New(nil)
+	hc := &http.Client{Jar: jar}
+	mustStatus(t, doPost(t, hc, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"}), http.StatusCreated)
+
+	var created struct{ ID uint }
+	resp := doPost(t, hc, ts.URL+"/api/servers", map[string]any{"name": "offline e2e", "template": "generic-process", "start": true})
+	mustStatus(t, resp, http.StatusCreated)
+	json.NewDecoder(resp.Body).Decode(&created)
+	t.Cleanup(func() {
+		if srv, err := st.GetServer(created.ID); err == nil {
+			_ = rec.DeleteServer(ctx, srv)
+		}
+	})
+	reconcileUntilRunning(ctx, t, rec, st, created.ID)
+
+	srv, _ := st.GetServer(created.ID)
+	ns := srv.Namespace
+	base := ts.URL + "/api/servers/" + itoa(created.ID) + "/files"
+
+	// Stop the server, then reconcile until its workload pod is gone (the volume
+	// is now free for offline access).
+	mustStatus(t, doPost(t, hc, ts.URL+"/api/servers/"+itoa(created.ID)+"/power", map[string]string{"action": "stop"}), http.StatusOK)
+	if err := wait.PollUntilContextTimeout(ctx, 2*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		_ = rec.ReconcileServer(ctx, created.ID)
+		pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: reconciler.ServerLabel + "=" + srv.Slug})
+		if err != nil {
+			return false, nil
+		}
+		return len(pods.Items) == 0, nil
+	}); err != nil {
+		t.Fatalf("workload pod never terminated after stop: %v", err)
+	}
+
+	// Offline write -> read-back via the on-demand maintenance pod.
+	const content = "offline edit"
+	mustStatus(t, doFile(t, hc, http.MethodPut, base+"/content?path=offline.txt", content), http.StatusNoContent)
+	if got := readBody(t, doFile(t, hc, http.MethodGet, base+"/content?path=offline.txt", "")); got != content {
+		t.Errorf("offline read = %q, want %q", got, content)
+	}
+	// The maintenance pod must exist (and carry the non-workload label).
+	mp, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: reconciler.MaintLabel + "=" + srv.Slug})
+	if err != nil || len(mp.Items) != 1 {
+		t.Fatalf("maintenance pod = %v (err %v), want exactly 1", len(mp.Items), err)
+	}
+	if _, ok := mp.Items[0].Labels[reconciler.ServerLabel]; ok {
+		t.Error("maintenance pod must not carry the workload label")
+	}
+
+	// Start the server again; the reconciler must force-remove the maintenance
+	// pod (releasing the volume) and the workload must reach Running.
+	mustStatus(t, doPost(t, hc, ts.URL+"/api/servers/"+itoa(created.ID)+"/power", map[string]string{"action": "start"}), http.StatusOK)
+	reconcileUntilRunning(ctx, t, rec, st, created.ID)
+	if err := wait.PollUntilContextTimeout(ctx, 2*time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
+		pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: reconciler.MaintLabel + "=" + srv.Slug})
+		if err != nil {
+			return false, nil
+		}
+		return len(pods.Items) == 0, nil
+	}); err != nil {
+		t.Fatalf("maintenance pod not torn down after start: %v", err)
+	}
+
+	// The offline-written file survived the restart (same data volume).
+	if got := readBody(t, doFile(t, hc, http.MethodGet, base+"/content?path=offline.txt", "")); got != content {
+		t.Errorf("post-restart read = %q, want %q", got, content)
+	}
 }
 
 func doFile(t *testing.T, c *http.Client, method, url, body string) *http.Response {

@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"path"
@@ -9,11 +10,15 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
 	"github.com/lolozini/quetzal/internal/console"
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/reconciler"
 )
 
 // File operations run inside the server's running container via the exec
@@ -44,8 +49,21 @@ func jail(root, rel string) string {
 	return path.Join(root, path.Clean("/"+rel))
 }
 
+// maintTTL is the maintenance pod's lifetime backstop, in seconds
+// (activeDeadlineSeconds). Active use transparently recreates it once it
+// expires; the reconciler also tears it down whenever the server starts.
+const maintTTL = 30 * 60
+
+// defaultMaintReadyTimeout bounds how long offline file access waits for the
+// ephemeral maintenance pod to become running (it may need scheduling and an
+// image pull). Overridable via Server.MaintReadyTimeout (e.g. in tests).
+const defaultMaintReadyTimeout = 2 * time.Minute
+
 // fileContext loads the server (requiring the files permission), resolves its
-// data root and target cluster, and finds a running pod. It writes the error
+// data root and target cluster, and finds a pod to operate in. When the server
+// is running it uses the live game container; when it is stopped (Deployment
+// scaled to zero, so the ReadWriteOnce data volume is free) it spins up an
+// ephemeral maintenance pod so files can be managed offline. It writes the error
 // response itself and returns ok=false on any failure.
 func (s *Server) fileContext(w http.ResponseWriter, r *http.Request) (srv *models.Server, root string, cs kubernetes.Interface, cfg *rest.Config, pod string, ok bool) {
 	srv, ok = s.requireServer(w, r, models.PermFiles)
@@ -58,12 +76,140 @@ func (s *Server) fileContext(w http.ResponseWriter, r *http.Request) (srv *model
 		writeError(w, http.StatusServiceUnavailable, "target cluster unavailable: "+err.Error())
 		return nil, "", nil, nil, "", false
 	}
-	pod, running := console.RunningPod(r.Context(), cs, srv.Namespace, srv.Slug)
-	if !running {
-		writeError(w, http.StatusConflict, "server must be running to manage files")
+	// Prefer the live game container.
+	if p, running := console.RunningPod(r.Context(), cs, srv.Namespace, srv.Slug); running {
+		return srv, root, cs, cfg, p, true
+	}
+	// No live workload. If the server is meant to be running but isn't ready yet
+	// (starting/installing/crashing), the data volume is claimed by the workload —
+	// don't fight it for the ReadWriteOnce mount.
+	if srv.Replicas() > 0 {
+		writeError(w, http.StatusConflict, "server is starting; file management is available once it is running or fully stopped")
 		return nil, "", nil, nil, "", false
 	}
-	return srv, root, cs, cfg, pod, true
+	// Server is stopped: manage files via an ephemeral maintenance pod.
+	p, err := s.ensureMaintPod(r.Context(), srv, cs)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "could not prepare offline file access: "+err.Error())
+		return nil, "", nil, nil, "", false
+	}
+	return srv, root, cs, cfg, p, true
+}
+
+// ensureMaintPod returns a running ephemeral maintenance pod for a stopped
+// server, creating one if necessary and waiting for it to be ready. The pod
+// mounts the data volume and carries a non-workload label so the Deployment
+// never adopts it; the reconciler tears it down when the server starts.
+func (s *Server) ensureMaintPod(ctx context.Context, srv *models.Server, cs kubernetes.Interface) (string, error) {
+	tmpl, err := s.Store.GetTemplate(srv.TemplateID)
+	if err != nil {
+		return "", fmt.Errorf("template: %w", err)
+	}
+	pods := cs.CoreV1().Pods(srv.Namespace)
+	existing, err := pods.Get(ctx, reconciler.MaintName, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+		// fall through to create
+	case err != nil:
+		return "", err
+	default:
+		switch existing.Status.Phase {
+		case corev1.PodRunning:
+			if maintContainerRunning(existing) {
+				return existing.Name, nil
+			}
+			return s.waitMaintRunning(ctx, cs, srv.Namespace)
+		case corev1.PodPending:
+			return s.waitMaintRunning(ctx, cs, srv.Namespace)
+		default: // Succeeded/Failed (e.g. TTL expired): replace it.
+			zero := int64(0)
+			_ = pods.Delete(ctx, reconciler.MaintName, metav1.DeleteOptions{GracePeriodSeconds: &zero})
+			if err := s.waitMaintGone(ctx, cs, srv.Namespace); err != nil {
+				return "", err
+			}
+		}
+	}
+	pod := reconciler.BuildMaintenancePod(srv, tmpl, maintTTL)
+	if _, err := pods.Create(ctx, pod, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		return "", err
+	}
+	return s.waitMaintRunning(ctx, cs, srv.Namespace)
+}
+
+// waitMaintRunning polls until the maintenance pod's container is running, or
+// the ready timeout elapses (surfacing the last container waiting reason, e.g.
+// an image pull error, for a useful message).
+func (s *Server) waitMaintRunning(ctx context.Context, cs kubernetes.Interface, ns string) (string, error) {
+	timeout := s.MaintReadyTimeout
+	if timeout <= 0 {
+		timeout = defaultMaintReadyTimeout
+	}
+	deadline := time.Now().Add(timeout)
+	var lastReason string
+	for {
+		p, err := cs.CoreV1().Pods(ns).Get(ctx, reconciler.MaintName, metav1.GetOptions{})
+		if err == nil {
+			if p.Status.Phase == corev1.PodRunning && maintContainerRunning(p) {
+				return p.Name, nil
+			}
+			if p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded {
+				return "", fmt.Errorf("maintenance pod terminated unexpectedly")
+			}
+			if rsn := maintWaitingReason(p); rsn != "" {
+				lastReason = rsn
+			}
+		}
+		if ctx.Err() != nil || time.Now().After(deadline) {
+			if lastReason != "" {
+				return "", fmt.Errorf("timed out waiting for maintenance pod (%s)", lastReason)
+			}
+			return "", fmt.Errorf("timed out waiting for maintenance pod to be ready")
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(750 * time.Millisecond):
+		}
+	}
+}
+
+// waitMaintGone polls until the maintenance pod is fully deleted, so a fresh one
+// can be created under the same name.
+func (s *Server) waitMaintGone(ctx context.Context, cs kubernetes.Interface, ns string) error {
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if _, err := cs.CoreV1().Pods(ns).Get(ctx, reconciler.MaintName, metav1.GetOptions{}); apierrors.IsNotFound(err) {
+			return nil
+		}
+		if ctx.Err() != nil || time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for old maintenance pod to terminate")
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+// maintContainerRunning reports whether the maintenance pod's container (named
+// like the workload, so exec targets it) is actually in the running state.
+func maintContainerRunning(p *corev1.Pod) bool {
+	for _, cs := range p.Status.ContainerStatuses {
+		if cs.Name == reconciler.WorkloadName {
+			return cs.State.Running != nil
+		}
+	}
+	return false
+}
+
+// maintWaitingReason returns the maintenance container's waiting reason, if any
+// (e.g. ImagePullBackOff), to explain a slow or failing start.
+func maintWaitingReason(p *corev1.Pod) string {
+	for _, cs := range p.Status.ContainerStatuses {
+		if cs.Name == reconciler.WorkloadName && cs.State.Waiting != nil {
+			return cs.State.Waiting.Reason
+		}
+	}
+	return ""
 }
 
 // exec runs a command in the server's container with a bounded timeout.

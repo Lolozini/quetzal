@@ -36,10 +36,11 @@ rules:
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Pods + console (logs/attach) and restart/kill (delete).
+  # Pods + console (logs/attach), restart/kill (delete), and the ephemeral
+  # maintenance pod for offline file management (create).
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "watch", "delete", "deletecollection"]
+    verbs: ["get", "list", "watch", "create", "delete", "deletecollection"]
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]

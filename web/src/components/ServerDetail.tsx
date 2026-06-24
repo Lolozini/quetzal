@@ -459,7 +459,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
       </div>
       <Schedules id={id} />
       {canManage && srv && <ServerSettings server={srv} onSaved={setSrv} />}
-      {canManage && <Files id={id} />}
+      {canManage && <Files id={id} offline={["Stopped", "Suspended", "Hibernated"].includes(srv?.status?.phase ?? "")} />}
       {canManage && <SFTPCard id={id} initialEnabled={!!srv?.sftp?.enabled} username={user.username} />}
       {canManage && <Databases serverId={id} />}
       <Backups id={id} />

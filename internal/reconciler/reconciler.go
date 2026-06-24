@@ -99,6 +99,15 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 		}
 	}
 
+	// When the server is meant to be running, remove any ephemeral maintenance
+	// pod first so it releases the (ReadWriteOnce) data volume for the real
+	// workload — otherwise the new server pod would be stuck Pending behind it.
+	if srv.Replicas() > 0 {
+		if err := r.deleteMaintenancePod(ctx, srv.Namespace); err != nil {
+			return fmt.Errorf("maintenance teardown: %w", err)
+		}
+	}
+
 	if err := r.ensureDeployment(ctx, srv, tmpl, secretKeys); err != nil {
 		return fmt.Errorf("deployment: %w", err)
 	}
@@ -230,6 +239,18 @@ func (r *Reconciler) ensureSFTPHostKey(ctx context.Context, s *models.Server) er
 func (r *Reconciler) deleteSFTP(ctx context.Context, s *models.Server) {
 	_ = r.Client.Delete(ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: SFTPServiceName, Namespace: s.Namespace}})
 	_ = r.Client.Delete(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: SFTPAuthKeysConfigMap, Namespace: s.Namespace}})
+}
+
+// deleteMaintenancePod removes a server's ephemeral maintenance pod (used for
+// offline file management). It force-deletes (grace 0) so the ReadWriteOnce data
+// volume is released immediately for the starting workload — the pod just sleeps
+// and holds no state to flush. Best-effort: a missing pod is not an error.
+func (r *Reconciler) deleteMaintenancePod(ctx context.Context, ns string) error {
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: MaintName, Namespace: ns}}
+	if err := r.Client.Delete(ctx, pod, client.GracePeriodSeconds(0)); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
 }
 
 func (r *Reconciler) ensurePVC(ctx context.Context, want *corev1.PersistentVolumeClaim) error {

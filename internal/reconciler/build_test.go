@@ -427,6 +427,51 @@ func TestBuildDeploymentSFTPSidecar(t *testing.T) {
 	}
 }
 
+func TestBuildMaintenancePod(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	pod := BuildMaintenancePod(s, tmpl, 1800)
+
+	if pod.Name != MaintName || pod.Namespace != s.Namespace {
+		t.Fatalf("name/ns = %s/%s", pod.Name, pod.Namespace)
+	}
+	// Must NOT carry the workload label, or the Deployment would adopt and delete it.
+	if _, ok := pod.Labels[ServerLabel]; ok {
+		t.Error("maintenance pod must not carry ServerLabel")
+	}
+	if pod.Labels[MaintLabel] != s.Slug {
+		t.Errorf("maint label = %q, want %q", pod.Labels[MaintLabel], s.Slug)
+	}
+	if pod.Spec.RestartPolicy != corev1.RestartPolicyNever {
+		t.Errorf("restart policy = %v", pod.Spec.RestartPolicy)
+	}
+	if pod.Spec.ActiveDeadlineSeconds == nil || *pod.Spec.ActiveDeadlineSeconds != 1800 {
+		t.Errorf("activeDeadlineSeconds = %v, want 1800", pod.Spec.ActiveDeadlineSeconds)
+	}
+	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken {
+		t.Error("service account token must not be automounted")
+	}
+	if len(pod.Spec.Containers) != 1 {
+		t.Fatalf("containers = %d", len(pod.Spec.Containers))
+	}
+	c := pod.Spec.Containers[0]
+	// Container name must match the workload so console.Exec targets it.
+	if c.Name != WorkloadName {
+		t.Errorf("container name = %q, want %q", c.Name, WorkloadName)
+	}
+	if c.Image != s.Image {
+		t.Errorf("image = %q, want game image %q", c.Image, s.Image)
+	}
+	if len(c.Command) == 0 || c.Command[0] != "sleep" {
+		t.Errorf("command = %v, want sleep keepalive", c.Command)
+	}
+	if len(c.VolumeMounts) != 1 || c.VolumeMounts[0].Name != dataVolume || c.VolumeMounts[0].MountPath != tmpl.DataPath {
+		t.Errorf("volume mount = %+v, want data at %s", c.VolumeMounts, tmpl.DataPath)
+	}
+	if len(pod.Spec.Volumes) != 1 || pod.Spec.Volumes[0].Name != dataVolume {
+		t.Errorf("volumes = %+v, want the data volume", pod.Spec.Volumes)
+	}
+}
+
 func TestBuildSFTPServiceAndAuthKeys(t *testing.T) {
 	s, _ := testServerAndTemplate()
 	svc := BuildSFTPService(s)

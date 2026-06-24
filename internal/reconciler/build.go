@@ -41,6 +41,13 @@ const (
 	ActivatorLabel = "quetzal.dev/activator"
 	// ActivatorName is the activator Deployment's name within a server namespace.
 	ActivatorName = "activator"
+	// MaintLabel marks a server's ephemeral maintenance pod (value = slug). Like
+	// ActivatorLabel it is deliberately distinct from ServerLabel so the real
+	// workload's Deployment never adopts (and then scales away) the maintenance
+	// pod, and so console/status code never mistakes it for the game container.
+	MaintLabel = "quetzal.dev/maint"
+	// MaintName is the maintenance pod's name within a server namespace.
+	MaintName = "maintenance"
 	// WorkloadName is the Deployment/Service name within a server's namespace.
 	WorkloadName = "server"
 	// DataVolume is the name of a server's data PVC/volume.
@@ -208,6 +215,65 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec:       pod,
 			},
+		},
+	}
+}
+
+// BuildMaintenancePod builds an ephemeral pod that mounts a server's data volume
+// so files can be managed while the server itself is stopped (its Deployment is
+// scaled to zero, freeing the ReadWriteOnce volume). It runs the game image, so
+// it has the same tools and runs as the server's own user (preserving file
+// ownership), but only sleeps; file operations exec into it the same way they do
+// the live container (its container is named WorkloadName so console.Exec targets
+// it). It carries MaintLabel (not ServerLabel) so the Deployment never adopts it,
+// and self-terminates after ttlSeconds (activeDeadlineSeconds) as a backstop; the
+// reconciler also removes it whenever the server is meant to be running, so it
+// never blocks the data volume against the real workload.
+func BuildMaintenancePod(s *models.Server, t *models.Template, ttlSeconds int64) *corev1.Pod {
+	dataPath := t.DataPath
+	if dataPath == "" {
+		dataPath = "/data"
+	}
+	no := false
+	deadline := ttlSeconds
+	// `sleep` runs as PID 1 and ignores SIGTERM, so keep the grace period short:
+	// the pod holds no state to flush, and it must release the ReadWriteOnce data
+	// volume promptly when the server starts (the reconciler also force-deletes it).
+	grace := int64(2)
+	return &corev1.Pod{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      MaintName,
+			Namespace: s.Namespace,
+			Labels: map[string]string{
+				managedByLabel: managedByValue,
+				MaintLabel:     s.Slug,
+			},
+		},
+		Spec: corev1.PodSpec{
+			RestartPolicy:                 corev1.RestartPolicyNever,
+			ActiveDeadlineSeconds:         &deadline,
+			TerminationGracePeriodSeconds: &grace,
+			AutomountServiceAccountToken:  &no,
+			SecurityContext:               buildPodSecurityContext(t),
+			NodeSelector:                  s.NodeSelector,
+			Volumes:                       []corev1.Volume{buildDataVolume(s)},
+			Containers: []corev1.Container{{
+				Name:            workloadName,
+				Image:           s.Image,
+				ImagePullPolicy: corev1.PullIfNotPresent,
+				// Idle keepalive; activeDeadlineSeconds bounds the real lifetime.
+				Command:      []string{"sleep", strconv.FormatInt(ttlSeconds+3600, 10)},
+				VolumeMounts: []corev1.VolumeMount{{Name: dataVolume, MountPath: dataPath}},
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("50m"),
+						corev1.ResourceMemory: resource.MustParse("64Mi"),
+					},
+					Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
+				},
+				SecurityContext: buildContainerSecurityContext(t),
+			}},
 		},
 	}
 }

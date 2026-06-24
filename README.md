@@ -100,7 +100,13 @@ Then open the panel and complete the first-run admin setup. See
   delete and download a server's files — including whole folders as `.tar.gz`
   archives, and **uploading an archive (world, modpack or Pterodactyl backup)
   that's extracted into the volume**. Served by exec-ing into the running pod
-  (no sidecar), with paths confined to the data volume.
+  (no sidecar), with paths confined to the data volume. **Works offline too**:
+  when the server is stopped, an ephemeral maintenance pod is started on demand
+  to mount the data volume (the first action takes a few seconds), so you can fix
+  a bad config or drop in a world without starting the server. It carries a
+  non-workload label so the Deployment never adopts it, and the controller
+  force-removes it the moment the server is started again (releasing the
+  ReadWriteOnce volume); a restore is likewise deferred while it is mounted.
 - **SFTP**: opt-in per server — a key-only SFTP sidecar (authenticated by the
   SSH public keys users register in the panel) exposes the data volume over a
   NodePort, running as the server's own user. Access is **lexically confined** to

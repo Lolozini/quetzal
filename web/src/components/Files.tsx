@@ -8,7 +8,7 @@ function join(dir: string, name: string): string {
   return dir ? `${dir}/${name}` : name;
 }
 
-export function Files({ id }: { id: number }) {
+export function Files({ id, offline = false }: { id: number; offline?: boolean }) {
   const { t } = useT();
   const [path, setPath] = useState(""); // relative to the data root
   const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -151,6 +151,12 @@ export function Files({ id }: { id: number }) {
   return (
     <div className="card">
       <h2>{t("Files")}</h2>
+
+      {offline && (
+        <p className="muted" style={{ marginTop: 0 }}>
+          {t("Server is stopped — files are served by a temporary maintenance pod. The first action may take a few seconds while it starts.")}
+        </p>
+      )}
 
       {/* Breadcrumb */}
       <div className="row" style={{ gap: 4, flexWrap: "wrap", alignItems: "center" }}>

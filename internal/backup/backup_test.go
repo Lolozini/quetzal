@@ -1,11 +1,55 @@
 package backup
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
+
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/reconciler"
 )
+
+// TestServerHasPodsDetectsMaintPod guards the RWO-safety invariant: a restore
+// must be deferred while ANY pod mounts the data volume — including the offline
+// maintenance pod, which carries MaintLabel (not ServerLabel). If this check
+// missed it, a restore could run concurrently with the maintenance pod and
+// corrupt the volume.
+func TestServerHasPodsDetectsMaintPod(t *testing.T) {
+	const ns, slug = "quetzal-srv-s1", "s1"
+	mkPod := func(name, labelKey string) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name: name, Namespace: ns, Labels: map[string]string{labelKey: slug},
+		}}
+	}
+
+	// Only the maintenance pod present -> must report true.
+	cs := fake.NewSimpleClientset(mkPod("maintenance", reconciler.MaintLabel))
+	if has, err := serverHasPods(context.Background(), cs, ns, slug); err != nil || !has {
+		t.Fatalf("maint-only: has=%v err=%v, want true", has, err)
+	}
+
+	// Only the workload pod present -> true (existing behavior).
+	cs = fake.NewSimpleClientset(mkPod("server-abc", reconciler.ServerLabel))
+	if has, err := serverHasPods(context.Background(), cs, ns, slug); err != nil || !has {
+		t.Fatalf("workload-only: has=%v err=%v, want true", has, err)
+	}
+
+	// Only an activator pod (does not mount data) -> false.
+	cs = fake.NewSimpleClientset(mkPod("activator-xyz", reconciler.ActivatorLabel))
+	if has, err := serverHasPods(context.Background(), cs, ns, slug); err != nil || has {
+		t.Fatalf("activator-only: has=%v err=%v, want false", has, err)
+	}
+
+	// Nothing -> false.
+	cs = fake.NewSimpleClientset()
+	if has, err := serverHasPods(context.Background(), cs, ns, slug); err != nil || has {
+		t.Fatalf("empty: has=%v err=%v, want false", has, err)
+	}
+}
 
 func TestRepository(t *testing.T) {
 	cfg := &models.BackupConfig{Endpoint: "minio.minio.svc:9000", Bucket: "quetzal", Prefix: "/games/", UseSSL: false}
