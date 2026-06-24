@@ -311,6 +311,29 @@ func TestNoOverlap(t *testing.T) {
 	}
 }
 
+// panicExec panics on the configured action to exercise the goroutine's panic
+// guard (a detached chain must not crash the controller).
+type panicExec struct{ mockExec }
+
+func (p *panicExec) Stop(context.Context, *models.Server) error { panic("kaboom") }
+
+func TestChainPanicIsRecovered(t *testing.T) {
+	st := testStore(t)
+	srv := &models.Server{Slug: "s", Namespace: "ns", DesiredState: models.StateRunning}
+	_ = st.CreateServer(srv)
+	past := time.Now().Add(-time.Minute)
+	sc := &models.Schedule{ServerID: srv.ID, Name: "boom", Cron: "* * * * *", Action: models.SchedStop, Enabled: true, NextRun: &past}
+	_ = st.CreateSchedule(sc)
+
+	// If the panic escaped the goroutine, the test process would crash.
+	runTick(New(st, &panicExec{}), context.Background())
+
+	got, _ := st.GetSchedule(sc.ID)
+	if !strings.Contains(got.LastStatus, "panic") {
+		t.Errorf("status = %q, want it to record the panic", got.LastStatus)
+	}
+}
+
 func TestTickRemovesOrphanSchedule(t *testing.T) {
 	st := testStore(t)
 	past := time.Now().Add(-time.Minute)

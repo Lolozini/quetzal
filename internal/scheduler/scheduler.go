@@ -108,6 +108,15 @@ func (s *Scheduler) Tick(ctx context.Context) {
 		go func() {
 			defer s.wg.Done()
 			defer s.release(scCopy.ID)
+			// Isolate a panicking task: a chain runs detached, so an unrecovered
+			// panic here would take down the whole controller (and all
+			// reconciliation) rather than just failing this schedule.
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("scheduler: chain %d panicked: %v", scCopy.ID, r)
+					_ = s.Store.MarkScheduleResult(scCopy.ID, now, fmt.Sprintf("error: panic: %v", r))
+				}
+			}()
 			status := s.runChain(ctx, &scCopy)
 			if err := s.Store.MarkScheduleResult(scCopy.ID, now, status); err != nil {
 				log.Printf("scheduler: mark result %d: %v", scCopy.ID, err)
