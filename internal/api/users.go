@@ -102,11 +102,13 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	// The admin-status field is superadmin territory: a scoped users-admin may
-	// manage regular users but must not touch existing admins or grant/revoke
-	// admin status (which would let them escalate their own access).
+	// Admin accounts are superadmin territory: a scoped users-admin may manage
+	// regular users but must not touch any account with admin standing (a
+	// superadmin OR a scoped admin) — otherwise resetting that account's
+	// password would let them log in as it and escalate. They also can't grant
+	// admin status.
 	if caller := userFrom(r.Context()); !caller.IsAdmin {
-		if target.IsAdmin {
+		if target.IsAdmin || target.AdminRoleID != nil {
 			writeError(w, http.StatusForbidden, "only a superadmin can modify an admin account")
 			return
 		}
@@ -170,8 +172,9 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "cannot delete your own account")
 		return
 	}
-	// A scoped users-admin can't delete admin accounts (privilege boundary).
-	if target.IsAdmin && (me == nil || !me.IsAdmin) {
+	// A scoped users-admin can't delete admin accounts of any kind (privilege
+	// boundary): superadmins or scoped admins.
+	if (target.IsAdmin || target.AdminRoleID != nil) && (me == nil || !me.IsAdmin) {
 		writeError(w, http.StatusForbidden, "only a superadmin can delete an admin account")
 		return
 	}

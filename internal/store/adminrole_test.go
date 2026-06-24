@@ -81,6 +81,40 @@ func TestSuperadminResolvesAllPerms(t *testing.T) {
 	}
 }
 
+func TestPromoteToSuperadminClearsRole(t *testing.T) {
+	s := newTestStore(t)
+	role := &models.AdminRole{Name: "settings", Permissions: []string{models.AdminPermSettings}}
+	if err := s.CreateAdminRole(role); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	u := &models.User{Username: "p", PasswordHash: "x"}
+	if err := s.CreateUser(u); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	if err := s.SetUserAdminRole(u.ID, &role.ID); err != nil {
+		t.Fatalf("assign: %v", err)
+	}
+
+	// Promote to superadmin: the leftover role must be cleared so it can't
+	// resurface on a later demotion.
+	if err := s.UpdateUserAdminFields(u.ID, true, 0, 0, 0); err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	got, _ := s.GetUser(u.ID)
+	if got.AdminRoleID != nil {
+		t.Errorf("AdminRoleID = %v after promote, want nil", *got.AdminRoleID)
+	}
+
+	// Demote: the user is now a plain user, not a resurrected scoped admin.
+	if err := s.UpdateUserAdminFields(u.ID, false, 0, 0, 0); err != nil {
+		t.Fatalf("demote: %v", err)
+	}
+	got, _ = s.GetUser(u.ID)
+	if got.IsAnyAdmin() {
+		t.Errorf("demoted user still has admin standing: isAdmin=%v perms=%v", got.IsAdmin, got.AdminPerms)
+	}
+}
+
 func TestCountUsersByAdminRole(t *testing.T) {
 	s := newTestStore(t)
 	role := &models.AdminRole{Name: "ops"}

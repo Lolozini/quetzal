@@ -143,6 +143,21 @@ func TestUsersAdminCannotEscalate(t *testing.T) {
 	if r := setUserRole(t, uma, srv.URL, regID, &roleID); r.StatusCode != http.StatusForbidden {
 		t.Errorf("users-admin assign role = %d, want 403", r.StatusCode)
 	}
+
+	// Cannot touch a SCOPED admin either: resetting that account's password
+	// would let uma log in as it and inherit its permissions. Give a victim the
+	// settings role and confirm uma can neither reset its password nor delete it.
+	settingsRole := createRole(t, admin, srv.URL, "settings-only", []string{models.AdminPermSettings})
+	createUser(t, admin, srv.URL, map[string]any{"username": "vic", "password": "vicpw1234"})
+	vicID := userID(t, admin, srv.URL, "vic")
+	setUserRole(t, admin, srv.URL, vicID, &settingsRole)
+	if r := doPatch(t, uma, srv.URL+"/api/users/"+itoa(vicID), map[string]any{"password": "hijacked1"}); r.StatusCode != http.StatusForbidden {
+		t.Errorf("users-admin reset scoped-admin password = %d, want 403", r.StatusCode)
+	}
+	delVic, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/users/"+itoa(vicID), nil)
+	if dr, _ := uma.Do(delVic); dr.StatusCode != http.StatusForbidden {
+		t.Errorf("users-admin delete scoped admin = %d, want 403", dr.StatusCode)
+	}
 }
 
 func TestServersAdminScopeSeesAllServers(t *testing.T) {

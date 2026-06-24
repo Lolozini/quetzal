@@ -52,8 +52,9 @@ function Users({ me }: { me: User }) {
   function roleLabel(u: User): string {
     if (u.isAdmin) return "superadmin";
     if (u.adminRoleId != null) {
+      // roles are only loaded for superadmins; fall back to a generic label.
       const r = roles.find((x) => x.id === u.adminRoleId);
-      return r ? `admin: ${r.name}` : "admin: (role removed)";
+      return r ? `admin: ${r.name}` : "scoped admin";
     }
     return "user";
   }

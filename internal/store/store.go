@@ -723,11 +723,16 @@ func (s *Store) ListUsers() ([]models.User, error) {
 
 // UpdateUserAdminFields persists admin-editable fields (role + quotas).
 func (s *Store) UpdateUserAdminFields(id uint, isAdmin bool, maxServers int, maxMemoryMB, maxCPUMilli int64) error {
-	return s.db.Model(&models.User{}).Where("id = ?", id).
-		Updates(map[string]any{
-			"is_admin": isAdmin, "max_servers": maxServers,
-			"max_memory_mb": maxMemoryMB, "max_cpu_milli": maxCPUMilli,
-		}).Error
+	fields := map[string]any{
+		"is_admin": isAdmin, "max_servers": maxServers,
+		"max_memory_mb": maxMemoryMB, "max_cpu_milli": maxCPUMilli,
+	}
+	// A superadmin and a scoped role are mutually exclusive: promoting clears
+	// any leftover role so it can't silently resurface on a later demotion.
+	if isAdmin {
+		fields["admin_role_id"] = nil
+	}
+	return s.db.Model(&models.User{}).Where("id = ?", id).Updates(fields).Error
 }
 
 // UpdateUserPassword sets a new password hash.
