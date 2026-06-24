@@ -69,11 +69,12 @@ function Chart({ label, value, points, color }: { label: string; value: string; 
 }
 
 function DiskBar({ used, total }: { used: number; total: number }) {
+  const { t } = useT();
   const pct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
   return (
     <div className="chart">
       <div className="chart-head">
-        <span className="muted">Disk</span>
+        <span className="muted">{t("Disk")}</span>
         <strong>{`${formatMem(used)} / ${formatMem(total)} (${pct.toFixed(0)}%)`}</strong>
       </div>
       <div className="diskbar-track">
@@ -84,10 +85,11 @@ function DiskBar({ used, total }: { used: number; total: number }) {
 }
 
 function StatsPanel({ stats, history, statsMsg }: { stats: ServerStats | null; history: Sample[]; statsMsg: string }) {
+  const { t } = useT();
   if (!stats) {
     return (
       <div className="kv">
-        <span className="k">Resources</span>
+        <span className="k">{t("Resources")}</span>
         <span>{statsMsg || "—"}</span>
       </div>
     );
@@ -113,19 +115,19 @@ function StatsPanel({ stats, history, statsMsg }: { stats: ServerStats | null; h
   return (
     <div className="charts">
       <Chart
-        label="CPU"
+        label={t("CPU")}
         value={`${stats.cpuMillicores}m${stats.cpuLimit ? ` / ${stats.cpuLimit}` : ""}`}
         points={history.map((s) => s.cpu)}
         color="var(--accent)"
       />
       <Chart
-        label="Memory"
+        label={t("Memory")}
         value={`${formatMem(stats.memoryBytes)}${stats.memoryLimit ? ` / ${stats.memoryLimit}` : ""}`}
         points={history.map((s) => s.mem)}
         color="var(--accent-2)"
       />
-      {hasNet && <Chart label="Net in" value={formatRate(rxRate[rxRate.length - 1] ?? 0)} points={rxRate} color="#3fb950" />}
-      {hasNet && <Chart label="Net out" value={formatRate(txRate[txRate.length - 1] ?? 0)} points={txRate} color="#d29922" />}
+      {hasNet && <Chart label={t("Net in")} value={formatRate(rxRate[rxRate.length - 1] ?? 0)} points={rxRate} color="#3fb950" />}
+      {hasNet && <Chart label={t("Net out")} value={formatRate(txRate[txRate.length - 1] ?? 0)} points={txRate} color="#d29922" />}
       {stats.diskTotalBytes ? <DiskBar used={stats.diskUsedBytes ?? 0} total={stats.diskTotalBytes} /> : null}
     </div>
   );
@@ -274,9 +276,9 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
   if (!srv) {
     return (
       <div className="card">
-        <button onClick={onBack}>← Back</button>
+        <button onClick={onBack}>← {t("Back")}</button>
         {error && <div className="error">{error}</div>}
-        <p className="muted">Loading…</p>
+        <p className="muted">{t("Loading…")}</p>
       </div>
     );
   }
@@ -315,7 +317,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
         )}
         {srv.status.address && (
           <div className="kv">
-            <span className="k">Connect</span>
+            <span className="k">{t("Connect")}</span>
             <span>
               <code>{srv.status.address}</code>
             </span>
@@ -400,7 +402,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
         )}
         {canManage && hasPorts && (
           <div className="kv" style={{ marginTop: 12 }}>
-            <span className="k">Hibernation</span>
+            <span className="k">{t("Hibernation")}</span>
             <span>
               <label className="row" style={{ width: "auto" }}>
                 <input
@@ -409,7 +411,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
                   checked={!!srv.hibernation?.enabled}
                   onChange={(e) => saveHib({ enabled: e.target.checked })}
                 />
-                &nbsp;auto-sleep when idle after&nbsp;
+                &nbsp;{t("auto-sleep when idle after")}&nbsp;
               </label>
               <input
                 type="number"
@@ -418,7 +420,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
                 value={srv.hibernation?.idleMinutes || 15}
                 onChange={(e) => saveHib({ idleMinutes: Number(e.target.value) })}
               />
-              &nbsp;min
+              &nbsp;{t("min")}
               {srv.hibernation?.enabled && (
                 <>
                   {tcpOnly && (
@@ -430,7 +432,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
                         disabled={!!srv.hibernation?.proxy}
                         onChange={(e) => saveHib({ wakeOnConnect: e.target.checked })}
                       />
-                      &nbsp;wake when a player connects (TCP)
+                      &nbsp;{t("wake when a player connects (TCP)")}
                     </label>
                   )}
                   <label className="row" style={{ width: "auto", marginTop: 4 }}>
@@ -440,11 +442,11 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
                       checked={!!srv.hibernation?.proxy}
                       onChange={(e) => saveHib({ proxy: e.target.checked })}
                     />
-                    &nbsp;transparent proxy (TCP+UDP, no reconnect)
+                    &nbsp;{t("transparent proxy (TCP+UDP, no reconnect)")}
                   </label>
                   {!tcpOnly && !srv.hibernation?.proxy && (
                     <div className="error" style={{ fontSize: 12 }}>
-                      UDP servers need the transparent proxy to auto-sleep.
+                      {t("UDP servers need the transparent proxy to auto-sleep.")}
                     </div>
                   )}
                 </>
@@ -472,6 +474,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
 }
 
 function SFTPCard({ id, initialEnabled, username }: { id: number; initialEnabled: boolean; username: string }) {
+  const { t } = useT();
   const [enabled, setEnabled] = useState(initialEnabled);
   const [port, setPort] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -509,24 +512,23 @@ function SFTPCard({ id, initialEnabled, username }: { id: number; initialEnabled
     <div className="card">
       <h2>SFTP</h2>
       <p className="muted">
-        Access this server's files over SFTP using an SSH key from your{" "}
-        <strong>Account → SSH keys</strong>. Available while the server is running.
+        {t("Access this server's files over SFTP using an SSH key from your Account → SSH keys. Available while the server is running.")}
       </p>
       <label className="row">
         <input type="checkbox" style={{ width: "auto" }} checked={enabled} disabled={busy} onChange={toggle} />
-        &nbsp;Enable SFTP
+        &nbsp;{t("Enable SFTP")}
       </label>
       {enabled && (
         <div style={{ marginTop: 8 }}>
-          <div className="kv"><span className="k">Port</span><span>{port > 0 ? port : "provisioning…"}</span></div>
-          <div className="kv"><span className="k">Username</span><span>{username}</span></div>
+          <div className="kv"><span className="k">{t("Port")}</span><span>{port > 0 ? port : t("provisioning…")}</span></div>
+          <div className="kv"><span className="k">{t("Username")}</span><span>{username}</span></div>
           {port > 0 && (
             <div className="kv">
-              <span className="k">Connect</span>
+              <span className="k">{t("Connect")}</span>
               <code>sftp -P {port} {username}@&lt;node-ip&gt;</code>
             </div>
           )}
-          <button onClick={refresh} style={{ marginTop: 8 }}>Refresh</button>
+          <button onClick={refresh} style={{ marginTop: 8 }}>{t("Refresh")}</button>
         </div>
       )}
       {error && <div className="error">{error}</div>}
@@ -535,21 +537,22 @@ function SFTPCard({ id, initialEnabled, username }: { id: number; initialEnabled
 }
 
 function ServerAudit({ id }: { id: number }) {
+  const { t } = useT();
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   useEffect(() => {
     const load = () => api.serverAudit(id).then(setEntries).catch(() => {});
     load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
+    const iv = setInterval(load, 5000);
+    return () => clearInterval(iv);
   }, [id]);
   return (
     <div className="card">
-      <h3>Activity</h3>
+      <h3>{t("Activity")}</h3>
       {entries.length === 0 ? (
-        <p className="muted">No activity yet.</p>
+        <p className="muted">{t("No activity yet.")}</p>
       ) : (
         <table>
-          <thead><tr><th>When</th><th>User</th><th>Action</th><th>Detail</th></tr></thead>
+          <thead><tr><th>{t("When")}</th><th>{t("User")}</th><th>{t("Action")}</th><th>{t("Detail")}</th></tr></thead>
           <tbody>
             {entries.map((e) => (
               <tr key={e.id}>

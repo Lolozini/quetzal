@@ -21,6 +21,7 @@ export function Account({ user }: { user: User }) {
 }
 
 function TwoFactor({ initialEnabled, username }: { initialEnabled: boolean; username: string }) {
+  const { t } = useT();
   const [enabled, setEnabled] = useState(initialEnabled);
   const [enroll, setEnroll] = useState<{ secret: string; uri: string } | null>(null);
   const [recovery, setRecovery] = useState<string[] | null>(null);
@@ -84,58 +85,58 @@ function TwoFactor({ initialEnabled, username }: { initialEnabled: boolean; user
 
   return (
     <div className="card">
-      <h2>Two-factor authentication</h2>
+      <h2>{t("Two-factor authentication")}</h2>
 
       {recovery && (
         <div className="notice">
-          <strong>Save your recovery codes now — they are shown only once.</strong>
-          <p className="muted">Each code works once if you lose your authenticator.</p>
+          <strong>{t("Save your recovery codes now — they are shown only once.")}</strong>
+          <p className="muted">{t("Each code works once if you lose your authenticator.")}</p>
           <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{recovery.join("\n")}</pre>
-          <button onClick={() => setRecovery(null)}>I've saved them</button>
+          <button onClick={() => setRecovery(null)}>{t("I've saved them")}</button>
         </div>
       )}
 
       {!recovery && enabled && !disabling && (
         <>
-          <p>2FA is <strong>enabled</strong> on your account.</p>
-          <button className="danger" onClick={() => { setError(""); setDisabling(true); }}>Disable 2FA</button>
+          <p>{t("2FA is enabled on your account.")}</p>
+          <button className="danger" onClick={() => { setError(""); setDisabling(true); }}>{t("Disable 2FA")}</button>
         </>
       )}
 
       {!recovery && enabled && disabling && (
         <div>
-          <p className="muted">Confirm with a current code (or a recovery code) to disable.</p>
-          <label>Code</label>
+          <p className="muted">{t("Confirm with a current code (or a recovery code) to disable.")}</p>
+          <label>{t("Code")}</label>
           <input value={code} autoComplete="one-time-code" onChange={(e) => setCode(e.target.value)} />
           <div className="row" style={{ marginTop: 12 }}>
-            <button className="danger" disabled={busy || !code} onClick={disable}>Confirm disable</button>
-            <button onClick={() => { setDisabling(false); setCode(""); setError(""); }}>Cancel</button>
+            <button className="danger" disabled={busy || !code} onClick={disable}>{t("Confirm disable")}</button>
+            <button onClick={() => { setDisabling(false); setCode(""); setError(""); }}>{t("Cancel")}</button>
           </div>
         </div>
       )}
 
       {!recovery && !enabled && !enroll && (
         <>
-          <p className="muted">Protect your account with a time-based one-time password (TOTP).</p>
-          <button className="primary" disabled={busy} onClick={begin}>Enable 2FA</button>
+          <p className="muted">{t("Protect your account with a time-based one-time password (TOTP).")}</p>
+          <button className="primary" disabled={busy} onClick={begin}>{t("Enable 2FA")}</button>
         </>
       )}
 
       {!recovery && !enabled && enroll && (
         <div>
           <p className="muted">
-            Add this account to your authenticator app, then enter the current code to confirm.
+            {t("Add this account to your authenticator app, then enter the current code to confirm.")}
           </p>
-          <div className="kv"><span className="k">Account</span><span>{username}</span></div>
-          <label>Setup key (manual entry)</label>
+          <div className="kv"><span className="k">{t("Account")}</span><span>{username}</span></div>
+          <label>{t("Setup key (manual entry)")}</label>
           <code style={{ display: "block", wordBreak: "break-all", marginBottom: 8 }}>{enroll.secret}</code>
-          <label>otpauth URI (scan or paste)</label>
+          <label>{t("otpauth URI (scan or paste)")}</label>
           <code style={{ display: "block", wordBreak: "break-all" }}>{enroll.uri}</code>
-          <label style={{ marginTop: 12 }}>Verification code</label>
+          <label style={{ marginTop: 12 }}>{t("Verification code")}</label>
           <input value={code} autoComplete="one-time-code" onChange={(e) => setCode(e.target.value)} />
           <div className="row" style={{ marginTop: 12 }}>
-            <button className="primary" disabled={busy || !code} onClick={confirm}>Confirm &amp; enable</button>
-            <button onClick={() => { setEnroll(null); setCode(""); setError(""); }}>Cancel</button>
+            <button className="primary" disabled={busy || !code} onClick={confirm}>{t("Confirm & enable")}</button>
+            <button onClick={() => { setEnroll(null); setCode(""); setError(""); }}>{t("Cancel")}</button>
           </div>
         </div>
       )}
@@ -146,6 +147,7 @@ function TwoFactor({ initialEnabled, username }: { initialEnabled: boolean; user
 }
 
 function EmailCard({ initial }: { initial: string }) {
+  const { t } = useT();
   const [email, setEmail] = useState(initial);
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
@@ -162,7 +164,7 @@ function EmailCard({ initial }: { initial: string }) {
     try {
       const u = await api.setMyEmail(email.trim());
       setEmail(u.email || "");
-      setMsg("Email saved.");
+      setMsg(t("Email saved."));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     }
@@ -170,10 +172,10 @@ function EmailCard({ initial }: { initial: string }) {
 
   return (
     <div className="card">
-      <h2>Email</h2>
-      <p className="muted">Used for self-service password reset. Optional and not verified.</p>
+      <h2>{t("Email")}</h2>
+      <p className="muted">{t("Used for self-service password reset. Optional and not verified.")}</p>
       <form onSubmit={submit}>
-        <label>Email address</label>
+        <label>{t("Email address")}</label>
         <input
           type="email"
           value={email}
@@ -182,7 +184,7 @@ function EmailCard({ initial }: { initial: string }) {
         />
         {msg && <div className="notice">{msg}</div>}
         {error && <div className="error">{error}</div>}
-        <button className="primary" style={{ marginTop: 12 }}>Save email</button>
+        <button className="primary" style={{ marginTop: 12 }}>{t("Save email")}</button>
       </form>
     </div>
   );
@@ -226,6 +228,7 @@ function ChangePassword() {
 }
 
 function SSHKeys() {
+  const { t } = useT();
   const [keys, setKeys] = useState<SSHKey[]>([]);
   const [name, setName] = useState("");
   const [pub, setPub] = useState("");
@@ -256,38 +259,38 @@ function SSHKeys() {
   }
 
   async function remove(k: SSHKey) {
-    if (!window.confirm(`Delete SSH key "${k.name}"?`)) return;
+    if (!window.confirm(t('Delete SSH key "{name}"?', { name: k.name }))) return;
     await api.deleteSSHKey(k.id).catch((e) => setError(String(e)));
     await load();
   }
 
   return (
     <div className="card">
-      <h2>SSH keys</h2>
+      <h2>{t("SSH keys")}</h2>
       <p className="muted">
-        Public keys authorized for SFTP access to servers you can manage files on.
+        {t("Public keys authorized for SFTP access to servers you can manage files on.")}
       </p>
       {keys.length === 0 ? (
-        <p className="muted">No SSH keys.</p>
+        <p className="muted">{t("No SSH keys.")}</p>
       ) : (
         <table>
-          <thead><tr><th>Name</th><th>Fingerprint</th><th></th></tr></thead>
+          <thead><tr><th>{t("Name")}</th><th>{t("Fingerprint")}</th><th></th></tr></thead>
           <tbody>
             {keys.map((k) => (
               <tr key={k.id}>
                 <td>{k.name}</td>
                 <td><code style={{ fontSize: 12 }}>{k.fingerprint}</code></td>
-                <td><button className="danger" onClick={() => remove(k)}>Delete</button></td>
+                <td><button className="danger" onClick={() => remove(k)}>{t("Delete")}</button></td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
       <form onSubmit={add} style={{ marginTop: 12 }}>
-        <h3>Add a key</h3>
-        <label>Name (optional)</label>
-        <input value={name} placeholder="laptop" onChange={(e) => setName(e.target.value)} />
-        <label>Public key</label>
+        <h3>{t("Add a key")}</h3>
+        <label>{t("Name (optional)")}</label>
+        <input value={name} placeholder={t("laptop")} onChange={(e) => setName(e.target.value)} />
+        <label>{t("Public key")}</label>
         <textarea
           value={pub}
           onChange={(e) => setPub(e.target.value)}
@@ -296,13 +299,14 @@ function SSHKeys() {
           style={{ width: "100%", minHeight: 70, fontFamily: "monospace" }}
         />
         {error && <div className="error">{error}</div>}
-        <button className="primary" style={{ marginTop: 8 }} disabled={!pub.trim()}>Add key</button>
+        <button className="primary" style={{ marginTop: 8 }} disabled={!pub.trim()}>{t("Add key")}</button>
       </form>
     </div>
   );
 }
 
 function APIKeys() {
+  const { t } = useT();
   const [keys, setKeys] = useState<APIKey[]>([]);
   const [name, setName] = useState("");
   const [fresh, setFresh] = useState("");
@@ -333,42 +337,42 @@ function APIKeys() {
   }
 
   async function remove(k: APIKey) {
-    if (!window.confirm(`Revoke API key "${k.name}"?`)) return;
+    if (!window.confirm(t('Revoke API key "{name}"?', { name: k.name }))) return;
     await api.deleteAPIKey(k.id).catch((e) => setError(String(e)));
     await load();
   }
 
   return (
     <div className="card">
-      <h2>API keys</h2>
+      <h2>{t("API keys")}</h2>
       <p className="muted">
-        Use as a bearer token: <code>Authorization: Bearer &lt;token&gt;</code>. A key inherits your permissions.
+        {t("Use as a bearer token:")} <code>Authorization: Bearer &lt;token&gt;</code>. {t("A key inherits your permissions.")}
       </p>
       {fresh && (
         <div className="notice">
-          New token (shown once — copy it now): <code style={{ wordBreak: "break-all" }}>{fresh}</code>
+          {t("New token (shown once — copy it now):")} <code style={{ wordBreak: "break-all" }}>{fresh}</code>
         </div>
       )}
       {keys.length === 0 ? (
-        <p className="muted">No API keys.</p>
+        <p className="muted">{t("No API keys.")}</p>
       ) : (
         <table>
-          <thead><tr><th>Name</th><th>Prefix</th><th>Last used</th><th></th></tr></thead>
+          <thead><tr><th>{t("Name")}</th><th>{t("Prefix")}</th><th>{t("Last used")}</th><th></th></tr></thead>
           <tbody>
             {keys.map((k) => (
               <tr key={k.id}>
                 <td>{k.name}</td>
                 <td><code>{k.prefix}…</code></td>
-                <td>{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : "never"}</td>
-                <td><button className="danger" onClick={() => remove(k)}>Revoke</button></td>
+                <td>{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : t("never")}</td>
+                <td><button className="danger" onClick={() => remove(k)}>{t("Revoke")}</button></td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
       <form onSubmit={create} className="row" style={{ marginTop: 12 }}>
-        <input value={name} placeholder="key name (e.g. ci)" onChange={(e) => setName(e.target.value)} required />
-        <button className="primary" disabled={!name}>Create key</button>
+        <input value={name} placeholder={t("key name (e.g. ci)")} onChange={(e) => setName(e.target.value)} required />
+        <button className="primary" disabled={!name}>{t("Create key")}</button>
       </form>
       {error && <div className="error">{error}</div>}
     </div>
