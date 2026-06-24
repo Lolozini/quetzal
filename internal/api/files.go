@@ -87,6 +87,15 @@ func (s *Server) fileContext(w http.ResponseWriter, r *http.Request) (srv *model
 		writeError(w, http.StatusConflict, "server is starting; file management is available once it is running or fully stopped")
 		return nil, "", nil, nil, "", false
 	}
+	// Suspension is an admin-enforced freeze: owners and subusers lose file
+	// access just like power (matching Pterodactyl). Admins may still inspect the
+	// files (e.g. to investigate why it was suspended).
+	if srv.DesiredState == models.StateSuspended {
+		if u := userFrom(r.Context()); u == nil || !u.HasAdminPerm(models.AdminPermServers) {
+			writeError(w, http.StatusForbidden, "server is suspended")
+			return nil, "", nil, nil, "", false
+		}
+	}
 	// Server is stopped: manage files via an ephemeral maintenance pod.
 	p, err := s.ensureMaintPod(r.Context(), srv, cs)
 	if err != nil {

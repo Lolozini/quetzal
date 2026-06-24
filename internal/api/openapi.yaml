@@ -783,6 +783,7 @@ paths:
                     name: { type: string }
                     size: { type: integer, format: int64 }
                     dir: { type: boolean }
+        "403": { description: Server is suspended (owners/subusers are blocked; admins may still inspect) }
         "409": { description: Server is mid-start (not yet running and not fully stopped); retry once it settles }
     delete:
       tags: [Files]
