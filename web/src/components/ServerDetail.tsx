@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, AuditEntry, Cluster, ExposeType, hasAdminPerm, PowerAction, Server, ServerStats, User } from "../api";
+import { useT } from "../i18n";
 import { Access } from "./Access";
 import { Backups } from "./Backups";
 import { Console } from "./Console";
@@ -131,6 +132,7 @@ function StatsPanel({ stats, history, statsMsg }: { stats: ServerStats | null; h
 }
 
 export function ServerDetail({ id, user, onBack }: { id: number; user: User; onBack: () => void }) {
+  const { t } = useT();
   const [srv, setSrv] = useState<Server | null>(null);
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [stats, setStats] = useState<ServerStats | null>(null);
@@ -283,31 +285,31 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
     <>
       <div className="card">
         <div className="row">
-          <button onClick={onBack}>← Back</button>
+          <button onClick={onBack}>← {t("Back")}</button>
           <div className="spacer" />
           <button className="danger" onClick={remove}>
-            Delete
+            {t("Delete")}
           </button>
         </div>
         <h2>
           {srv.displayName}{" "}
-          <span className={`badge ${srv.status.phase}`}>{srv.status.phase}</span>
+          <span className={`badge ${srv.status.phase}`}>{t(srv.status.phase)}</span>
         </h2>
         <div className="kv">
-          <span className="k">Desired state</span>
-          <span>{srv.desiredState}</span>
+          <span className="k">{t("Desired state")}</span>
+          <span>{t(srv.desiredState)}</span>
         </div>
         <div className="kv">
-          <span className="k">Image</span>
+          <span className="k">{t("Image")}</span>
           <span>{srv.image}</span>
         </div>
         <div className="kv">
-          <span className="k">Namespace</span>
+          <span className="k">{t("Namespace")}</span>
           <span>{srv.namespace}</span>
         </div>
         {clusterName(srv.clusterId) && (
           <div className="kv">
-            <span className="k">Cluster</span>
+            <span className="k">{t("Cluster")}</span>
             <span>{clusterName(srv.clusterId)}</span>
           </div>
         )}
@@ -320,12 +322,12 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
           </div>
         )}
         <div className="kv">
-          <span className="k">Endpoints</span>
+          <span className="k">{t("Endpoints")}</span>
           <span>{(srv.status.endpoints || []).join(", ") || "—"}</span>
         </div>
         {srv.ports && srv.ports.length > 0 && (
           <div className="kv">
-            <span className="k">Exposure</span>
+            <span className="k">{t("Exposure")}</span>
             <span>
               <select
                 value={srv.expose?.type || "ClusterIP"}
@@ -341,51 +343,54 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
         <StatsPanel stats={stats} history={history} statsMsg={statsMsg} />
         {srv.status.message && (
           <div className="kv">
-            <span className="k">Message</span>
+            <span className="k">{t("Message")}</span>
             <span>{srv.status.message}</span>
           </div>
         )}
         {srv.transfer && (
           <div className="notice" style={{ marginTop: 12 }}>
-            Transferring to {clusters.find((c) => c.id === srv.transfer!.targetCluster)?.name || `cluster ${srv.transfer.targetCluster}`} ({srv.transfer.phase})… power and edits are paused until it finishes.
+            {t("Transferring to {cluster} ({phase})… power and edits are paused until it finishes.", {
+              cluster: clusters.find((c) => c.id === srv.transfer!.targetCluster)?.name || `cluster ${srv.transfer.targetCluster}`,
+              phase: srv.transfer.phase,
+            })}
           </div>
         )}
         <div className="row" style={{ marginTop: 12 }}>
           <button className="primary" disabled={busy !== "" || transferring} onClick={() => power("start")}>
-            {busy === "start" ? "Starting…" : "Start"}
+            {busy === "start" ? t("Starting…") : t("Start")}
           </button>
           <button disabled={busy !== "" || transferring} onClick={() => power("stop")}>
-            {busy === "stop" ? "Stopping…" : "Stop"}
+            {busy === "stop" ? t("Stopping…") : t("Stop")}
           </button>
           <button disabled={busy !== "" || transferring} onClick={() => power("restart")}>
-            {busy === "restart" ? "Restarting…" : "Restart"}
+            {busy === "restart" ? t("Restarting…") : t("Restart")}
           </button>
           <button className="danger" disabled={busy !== "" || transferring} onClick={() => power("kill")}>
-            {busy === "kill" ? "Killing…" : "Kill"}
+            {busy === "kill" ? t("Killing…") : t("Kill")}
           </button>
           {srv.hibernated && (
-            <button className="primary" disabled={busy !== "" || transferring} onClick={() => power("start")}>Wake</button>
+            <button className="primary" disabled={busy !== "" || transferring} onClick={() => power("start")}>{t("Wake")}</button>
           )}
           {hasAdminPerm(user, "servers") && (
             <>
               <div className="spacer" />
               {srv.desiredState === "Suspended" ? (
-                <button onClick={() => suspend(false)}>Unsuspend</button>
+                <button onClick={() => suspend(false)}>{t("Unsuspend")}</button>
               ) : (
-                <button className="danger" disabled={transferring} onClick={() => suspend(true)}>Suspend</button>
+                <button className="danger" disabled={transferring} onClick={() => suspend(true)}>{t("Suspend")}</button>
               )}
             </>
           )}
         </div>
         {hasAdminPerm(user, "servers") && clusters.length > 1 && !srv.transfer && (
           <div className="kv" style={{ marginTop: 12 }}>
-            <span className="k">Transfer</span>
+            <span className="k">{t("Transfer")}</span>
             <span>
               <select
                 defaultValue=""
                 onChange={(e) => { const v = Number(e.target.value); e.currentTarget.value = ""; if (v) transfer(v); }}
               >
-                <option value="">move to another cluster…</option>
+                <option value="">{t("move to another cluster…")}</option>
                 {clusters.filter((c) => c.id !== (srv.clusterId || 0)).map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}

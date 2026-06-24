@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, Cluster, CreateServerRequest, ExposeType, Template } from "../api";
+import { useT } from "../i18n";
 
 export function CreateServer({
   onDone,
@@ -8,6 +9,7 @@ export function CreateServer({
   onDone: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useT();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [tplSlug, setTplSlug] = useState("");
   const [name, setName] = useState("");
@@ -101,12 +103,12 @@ export function CreateServer({
   return (
     <div className="card">
       <div className="row">
-        <h2>New server</h2>
+        <h2>{t("New server")}</h2>
         <div className="spacer" />
-        <button onClick={onCancel}>Cancel</button>
+        <button onClick={onCancel}>{t("Cancel")}</button>
       </div>
       <form onSubmit={submit}>
-        <label>Template</label>
+        <label>{t("Template")}</label>
         <select
           value={tplSlug}
           onChange={(e) => {
@@ -124,7 +126,7 @@ export function CreateServer({
 
         {clusters.length > 1 && (
           <>
-            <label>Cluster</label>
+            <label>{t("Cluster")}</label>
             <select value={cluster} onChange={(e) => setCluster(e.target.value)}>
               {clusters.map((c) => (
                 <option key={c.id} value={c.slug} disabled={!c.reachable}>
@@ -137,10 +139,10 @@ export function CreateServer({
           </>
         )}
 
-        <label>Name</label>
+        <label>{t("Name")}</label>
         <input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
 
-        <label>Image</label>
+        <label>{t("Image")}</label>
         <select value={image} onChange={(e) => setImage(e.target.value)}>
           {tpl?.images.map((i) => (
             <option key={i.ref} value={i.ref}>
@@ -151,15 +153,15 @@ export function CreateServer({
 
         <div className="grid2">
           <div>
-            <label>Memory limit</label>
+            <label>{t("Memory limit")}</label>
             <input
               value={memory}
-              placeholder="e.g. 4Gi (optional)"
+              placeholder={t("e.g. 4Gi (optional)")}
               onChange={(e) => setMemory(e.target.value)}
             />
           </div>
           <div>
-            <label>Storage</label>
+            <label>{t("Storage")}</label>
             <select value={storageType} onChange={(e) => setStorageType(e.target.value)}>
               <option value="pvc">PVC (storageClass)</option>
               <option value="hostPath">hostPath</option>
@@ -169,12 +171,12 @@ export function CreateServer({
 
         {storageType === "pvc" ? (
           <>
-            <label>Volume size</label>
+            <label>{t("Volume size")}</label>
             <input value={size} onChange={(e) => setSize(e.target.value)} />
           </>
         ) : (
           <>
-            <label>Host path</label>
+            <label>{t("Host path")}</label>
             <input
               value={hostPath}
               placeholder="/srv/games/..."
@@ -185,7 +187,7 @@ export function CreateServer({
 
         {tpl?.ports && tpl.ports.length > 0 && (
           <>
-            <label>Network exposure</label>
+            <label>{t("Network exposure")}</label>
             <select value={expose} onChange={(e) => setExpose(e.target.value as ExposeType)}>
               <option value="ClusterIP">ClusterIP (in-cluster only)</option>
               <option value="NodePort">NodePort (node IP : allocated port)</option>
@@ -247,7 +249,7 @@ export function CreateServer({
 
         {editable.length > 0 && (
           <>
-            <h3 style={{ marginTop: 16 }}>Variables</h3>
+            <h3 style={{ marginTop: 16 }}>{t("Variables")}</h3>
             {editable.map((v) => (
               <div key={v.envVariable}>
                 <label>
@@ -298,7 +300,7 @@ export function CreateServer({
             checked={start}
             onChange={(e) => setStart(e.target.checked)}
           />
-          &nbsp;Start immediately
+          &nbsp;{t("Start immediately")}
         </label>
 
         {error && <div className="error">{error}</div>}
@@ -307,7 +309,7 @@ export function CreateServer({
           style={{ marginTop: 16 }}
           disabled={busy || !name || !tplSlug}
         >
-          {busy ? "Creating…" : "Create server"}
+          {busy ? t("Creating…") : t("Create server")}
         </button>
       </form>
     </div>

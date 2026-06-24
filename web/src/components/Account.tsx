@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, APIKey, ApiError, SSHKey, User } from "../api";
+import { useT } from "../i18n";
 
 export function Account({ user }: { user: User }) {
+  const { t } = useT();
   return (
     <>
       <ChangePassword />
@@ -10,9 +12,9 @@ export function Account({ user }: { user: User }) {
       <SSHKeys />
       <APIKeys />
       <div className="card">
-        <h3>Account</h3>
-        <div className="kv"><span className="k">Username</span><span>{user.username}</span></div>
-        <div className="kv"><span className="k">Role</span><span>{user.isAdmin ? "administrator" : user.adminPerms?.length ? `scoped admin (${user.adminPerms.join(", ")})` : "user"}</span></div>
+        <h3>{t("Account")}</h3>
+        <div className="kv"><span className="k">{t("Username")}</span><span>{user.username}</span></div>
+        <div className="kv"><span className="k">{t("Role")}</span><span>{user.isAdmin ? t("administrator") : user.adminPerms?.length ? t("scoped admin ({perms})", { perms: user.adminPerms.join(", ") }) : t("user")}</span></div>
       </div>
     </>
   );
@@ -187,6 +189,7 @@ function EmailCard({ initial }: { initial: string }) {
 }
 
 function ChangePassword() {
+  const { t } = useT();
   const [oldPassword, setOld] = useState("");
   const [newPassword, setNew] = useState("");
   const [msg, setMsg] = useState("");
@@ -200,7 +203,7 @@ function ChangePassword() {
       await api.changePassword(oldPassword, newPassword);
       setOld("");
       setNew("");
-      setMsg("Password changed.");
+      setMsg(t("Password changed."));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     }
@@ -208,15 +211,15 @@ function ChangePassword() {
 
   return (
     <div className="card">
-      <h2>Change password</h2>
+      <h2>{t("Change password")}</h2>
       <form onSubmit={submit}>
-        <label>Current password</label>
+        <label>{t("Current password")}</label>
         <input type="password" autoComplete="current-password" value={oldPassword} onChange={(e) => setOld(e.target.value)} required />
-        <label>New password</label>
+        <label>{t("New password")}</label>
         <input type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNew(e.target.value)} required />
         {msg && <div className="notice">{msg}</div>}
         {error && <div className="error">{error}</div>}
-        <button className="primary" style={{ marginTop: 12 }} disabled={!oldPassword || !newPassword}>Update password</button>
+        <button className="primary" style={{ marginTop: 12 }} disabled={!oldPassword || !newPassword}>{t("Update password")}</button>
       </form>
     </div>
   );

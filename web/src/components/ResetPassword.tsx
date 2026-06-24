@@ -1,9 +1,11 @@
 import { FormEvent, useState } from "react";
 import { api, ApiError } from "../api";
+import { useT } from "../i18n";
 
 // ResetPassword is shown when the app loads with a #reset=<token> link from a
 // password-reset email. On success it returns to the login screen.
 export function ResetPassword({ token, onDone }: { token: string; onDone: () => void }) {
+  const { t } = useT();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
@@ -14,11 +16,11 @@ export function ResetPassword({ token, onDone }: { token: string; onDone: () => 
     e.preventDefault();
     setError("");
     if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+      setError(t("Password must be at least 8 characters."));
       return;
     }
     if (password !== confirm) {
-      setError("Passwords don't match.");
+      setError(t("Passwords don't match."));
       return;
     }
     setBusy(true);
@@ -40,15 +42,15 @@ export function ResetPassword({ token, onDone }: { token: string; onDone: () => 
         </h1>
         {done ? (
           <>
-            <p className="muted">Your password has been reset.</p>
+            <p className="muted">{t("Your password has been reset.")}</p>
             <button type="button" className="primary" style={{ marginTop: 16, width: "100%" }} onClick={onDone}>
-              Back to sign in
+              {t("Back to sign in")}
             </button>
           </>
         ) : (
           <>
-            <p className="muted">Choose a new password</p>
-            <label>New password</label>
+            <p className="muted">{t("Choose a new password")}</p>
+            <label>{t("New password")}</label>
             <input
               type="password"
               autoComplete="new-password"
@@ -56,7 +58,7 @@ export function ResetPassword({ token, onDone }: { token: string; onDone: () => 
               onChange={(e) => setPassword(e.target.value)}
               autoFocus
             />
-            <label>Confirm password</label>
+            <label>{t("Confirm password")}</label>
             <input
               type="password"
               autoComplete="new-password"
@@ -65,7 +67,7 @@ export function ResetPassword({ token, onDone }: { token: string; onDone: () => 
             />
             {error && <div className="error">{error}</div>}
             <button className="primary" style={{ marginTop: 16, width: "100%" }} disabled={busy}>
-              {busy ? "…" : "Reset password"}
+              {busy ? "…" : t("Reset password")}
             </button>
             <button
               type="button"
@@ -73,7 +75,7 @@ export function ResetPassword({ token, onDone }: { token: string; onDone: () => 
               style={{ marginTop: 8, width: "100%" }}
               onClick={onDone}
             >
-              Cancel
+              {t("Cancel")}
             </button>
           </>
         )}

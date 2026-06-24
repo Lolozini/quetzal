@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { api, ApiError, User } from "../api";
+import { LangSwitcher, useT } from "../i18n";
 
 export function Auth({
   setupNeeded,
@@ -8,6 +9,7 @@ export function Auth({
   setupNeeded: boolean;
   onAuthed: (u: User) => void;
 }) {
+  const { t } = useT();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
@@ -51,16 +53,16 @@ export function Auth({
         </h1>
         <p className="muted">
           {setupNeeded
-            ? "Create the admin account"
+            ? t("Create the admin account")
             : twoFactor
-              ? "Enter your authentication code"
-              : "Sign in to continue"}
+              ? t("Enter your authentication code")
+              : t("Sign in to continue")}
         </p>
         {!twoFactor && (
           <>
-            <label>Username</label>
+            <label>{t("Username")}</label>
             <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
-            <label>Password</label>
+            <label>{t("Password")}</label>
             <input
               type="password"
               value={password}
@@ -68,7 +70,7 @@ export function Auth({
             />
             {setupNeeded && (
               <>
-                <label>Email (optional, for password reset)</label>
+                <label>{t("Email (optional, for password reset)")}</label>
                 <input
                   type="email"
                   value={email}
@@ -81,27 +83,30 @@ export function Auth({
         )}
         {twoFactor && (
           <>
-            <label>Authentication code</label>
+            <label>{t("Authentication code")}</label>
             <input
               value={code}
               onChange={(e) => setCode(e.target.value)}
               autoFocus
               autoComplete="one-time-code"
               inputMode="text"
-              placeholder="6-digit code or recovery code"
+              placeholder={t("6-digit code or recovery code")}
             />
-            <p className="muted">From your authenticator app, or a recovery code.</p>
+            <p className="muted">{t("From your authenticator app, or a recovery code.")}</p>
           </>
         )}
         {error && <div className="error">{error}</div>}
         <button className="primary" style={{ marginTop: 16, width: "100%" }} disabled={busy}>
-          {busy ? "…" : setupNeeded ? "Create admin" : twoFactor ? "Verify" : "Sign in"}
+          {busy ? "…" : setupNeeded ? t("Create admin") : twoFactor ? t("Verify") : t("Sign in")}
         </button>
         {!setupNeeded && !twoFactor && (
           <button type="button" className="link" style={{ marginTop: 8, width: "100%" }} onClick={() => setForgot(true)}>
-            Forgot password?
+            {t("Forgot password?")}
           </button>
         )}
+        <div className="row" style={{ marginTop: 12, justifyContent: "center" }}>
+          <LangSwitcher />
+        </div>
       </form>
     </div>
   );
@@ -110,6 +115,7 @@ export function Auth({
 // Forgot asks for an identifier and requests a reset email. The response is
 // intentionally uniform (it never reveals whether the account exists).
 function Forgot({ onBack }: { onBack: () => void }) {
+  const { t } = useT();
   const [identifier, setIdentifier] = useState("");
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -135,21 +141,20 @@ function Forgot({ onBack }: { onBack: () => void }) {
         </h1>
         {sent ? (
           <p className="muted">
-            If an account with that username or email exists and email is configured, a reset
-            link is on its way.
+            {t("If an account with that username or email exists and email is configured, a reset link is on its way.")}
           </p>
         ) : (
           <>
-            <p className="muted">Reset your password</p>
-            <label>Username or email</label>
+            <p className="muted">{t("Reset your password")}</p>
+            <label>{t("Username or email")}</label>
             <input value={identifier} onChange={(e) => setIdentifier(e.target.value)} autoFocus />
             <button className="primary" style={{ marginTop: 16, width: "100%" }} disabled={busy || !identifier.trim()}>
-              {busy ? "…" : "Send reset link"}
+              {busy ? "…" : t("Send reset link")}
             </button>
           </>
         )}
         <button type="button" className="link" style={{ marginTop: 8, width: "100%" }} onClick={onBack}>
-          Back to sign in
+          {t("Back to sign in")}
         </button>
       </form>
     </div>

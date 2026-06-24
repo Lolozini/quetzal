@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { api, User } from "./api";
+import { useT } from "./i18n";
 import { Auth } from "./components/Auth";
 import { ResetPassword } from "./components/ResetPassword";
 import { Dashboard } from "./components/Dashboard";
 
 export function App() {
+  const { t } = useT();
   const [loading, setLoading] = useState(true);
   const [setupNeeded, setSetupNeeded] = useState(false);
   const [user, setUser] = useState<User | null>(null);
@@ -51,7 +53,7 @@ export function App() {
     );
   }
 
-  if (loading) return <div className="center muted">Loading…</div>;
+  if (loading) return <div className="center muted">{t("Loading…")}</div>;
 
   if (!user) {
     return (

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { User, isAnyAdmin } from "../api";
+import { LangSwitcher, useT } from "../i18n";
 import { ServerList } from "./ServerList";
 import { CreateServer } from "./CreateServer";
 import { ServerDetail } from "./ServerDetail";
@@ -15,6 +16,7 @@ type View =
 
 export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [view, setView] = useState<View>({ name: "list" });
+  const { t } = useT();
 
   return (
     <>
@@ -23,14 +25,15 @@ export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void
           Quetz<span>al</span>
         </div>
         <div className="row">
-          <button onClick={() => setView({ name: "list" })}>Servers</button>
-          {isAnyAdmin(user) && <button onClick={() => setView({ name: "admin" })}>Admin</button>}
-          <button onClick={() => setView({ name: "account" })}>Account</button>
+          <button onClick={() => setView({ name: "list" })}>{t("Servers")}</button>
+          {isAnyAdmin(user) && <button onClick={() => setView({ name: "admin" })}>{t("Admin")}</button>}
+          <button onClick={() => setView({ name: "account" })}>{t("Account")}</button>
           <span className="muted">
             {user.username}
-            {user.isAdmin ? " (admin)" : isAnyAdmin(user) ? " (scoped admin)" : ""}
+            {user.isAdmin ? ` ${t("(admin)")}` : isAnyAdmin(user) ? ` ${t("(scoped admin)")}` : ""}
           </span>
-          <button onClick={onLogout}>Logout</button>
+          <LangSwitcher />
+          <button onClick={onLogout}>{t("Logout")}</button>
         </div>
       </div>
       <div className="container">

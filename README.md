@@ -141,6 +141,12 @@ Then open the panel and complete the first-run admin setup. See
   securityContext, no ServiceAccount token mounted into game pods, a per-namespace
   ResourceQuota, secrets kept out of the DB in clear text; brute-force rate
   limiting on login/2FA and CSRF protection on the API.
+- **Internationalized UI**: a dependency-free i18n layer with a language picker
+  (persisted, browser-detected). Translation keys are the English source strings,
+  so English always renders and a locale is just an override dictionary — adding
+  a language is one file. Ships English + French; the core flows (sign-in,
+  navigation, server list/create, server controls, account) are translated and
+  coverage extends by wrapping a string in `t()`.
 - **Self-hostable & generic**: nothing hardcoded to a specific homelab — SQLite
   by default (Postgres optional), storageClass *or* hostPath, MIT licensed.
 
