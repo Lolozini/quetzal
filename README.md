@@ -55,8 +55,12 @@ Then open the panel and complete the first-run admin setup. See
 - **Per-server observability**: live CPU/memory from metrics-server plus
   network throughput and disk usage (read from the pod), shown as rolling
   time-series charts in the UI; plus Prometheus `/metrics` for the panel itself.
-- **Scheduled tasks**: cron schedules per server (start / stop / restart /
-  console command / backup), run by the leader controller.
+- **Scheduled tasks**: cron schedules per server, run by the leader controller.
+  Each schedule is an ordered **task chain** (start / stop / restart / console
+  command / backup) with a per-task delay and continue-on-failure flag — e.g.
+  *warn players → wait 30s → stop → backup → start*. Chains run asynchronously so
+  a delay never blocks reconciliation, never overlap themselves, and a power task
+  still won't lift an admin suspension.
 - **Backups & restore**: per-server data backup/restore to any S3-compatible
   target via restic (encryption, dedup, retention) — one-shot Jobs, no sidecar;
   credentials stored encrypted. Deleting a server can keep or destroy its data.

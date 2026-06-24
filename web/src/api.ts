@@ -258,12 +258,20 @@ export interface ServerStats {
 
 export type ScheduleAction = "start" | "stop" | "restart" | "command" | "backup";
 
+export interface ScheduleTask {
+  action: ScheduleAction;
+  payload?: string;
+  timeOffset: number; // seconds to wait before this task
+  continueOnFailure?: boolean;
+}
+
 export interface Schedule {
   id: number;
   serverId: number;
   name: string;
   cron: string;
-  action: ScheduleAction;
+  tasks?: ScheduleTask[];
+  action?: ScheduleAction; // legacy mirror of the first task
   payload?: string;
   enabled: boolean;
   nextRun?: string;
@@ -274,8 +282,7 @@ export interface Schedule {
 export interface ScheduleInput {
   name: string;
   cron: string;
-  action: ScheduleAction;
-  payload?: string;
+  tasks: ScheduleTask[];
   enabled: boolean;
 }
 

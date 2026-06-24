@@ -1806,6 +1806,18 @@ components:
         ports:
           type: array
           items: { $ref: "#/components/schemas/Port" }
+    ScheduleTask:
+      type: object
+      required: [action]
+      properties:
+        action: { type: string, enum: [start, stop, restart, command, backup] }
+        payload: { type: string, description: "Console command (required for action=command)" }
+        timeOffset:
+          type: integer
+          description: "Seconds to wait before this task (after the previous one). Max 86400."
+        continueOnFailure:
+          type: boolean
+          description: "If true, a failure here doesn't abort the rest of the chain"
     Schedule:
       type: object
       properties:
@@ -1813,18 +1825,31 @@ components:
         serverId: { type: integer }
         name: { type: string }
         cron: { type: string }
-        action: { type: string, enum: [start, stop, restart, command, backup] }
-        payload: { type: string }
+        tasks:
+          type: array
+          items: { $ref: "#/components/schemas/ScheduleTask" }
+        action:
+          type: string
+          enum: [start, stop, restart, command, backup]
+          description: "Legacy mirror of the first task, for older clients"
+        payload: { type: string, description: "Legacy mirror of the first task's payload" }
         enabled: { type: boolean }
         nextRun: { type: string, format: date-time }
         lastRun: { type: string, format: date-time }
         lastStatus: { type: string }
     ScheduleInput:
       type: object
-      required: [name, cron, action, enabled]
+      required: [name, cron, enabled]
+      description: >
+        Provide `tasks` (an ordered chain). For backward compatibility a single
+        `action`/`payload` with no `tasks` is also accepted and normalized into a
+        one-task chain.
       properties:
         name: { type: string }
         cron: { type: string }
+        tasks:
+          type: array
+          items: { $ref: "#/components/schemas/ScheduleTask" }
         action: { type: string, enum: [start, stop, restart, command, backup] }
         payload: { type: string }
         enabled: { type: boolean }

@@ -1,15 +1,26 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, Schedule, ScheduleAction, ScheduleInput } from "../api";
+import { api, ApiError, Schedule, ScheduleAction, ScheduleInput, ScheduleTask } from "../api";
 
 const ACTIONS: ScheduleAction[] = ["start", "stop", "restart", "command", "backup"];
+
+// chainOf normalizes a schedule into its task list (legacy single-action
+// schedules carry action/payload instead of tasks).
+function chainOf(s: Schedule): ScheduleTask[] {
+  if (s.tasks && s.tasks.length) return s.tasks;
+  if (s.action) return [{ action: s.action, payload: s.payload, timeOffset: 0 }];
+  return [];
+}
+
+function newTask(): ScheduleTask {
+  return { action: "restart", timeOffset: 0 };
+}
 
 export function Schedules({ id }: { id: number }) {
   const [list, setList] = useState<Schedule[]>([]);
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [cron, setCron] = useState("0 5 * * *");
-  const [action, setAction] = useState<ScheduleAction>("restart");
-  const [payload, setPayload] = useState("");
+  const [tasks, setTasks] = useState<ScheduleTask[]>([newTask()]);
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -25,15 +36,31 @@ export function Schedules({ id }: { id: number }) {
     return () => clearInterval(t);
   }, [id]);
 
+  function patchTask(i: number, patch: Partial<ScheduleTask>) {
+    setTasks((ts) => ts.map((t, j) => (j === i ? { ...t, ...patch } : t)));
+  }
+  function addTask() {
+    setTasks((ts) => [...ts, newTask()]);
+  }
+  function removeTask(i: number) {
+    setTasks((ts) => (ts.length > 1 ? ts.filter((_, j) => j !== i) : ts));
+  }
+
   async function add(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError("");
     try {
-      const body: ScheduleInput = { name, cron, action, payload: action === "command" ? payload : undefined, enabled: true };
+      const clean = tasks.map((t) => ({
+        action: t.action,
+        payload: t.action === "command" ? t.payload : undefined,
+        timeOffset: Number(t.timeOffset) || 0,
+        continueOnFailure: t.continueOnFailure || undefined,
+      }));
+      const body: ScheduleInput = { name, cron, tasks: clean, enabled: true };
       await api.createSchedule(id, body);
       setName("");
-      setPayload("");
+      setTasks([newTask()]);
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -45,9 +72,7 @@ export function Schedules({ id }: { id: number }) {
   async function toggle(s: Schedule) {
     setError("");
     try {
-      await api.updateSchedule(id, s.id, {
-        name: s.name, cron: s.cron, action: s.action, payload: s.payload, enabled: !s.enabled,
-      });
+      await api.updateSchedule(id, s.id, { name: s.name, cron: s.cron, tasks: chainOf(s), enabled: !s.enabled });
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -75,7 +100,7 @@ export function Schedules({ id }: { id: number }) {
             <tr>
               <th>Name</th>
               <th>Cron</th>
-              <th>Action</th>
+              <th>Tasks</th>
               <th>Next run</th>
               <th>Last</th>
               <th></th>
@@ -86,7 +111,7 @@ export function Schedules({ id }: { id: number }) {
               <tr key={s.id}>
                 <td>{s.name}</td>
                 <td><code>{s.cron}</code></td>
-                <td>{s.action}{s.action === "command" && s.payload ? `: ${s.payload}` : ""}</td>
+                <td><TaskChain tasks={chainOf(s)} /></td>
                 <td>{s.enabled ? fmt(s.nextRun) : "—"}</td>
                 <td title={s.lastStatus}>{s.lastRun ? fmt(s.lastRun) : "never"}</td>
                 <td style={{ whiteSpace: "nowrap" }}>
@@ -110,26 +135,70 @@ export function Schedules({ id }: { id: number }) {
             <input value={cron} onChange={(e) => setCron(e.target.value)} required placeholder="0 5 * * *" />
           </div>
         </div>
-        <div className="grid2">
-          <div>
-            <label>Action</label>
-            <select value={action} onChange={(e) => setAction(e.target.value as ScheduleAction)}>
+
+        <label style={{ marginTop: 8 }}>Tasks (run in order)</label>
+        {tasks.map((t, i) => (
+          <div key={i} className="row" style={{ gap: 6, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
+            <span className="muted" style={{ width: 18 }}>{i + 1}.</span>
+            <select value={t.action} onChange={(e) => patchTask(i, { action: e.target.value as ScheduleAction })} style={{ width: "auto" }}>
               {ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
+            {t.action === "command" && (
+              <input
+                value={t.payload || ""}
+                onChange={(e) => patchTask(i, { payload: e.target.value })}
+                placeholder="say restarting soon"
+                style={{ flex: 1, minWidth: 160 }}
+              />
+            )}
+            {i > 0 && (
+              <label className="row" style={{ gap: 2, whiteSpace: "nowrap" }} title="Seconds to wait after the previous task">
+                wait
+                <input
+                  type="number"
+                  min={0}
+                  value={t.timeOffset}
+                  onChange={(e) => patchTask(i, { timeOffset: Number(e.target.value) })}
+                  style={{ width: 72 }}
+                />
+                s
+              </label>
+            )}
+            <label className="row" style={{ gap: 2, whiteSpace: "nowrap" }} title="Keep going even if this task fails">
+              <input type="checkbox" style={{ width: "auto" }} checked={!!t.continueOnFailure} onChange={(e) => patchTask(i, { continueOnFailure: e.target.checked })} />
+              continue on fail
+            </label>
+            {tasks.length > 1 && <button type="button" onClick={() => removeTask(i)}>✕</button>}
           </div>
-          {action === "command" && (
-            <div>
-              <label>Command (sent to console)</label>
-              <input value={payload} onChange={(e) => setPayload(e.target.value)} placeholder="say restarting soon" />
-            </div>
-          )}
+        ))}
+        <button type="button" onClick={addTask} style={{ marginTop: 6 }}>+ Add task</button>
+
+        {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
+        <div>
+          <button className="primary" style={{ marginTop: 12 }} disabled={busy || !name || !cron}>
+            {busy ? "Adding…" : "Add schedule"}
+          </button>
         </div>
-        {error && <div className="error">{error}</div>}
-        <button className="primary" style={{ marginTop: 12 }} disabled={busy || !name || !cron}>
-          {busy ? "Adding…" : "Add schedule"}
-        </button>
       </form>
     </div>
+  );
+}
+
+// TaskChain renders a compact, ordered view of a schedule's tasks.
+function TaskChain({ tasks }: { tasks: ScheduleTask[] }) {
+  if (tasks.length === 0) return <span className="muted">—</span>;
+  return (
+    <span style={{ fontSize: 13 }}>
+      {tasks.map((t, i) => (
+        <span key={i}>
+          {i > 0 && <span className="muted"> → </span>}
+          {t.timeOffset > 0 && <span className="muted">+{t.timeOffset}s </span>}
+          {t.action}
+          {t.action === "command" && t.payload ? `: ${t.payload}` : ""}
+          {t.continueOnFailure ? <span className="muted" title="continues on failure">*</span> : ""}
+        </span>
+      ))}
+    </span>
   );
 }
 

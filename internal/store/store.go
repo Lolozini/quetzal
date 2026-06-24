@@ -648,13 +648,16 @@ func (s *Store) ListEnabledSchedules() ([]models.Schedule, error) {
 	return scs, nil
 }
 
-// UpdateSchedule persists user-editable fields of a schedule.
+// UpdateSchedule persists user-editable fields of a schedule. The struct-based
+// Select(...).Updates pattern (not a map) is required so the Tasks JSON
+// serializer applies and selected zero values (disabled, cleared next_run,
+// empty chain) still persist.
 func (s *Store) UpdateSchedule(sc *models.Schedule) error {
 	return s.db.Model(&models.Schedule{}).Where("id = ?", sc.ID).
-		Select("name", "cron", "action", "payload", "enabled", "next_run").
-		Updates(map[string]any{
-			"name": sc.Name, "cron": sc.Cron, "action": sc.Action,
-			"payload": sc.Payload, "enabled": sc.Enabled, "next_run": sc.NextRun,
+		Select("name", "cron", "tasks", "action", "payload", "enabled", "next_run").
+		Updates(models.Schedule{
+			Name: sc.Name, Cron: sc.Cron, Tasks: sc.Tasks, Action: sc.Action,
+			Payload: sc.Payload, Enabled: sc.Enabled, NextRun: sc.NextRun,
 		}).Error
 }
 
@@ -662,6 +665,15 @@ func (s *Store) UpdateSchedule(sc *models.Schedule) error {
 func (s *Store) MarkScheduleRun(id uint, lastRun time.Time, nextRun *time.Time, status string) error {
 	return s.db.Model(&models.Schedule{}).Where("id = ?", id).
 		Updates(map[string]any{"last_run": lastRun, "next_run": nextRun, "last_status": status}).Error
+}
+
+// MarkScheduleResult records only a run's outcome (last_run + last_status),
+// leaving next_run untouched. Used when next_run is advanced up front (before an
+// async chain runs) so a long chain's completion can't overwrite it with a
+// now-stale value.
+func (s *Store) MarkScheduleResult(id uint, lastRun time.Time, status string) error {
+	return s.db.Model(&models.Schedule{}).Where("id = ?", id).
+		Updates(map[string]any{"last_run": lastRun, "last_status": status}).Error
 }
 
 // SetScheduleNextRun stores only the computed next run (e.g. on create/enable).
