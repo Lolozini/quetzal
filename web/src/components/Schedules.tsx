@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, Schedule, ScheduleAction, ScheduleInput, ScheduleTask } from "../api";
+import { useT } from "../i18n";
 
 const ACTIONS: ScheduleAction[] = ["start", "stop", "restart", "command", "backup"];
 
@@ -16,6 +17,7 @@ function newTask(): ScheduleTask {
 }
 
 export function Schedules({ id }: { id: number }) {
+  const { t } = useT();
   const [list, setList] = useState<Schedule[]>([]);
   const [error, setError] = useState("");
   const [name, setName] = useState("");
@@ -80,7 +82,7 @@ export function Schedules({ id }: { id: number }) {
   }
 
   async function remove(s: Schedule) {
-    if (!window.confirm(`Delete schedule "${s.name}"?`)) return;
+    if (!window.confirm(t('Delete schedule "{name}"?', { name: s.name }))) return;
     try {
       await api.deleteSchedule(id, s.id);
       await load();
@@ -91,18 +93,18 @@ export function Schedules({ id }: { id: number }) {
 
   return (
     <div className="card">
-      <h3>Scheduled tasks</h3>
+      <h3>{t("Scheduled tasks")}</h3>
       {list.length === 0 ? (
-        <p className="muted">No schedules yet.</p>
+        <p className="muted">{t("No schedules yet.")}</p>
       ) : (
         <table>
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Cron</th>
-              <th>Tasks</th>
-              <th>Next run</th>
-              <th>Last</th>
+              <th>{t("Name")}</th>
+              <th>{t("Cron")}</th>
+              <th>{t("Tasks")}</th>
+              <th>{t("Next run")}</th>
+              <th>{t("Last")}</th>
               <th></th>
             </tr>
           </thead>
@@ -113,10 +115,10 @@ export function Schedules({ id }: { id: number }) {
                 <td><code>{s.cron}</code></td>
                 <td><TaskChain tasks={chainOf(s)} /></td>
                 <td>{s.enabled ? fmt(s.nextRun) : "—"}</td>
-                <td title={s.lastStatus}>{s.lastRun ? fmt(s.lastRun) : "never"}</td>
+                <td title={s.lastStatus}>{s.lastRun ? fmt(s.lastRun) : t("never")}</td>
                 <td style={{ whiteSpace: "nowrap" }}>
-                  <button onClick={() => toggle(s)}>{s.enabled ? "Disable" : "Enable"}</button>{" "}
-                  <button className="danger" onClick={() => remove(s)}>Delete</button>
+                  <button onClick={() => toggle(s)}>{s.enabled ? t("Disable") : t("Enable")}</button>{" "}
+                  <button className="danger" onClick={() => remove(s)}>{t("Delete")}</button>
                 </td>
               </tr>
             ))}
@@ -127,56 +129,56 @@ export function Schedules({ id }: { id: number }) {
       <form onSubmit={add} style={{ marginTop: 12 }}>
         <div className="grid2">
           <div>
-            <label>Name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="nightly restart" />
+            <label>{t("Name")}</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} required placeholder={t("nightly restart")} />
           </div>
           <div>
-            <label>Cron (5 fields)</label>
+            <label>{t("Cron (5 fields)")}</label>
             <input value={cron} onChange={(e) => setCron(e.target.value)} required placeholder="0 5 * * *" />
           </div>
         </div>
 
-        <label style={{ marginTop: 8 }}>Tasks (run in order)</label>
-        {tasks.map((t, i) => (
+        <label style={{ marginTop: 8 }}>{t("Tasks (run in order)")}</label>
+        {tasks.map((task, i) => (
           <div key={i} className="row" style={{ gap: 6, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
             <span className="muted" style={{ width: 18 }}>{i + 1}.</span>
-            <select value={t.action} onChange={(e) => patchTask(i, { action: e.target.value as ScheduleAction })} style={{ width: "auto" }}>
+            <select value={task.action} onChange={(e) => patchTask(i, { action: e.target.value as ScheduleAction })} style={{ width: "auto" }}>
               {ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
-            {t.action === "command" && (
+            {task.action === "command" && (
               <input
-                value={t.payload || ""}
+                value={task.payload || ""}
                 onChange={(e) => patchTask(i, { payload: e.target.value })}
-                placeholder="say restarting soon"
+                placeholder={t("say restarting soon")}
                 style={{ flex: 1, minWidth: 160 }}
               />
             )}
             {i > 0 && (
-              <label className="row" style={{ gap: 2, whiteSpace: "nowrap" }} title="Seconds to wait after the previous task">
-                wait
+              <label className="row" style={{ gap: 2, whiteSpace: "nowrap" }} title={t("Seconds to wait after the previous task")}>
+                {t("wait")}
                 <input
                   type="number"
                   min={0}
-                  value={t.timeOffset}
+                  value={task.timeOffset}
                   onChange={(e) => patchTask(i, { timeOffset: Number(e.target.value) })}
                   style={{ width: 72 }}
                 />
                 s
               </label>
             )}
-            <label className="row" style={{ gap: 2, whiteSpace: "nowrap" }} title="Keep going even if this task fails">
-              <input type="checkbox" style={{ width: "auto" }} checked={!!t.continueOnFailure} onChange={(e) => patchTask(i, { continueOnFailure: e.target.checked })} />
-              continue on fail
+            <label className="row" style={{ gap: 2, whiteSpace: "nowrap" }} title={t("Keep going even if this task fails")}>
+              <input type="checkbox" style={{ width: "auto" }} checked={!!task.continueOnFailure} onChange={(e) => patchTask(i, { continueOnFailure: e.target.checked })} />
+              {t("continue on fail")}
             </label>
             {tasks.length > 1 && <button type="button" onClick={() => removeTask(i)}>✕</button>}
           </div>
         ))}
-        <button type="button" onClick={addTask} style={{ marginTop: 6 }}>+ Add task</button>
+        <button type="button" onClick={addTask} style={{ marginTop: 6 }}>+ {t("Add task")}</button>
 
         {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
         <div>
           <button className="primary" style={{ marginTop: 12 }} disabled={busy || !name || !cron}>
-            {busy ? "Adding…" : "Add schedule"}
+            {busy ? t("Adding…") : t("Add schedule")}
           </button>
         </div>
       </form>

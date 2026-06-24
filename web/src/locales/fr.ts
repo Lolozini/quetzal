@@ -281,4 +281,132 @@ export const fr: Record<string, string> = {
   "To (comma-separated)": "Destinataires (séparés par des virgules)",
   "Username (optional)": "Nom d'utilisateur (optionnel)",
   "Password (optional)": "Mot de passe (optionnel)",
+
+  // ---- Server sub-panels ----
+  // Files
+  Files: "Fichiers",
+  root: "racine",
+  "New folder": "Nouveau dossier",
+  Upload: "Téléverser",
+  "Upload archive": "Téléverser une archive",
+  "Download folder": "Télécharger le dossier",
+  Download: "Télécharger",
+  Rename: "Renommer",
+  Size: "Taille",
+  "Empty directory.": "Dossier vide.",
+  Editing: "Édition de",
+  "New folder name:": "Nom du nouveau dossier :",
+  'Rename "{name}" to:': "Renommer « {name} » en :",
+  'Delete "{name}"?': "Supprimer « {name} » ?",
+  'Delete "{name}" and everything inside it?': "Supprimer « {name} » et tout son contenu ?",
+  'Extract "{file}" into /{path}? Existing files with the same names are overwritten.':
+    "Extraire « {file} » dans /{path} ? Les fichiers de même nom seront écrasés.",
+
+  // Schedules
+  "Scheduled tasks": "Tâches planifiées",
+  "No schedules yet.": "Aucune tâche planifiée pour l'instant.",
+  Cron: "Cron",
+  Tasks: "Tâches",
+  "Next run": "Prochaine exécution",
+  Last: "Dernière",
+  never: "jamais",
+  "Cron (5 fields)": "Cron (5 champs)",
+  "nightly restart": "redémarrage nocturne",
+  "Tasks (run in order)": "Tâches (exécutées dans l'ordre)",
+  "say restarting soon": "say redémarrage imminent",
+  "Seconds to wait after the previous task": "Secondes à attendre après la tâche précédente",
+  wait: "attendre",
+  "Keep going even if this task fails": "Continuer même si cette tâche échoue",
+  "continue on fail": "continuer si échec",
+  "Add task": "Ajouter une tâche",
+  "Add schedule": "Ajouter la planification",
+  'Delete schedule "{name}"?': "Supprimer la planification « {name} » ?",
+
+  // Backups
+  Backups: "Sauvegardes",
+  "Backup target": "Cible de sauvegarde",
+  "Hide target": "Masquer la cible",
+  "Backup now": "Sauvegarder maintenant",
+  "Queuing…": "Mise en file…",
+  "No backup target configured yet — set one below to enable backups.":
+    "Aucune cible de sauvegarde configurée — définissez-en une ci-dessous pour activer les sauvegardes.",
+  "No backups yet.": "Aucune sauvegarde pour l'instant.",
+  Restore: "Restaurer",
+  "Restore this backup into the server's volume? Current data will be overwritten by the snapshot.\n\nThe server must be stopped first (a live restore would corrupt the data).":
+    "Restaurer cette sauvegarde dans le volume du serveur ? Les données actuelles seront écrasées par le snapshot.\n\nLe serveur doit d'abord être arrêté (une restauration à chaud corromprait les données).",
+  "Delete this backup record?": "Supprimer cet enregistrement de sauvegarde ?",
+  "S3 endpoint (host:port)": "Endpoint S3 (hôte:port)",
+  Bucket: "Bucket",
+  "Prefix (optional)": "Préfixe (optionnel)",
+  "Region (optional)": "Région (optionnel)",
+  "Keep last (snapshots)": "Conserver les derniers (snapshots)",
+  "Runner image (optional)": "Image du runner (optionnel)",
+  "Use TLS (https)": "Utiliser TLS (https)",
+  "Access key": "Clé d'accès",
+  "Secret key": "Clé secrète",
+  "(set — leave blank to keep)": "(défini — laisser vide pour garder)",
+  "Repository password": "Mot de passe du dépôt",
+  "(restic encryption key)": "(clé de chiffrement restic)",
+  "Backup target saved.": "Cible de sauvegarde enregistrée.",
+  "Save target": "Enregistrer la cible",
+  Succeeded: "Réussi",
+  Failed: "Échoué",
+  Pending: "En attente",
+
+  // Databases
+  Databases: "Bases de données",
+  "No databases yet.": "Aucune base de données pour l'instant.",
+  Database: "Base de données",
+  Endpoint: "Point d'accès",
+  "Show password": "Afficher le mot de passe",
+  "Rotate password": "Changer le mot de passe",
+  "Create database": "Créer la base de données",
+  "No database hosts are configured. Ask an admin to add one.":
+    "Aucun hôte de base de données n'est configuré. Demandez à un admin d'en ajouter un.",
+  " — full": " — plein",
+  'Rotate the password for "{name}"? Anything using the old password will stop working.':
+    "Changer le mot de passe de « {name} » ? Tout ce qui utilise l'ancien cessera de fonctionner.",
+  'Delete database "{name}"? This drops the database and its data.':
+    "Supprimer la base « {name} » ? Cela supprime la base et ses données.",
+
+  // Console
+  Console: "Console",
+  connected: "connecté",
+  disconnected: "déconnecté",
+  "— disconnected —": "— déconnecté —",
+  "type a command and press Enter…": "tapez une commande et appuyez sur Entrée…",
+  Send: "Envoyer",
+
+  // Server settings
+  "Startup & resources": "Démarrage & ressources",
+  "Changes apply on the next reconcile, which restarts the server.":
+    "Les changements s'appliquent à la prochaine réconciliation, qui redémarre le serveur.",
+  Reinstall: "Réinstaller",
+  "Re-runs the template's install script. Applied on the next reconcile, which restarts the server.":
+    "Relance le script d'installation du modèle. Appliqué à la prochaine réconciliation, qui redémarre le serveur.",
+  "Also wipe the data volume (delete all files first)": "Effacer aussi le volume de données (supprimer tous les fichiers d'abord)",
+  "Reinstall & wipe": "Réinstaller & effacer",
+  "Reinstall AND WIPE all data? This permanently deletes the server's files, then re-runs the install script.":
+    "Réinstaller ET EFFACER toutes les données ? Cela supprime définitivement les fichiers du serveur, puis relance le script d'installation.",
+  "Reinstall this server? It re-runs the install script and restarts the server (data is kept).":
+    "Réinstaller ce serveur ? Cela relance le script d'installation et redémarre le serveur (les données sont conservées).",
+  "Reinstall triggered — the server will re-run its install script on the next start/reconcile.":
+    "Réinstallation déclenchée — le serveur relancera son script d'installation au prochain démarrage/réconciliation.",
+  "Variables saved.": "Variables enregistrées.",
+  "Save variables": "Enregistrer les variables",
+  "Resource limits": "Limites de ressources",
+  "Memory (blank = unlimited)": "Mémoire (vide = illimité)",
+  "CPU (blank = unlimited)": "CPU (vide = illimité)",
+  "Resources saved.": "Ressources enregistrées.",
+  "Save resources": "Enregistrer les ressources",
+
+  // Access (subusers)
+  Subusers: "Sous-utilisateurs",
+  "No subusers. Grant another account scoped access below.":
+    "Aucun sous-utilisateur. Accordez un accès restreint à un autre compte ci-dessous.",
+  Revoke: "Révoquer",
+  "existing account": "compte existant",
+  "Grant access": "Accorder l'accès",
+  "Granting…": "Attribution…",
+  "Revoke {name}'s access?": "Révoquer l'accès de {name} ?",
 };

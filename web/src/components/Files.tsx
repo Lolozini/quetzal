@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, FileEntry } from "../api";
+import { useT } from "../i18n";
 
 const EDIT_MAX = 1 << 20; // 1 MiB: larger files are download-only
 
@@ -8,6 +9,7 @@ function join(dir: string, name: string): string {
 }
 
 export function Files({ id }: { id: number }) {
+  const { t } = useT();
   const [path, setPath] = useState(""); // relative to the data root
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [error, setError] = useState("");
@@ -69,7 +71,7 @@ export function Files({ id }: { id: number }) {
     setError("");
     try {
       await api.writeFile(id, editing.path, editing.content);
-      setSaved("Saved.");
+      setSaved(t("Saved."));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -78,7 +80,7 @@ export function Files({ id }: { id: number }) {
   }
 
   async function newFolder() {
-    const name = window.prompt("New folder name:");
+    const name = window.prompt(t("New folder name:"));
     if (!name) return;
     try {
       await api.mkdir(id, join(path, name));
@@ -89,7 +91,7 @@ export function Files({ id }: { id: number }) {
   }
 
   async function rename(e: FileEntry) {
-    const to = window.prompt(`Rename "${e.name}" to:`, e.name);
+    const to = window.prompt(t('Rename "{name}" to:', { name: e.name }), e.name);
     if (!to || to === e.name) return;
     try {
       await api.renameFile(id, join(path, e.name), join(path, to));
@@ -100,7 +102,7 @@ export function Files({ id }: { id: number }) {
   }
 
   async function remove(e: FileEntry) {
-    if (!window.confirm(`Delete "${e.name}"${e.dir ? " and everything inside it" : ""}?`)) return;
+    if (!window.confirm(e.dir ? t('Delete "{name}" and everything inside it?', { name: e.name }) : t('Delete "{name}"?', { name: e.name }))) return;
     try {
       await api.deleteFile(id, join(path, e.name));
       if (editing && editing.path.startsWith(join(path, e.name))) setEditing(null);
@@ -131,7 +133,7 @@ export function Files({ id }: { id: number }) {
     ev.target.value = "";
     if (!file) return;
     const format = /\.zip$/i.test(file.name) ? "zip" : "tar";
-    if (!window.confirm(`Extract "${file.name}" into /${path || ""}? Existing files with the same names are overwritten.`)) return;
+    if (!window.confirm(t('Extract "{file}" into /{path}? Existing files with the same names are overwritten.', { file: file.name, path: path || "" }))) return;
     setBusy(true);
     setError("");
     try {
@@ -148,11 +150,11 @@ export function Files({ id }: { id: number }) {
 
   return (
     <div className="card">
-      <h2>Files</h2>
+      <h2>{t("Files")}</h2>
 
       {/* Breadcrumb */}
       <div className="row" style={{ gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-        <a href="#" onClick={(e) => { e.preventDefault(); nav(""); }}>root</a>
+        <a href="#" onClick={(e) => { e.preventDefault(); nav(""); }}>{t("root")}</a>
         {segs.map((seg, i) => {
           const p = segs.slice(0, i + 1).join("/");
           return (
@@ -163,11 +165,11 @@ export function Files({ id }: { id: number }) {
           );
         })}
         <span style={{ flex: 1 }} />
-        <button onClick={load} disabled={busy}>Refresh</button>
-        <button onClick={newFolder}>New folder</button>
-        <button onClick={() => uploadRef.current?.click()}>Upload</button>
-        <button onClick={() => archiveRef.current?.click()} disabled={busy}>Upload archive</button>
-        <a href={api.fileArchiveUrl(id, path)}><button type="button">Download folder</button></a>
+        <button onClick={load} disabled={busy}>{t("Refresh")}</button>
+        <button onClick={newFolder}>{t("New folder")}</button>
+        <button onClick={() => uploadRef.current?.click()}>{t("Upload")}</button>
+        <button onClick={() => archiveRef.current?.click()} disabled={busy}>{t("Upload archive")}</button>
+        <a href={api.fileArchiveUrl(id, path)}><button type="button">{t("Download folder")}</button></a>
         <input ref={uploadRef} type="file" style={{ display: "none" }} onChange={upload} />
         <input ref={archiveRef} type="file" accept=".zip,.tar,.gz,.tgz,.bz2,.xz" style={{ display: "none" }} onChange={uploadArchive} />
       </div>
@@ -184,7 +186,7 @@ export function Files({ id }: { id: number }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <table>
             <thead>
-              <tr><th>Name</th><th>Size</th><th></th></tr>
+              <tr><th>{t("Name")}</th><th>{t("Size")}</th><th></th></tr>
             </thead>
             <tbody>
               {entries
@@ -199,21 +201,21 @@ export function Files({ id }: { id: number }) {
                     </td>
                     <td>{e.dir ? "" : humanSize(e.size)}</td>
                     <td style={{ whiteSpace: "nowrap" }}>
-                      <a href={e.dir ? api.fileArchiveUrl(id, join(path, e.name)) : api.fileDownloadUrl(id, join(path, e.name))}>Download</a>{" "}
-                      <button onClick={() => rename(e)}>Rename</button>{" "}
-                      <button className="danger" onClick={() => remove(e)}>Delete</button>
+                      <a href={e.dir ? api.fileArchiveUrl(id, join(path, e.name)) : api.fileDownloadUrl(id, join(path, e.name))}>{t("Download")}</a>{" "}
+                      <button onClick={() => rename(e)}>{t("Rename")}</button>{" "}
+                      <button className="danger" onClick={() => remove(e)}>{t("Delete")}</button>
                     </td>
                   </tr>
                 ))}
               {entries.length === 0 && !error && (
-                <tr><td colSpan={3} className="muted">Empty directory.</td></tr>
+                <tr><td colSpan={3} className="muted">{t("Empty directory.")}</td></tr>
               )}
             </tbody>
           </table>
 
           {editing && (
             <div style={{ marginTop: 12 }}>
-              <h3>Editing <code>/{editing.path}</code></h3>
+              <h3>{t("Editing")} <code>/{editing.path}</code></h3>
               <textarea
                 value={editing.content}
                 onChange={(e) => { setEditing({ ...editing, content: e.target.value }); setSaved(""); }}
@@ -221,8 +223,8 @@ export function Files({ id }: { id: number }) {
                 style={{ width: "100%", minHeight: 320, fontFamily: "monospace" }}
               />
               <div className="row" style={{ marginTop: 8 }}>
-                <button className="primary" onClick={save} disabled={busy}>Save</button>
-                <button onClick={() => setEditing(null)}>Close</button>
+                <button className="primary" onClick={save} disabled={busy}>{t("Save")}</button>
+                <button onClick={() => setEditing(null)}>{t("Close")}</button>
                 {saved && <span className="notice">{saved}</span>}
               </div>
             </div>
@@ -243,6 +245,7 @@ function DirTree({
   onNavigate: (p: string) => void;
   reload: number;
 }) {
+  const { t } = useT();
   const [open, setOpen] = useState<Set<string>>(() => new Set([""]));
   const [kids, setKids] = useState<Record<string, FileEntry[]>>({});
 
@@ -304,7 +307,7 @@ function DirTree({
             {isOpen ? "▾" : "▸"}
           </span>
           <span onClick={() => { onNavigate(p); if (!isOpen) toggle(p); }} style={{ whiteSpace: "nowrap" }}>
-            📁 {name || "root"}
+            📁 {name || t("root")}
           </span>
         </div>
         {isOpen && (kids[p] || []).map((c) => node(p ? `${p}/${c.name}` : c.name, c.name, depth + 1))}

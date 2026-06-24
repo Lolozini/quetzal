@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ConsoleMessage, consoleSocket } from "../api";
+import { useT } from "../i18n";
 
 interface Line {
   cls: string;
@@ -7,6 +8,7 @@ interface Line {
 }
 
 export function Console({ id }: { id: number }) {
+  const { t } = useT();
   const [lines, setLines] = useState<Line[]>([]);
   const [input, setInput] = useState("");
   const [connected, setConnected] = useState(false);
@@ -22,7 +24,7 @@ export function Console({ id }: { id: number }) {
     ws.onopen = () => setConnected(true);
     ws.onclose = () => {
       setConnected(false);
-      append("sys", "— disconnected —\n");
+      append("sys", t("— disconnected —") + "\n");
     };
     ws.onmessage = (ev) => {
       try {
@@ -54,9 +56,9 @@ export function Console({ id }: { id: number }) {
   return (
     <div>
       <div className="row">
-        <h3>Console</h3>
+        <h3>{t("Console")}</h3>
         <span className={`badge ${connected ? "Running" : "Stopped"}`}>
-          {connected ? "connected" : "disconnected"}
+          {connected ? t("connected") : t("disconnected")}
         </span>
       </div>
       <div className="console" ref={boxRef}>
@@ -68,13 +70,13 @@ export function Console({ id }: { id: number }) {
       </div>
       <form className="console-input" onSubmit={send}>
         <input
-          placeholder="type a command and press Enter…"
+          placeholder={t("type a command and press Enter…")}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           disabled={!connected}
         />
         <button className="primary" disabled={!connected}>
-          Send
+          {t("Send")}
         </button>
       </form>
     </div>

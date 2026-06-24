@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, ServerDatabase } from "../api";
+import { useT } from "../i18n";
 
 // Databases lists and provisions a server's databases (a schema + scoped user on
 // a registered host). Credentials are shown on demand.
 export function Databases({ serverId }: { serverId: number }) {
+  const { t } = useT();
   const [dbs, setDbs] = useState<ServerDatabase[]>([]);
   const [hosts, setHosts] = useState<{ id: number; name: string; kind: string; full: boolean }[]>([]);
   const [hostId, setHostId] = useState<number>(0);
@@ -54,7 +56,7 @@ export function Databases({ serverId }: { serverId: number }) {
   }
 
   async function rotate(d: ServerDatabase) {
-    if (!window.confirm(`Rotate the password for "${d.databaseName}"? Anything using the old password will stop working.`)) return;
+    if (!window.confirm(t('Rotate the password for "{name}"? Anything using the old password will stop working.', { name: d.databaseName }))) return;
     try {
       const rotated = await api.rotateServerDatabase(serverId, d.id);
       setReveal((m) => ({ ...m, [d.id]: rotated }));
@@ -65,7 +67,7 @@ export function Databases({ serverId }: { serverId: number }) {
   }
 
   async function remove(d: ServerDatabase) {
-    if (!window.confirm(`Delete database "${d.databaseName}"? This drops the database and its data.`)) return;
+    if (!window.confirm(t('Delete database "{name}"? This drops the database and its data.', { name: d.databaseName }))) return;
     try {
       await api.deleteServerDatabase(serverId, d.id);
       setReveal((m) => {
@@ -81,22 +83,22 @@ export function Databases({ serverId }: { serverId: number }) {
 
   return (
     <div className="card">
-      <h2>Databases</h2>
+      <h2>{t("Databases")}</h2>
       {dbs.length === 0 ? (
-        <p className="muted">No databases yet.</p>
+        <p className="muted">{t("No databases yet.")}</p>
       ) : (
         dbs.map((d) => {
           const r = reveal[d.id];
           return (
             <div key={d.id} className="card" style={{ background: "var(--panel-2)", marginBottom: 8 }}>
-              <div className="kv"><span className="k">Database</span><span><code>{d.databaseName}</code></span></div>
-              <div className="kv"><span className="k">Username</span><span><code>{d.username}</code></span></div>
-              <div className="kv"><span className="k">Endpoint</span><span><code>{d.host}:{d.port}</code>{d.hostName ? ` (${d.hostName})` : ""}</span></div>
-              {r?.password && <div className="kv"><span className="k">Password</span><span><code>{r.password}</code></span></div>}
+              <div className="kv"><span className="k">{t("Database")}</span><span><code>{d.databaseName}</code></span></div>
+              <div className="kv"><span className="k">{t("Username")}</span><span><code>{d.username}</code></span></div>
+              <div className="kv"><span className="k">{t("Endpoint")}</span><span><code>{d.host}:{d.port}</code>{d.hostName ? ` (${d.hostName})` : ""}</span></div>
+              {r?.password && <div className="kv"><span className="k">{t("Password")}</span><span><code>{r.password}</code></span></div>}
               <div className="row" style={{ marginTop: 8 }}>
-                {!r?.password && <button onClick={() => show(d)}>Show password</button>}
-                <button onClick={() => rotate(d)}>Rotate password</button>
-                <button className="danger" onClick={() => remove(d)}>Delete</button>
+                {!r?.password && <button onClick={() => show(d)}>{t("Show password")}</button>}
+                <button onClick={() => rotate(d)}>{t("Rotate password")}</button>
+                <button className="danger" onClick={() => remove(d)}>{t("Delete")}</button>
               </div>
             </div>
           );
@@ -105,18 +107,18 @@ export function Databases({ serverId }: { serverId: number }) {
 
       <div className="row" style={{ marginTop: 12 }}>
         {hosts.length === 0 ? (
-          <span className="muted">No database hosts are configured. Ask an admin to add one.</span>
+          <span className="muted">{t("No database hosts are configured. Ask an admin to add one.")}</span>
         ) : (
           <>
             <select value={hostId} onChange={(e) => setHostId(Number(e.target.value))}>
               {hosts.map((h) => (
                 <option key={h.id} value={h.id} disabled={h.full}>
-                  {h.name} ({h.kind}){h.full ? " — full" : ""}
+                  {h.name} ({h.kind}){h.full ? t(" — full") : ""}
                 </option>
               ))}
             </select>
             <button className="primary" onClick={create} disabled={busy || !hostId}>
-              {busy ? "Creating…" : "Create database"}
+              {busy ? t("Creating…") : t("Create database")}
             </button>
           </>
         )}

@@ -1,9 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, Server, Template, TemplateVariable } from "../api";
+import { useT } from "../i18n";
 
 // ServerSettings edits a running server's startup variables and resource limits.
 // Both apply on the next reconcile, which restarts the server.
 export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (s: Server) => void }) {
+  const { t } = useT();
   const [tmpl, setTmpl] = useState<Template | null>(null);
 
   useEffect(() => {
@@ -14,8 +16,8 @@ export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (
 
   return (
     <div className="card">
-      <h2>Startup &amp; resources</h2>
-      <p className="muted">Changes apply on the next reconcile, which restarts the server.</p>
+      <h2>{t("Startup & resources")}</h2>
+      <p className="muted">{t("Changes apply on the next reconcile, which restarts the server.")}</p>
       {editable.length > 0 && <Variables serverId={server.id} vars={editable} env={server.env ?? {}} onSaved={onSaved} />}
       <ResourcesForm server={server} onSaved={onSaved} />
       {tmpl?.install?.script && <Reinstall serverId={server.id} />}
@@ -24,6 +26,7 @@ export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (
 }
 
 function Reinstall({ serverId }: { serverId: number }) {
+  const { t } = useT();
   const [wipe, setWipe] = useState(false);
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
@@ -31,15 +34,15 @@ function Reinstall({ serverId }: { serverId: number }) {
 
   async function run() {
     const warning = wipe
-      ? "Reinstall AND WIPE all data? This permanently deletes the server's files, then re-runs the install script."
-      : "Reinstall this server? It re-runs the install script and restarts the server (data is kept).";
+      ? t("Reinstall AND WIPE all data? This permanently deletes the server's files, then re-runs the install script.")
+      : t("Reinstall this server? It re-runs the install script and restarts the server (data is kept).");
     if (!window.confirm(warning)) return;
     setBusy(true);
     setMsg("");
     setError("");
     try {
       await api.reinstallServer(serverId, wipe);
-      setMsg("Reinstall triggered — the server will re-run its install script on the next start/reconcile.");
+      setMsg(t("Reinstall triggered — the server will re-run its install script on the next start/reconcile."));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -49,16 +52,16 @@ function Reinstall({ serverId }: { serverId: number }) {
 
   return (
     <div style={{ marginTop: 12 }}>
-      <h3>Reinstall</h3>
-      <p className="muted">Re-runs the template's install script. Applied on the next reconcile, which restarts the server.</p>
+      <h3>{t("Reinstall")}</h3>
+      <p className="muted">{t("Re-runs the template's install script. Applied on the next reconcile, which restarts the server.")}</p>
       <label className="row" style={{ gap: 6 }}>
         <input type="checkbox" style={{ width: "auto" }} checked={wipe} onChange={(e) => setWipe(e.target.checked)} />
-        Also wipe the data volume (delete all files first)
+        {t("Also wipe the data volume (delete all files first)")}
       </label>
       {msg && <div className="notice">{msg}</div>}
       {error && <div className="error">{error}</div>}
       <button className={wipe ? "danger" : ""} style={{ marginTop: 8 }} onClick={run} disabled={busy}>
-        {busy ? "…" : wipe ? "Reinstall & wipe" : "Reinstall"}
+        {busy ? "…" : wipe ? t("Reinstall & wipe") : t("Reinstall")}
       </button>
     </div>
   );
@@ -75,6 +78,7 @@ function Variables({
   env: Record<string, string>;
   onSaved: (s: Server) => void;
 }) {
+  const { t } = useT();
   // Seed each field: current value, else the variable default. Secrets start
   // blank (their value isn't returned); blank means "keep the stored secret".
   const [values, setValues] = useState<Record<string, string>>(() => {
@@ -94,7 +98,7 @@ function Variables({
     try {
       const s = await api.setServerEnv(serverId, values);
       onSaved(s);
-      setMsg("Variables saved.");
+      setMsg(t("Variables saved."));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -104,7 +108,7 @@ function Variables({
 
   return (
     <form onSubmit={submit} style={{ marginTop: 12 }}>
-      <h3>Variables</h3>
+      <h3>{t("Variables")}</h3>
       {vars.map((v) => (
         <div key={v.envVariable} style={{ marginBottom: 8 }}>
           <label>{v.name || v.envVariable}{v.required ? " *" : ""}</label>
@@ -117,7 +121,7 @@ function Variables({
             <input
               type={v.secret ? "password" : "text"}
               value={values[v.envVariable]}
-              placeholder={v.secret ? "•••••• (leave blank to keep)" : v.default}
+              placeholder={v.secret ? t("•••••• (leave blank to keep)") : v.default}
               autoComplete={v.secret ? "new-password" : "off"}
               onChange={(e) => setValues({ ...values, [v.envVariable]: e.target.value })}
             />
@@ -126,12 +130,13 @@ function Variables({
       ))}
       {msg && <div className="notice">{msg}</div>}
       {error && <div className="error">{error}</div>}
-      <button className="primary" style={{ marginTop: 8 }} disabled={busy}>{busy ? "Saving…" : "Save variables"}</button>
+      <button className="primary" style={{ marginTop: 8 }} disabled={busy}>{busy ? t("Saving…") : t("Save variables")}</button>
     </form>
   );
 }
 
 function ResourcesForm({ server, onSaved }: { server: Server; onSaved: (s: Server) => void }) {
+  const { t } = useT();
   const [memory, setMemory] = useState(server.resources.memory ?? "");
   const [cpu, setCpu] = useState(server.resources.cpu ?? "");
   const [msg, setMsg] = useState("");
@@ -146,7 +151,7 @@ function ResourcesForm({ server, onSaved }: { server: Server; onSaved: (s: Serve
     try {
       const s = await api.setServerResources(server.id, { memory: memory.trim(), cpu: cpu.trim() });
       onSaved(s);
-      setMsg("Resources saved.");
+      setMsg(t("Resources saved."));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -156,14 +161,14 @@ function ResourcesForm({ server, onSaved }: { server: Server; onSaved: (s: Serve
 
   return (
     <form onSubmit={submit} style={{ marginTop: 12 }}>
-      <h3>Resource limits</h3>
+      <h3>{t("Resource limits")}</h3>
       <div className="grid2">
-        <div><label>Memory (blank = unlimited)</label><input value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="2Gi" /></div>
-        <div><label>CPU (blank = unlimited)</label><input value={cpu} onChange={(e) => setCpu(e.target.value)} placeholder="1000m" /></div>
+        <div><label>{t("Memory (blank = unlimited)")}</label><input value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="2Gi" /></div>
+        <div><label>{t("CPU (blank = unlimited)")}</label><input value={cpu} onChange={(e) => setCpu(e.target.value)} placeholder="1000m" /></div>
       </div>
       {msg && <div className="notice">{msg}</div>}
       {error && <div className="error">{error}</div>}
-      <button className="primary" style={{ marginTop: 8 }} disabled={busy}>{busy ? "Saving…" : "Save resources"}</button>
+      <button className="primary" style={{ marginTop: 8 }} disabled={busy}>{busy ? t("Saving…") : t("Save resources")}</button>
     </form>
   );
 }
