@@ -75,7 +75,7 @@ func TestTransferValidation(t *testing.T) {
 }
 
 func TestTransferStartsAndBlocksActions(t *testing.T) {
-	_, admin, st, url := seedTransferEnv(t)
+	base, admin, st, url := seedTransferEnv(t)
 	cid := seedCluster(t, st)
 	configureBackups(t, st)
 
@@ -98,5 +98,12 @@ func TestTransferStartsAndBlocksActions(t *testing.T) {
 	}
 	if tr := post(t, admin, url+"/transfer", map[string]any{"targetCluster": cid}); tr.StatusCode != http.StatusConflict {
 		t.Errorf("second transfer = %d, want 409", tr.StatusCode)
+	}
+
+	// The target cluster has no server rows yet (the server is still counted on
+	// the source), but deleting it would wedge the transfer — must be blocked.
+	delReq, _ := http.NewRequest(http.MethodDelete, base+"/api/clusters/"+itoa(cid), nil)
+	if dr, _ := admin.Do(delReq); dr.StatusCode != http.StatusConflict {
+		t.Errorf("delete transfer target cluster = %d, want 409", dr.StatusCode)
 	}
 }

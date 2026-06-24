@@ -1028,6 +1028,9 @@ func (s *Server) handleSuspend(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if transferInProgress(w, srv) {
+		return
+	}
 	if err := s.Store.SetDesiredState(srv.ID, models.StateSuspended); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1042,6 +1045,9 @@ func (s *Server) handleUnsuspend(w http.ResponseWriter, r *http.Request) {
 	}
 	srv, ok := s.lookupServer(w, r)
 	if !ok {
+		return
+	}
+	if transferInProgress(w, srv) {
 		return
 	}
 	if srv.DesiredState != models.StateSuspended {

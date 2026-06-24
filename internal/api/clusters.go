@@ -148,6 +148,18 @@ func (s *Server) handleDeleteCluster(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "cluster still has servers; delete or move them first")
 		return
 	}
+	// A transfer references both its source and target clusters while running,
+	// but one of them has no server rows mid-transfer (the server is counted on
+	// the other). Deleting either would wedge the transfer (the manager could no
+	// longer reach it to restore or clean up), so block that too.
+	if transferring, err := s.Store.ListServersWithTransfer(); err == nil {
+		for i := range transferring {
+			if t := transferring[i].Transfer; t != nil && (t.SourceCluster == c.ID || t.TargetCluster == c.ID) {
+				writeError(w, http.StatusConflict, "cluster is involved in an in-progress server transfer")
+				return
+			}
+		}
+	}
 	if err := s.Store.DeleteCluster(c.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
