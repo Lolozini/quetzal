@@ -6,13 +6,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/store"
 )
 
 // handleGetEmailSettings returns the system SMTP settings (admin only). The
 // password is never returned, only whether one is set.
 func (s *Server) handleGetEmailSettings(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermSettings) {
 		return
 	}
 	cfg, err := s.Store.GetSMTPConfig()
@@ -45,7 +46,7 @@ type emailSettingsRequest struct {
 // handleSetEmailSettings updates the SMTP settings + public URL (admin only).
 // An empty host clears the SMTP config (disables system email).
 func (s *Server) handleSetEmailSettings(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermSettings) {
 		return
 	}
 	var req emailSettingsRequest
@@ -91,7 +92,7 @@ func (s *Server) handleSetEmailSettings(w http.ResponseWriter, r *http.Request) 
 
 // handleTestEmail sends a test message with the stored settings (admin only).
 func (s *Server) handleTestEmail(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermSettings) {
 		return
 	}
 	var req struct {

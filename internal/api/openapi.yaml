@@ -44,6 +44,8 @@ tags:
     description: Subuser access and per-server audit
   - name: Users
     description: User management (admin) and self-service
+  - name: AdminRoles
+    description: Scoped admin permission bundles (superadmin)
   - name: Email
     description: Self-service password reset and system SMTP settings
   - name: TwoFactor
@@ -1253,6 +1255,106 @@ paths:
         "204": { description: 2FA reset }
         "403": { $ref: "#/components/responses/Forbidden" }
 
+  /api/users/{uid}/admin-role:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    put:
+      tags: [AdminRoles]
+      summary: Assign or clear a user's scoped admin role (superadmin)
+      description: >
+        Grants the user a bundle of admin permissions via an AdminRole, or
+        clears it with a null roleId. Superadmins already hold every permission,
+        so assigning a role to one is rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                roleId: { type: integer, nullable: true }
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: Target is a superadmin }
+
+  /api/admin-permissions:
+    get:
+      tags: [AdminRoles]
+      summary: Catalog of admin permissions (superadmin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    key: { type: string }
+                    description: { type: string }
+
+  /api/admin-roles:
+    get:
+      tags: [AdminRoles]
+      summary: List admin roles (superadmin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AdminRole" }
+    post:
+      tags: [AdminRoles]
+      summary: Create an admin role (superadmin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminRoleInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminRole" }
+        "409": { description: Name already in use }
+
+  /api/admin-roles/{rid}:
+    parameters:
+      - name: rid
+        in: path
+        required: true
+        schema: { type: integer }
+    put:
+      tags: [AdminRoles]
+      summary: Update an admin role (superadmin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminRoleInput" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminRole" }
+        "409": { description: Name already in use }
+    delete:
+      tags: [AdminRoles]
+      summary: Delete an admin role (superadmin)
+      responses:
+        "204": { description: Deleted }
+        "409": { description: Role is still assigned to users }
+
   /api/apikeys:
     get:
       tags: [APIKeys]
@@ -1492,12 +1594,42 @@ components:
         id: { type: integer }
         username: { type: string }
         email: { type: string, format: email }
-        isAdmin: { type: boolean }
+        isAdmin: { type: boolean, description: "Superadmin: holds every admin permission" }
+        adminRoleId:
+          type: integer
+          nullable: true
+          description: Scoped admin role granting a subset of admin permissions
+        adminPerms:
+          type: array
+          items: { type: string }
+          description: Resolved admin permissions (from isAdmin or the assigned role)
         maxServers: { type: integer, description: "0 = unlimited" }
         maxMemoryMB: { type: integer, format: int64 }
         maxCpuMilli: { type: integer, format: int64 }
         twoFactorEnabled: { type: boolean }
         createdAt: { type: string, format: date-time }
+    AdminRole:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        description: { type: string }
+        permissions:
+          type: array
+          items:
+            type: string
+            enum: [servers, users, templates, clusters, database-hosts, notifications, settings, audit]
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AdminRoleInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        permissions:
+          type: array
+          items: { type: string }
     UserInput:
       type: object
       properties:

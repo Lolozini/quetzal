@@ -12,7 +12,7 @@ func (s *Server) can(u *models.User, srv *models.Server, perm string) bool {
 	if u == nil {
 		return false
 	}
-	if u.IsAdmin || srv.OwnerID == u.ID {
+	if u.HasAdminPerm(models.AdminPermServers) || srv.OwnerID == u.ID {
 		return true
 	}
 	acc, err := s.Store.GetServerAccess(srv.ID, u.ID)
@@ -42,7 +42,9 @@ func (s *Server) requireServer(w http.ResponseWriter, r *http.Request, perm stri
 	return nil, false
 }
 
-// requireAdmin gates an action to admins.
+// requireAdmin gates an action to superadmins (User.IsAdmin). Reserved for
+// managing the admin-privilege system itself (admin roles, granting/revoking
+// admin status). Capability-scoped actions use requireAdminPerm instead.
 func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	u := userFrom(r.Context())
 	if u == nil || !u.IsAdmin {
@@ -50,6 +52,16 @@ func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	return true
+}
+
+// requireAdminPerm gates an action to users holding a specific admin permission.
+// Superadmins hold all of them; scoped admins hold the subset from their role.
+func (s *Server) requireAdminPerm(w http.ResponseWriter, r *http.Request, perm string) bool {
+	if u := userFrom(r.Context()); u.HasAdminPerm(perm) {
+		return true
+	}
+	writeError(w, http.StatusForbidden, "admin privileges required")
+	return false
 }
 
 // audit records a mutating action (best-effort; failures never block) and emits

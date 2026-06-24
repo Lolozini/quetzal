@@ -18,7 +18,7 @@ import (
 // ---- database hosts (admin registry) ----
 
 func (s *Server) handleListDatabaseHosts(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermDatabaseHosts) {
 		return
 	}
 	hs, err := s.Store.ListDatabaseHosts()
@@ -57,7 +57,7 @@ type databaseHostRequest struct {
 }
 
 func (s *Server) handleCreateDatabaseHost(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermDatabaseHosts) {
 		return
 	}
 	var req databaseHostRequest
@@ -134,7 +134,7 @@ func (s *Server) handleCreateDatabaseHost(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleUpdateDatabaseHost(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermDatabaseHosts) {
 		return
 	}
 	h, ok := s.lookupDatabaseHost(w, r)
@@ -183,7 +183,7 @@ func (s *Server) handleUpdateDatabaseHost(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleDeleteDatabaseHost(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermDatabaseHosts) {
 		return
 	}
 	h, ok := s.lookupDatabaseHost(w, r)
@@ -204,7 +204,7 @@ func (s *Server) handleDeleteDatabaseHost(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleTestDatabaseHost(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermDatabaseHosts) {
 		return
 	}
 	h, ok := s.lookupDatabaseHost(w, r)

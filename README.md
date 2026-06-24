@@ -63,6 +63,12 @@ Then open the panel and complete the first-run admin setup. See
 - **Multi-tenant**: per-server ownership, subusers with scoped permissions,
   admin suspend, per-user quotas, an append-only audit log, and API keys
   (bearer tokens for the public API).
+- **Granular admin roles**: delegate administration without handing out full
+  control. A superadmin defines named roles bundling scoped admin permissions
+  (manage servers, users, templates, clusters, database hosts, notifications,
+  settings, or the audit log) and assigns one to a user; the panel only exposes
+  what each role grants. Managing admin status and the roles themselves stays
+  superadmin-only, so a scoped admin can never widen their own access.
 - **Editable startup & resources**: change a server's startup variables (validated
   against the template's contract; blank secrets are kept) and its CPU/memory
   limits after creation — applied on the next reconcile, which restarts the pod.

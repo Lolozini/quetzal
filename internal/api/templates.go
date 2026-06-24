@@ -30,7 +30,7 @@ func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
 // The request body is the raw egg JSON. Importing an egg whose name slugifies to
 // an existing template updates it (and bumps its version).
 func (s *Server) handleImportEgg(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermTemplates) {
 		return
 	}
 	data, err := io.ReadAll(io.LimitReader(r.Body, maxTemplateBody))
@@ -57,7 +57,7 @@ func (s *Server) handleImportEgg(w http.ResponseWriter, r *http.Request) {
 // from the path and never changed (servers reference the template by ID, and a
 // silent rename would be confusing).
 func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermTemplates) {
 		return
 	}
 	existing, ok := s.lookupTemplate(w, r)
@@ -96,7 +96,7 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 // handleExportTemplate streams a template as native JSON for backup/sharing
 // (admin). It round-trips with PUT /api/templates/{slug}.
 func (s *Server) handleExportTemplate(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermTemplates) {
 		return
 	}
 	t, ok := s.lookupTemplate(w, r)
@@ -117,7 +117,7 @@ func (s *Server) handleExportTemplate(w http.ResponseWriter, r *http.Request) {
 // use it. Built-in templates are re-seeded on the next controller/apiserver
 // start, so deleting one only hides it until restart.
 func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermTemplates) {
 		return
 	}
 	t, ok := s.lookupTemplate(w, r)

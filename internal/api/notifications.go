@@ -64,7 +64,7 @@ type channelRequest struct {
 // admin-only; server-scoped ones require PermSettings on that server.
 func (s *Server) authorizeChannelScope(w http.ResponseWriter, r *http.Request, serverID uint) bool {
 	if serverID == 0 {
-		return s.requireAdmin(w, r)
+		return s.requireAdminPerm(w, r, models.AdminPermNotifications)
 	}
 	srv, err := s.Store.GetServer(serverID)
 	if err != nil {
@@ -134,7 +134,7 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListChannels(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermNotifications) {
 		return
 	}
 	cs, err := s.Store.ListChannels()
@@ -300,7 +300,7 @@ func (s *Server) handleServerEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGlobalEvents(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermNotifications) {
 		return
 	}
 	es, err := s.Store.ListEvents(eventLimit(r))

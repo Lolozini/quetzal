@@ -1,26 +1,32 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, AuditEntry, EmailSettingsInput, User } from "../api";
+import { AdminPermInfo, AdminRole, api, ApiError, AuditEntry, EmailSettingsInput, hasAdminPerm, User } from "../api";
 import { Clusters } from "./Clusters";
 import { DatabaseHosts } from "./DatabaseHosts";
 import { Notifications } from "./Notifications";
 import { Templates } from "./Templates";
 
-export function Admin() {
+export function Admin({ user }: { user: User }) {
+  const can = (p: string) => hasAdminPerm(user, p);
   return (
     <>
-      <Users />
-      <Templates />
-      <EmailSettingsCard />
-      <DatabaseHosts />
-      <Clusters />
-      <Notifications serverId={0} />
-      <GlobalAudit />
+      {can("users") && <Users me={user} />}
+      {user.isAdmin && <Roles />}
+      {can("templates") && <Templates />}
+      {can("settings") && <EmailSettingsCard />}
+      {can("database-hosts") && <DatabaseHosts />}
+      {can("clusters") && <Clusters />}
+      {can("notifications") && <Notifications serverId={0} />}
+      {can("audit") && <GlobalAudit />}
     </>
   );
 }
 
-function Users() {
+// Users is shown to admins holding the "users" permission. Admin-status and
+// admin-role controls are superadmin-only (me.isAdmin) — a scoped users-admin
+// manages regular accounts but can't escalate privileges.
+function Users({ me }: { me: User }) {
   const [users, setUsers] = useState<User[]>([]);
+  const [roles, setRoles] = useState<AdminRole[]>([]);
   const [error, setError] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -33,6 +39,7 @@ function Users() {
   async function load() {
     try {
       setUsers(await api.users());
+      if (me.isAdmin) setRoles(await api.adminRoles());
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
@@ -40,6 +47,26 @@ function Users() {
   useEffect(() => {
     load();
   }, []);
+
+  // Describe a user's administrative standing for the Role column.
+  function roleLabel(u: User): string {
+    if (u.isAdmin) return "superadmin";
+    if (u.adminRoleId != null) {
+      const r = roles.find((x) => x.id === u.adminRoleId);
+      return r ? `admin: ${r.name}` : "admin: (role removed)";
+    }
+    return "user";
+  }
+
+  async function setAdminRole(u: User, roleId: number | null) {
+    setError("");
+    try {
+      await api.setUserAdminRole(u.id, roleId);
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
 
   async function add(e: FormEvent) {
     e.preventDefault();
@@ -107,11 +134,31 @@ function Users() {
           {users.map((u) => (
             <tr key={u.id}>
               <td>{u.username}</td>
-              <td>{u.isAdmin ? "admin" : "user"}</td>
+              <td>
+                {roleLabel(u)}
+                {/* Superadmins assign scoped admin roles to non-superadmin users. */}
+                {me.isAdmin && !u.isAdmin && (
+                  <>
+                    {" "}
+                    <select
+                      value={u.adminRoleId ?? ""}
+                      onChange={(e) => setAdminRole(u, e.target.value ? Number(e.target.value) : null)}
+                      style={{ width: "auto" }}
+                    >
+                      <option value="">user (no admin)</option>
+                      {roles.map((r) => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
+                    </select>
+                  </>
+                )}
+              </td>
               <td>{u.twoFactorEnabled ? "on" : <span className="muted">off</span>}</td>
               <td>{(u.maxServers || "∞") + " / " + (u.maxMemoryMB || "∞")}</td>
               <td style={{ whiteSpace: "nowrap" }}>
-                <button onClick={() => toggleAdmin(u)}>{u.isAdmin ? "Demote" : "Make admin"}</button>{" "}
+                {me.isAdmin && (
+                  <><button onClick={() => toggleAdmin(u)}>{u.isAdmin ? "Demote" : "Make admin"}</button>{" "}</>
+                )}
                 {u.twoFactorEnabled && <><button onClick={() => reset2FA(u)}>Reset 2FA</button>{" "}</>}
                 <button className="danger" onClick={() => remove(u)}>Delete</button>
               </td>
@@ -131,11 +178,142 @@ function Users() {
           <div><label>Max servers (0 = ∞)</label><input type="number" min={0} value={maxServers} onChange={(e) => setMaxServers(Number(e.target.value))} /></div>
           <div><label>Max memory MB (0 = ∞)</label><input type="number" min={0} value={maxMemoryMB} onChange={(e) => setMaxMemoryMB(Number(e.target.value))} /></div>
         </div>
-        <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />&nbsp;Administrator</label>
+        {me.isAdmin && (
+          <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />&nbsp;Administrator (superadmin)</label>
+        )}
         {error && <div className="error">{error}</div>}
         <button className="primary" style={{ marginTop: 12 }} disabled={busy || !username || !password}>
           {busy ? "Creating…" : "Create user"}
         </button>
+      </form>
+    </div>
+  );
+}
+
+// Roles manages named bundles of admin permissions (superadmin only). Assigning
+// a role to a user happens in the Users card.
+function Roles() {
+  const [roles, setRoles] = useState<AdminRole[]>([]);
+  const [catalog, setCatalog] = useState<AdminPermInfo[]>([]);
+  const [error, setError] = useState("");
+  const [editing, setEditing] = useState<number | null>(null); // role id, or null for the create form
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [perms, setPerms] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    try {
+      setRoles(await api.adminRoles());
+      setCatalog(await api.adminPermissions());
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  function resetForm() {
+    setEditing(null);
+    setName("");
+    setDescription("");
+    setPerms(new Set());
+  }
+
+  function startEdit(r: AdminRole) {
+    setEditing(r.id);
+    setName(r.name);
+    setDescription(r.description);
+    setPerms(new Set(r.permissions));
+  }
+
+  function togglePerm(p: string) {
+    setPerms((prev) => {
+      const n = new Set(prev);
+      if (n.has(p)) n.delete(p);
+      else n.add(p);
+      return n;
+    });
+  }
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const body = { name: name.trim(), description: description.trim(), permissions: [...perms] };
+    try {
+      if (editing != null) await api.updateAdminRole(editing, body);
+      else await api.createAdminRole(body);
+      resetForm();
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(r: AdminRole) {
+    if (!window.confirm(`Delete role "${r.name}"?`)) return;
+    setError("");
+    try {
+      await api.deleteAdminRole(r.id);
+      if (editing === r.id) resetForm();
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2>Admin roles</h2>
+      <p className="muted">
+        Bundles of admin permissions you can assign to users for scoped admin
+        access. Assign a role to a user in the Users card above.
+      </p>
+      <table>
+        <thead>
+          <tr><th>Name</th><th>Permissions</th><th></th></tr>
+        </thead>
+        <tbody>
+          {roles.map((r) => (
+            <tr key={r.id}>
+              <td>{r.name}{r.description && <div className="muted" style={{ fontSize: 12 }}>{r.description}</div>}</td>
+              <td>{r.permissions.length ? r.permissions.join(", ") : <span className="muted">none</span>}</td>
+              <td style={{ whiteSpace: "nowrap" }}>
+                <button onClick={() => startEdit(r)}>Edit</button>{" "}
+                <button className="danger" onClick={() => remove(r)}>Delete</button>
+              </td>
+            </tr>
+          ))}
+          {roles.length === 0 && <tr><td colSpan={3} className="muted">No roles yet.</td></tr>}
+        </tbody>
+      </table>
+
+      <form onSubmit={save} style={{ marginTop: 12 }}>
+        <h3>{editing != null ? "Edit role" : "New role"}</h3>
+        <div className="grid2">
+          <div><label>Name</label><input value={name} onChange={(e) => setName(e.target.value)} required /></div>
+          <div><label>Description</label><input value={description} onChange={(e) => setDescription(e.target.value)} /></div>
+        </div>
+        <label>Permissions</label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginTop: 4 }}>
+          {catalog.map((p) => (
+            <label key={p.key} className="row" title={p.description}>
+              <input type="checkbox" style={{ width: "auto" }} checked={perms.has(p.key)} onChange={() => togglePerm(p.key)} />
+              &nbsp;{p.key}
+            </label>
+          ))}
+        </div>
+        {error && <div className="error">{error}</div>}
+        <div className="row" style={{ marginTop: 12 }}>
+          <button className="primary" disabled={busy || !name.trim()}>
+            {busy ? "Saving…" : editing != null ? "Save role" : "Create role"}
+          </button>
+          {editing != null && <button type="button" onClick={resetForm}>Cancel</button>}
+        </div>
       </form>
     </div>
   );

@@ -28,7 +28,7 @@ func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
 	}
 	// Non-admins only need enough to pick a deploy target; don't leak probe
 	// details (a status message can carry a cluster's internal address).
-	if u := userFrom(r.Context()); u == nil || !u.IsAdmin {
+	if u := userFrom(r.Context()); !u.HasAdminPerm(models.AdminPermClusters) {
 		for i := range cs {
 			cs[i].Version = ""
 			cs[i].NodeCount = 0
@@ -45,7 +45,7 @@ type clusterRequest struct {
 }
 
 func (s *Server) handleCreateCluster(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermClusters) {
 		return
 	}
 	var req clusterRequest
@@ -92,7 +92,7 @@ func (s *Server) handleCreateCluster(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermClusters) {
 		return
 	}
 	c, ok := s.lookupCluster(w, r)
@@ -128,7 +128,7 @@ func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteCluster(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermClusters) {
 		return
 	}
 	c, ok := s.lookupCluster(w, r)
@@ -158,7 +158,7 @@ func (s *Server) handleDeleteCluster(w http.ResponseWriter, r *http.Request) {
 
 // handleTestCluster probes a cluster's connectivity and records the result.
 func (s *Server) handleTestCluster(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermClusters) {
 		return
 	}
 	c, ok := s.lookupCluster(w, r)
@@ -197,7 +197,7 @@ type nodeInfo struct {
 // handleClusterNodes lists a cluster's Kubernetes nodes (the "nodes" concept):
 // capacity and readiness, read-only.
 func (s *Server) handleClusterNodes(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermClusters) {
 		return
 	}
 	c, ok := s.lookupCluster(w, r)

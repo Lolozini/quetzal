@@ -118,7 +118,7 @@ func (s *Server) handle2FADisable(w http.ResponseWriter, r *http.Request) {
 // handleAdminDisable2FA lets an admin clear another user's 2FA, the recovery
 // path when a user loses their authenticator and all recovery codes.
 func (s *Server) handleAdminDisable2FA(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermUsers) {
 		return
 	}
 	uid, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("uid")), 10, 64)

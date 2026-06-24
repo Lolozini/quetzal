@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, AuditEntry, Cluster, ExposeType, PowerAction, Server, ServerStats, User } from "../api";
+import { api, ApiError, AuditEntry, Cluster, ExposeType, hasAdminPerm, PowerAction, Server, ServerStats, User } from "../api";
 import { Access } from "./Access";
 import { Backups } from "./Backups";
 import { Console } from "./Console";
@@ -212,7 +212,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
     }
   }
 
-  const canManage = !!srv && (user.isAdmin || srv.ownerId === user.id);
+  const canManage = !!srv && (hasAdminPerm(user, "servers") || srv.ownerId === user.id);
   const hasPorts = !!srv?.ports && srv.ports.length > 0;
   // TCP-only servers can use the lightweight wake-on-connect; UDP needs the proxy.
   const tcpOnly = hasPorts && srv!.ports!.every((p) => p.protocol.toUpperCase() !== "UDP");
@@ -348,7 +348,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
           {srv.hibernated && (
             <button className="primary" disabled={busy !== ""} onClick={() => power("start")}>Wake</button>
           )}
-          {user.isAdmin && (
+          {hasAdminPerm(user, "servers") && (
             <>
               <div className="spacer" />
               {srv.desiredState === "Suspended" ? (

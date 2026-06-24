@@ -6,11 +6,39 @@ export interface User {
   username: string;
   email?: string;
   isAdmin: boolean;
+  adminRoleId?: number | null;
+  adminPerms?: string[];
   maxServers?: number;
   maxMemoryMB?: number;
   maxCpuMilli?: number;
   twoFactorEnabled?: boolean;
   createdAt?: string;
+}
+
+export interface AdminRole {
+  id: number;
+  name: string;
+  description: string;
+  permissions: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AdminPermInfo {
+  key: string;
+  description: string;
+}
+
+// hasAdminPerm mirrors the server: superadmins hold every admin permission;
+// scoped admins hold the resolved set in adminPerms.
+export function hasAdminPerm(user: User, perm: string): boolean {
+  return user.isAdmin || !!user.adminPerms?.includes(perm);
+}
+
+// isAnyAdmin reports whether the user has any administrative access (so the
+// Admin section should be shown).
+export function isAnyAdmin(user: User): boolean {
+  return user.isAdmin || (user.adminPerms?.length ?? 0) > 0;
 }
 
 export interface EmailSettings {
@@ -503,8 +531,19 @@ export const api = {
   updateUser: (uid: number, body: Record<string, unknown>) =>
     req<User>("PATCH", `/api/users/${uid}`, body),
   deleteUser: (uid: number) => req<void>("DELETE", `/api/users/${uid}`),
+  setUserAdminRole: (uid: number, roleId: number | null) =>
+    req<User>("PUT", `/api/users/${uid}/admin-role`, { roleId }),
   changePassword: (oldPassword: string, newPassword: string) =>
     req<void>("POST", "/api/me/password", { oldPassword, newPassword }),
+
+  // Admin roles (scoped admin permission bundles; superadmin only).
+  adminPermissions: () => req<AdminPermInfo[]>("GET", "/api/admin-permissions"),
+  adminRoles: () => req<AdminRole[]>("GET", "/api/admin-roles"),
+  createAdminRole: (body: { name: string; description: string; permissions: string[] }) =>
+    req<AdminRole>("POST", "/api/admin-roles", body),
+  updateAdminRole: (rid: number, body: { name: string; description: string; permissions: string[] }) =>
+    req<AdminRole>("PUT", `/api/admin-roles/${rid}`, body),
+  deleteAdminRole: (rid: number) => req<void>("DELETE", `/api/admin-roles/${rid}`),
 
   // Two-factor authentication (opt-in TOTP).
   setup2FA: () => req<{ secret: string; uri: string }>("POST", "/api/me/2fa/setup"),

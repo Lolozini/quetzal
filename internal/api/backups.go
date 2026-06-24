@@ -26,7 +26,7 @@ type backupConfigDTO struct {
 }
 
 func (s *Server) handleGetBackupConfig(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermSettings) {
 		return
 	}
 	cfg, err := s.Store.GetBackupConfig()
@@ -61,7 +61,7 @@ type backupConfigRequest struct {
 }
 
 func (s *Server) handleSetBackupConfig(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermSettings) {
 		return
 	}
 	var req backupConfigRequest

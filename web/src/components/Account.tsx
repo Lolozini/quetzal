@@ -12,7 +12,7 @@ export function Account({ user }: { user: User }) {
       <div className="card">
         <h3>Account</h3>
         <div className="kv"><span className="k">Username</span><span>{user.username}</span></div>
-        <div className="kv"><span className="k">Role</span><span>{user.isAdmin ? "administrator" : "user"}</span></div>
+        <div className="kv"><span className="k">Role</span><span>{user.isAdmin ? "administrator" : user.adminPerms?.length ? `scoped admin (${user.adminPerms.join(", ")})` : "user"}</span></div>
       </div>
     </>
   );

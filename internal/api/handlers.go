@@ -189,7 +189,7 @@ func (s *Server) handleListServers(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
 	var srvs []models.Server
 	var err error
-	if u.IsAdmin {
+	if u.HasAdminPerm(models.AdminPermServers) {
 		srvs, err = s.Store.ListServers()
 	} else {
 		srvs, err = s.Store.ListAccessibleServers(u.ID)
@@ -421,7 +421,7 @@ func resolveEnv(tmpl *models.Template, reqEnv map[string]string) (map[string]str
 // checkQuota enforces a user's per-user quotas (admins are exempt). It sums the
 // user's existing owned servers plus the new request against their limits.
 func (s *Server) checkQuota(u *models.User, memory, cpu string) error {
-	if u.IsAdmin || (u.MaxServers == 0 && u.MaxMemoryMB == 0 && u.MaxCPUMilli == 0) {
+	if u.HasAdminPerm(models.AdminPermServers) || (u.MaxServers == 0 && u.MaxMemoryMB == 0 && u.MaxCPUMilli == 0) {
 		return nil
 	}
 	// A memory/CPU quota only means something if every server it covers declares
@@ -577,7 +577,7 @@ func (s *Server) updateServerResources(r *http.Request, srv *models.Server, rsc 
 	if err := validateResources(rsc); err != nil {
 		return &httpErr{http.StatusBadRequest, err.Error()}
 	}
-	if editor := userFrom(r.Context()); editor == nil || !editor.IsAdmin {
+	if editor := userFrom(r.Context()); !editor.HasAdminPerm(models.AdminPermServers) {
 		if owner, err := s.Store.GetUser(srv.OwnerID); err == nil {
 			if err := s.checkResourceQuotaForUpdate(owner, srv.ID, rsc.Memory, rsc.CPU); err != nil {
 				return &httpErr{http.StatusForbidden, err.Error()}
@@ -611,7 +611,7 @@ func validateResources(rsc models.Resources) error {
 // edited server's old allocation is excluded since it's being replaced). Server
 // count is unaffected by an edit, so it isn't checked here.
 func (s *Server) checkResourceQuotaForUpdate(u *models.User, serverID uint, memory, cpu string) error {
-	if u.IsAdmin || (u.MaxMemoryMB == 0 && u.MaxCPUMilli == 0) {
+	if u.HasAdminPerm(models.AdminPermServers) || (u.MaxMemoryMB == 0 && u.MaxCPUMilli == 0) {
 		return nil
 	}
 	if u.MaxMemoryMB > 0 && strings.TrimSpace(memory) == "" {
@@ -1012,7 +1012,7 @@ func (s *Server) handleActive(w http.ResponseWriter, r *http.Request) {
 // handleSuspend / handleUnsuspend are admin-only: a suspended server is scaled
 // to zero by the reconciler and its owner cannot power it back on.
 func (s *Server) handleSuspend(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermServers) {
 		return
 	}
 	srv, ok := s.lookupServer(w, r)
@@ -1028,7 +1028,7 @@ func (s *Server) handleSuspend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUnsuspend(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermServers) {
 		return
 	}
 	srv, ok := s.lookupServer(w, r)

@@ -159,7 +159,7 @@ func (s *Store) autoMigrate() error {
 		&models.Session{}, &models.PortAllocation{}, &models.Schedule{},
 		&models.BackupConfig{}, &models.Backup{},
 		&models.ServerAccess{}, &models.AuditEntry{}, &models.APIKey{},
-		&models.Cluster{},
+		&models.AdminRole{}, &models.Cluster{},
 		&models.NotificationChannel{}, &models.Event{}, &models.Setting{},
 		&models.SSHKey{}, &models.PasswordReset{},
 		&models.DatabaseHost{}, &models.ServerDatabase{},
@@ -696,11 +696,27 @@ func (s *Store) CreateUser(u *models.User) error {
 	return s.db.Create(u).Error
 }
 
-// ListUsers returns all users (admin view).
+// ListUsers returns all users (admin view), with admin permissions resolved.
+// Roles are loaded once in bulk to avoid a per-user query.
 func (s *Store) ListUsers() ([]models.User, error) {
 	var us []models.User
 	if err := s.db.Order("id asc").Find(&us).Error; err != nil {
 		return nil, err
+	}
+	roles, err := s.ListAdminRoles()
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[uint][]string, len(roles))
+	for _, r := range roles {
+		byID[r.ID] = r.Permissions
+	}
+	for i := range us {
+		if us[i].IsAdmin {
+			us[i].AdminPerms = append([]string(nil), models.AllAdminPermissions...)
+		} else if us[i].AdminRoleID != nil {
+			us[i].AdminPerms = byID[*us[i].AdminRoleID]
+		}
 	}
 	return us, nil
 }
@@ -887,7 +903,7 @@ func (s *Store) DeleteAPIKey(id uint) error {
 	return s.db.Delete(&models.APIKey{}, id).Error
 }
 
-// GetUser returns a user by ID.
+// GetUser returns a user by ID, with admin permissions resolved.
 func (s *Store) GetUser(id uint) (*models.User, error) {
 	var u models.User
 	if err := s.db.First(&u, id).Error; err != nil {
@@ -896,10 +912,29 @@ func (s *Store) GetUser(id uint) (*models.User, error) {
 		}
 		return nil, err
 	}
+	s.resolveAdminPerms(&u)
 	return &u, nil
 }
 
-// GetUserByUsername returns a user by username.
+// resolveAdminPerms populates u.AdminPerms from the user's superadmin flag or
+// their assigned admin role. Best-effort: a missing/deleted role yields no
+// permissions rather than an error. Superadmins always get the full set.
+func (s *Store) resolveAdminPerms(u *models.User) {
+	if u.IsAdmin {
+		u.AdminPerms = append([]string(nil), models.AllAdminPermissions...)
+		return
+	}
+	u.AdminPerms = nil
+	if u.AdminRoleID == nil {
+		return
+	}
+	var role models.AdminRole
+	if err := s.db.First(&role, *u.AdminRoleID).Error; err == nil {
+		u.AdminPerms = role.Permissions
+	}
+}
+
+// GetUserByUsername returns a user by username, with admin permissions resolved.
 func (s *Store) GetUserByUsername(username string) (*models.User, error) {
 	var u models.User
 	if err := s.db.Where("username = ?", username).First(&u).Error; err != nil {
@@ -908,6 +943,7 @@ func (s *Store) GetUserByUsername(username string) (*models.User, error) {
 		}
 		return nil, err
 	}
+	s.resolveAdminPerms(&u)
 	return &u, nil
 }
 

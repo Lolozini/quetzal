@@ -14,7 +14,7 @@ import (
 // ---- user management (admin) ----
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermUsers) {
 		return
 	}
 	us, err := s.Store.ListUsers()
@@ -36,12 +36,18 @@ type createUserRequest struct {
 }
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermUsers) {
 		return
 	}
 	var req createUserRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	// Only a superadmin can mint other superadmins; a scoped users-admin can't
+	// escalate by creating an admin account.
+	if req.IsAdmin && !userFrom(r.Context()).IsAdmin {
+		writeError(w, http.StatusForbidden, "only a superadmin can create admin accounts")
 		return
 	}
 	if len(req.Username) < 3 || len(req.Password) < 8 {
@@ -84,7 +90,7 @@ type updateUserRequest struct {
 }
 
 func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermUsers) {
 		return
 	}
 	target, ok := s.lookupUser(w, r)
@@ -95,6 +101,19 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
+	}
+	// The admin-status field is superadmin territory: a scoped users-admin may
+	// manage regular users but must not touch existing admins or grant/revoke
+	// admin status (which would let them escalate their own access).
+	if caller := userFrom(r.Context()); !caller.IsAdmin {
+		if target.IsAdmin {
+			writeError(w, http.StatusForbidden, "only a superadmin can modify an admin account")
+			return
+		}
+		if req.IsAdmin {
+			writeError(w, http.StatusForbidden, "only a superadmin can grant admin status")
+			return
+		}
 	}
 	// Don't allow demoting the last admin.
 	if target.IsAdmin && !req.IsAdmin {
@@ -139,15 +158,21 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermUsers) {
 		return
 	}
 	target, ok := s.lookupUser(w, r)
 	if !ok {
 		return
 	}
-	if me := userFrom(r.Context()); me != nil && me.ID == target.ID {
+	me := userFrom(r.Context())
+	if me != nil && me.ID == target.ID {
 		writeError(w, http.StatusConflict, "cannot delete your own account")
+		return
+	}
+	// A scoped users-admin can't delete admin accounts (privilege boundary).
+	if target.IsAdmin && (me == nil || !me.IsAdmin) {
+		writeError(w, http.StatusForbidden, "only a superadmin can delete an admin account")
 		return
 	}
 	if target.IsAdmin {
@@ -255,7 +280,7 @@ func (s *Server) requireOwnerOrAdmin(w http.ResponseWriter, r *http.Request) (*m
 		return nil, false
 	}
 	u := userFrom(r.Context())
-	if u != nil && (u.IsAdmin || srv.OwnerID == u.ID) {
+	if u != nil && (u.HasAdminPerm(models.AdminPermServers) || srv.OwnerID == u.ID) {
 		return srv, true
 	}
 	// Hide existence from users who can't even view it.
@@ -356,7 +381,7 @@ func (s *Server) handleServerAudit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGlobalAudit(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	if !s.requireAdminPerm(w, r, models.AdminPermAudit) {
 		return
 	}
 	es, err := s.Store.ListAudit(200)

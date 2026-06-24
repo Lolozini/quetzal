@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { User } from "../api";
+import { User, isAnyAdmin } from "../api";
 import { ServerList } from "./ServerList";
 import { CreateServer } from "./CreateServer";
 import { ServerDetail } from "./ServerDetail";
@@ -24,11 +24,11 @@ export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void
         </div>
         <div className="row">
           <button onClick={() => setView({ name: "list" })}>Servers</button>
-          {user.isAdmin && <button onClick={() => setView({ name: "admin" })}>Admin</button>}
+          {isAnyAdmin(user) && <button onClick={() => setView({ name: "admin" })}>Admin</button>}
           <button onClick={() => setView({ name: "account" })}>Account</button>
           <span className="muted">
             {user.username}
-            {user.isAdmin ? " (admin)" : ""}
+            {user.isAdmin ? " (admin)" : isAnyAdmin(user) ? " (scoped admin)" : ""}
           </span>
           <button onClick={onLogout}>Logout</button>
         </div>
@@ -49,7 +49,7 @@ export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void
         {view.name === "detail" && (
           <ServerDetail id={view.id} user={user} onBack={() => setView({ name: "list" })} />
         )}
-        {view.name === "admin" && user.isAdmin && <Admin />}
+        {view.name === "admin" && isAnyAdmin(user) && <Admin user={user} />}
         {view.name === "account" && <Account user={user} />}
       </div>
     </>

@@ -218,7 +218,15 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/users", s.auth(s.handleCreateUser))
 	mux.Handle("PATCH /api/users/{uid}", s.auth(s.handleUpdateUser))
 	mux.Handle("DELETE /api/users/{uid}", s.auth(s.handleDeleteUser))
+	mux.Handle("PUT /api/users/{uid}/admin-role", s.auth(s.handleSetUserAdminRole))
 	mux.Handle("POST /api/me/password", s.auth(s.handleChangePassword))
+
+	// Admin roles (scoped admin permission bundles; superadmin only).
+	mux.Handle("GET /api/admin-permissions", s.auth(s.handleAdminPermissionCatalog))
+	mux.Handle("GET /api/admin-roles", s.auth(s.handleListAdminRoles))
+	mux.Handle("POST /api/admin-roles", s.auth(s.handleCreateAdminRole))
+	mux.Handle("PUT /api/admin-roles/{rid}", s.auth(s.handleUpdateAdminRole))
+	mux.Handle("DELETE /api/admin-roles/{rid}", s.auth(s.handleDeleteAdminRole))
 
 	// System email settings (admin) — drives password-reset delivery.
 	mux.Handle("GET /api/email-settings", s.auth(s.handleGetEmailSettings))
