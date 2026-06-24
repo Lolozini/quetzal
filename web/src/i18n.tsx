@@ -4,7 +4,7 @@
 // a language is a single dictionary file; adding coverage is wrapping a string
 // in t(). This mirrors how Pterodactyl grows translations by community
 // contribution.
-import { createContext, ReactNode, useCallback, useContext, useState } from "react";
+import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import { fr } from "./locales/fr";
 
 export type Lang = "en" | "fr";
@@ -44,12 +44,20 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     setLangState(l);
   }, []);
 
+  // Reflect the active locale on <html lang> for accessibility / spellcheck.
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+
   const t = useCallback<TFunc>(
     (key, vars) => {
       let s = DICTS[lang]?.[key] ?? key;
       if (vars) {
         for (const k of Object.keys(vars)) {
-          s = s.replace(new RegExp(`\\{${k}\\}`, "g"), String(vars[k]));
+          // Use a replacement function, not a string: a value containing `$`
+          // (e.g. a user-named cluster) must not be treated as a $-pattern.
+          const v = String(vars[k]);
+          s = s.replace(new RegExp(`\\{${k}\\}`, "g"), () => v);
         }
       }
       return s;
