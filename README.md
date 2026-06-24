@@ -1,6 +1,7 @@
 # Quetzal
 
 [![CI](https://github.com/lolozini/quetzal/actions/workflows/ci.yml/badge.svg)](https://github.com/lolozini/quetzal/actions/workflows/ci.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](./LICENSE)
 
 > Kubernetes-native control plane & UI to deploy and manage game servers — in the
 > spirit of Pterodactyl/Pelican, **without the Docker layer**.
@@ -159,7 +160,7 @@ See [docs/INSTALL.md](docs/INSTALL.md) for a full install guide,
   navigation, server list/create, server controls, account) are translated and
   coverage extends by wrapping a string in `t()`.
 - **Self-hostable & generic**: nothing hardcoded to a specific homelab — SQLite
-  by default (Postgres optional), storageClass *or* hostPath, MIT licensed.
+  by default (Postgres optional), storageClass *or* hostPath, AGPL-3.0 licensed.
 
 ## Architecture
 
@@ -205,4 +206,9 @@ Browser ──HTTP/WS──▶ api-server (UI + REST/WS + console proxy)
 
 ## License
 
-[MIT](./LICENSE).
+Copyright (C) 2026 Lolozini.
+
+Quetzal is free software, licensed under the GNU Affero General Public License
+v3.0 or later ([AGPL-3.0-or-later](./LICENSE)). In particular, if you run a
+modified version to provide a service over a network, you must offer that
+service's users the corresponding source code of your modified version.

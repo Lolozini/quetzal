@@ -7,6 +7,11 @@ its first tagged release.
 
 ## [Unreleased]
 
+### Changed
+
+- **License changed from MIT to AGPL-3.0-or-later.** Running a modified version
+  as a network service now requires offering its users the modified source.
+
 ### Added
 
 - **Version stamping & releases.** Binaries now embed build info (version,
