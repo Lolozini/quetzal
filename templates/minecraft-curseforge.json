@@ -1,0 +1,33 @@
+{
+  "slug": "minecraft-curseforge",
+  "name": "Minecraft (CurseForge Modpack)",
+  "author": "quetzal",
+  "category": "minecraft",
+  "description": "Minecraft Java modpack server from CurseForge, powered by the itzg/minecraft-server image in AUTO_CURSEFORGE mode. The modpack (and its mod loader: Forge/Fabric/NeoForge) is downloaded and installed by the image at first boot from the modpack URL — no manual upload. Requires a free CurseForge API key. Give the server plenty of memory: most packs want the pod memory limit set well above the JVM heap below.",
+  "images": [
+    { "displayName": "Java 21 (most modpacks)", "ref": "itzg/minecraft-server:java21-jdk", "default": true },
+    { "displayName": "Java 17 (older packs, MC 1.17–1.20)", "ref": "itzg/minecraft-server:java17-jdk" },
+    { "displayName": "Java 8 (legacy packs, MC ≤ 1.16)", "ref": "itzg/minecraft-server:java8-jdk" }
+  ],
+  "variables": [
+    { "name": "JVM Heap", "description": "JVM heap size given to the server, e.g. 6G. Keep it below the pod memory limit (the JVM and the OS need headroom on top of this).", "envVariable": "MEMORY", "type": "string", "default": "6G", "viewable": true, "editable": true },
+    { "name": "Server Type", "description": "Fixed: AUTO_CURSEFORGE installs the modpack from CurseForge.", "envVariable": "TYPE", "type": "string", "default": "AUTO_CURSEFORGE", "viewable": true, "editable": false },
+    { "name": "CurseForge API Key", "description": "Personal CurseForge Eternal API key (create one at console.curseforge.com). Stored encrypted in a Kubernetes Secret.", "envVariable": "CF_API_KEY", "type": "string", "secret": true, "required": true, "viewable": true, "editable": true },
+    { "name": "Modpack URL", "description": "URL of the CurseForge modpack page (e.g. https://www.curseforge.com/minecraft/modpacks/all-the-mods-10) or of a specific pack file. The latest server file is resolved automatically.", "envVariable": "CF_PAGE_URL", "type": "string", "required": true, "viewable": true, "editable": true },
+    { "name": "Pin file (optional)", "description": "Optional substring to pin a specific server file/version, e.g. a version number. Leave blank to always use the latest server file from the URL.", "envVariable": "CF_FILENAME_MATCHER", "type": "string", "viewable": true, "editable": true },
+    { "name": "Exclude mods (optional)", "description": "Optional comma-separated list of client-only mod slugs/filenames to remove from the server (some packs ship client mods that crash a dedicated server).", "envVariable": "CF_EXCLUDE_MODS", "type": "string", "viewable": true, "editable": true },
+    { "name": "Accept EULA", "description": "Accept the Minecraft EULA.", "envVariable": "EULA", "type": "bool", "default": "true", "required": true, "viewable": true, "editable": true },
+    { "name": "RCON Password", "description": "Password for RCON (stored encrypted, kept in a Kubernetes Secret). Optional — the panel console uses stdin, not RCON.", "envVariable": "RCON_PASSWORD", "type": "string", "secret": true, "viewable": true, "editable": true }
+  ],
+  "startup": "",
+  "doneRegex": "Done (",
+  "stopCommand": "stop",
+  "stopGraceSeconds": 120,
+  "console": { "type": "attach" },
+  "dataPath": "/data",
+  "ports": [
+    { "name": "java", "port": 25565, "protocol": "TCP", "primary": true }
+  ],
+  "features": ["eula"],
+  "securityContext": { "runAsUser": 1000, "runAsGroup": 1000, "fsGroup": 1000 }
+}
