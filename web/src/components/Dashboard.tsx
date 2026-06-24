@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { User, isAnyAdmin } from "../api";
+import { useEffect, useState } from "react";
+import { api, User, isAnyAdmin } from "../api";
 import { LangSwitcher, useT } from "../i18n";
 import { ServerList } from "./ServerList";
 import { CreateServer } from "./CreateServer";
@@ -55,6 +55,22 @@ export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void
         {view.name === "admin" && isAnyAdmin(user) && <Admin user={user} />}
         {view.name === "account" && <Account user={user} />}
       </div>
+      <VersionFooter />
     </>
+  );
+}
+
+// VersionFooter shows the running build version (from /api/version) so operators
+// can tell what they're on at a glance.
+function VersionFooter() {
+  const [ver, setVer] = useState("");
+  useEffect(() => {
+    api.version().then((v) => setVer(v.version)).catch(() => {});
+  }, []);
+  if (!ver) return null;
+  return (
+    <div className="muted" style={{ textAlign: "center", padding: "16px 0", fontSize: 12 }}>
+      Quetzal {ver}
+    </div>
   );
 }

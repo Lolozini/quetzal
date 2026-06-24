@@ -464,6 +464,13 @@ async function rawTemplate(method: string, path: string, body: string): Promise<
   return (await res.json()) as Template;
 }
 
+export interface VersionInfo {
+  version: string;
+  commit: string;
+  date: string;
+  go: string;
+}
+
 export const api = {
   setupStatus: () => req<{ needed: boolean }>("GET", "/api/setup/status"),
   setup: (username: string, password: string, email?: string) =>
@@ -472,6 +479,7 @@ export const api = {
     req<LoginResult>("POST", "/api/login", { username, password, code }),
   logout: () => req<void>("POST", "/api/logout"),
   me: () => req<User>("GET", "/api/me"),
+  version: () => req<VersionInfo>("GET", "/api/version"),
 
   // Self-service password reset.
   forgotPassword: (identifier: string) =>

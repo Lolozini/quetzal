@@ -34,10 +34,13 @@ import (
 	"github.com/lolozini/quetzal/internal/scheduler"
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/internal/transfer"
+	"github.com/lolozini/quetzal/internal/version"
 	"github.com/lolozini/quetzal/templates"
 )
 
 func main() {
+	version.HandleFlag()
+	log.Printf("starting %s", version.String())
 	dbDriver := store.Driver(env("QUETZAL_DB_DRIVER", "sqlite"))
 	dbDSN := env("QUETZAL_DB_DSN", "quetzal.db")
 	resync := envDuration("QUETZAL_RESYNC", 15*time.Second)

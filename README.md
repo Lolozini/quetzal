@@ -37,8 +37,13 @@ helm install quetzal ./deploy/quetzal \
   --set ingress.enabled=true --set ingress.host=quetzal.example.com
 ```
 
-Then open the panel and complete the first-run admin setup. See
-[deploy/quetzal/values.yaml](deploy/quetzal/values.yaml) for all options.
+Then open the panel and complete the first-run admin setup. The panel footer and
+`GET /api/version` report the running build.
+
+See [docs/INSTALL.md](docs/INSTALL.md) for a full install guide,
+[docs/UPGRADE.md](docs/UPGRADE.md) for upgrades, the
+[CHANGELOG](CHANGELOG.md) for release notes, and
+[deploy/quetzal/values.yaml](deploy/quetzal/values.yaml) for all chart options.
 
 ## Design highlights
 

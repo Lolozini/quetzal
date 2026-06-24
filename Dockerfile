@@ -11,13 +11,21 @@ RUN npm run build
 # 2) Build the Go binaries (apiserver embeds the UI built above).
 FROM golang:1.23-alpine AS build
 ENV GOTOOLCHAIN=local CGO_ENABLED=0
+# Build metadata stamped into the binaries (see internal/version).
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=web /web/dist ./web/dist
-RUN go build -trimpath -o /out/quetzal-apiserver ./cmd/apiserver \
- && go build -trimpath -o /out/quetzal-controller ./cmd/controller \
+RUN LDFLAGS="-s -w \
+ -X github.com/lolozini/quetzal/internal/version.Version=${VERSION} \
+ -X github.com/lolozini/quetzal/internal/version.Commit=${COMMIT} \
+ -X github.com/lolozini/quetzal/internal/version.Date=${DATE}" \
+ && go build -trimpath -ldflags "$LDFLAGS" -o /out/quetzal-apiserver ./cmd/apiserver \
+ && go build -trimpath -ldflags "$LDFLAGS" -o /out/quetzal-controller ./cmd/controller \
  && go build -trimpath -o /out/quetzal-activator ./cmd/activator \
  && go build -trimpath -o /out/quetzal-configrender ./cmd/configrender \
  && go build -trimpath -o /out/quetzal-sftp ./cmd/sftp

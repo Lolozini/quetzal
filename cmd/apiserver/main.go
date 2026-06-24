@@ -21,11 +21,14 @@ import (
 	"github.com/lolozini/quetzal/internal/metrics"
 	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/version"
 	"github.com/lolozini/quetzal/templates"
 	webui "github.com/lolozini/quetzal/web"
 )
 
 func main() {
+	version.HandleFlag()
+	log.Printf("starting %s", version.String())
 	addr := env("QUETZAL_ADDR", ":8080")
 	dbDriver := store.Driver(env("QUETZAL_DB_DRIVER", "sqlite"))
 	dbDSN := env("QUETZAL_DB_DSN", "quetzal.db")

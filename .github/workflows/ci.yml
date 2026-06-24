@@ -82,10 +82,12 @@ jobs:
           QUETZAL_E2E_IMAGE: quetzal:e2e
         run: go test -tags e2e -v -timeout 20m ./test/e2e/...
 
+  # Publish the rolling image for the default branch. Tagged releases (v*) are
+  # built with stamped version metadata by the separate release workflow.
   image:
     runs-on: ubuntu-latest
     needs: [lint, test, web]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: write
@@ -103,13 +105,15 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=ref,event=branch
-            type=semver,pattern={{version}}
             type=sha,format=short
             type=raw,value=latest,enable={{is_default_branch}}
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
+          build-args: |
+            VERSION=main
+            COMMIT=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

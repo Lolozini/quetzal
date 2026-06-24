@@ -25,6 +25,7 @@ import (
 	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/ratelimit"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/version"
 )
 
 const sessionCookie = "quetzal_session"
@@ -163,6 +164,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/internal/active", s.handleActive)
 	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, version.Get())
 	})
 	// Public API documentation: the machine-readable spec and a rendered viewer.
 	mux.HandleFunc("GET /api/openapi.yaml", s.handleOpenAPISpec)
