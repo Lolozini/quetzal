@@ -127,6 +127,11 @@ Then open the panel and complete the first-run admin setup. See
 - **Multi-cluster**: register additional clusters by kubeconfig (stored
   encrypted) and pick a deploy target per server; the controller reconciles each
   server against its own cluster. The local cluster needs no credentials.
+  **Servers can be transferred between clusters**: since PVCs aren't portable,
+  the data moves through the S3 backup target — the server is stopped and backed
+  up on the source, restored into a fresh volume on the destination, then the
+  source namespace is removed. The source copy is kept until the restore
+  succeeds, so a failure rolls back cleanly.
 - **Egg-compatible**: import existing Pterodactyl/Pelican eggs from the admin UI
   (paste the egg JSON), then browse, edit (as native JSON), export and delete
   templates — including **config.files rendering** at startup
@@ -177,8 +182,9 @@ Browser ──HTTP/WS──▶ api-server (UI + REST/WS + console proxy)
   template sync, sandboxed runtime._
 - ✅ **Phase 6** — Multi-cluster: a kubeconfig-based cluster registry (encrypted
   at rest), per-server deploy target, per-cluster reconcile + GC + status probes,
-  and read-only node listing. _Deferred to later: moving a server between
-  clusters, per-cluster backup targets / node-port pools, MariaDB/MySQL._
+  and read-only node listing, plus **server transfer between clusters** (via the
+  backup target). _Deferred to later: per-cluster backup targets / node-port
+  pools._
 
 ## License
 

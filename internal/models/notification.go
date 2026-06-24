@@ -23,6 +23,7 @@ const (
 	EventServerCrashed    = "server.crashed"    // controller: crashloop
 	EventServerStopped    = "server.stopped"    // controller: went down
 	EventServerHibernated = "server.hibernated" // controller: auto-slept
+	EventServerTransfer   = "server.transfer"   // controller: cross-cluster move
 	EventBackupCreate     = "backup.create"
 	EventBackupRestore    = "backup.restore"
 	EventScheduleCreate   = "schedule.create"

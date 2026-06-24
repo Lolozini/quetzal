@@ -212,7 +212,20 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
     }
   }
 
+  async function transfer(targetCluster: number) {
+    const name = clusters.find((c) => c.id === targetCluster)?.name || `cluster ${targetCluster}`;
+    if (!window.confirm(`Transfer this server to ${name}?\n\nIt will be stopped, its data backed up and restored on the destination, then the source removed. This can take a while.`)) return;
+    setError("");
+    try {
+      await api.transferServer(id, targetCluster);
+      setSrv(await api.server(id));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
   const canManage = !!srv && (hasAdminPerm(user, "servers") || srv.ownerId === user.id);
+  const transferring = !!srv?.transfer;
   const hasPorts = !!srv?.ports && srv.ports.length > 0;
   // TCP-only servers can use the lightweight wake-on-connect; UDP needs the proxy.
   const tcpOnly = hasPorts && srv!.ports!.every((p) => p.protocol.toUpperCase() !== "UDP");
@@ -332,21 +345,26 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
             <span>{srv.status.message}</span>
           </div>
         )}
+        {srv.transfer && (
+          <div className="notice" style={{ marginTop: 12 }}>
+            Transferring to {clusters.find((c) => c.id === srv.transfer!.targetCluster)?.name || `cluster ${srv.transfer.targetCluster}`} ({srv.transfer.phase})… power and edits are paused until it finishes.
+          </div>
+        )}
         <div className="row" style={{ marginTop: 12 }}>
-          <button className="primary" disabled={busy !== ""} onClick={() => power("start")}>
+          <button className="primary" disabled={busy !== "" || transferring} onClick={() => power("start")}>
             {busy === "start" ? "Starting…" : "Start"}
           </button>
-          <button disabled={busy !== ""} onClick={() => power("stop")}>
+          <button disabled={busy !== "" || transferring} onClick={() => power("stop")}>
             {busy === "stop" ? "Stopping…" : "Stop"}
           </button>
-          <button disabled={busy !== ""} onClick={() => power("restart")}>
+          <button disabled={busy !== "" || transferring} onClick={() => power("restart")}>
             {busy === "restart" ? "Restarting…" : "Restart"}
           </button>
-          <button className="danger" disabled={busy !== ""} onClick={() => power("kill")}>
+          <button className="danger" disabled={busy !== "" || transferring} onClick={() => power("kill")}>
             {busy === "kill" ? "Killing…" : "Kill"}
           </button>
           {srv.hibernated && (
-            <button className="primary" disabled={busy !== ""} onClick={() => power("start")}>Wake</button>
+            <button className="primary" disabled={busy !== "" || transferring} onClick={() => power("start")}>Wake</button>
           )}
           {hasAdminPerm(user, "servers") && (
             <>
@@ -354,11 +372,27 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
               {srv.desiredState === "Suspended" ? (
                 <button onClick={() => suspend(false)}>Unsuspend</button>
               ) : (
-                <button className="danger" onClick={() => suspend(true)}>Suspend</button>
+                <button className="danger" disabled={transferring} onClick={() => suspend(true)}>Suspend</button>
               )}
             </>
           )}
         </div>
+        {hasAdminPerm(user, "servers") && clusters.length > 1 && !srv.transfer && (
+          <div className="kv" style={{ marginTop: 12 }}>
+            <span className="k">Transfer</span>
+            <span>
+              <select
+                defaultValue=""
+                onChange={(e) => { const v = Number(e.target.value); e.currentTarget.value = ""; if (v) transfer(v); }}
+              >
+                <option value="">move to another cluster…</option>
+                {clusters.filter((c) => c.id !== (srv.clusterId || 0)).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </span>
+          </div>
+        )}
         {canManage && hasPorts && (
           <div className="kv" style={{ marginTop: 12 }}>
             <span className="k">Hibernation</span>

@@ -196,6 +196,10 @@ type Server struct {
 	Hibernated   bool       `json:"hibernated"`
 	LastActiveAt *time.Time `json:"lastActiveAt,omitempty"`
 
+	// Transfer is the in-progress migration to another cluster (nil when none).
+	// Driven by the controller's transfer manager.
+	Transfer *TransferState `gorm:"serializer:json" json:"transfer,omitempty"`
+
 	Status Status `gorm:"serializer:json" json:"status"`
 }
 

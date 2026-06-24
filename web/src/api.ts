@@ -240,7 +240,17 @@ export interface Server {
   hibernated?: boolean;
   sftp?: { enabled: boolean };
   clusterId?: number;
+  transfer?: TransferState;
   status: ServerStatus;
+}
+
+export interface TransferState {
+  phase: string;
+  sourceCluster: number;
+  targetCluster: number;
+  prevState: string;
+  message?: string;
+  startedAt?: string;
 }
 
 export interface ServerStats {
@@ -563,6 +573,9 @@ export const api = {
   createAPIKey: (name: string) =>
     req<{ key: APIKey; token: string }>("POST", "/api/apikeys", { name }),
   deleteAPIKey: (kid: number) => req<void>("DELETE", `/api/apikeys/${kid}`),
+
+  transferServer: (id: number, targetCluster: number) =>
+    req<{ result: string }>("POST", `/api/servers/${id}/transfer`, { targetCluster }),
 
   // Multi-cluster.
   clusters: () => req<Cluster[]>("GET", "/api/clusters"),

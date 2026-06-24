@@ -33,6 +33,7 @@ import (
 	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/scheduler"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/transfer"
 	"github.com/lolozini/quetzal/templates"
 )
 
@@ -92,6 +93,7 @@ func main() {
 
 	sched := scheduler.New(st, &executor{st: st, reg: reg})
 	bmgr := backup.NewManager(st, reg)
+	tmgr := transfer.NewManager(st, reg)
 	hmgr := hibernate.New(st, connProbe(reg))
 
 	go serveOps(metricsAddr, st)
@@ -106,6 +108,10 @@ func main() {
 		tick := func() {
 			reconcileAll(ctx, reg, st, actCfg)
 			sched.Tick(ctx)
+			// Transfers advance after reconcile (which creates the destination
+			// namespace/volume post cluster-flip) and before the backup manager
+			// (so the backup/restore jobs they enqueue run in the same tick).
+			tmgr.Process(ctx)
 			bmgr.Process(ctx)
 			hmgr.Tick(ctx)
 			refreshClusters(ctx, reg, st)
@@ -279,11 +285,14 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 	}
 	byCluster := map[uint][]models.Server{}
 	// allSlugs is the GC valid-set used on EVERY cluster. Slugs are globally
-	// unique and a server never changes clusters, so a managed namespace whose
-	// slug has no server is always an orphan. Using the global set (rather than
-	// a per-cluster set) makes GC safe even if the same physical cluster is
-	// registered twice — a row with no servers won't delete the other row's
-	// namespaces on the shared cluster.
+	// unique, so a managed namespace whose slug has no server row is always an
+	// orphan. Using the global set (rather than a per-cluster set) makes GC safe
+	// even if the same physical cluster is registered twice — a row with no
+	// servers won't delete the other row's namespaces on the shared cluster.
+	// During a cross-cluster transfer a server's slug is briefly valid on two
+	// clusters; that's intentional (the source copy is kept until the restore
+	// succeeds), and the transfer manager deletes the leftover namespace
+	// explicitly rather than relying on this GC.
 	allSlugs := make(map[string]bool, len(servers))
 	for i := range servers {
 		s := servers[i]

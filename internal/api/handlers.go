@@ -664,6 +664,9 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if transferInProgress(w, srv) {
+		return
+	}
 	var req updateServerRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
@@ -745,6 +748,9 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleReinstallServer(w http.ResponseWriter, r *http.Request) {
 	srv, ok := s.requireServer(w, r, models.PermSettings)
 	if !ok {
+		return
+	}
+	if transferInProgress(w, srv) {
 		return
 	}
 	tmpl, err := s.Store.GetTemplate(srv.TemplateID)
@@ -904,6 +910,9 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 	// until an admin lifts the suspension.
 	if srv.DesiredState == models.StateSuspended {
 		writeError(w, http.StatusConflict, "server is suspended by an administrator")
+		return
+	}
+	if transferInProgress(w, srv) {
 		return
 	}
 	var req powerRequest

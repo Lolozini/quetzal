@@ -1016,6 +1016,32 @@ paths:
       responses:
         "204": { description: Unsuspended }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /api/servers/{id}/transfer:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    post:
+      tags: [Servers]
+      summary: Transfer a server to another cluster (server-admin)
+      description: >
+        Migrates the server to another registered cluster. It is stopped, its
+        data is backed up on the source and restored onto the destination
+        (via the configured S3 backup target), then the source namespace is
+        removed. Requires a configured backup target. While in progress,
+        power/edit/reinstall are blocked.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetCluster]
+              properties:
+                targetCluster: { type: integer }
+      responses:
+        "202": { description: Transfer started }
+        "400": { description: Bad target, no backup target, or already on that cluster }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: A transfer is already in progress }
 
   /api/servers/{id}/access:
     parameters:
@@ -1710,7 +1736,19 @@ components:
           type: object
           properties: { enabled: { type: boolean } }
         clusterId: { type: integer }
+        transfer:
+          $ref: "#/components/schemas/TransferState"
         status: { $ref: "#/components/schemas/Status" }
+    TransferState:
+      type: object
+      description: Present while a cross-cluster transfer is in progress
+      properties:
+        phase: { type: string, enum: [BackingUp, Restoring] }
+        sourceCluster: { type: integer }
+        targetCluster: { type: integer }
+        prevState: { type: string, enum: [Running, Stopped, Suspended] }
+        startedAt: { type: string, format: date-time }
+        message: { type: string }
     CreateServerRequest:
       type: object
       required: [name, template]
