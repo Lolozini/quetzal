@@ -41,6 +41,34 @@ func guard(_, address string, _ syscall.RawConn) error {
 	return nil
 }
 
+// SafeTransport returns an *http.Transport whose dialer refuses connections to
+// non-public addresses (see blockedIP). The guard runs for every actual TCP
+// connection — each resolved IP and each redirect hop — so it also defeats DNS
+// rebinding. Pair it with CheckRedirect on an http.Client for any outbound
+// request to a user-supplied URL (egg/catalog fetch, notification webhooks).
+func SafeTransport() *http.Transport {
+	dialer := &net.Dialer{Timeout: 10 * time.Second, Control: guard}
+	return &http.Transport{
+		DialContext:           dialer.DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+		DisableKeepAlives:     true,
+	}
+}
+
+// CheckRedirect bounds an http.Client's redirect chain and restricts it to
+// http(s). The dialer in SafeTransport re-checks each hop's IP, so this only
+// guards the scheme and chain length.
+func CheckRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return fmt.Errorf("too many redirects")
+	}
+	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+		return fmt.Errorf("redirect to non-http(s) scheme")
+	}
+	return nil
+}
+
 // Get fetches rawURL and returns its body (capped at maxBytes). The total
 // operation is bounded by ctx and an internal timeout.
 func Get(ctx context.Context, rawURL string, maxBytes int64) ([]byte, error) {
@@ -52,24 +80,10 @@ func Get(ctx context.Context, rawURL string, maxBytes int64) ([]byte, error) {
 		return nil, fmt.Errorf("URL must be http or https")
 	}
 
-	dialer := &net.Dialer{Timeout: 10 * time.Second, Control: guard}
 	client := &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			DialContext:           dialer.DialContext,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 15 * time.Second,
-			DisableKeepAlives:     true,
-		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
-				return fmt.Errorf("too many redirects")
-			}
-			if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-				return fmt.Errorf("redirect to non-http(s) scheme")
-			}
-			return nil // the dialer's guard re-checks the redirect target's IP
-		},
+		Timeout:       30 * time.Second,
+		Transport:     SafeTransport(),
+		CheckRedirect: CheckRedirect,
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)

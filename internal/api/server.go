@@ -380,12 +380,14 @@ func (s *Server) currentUser(r *http.Request) (*models.User, error) {
 		_ = s.Store.TouchAPIKey(key.ID, now)
 		return s.Store.GetUser(key.UserID)
 	}
-	sess, err := s.Store.GetSession(token)
+	// Sessions are stored by token hash (see startSession), so hash before lookup.
+	sessKey := hashToken(token)
+	sess, err := s.Store.GetSession(sessKey)
 	if err != nil {
 		return nil, err
 	}
 	if time.Now().After(sess.ExpiresAt) {
-		_ = s.Store.DeleteSession(token)
+		_ = s.Store.DeleteSession(sessKey)
 		return nil, store.ErrNotFound
 	}
 	return s.Store.GetUser(sess.UserID)

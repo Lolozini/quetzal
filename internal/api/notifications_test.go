@@ -124,6 +124,7 @@ func TestNotificationDeliveryEndToEnd(t *testing.T) {
 	apiSrv := api.New(st, fake.NewSimpleClientset(), &rest.Config{})
 	d := notify.New(st)
 	d.Interval = 20 * time.Millisecond
+	d.Client = recv.Client() // permissive: this test targets a loopback receiver
 	apiSrv.Dispatch = d
 	ts := httptest.NewServer(apiSrv.Handler())
 	defer ts.Close()
