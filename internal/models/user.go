@@ -63,7 +63,9 @@ func (u *User) IsAnyAdmin() bool {
 	return u != nil && (u.IsAdmin || len(u.AdminPerms) > 0)
 }
 
-// Session is a server-side bearer session (opaque random token).
+// Session is a server-side bearer session. Token holds the SHA-256 hash of the
+// opaque random token (the plaintext lives only in the client's cookie), so a
+// read-only store leak can't be replayed.
 type Session struct {
 	Token     string    `gorm:"primaryKey;size:128" json:"-"`
 	UserID    uint      `gorm:"index" json:"userId"`

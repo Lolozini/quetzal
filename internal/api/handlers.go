@@ -149,7 +149,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if token := tokenFromRequest(r); token != "" {
-		_ = s.Store.DeleteSession(token)
+		_ = s.Store.DeleteSession(hashToken(token))
 	}
 	s.clearSessionCookie(w)
 	w.WriteHeader(http.StatusNoContent)
@@ -165,7 +165,10 @@ func (s *Server) startSession(w http.ResponseWriter, u *models.User) error {
 		return err
 	}
 	exp := time.Now().Add(s.SessionTTL)
-	if err := s.Store.CreateSession(&models.Session{Token: token, UserID: u.ID, ExpiresAt: exp}); err != nil {
+	// Store only the hash of the token (like API keys and reset tokens): a
+	// read-only DB/backup leak then can't yield replayable live sessions. The
+	// cookie carries the plaintext token; lookups hash it before matching.
+	if err := s.Store.CreateSession(&models.Session{Token: hashToken(token), UserID: u.ID, ExpiresAt: exp}); err != nil {
 		return err
 	}
 	s.setSessionCookie(w, token, exp)

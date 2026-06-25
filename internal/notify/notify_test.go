@@ -98,6 +98,7 @@ func TestDispatcherMatchesAndAdvances(t *testing.T) {
 		settings: map[string]string{cursorKey: "0"}, // explicit cursor: no seeding skip
 	}
 	d := New(st)
+	d.Client = srv.Client() // permissive: this test targets a loopback receiver
 	d.drain(context.Background())
 
 	mu.Lock()
@@ -134,6 +135,26 @@ func TestDispatcherSeedsCursorOnFirstRun(t *testing.T) {
 	<-done
 	if v, _ := st.GetSetting(cursorKey); v != "5" {
 		t.Errorf("first-run cursor = %q, want 5 (no replay of history)", v)
+	}
+}
+
+// TestDispatcherClientBlocksSSRF locks in that the dispatcher's default client
+// refuses webhook delivery to an internal/loopback address (SSRF guard), so a
+// user-supplied channel URL can't reach in-cluster or metadata endpoints.
+func TestDispatcherClientBlocksSSRF(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	d := New(&fakeStore{}) // default (guarded) client, not srv.Client()
+	c := &models.NotificationChannel{Type: models.ChannelWebhook}
+	err := d.DeliverTo(context.Background(), c, map[string]string{"url": srv.URL}, models.Event{ID: 1})
+	if err == nil {
+		t.Fatal("expected delivery to a loopback address to be refused")
+	}
+	if !strings.Contains(err.Error(), "non-public") {
+		t.Errorf("error = %v, want SSRF guard refusal", err)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/safefetch"
 )
 
 // cursorKey names the Setting row holding the last-delivered event ID.
@@ -48,9 +49,17 @@ func New(st Store) *Dispatcher {
 		Interval: 15 * time.Second,
 		Timeout:  10 * time.Second,
 		Batch:    100,
-		Client:   &http.Client{Timeout: 10 * time.Second},
-		Logger:   log.Default(),
-		nudge:    make(chan struct{}, 1),
+		// Webhook/Discord URLs are user-supplied, so deliver through an
+		// SSRF-guarded client: it refuses to connect to internal/private
+		// addresses (loopback, RFC1918, link-local incl. cloud metadata) and
+		// re-checks every redirect hop. External endpoints are unaffected.
+		Client: &http.Client{
+			Timeout:       10 * time.Second,
+			Transport:     safefetch.SafeTransport(),
+			CheckRedirect: safefetch.CheckRedirect,
+		},
+		Logger: log.Default(),
+		nudge:  make(chan struct{}, 1),
 	}
 }
 
