@@ -464,6 +464,20 @@ async function rawTemplate(method: string, path: string, body: string): Promise<
   return (await res.json()) as Template;
 }
 
+export interface CatalogEgg {
+  name: string;
+  description?: string;
+  category?: string;
+  author?: string;
+  url: string;
+}
+
+export interface EggCatalog {
+  catalogUrl: string;
+  eggs: CatalogEgg[];
+  error?: string;
+}
+
 export interface VersionInfo {
   version: string;
   commit: string;
@@ -501,6 +515,9 @@ export const api = {
     rawTemplate("PUT", `/api/templates/${slug}`, templateJson),
   deleteTemplate: (slug: string) => req<void>("DELETE", `/api/templates/${slug}`),
   templateExportUrl: (slug: string) => `/api/templates/${slug}/export`,
+  importEggUrl: (url: string) => req<Template>("POST", "/api/templates/import-url", { url }),
+  eggCatalog: () => req<EggCatalog>("GET", "/api/egg-catalog"),
+  setEggCatalog: (url: string) => req<void>("PUT", "/api/egg-catalog", { url }),
   servers: () => req<Server[]>("GET", "/api/servers"),
   server: (id: number) => req<Server>("GET", `/api/servers/${id}`),
   createServer: (body: CreateServerRequest) =>

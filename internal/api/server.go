@@ -24,6 +24,7 @@ import (
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/ratelimit"
+	"github.com/lolozini/quetzal/internal/safefetch"
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/internal/version"
 )
@@ -68,6 +69,9 @@ type Server struct {
 	// Mailer sends outbound system email (password reset). Defaults to
 	// notify.SendMail; overridable in tests.
 	Mailer MailSender
+	// Fetch performs SSRF-guarded outbound GETs (egg/catalog import). Defaults to
+	// safefetch.Get; overridable in tests.
+	Fetch Fetcher
 	// TrustProxy honors X-Forwarded-For when deriving the client IP (set when
 	// served behind a reverse proxy such as Traefik).
 	TrustProxy bool
@@ -93,6 +97,7 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 		// victim and to blunt account enumeration via repeated probing.
 		ForgotLimiter: ratelimit.New(3, time.Hour),
 		Mailer:        notify.SendMail,
+		Fetch:         safefetch.Get,
 	}
 	s.upgrader = websocket.Upgrader{CheckOrigin: s.checkOrigin}
 	return s
@@ -100,6 +105,9 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 
 // MailSender sends a plain-text email; see notify.SendMail.
 type MailSender func(ctx context.Context, cfg map[string]string, to []string, subject, body string) error
+
+// Fetcher performs an SSRF-guarded outbound GET; see safefetch.Get.
+type Fetcher func(ctx context.Context, url string, maxBytes int64) ([]byte, error)
 
 // GCRateLimiters drops expired counters from all limiters; call periodically.
 func (s *Server) GCRateLimiters() {
@@ -178,6 +186,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/templates", s.auth(s.handleListTemplates))
 	mux.Handle("GET /api/templates/{slug}", s.auth(s.handleGetTemplate))
 	mux.Handle("POST /api/templates/import", s.auth(s.handleImportEgg))
+	mux.Handle("POST /api/templates/import-url", s.auth(s.handleImportEggURL))
+	mux.Handle("GET /api/egg-catalog", s.auth(s.handleGetEggCatalog))
+	mux.Handle("PUT /api/egg-catalog", s.auth(s.handleSetEggCatalog))
 	mux.Handle("PUT /api/templates/{slug}", s.auth(s.handleUpdateTemplate))
 	mux.Handle("DELETE /api/templates/{slug}", s.auth(s.handleDeleteTemplate))
 	mux.Handle("GET /api/templates/{slug}/export", s.auth(s.handleExportTemplate))

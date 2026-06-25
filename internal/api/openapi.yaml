@@ -571,6 +571,74 @@ paths:
               schema: { $ref: "#/components/schemas/Template" }
         "400": { description: Invalid egg JSON }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /api/templates/import-url:
+    post:
+      tags: [Servers]
+      summary: Import an egg from a URL (admin)
+      description: >-
+        Fetches an egg JSON from a URL (SSRF-guarded: http(s) only, non-public
+        addresses refused) and imports it as a template, like /import. Used for
+        ad-hoc imports and one-click catalog installs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties: { url: { type: string, format: uri } }
+      responses:
+        "201":
+          description: Imported
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Template" }
+        "400": { description: Missing URL or invalid egg }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502": { description: Could not fetch the URL }
+  /api/egg-catalog:
+    get:
+      tags: [Servers]
+      summary: Browse the configured egg catalog (admin)
+      description: >-
+        Returns the configured catalog manifest URL and, if reachable, the eggs
+        it lists. A fetch/parse failure is reported in the `error` field (still
+        HTTP 200) so the URL stays visible/editable.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  catalogUrl: { type: string }
+                  error: { type: string }
+                  eggs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        description: { type: string }
+                        category: { type: string }
+                        author: { type: string }
+                        url: { type: string }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [Servers]
+      summary: Set the egg catalog manifest URL (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { url: { type: string, description: "http(s) URL, or empty to clear" } }
+      responses:
+        "204": { description: Saved }
+        "400": { description: URL must be http or https }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /api/templates/{slug}:
     parameters:
       - { name: slug, in: path, required: true, schema: { type: string } }

@@ -32,8 +32,9 @@ network policy, and a multi-cluster API.
   container image and can be configured by environment + files is a first-class
   citizen — described by a **template** (Quetzal's "egg").
 - **A migration path, not a rewrite.** Import your existing **Pterodactyl/Pelican
-  eggs** as-is (variables, startup, install scripts, `config.files`) and bring
-  worlds/modpacks/backups in by uploading an archive.
+  eggs** as-is (variables, startup, install scripts, `config.files`) — paste the
+  JSON, fetch from a URL, or browse an **egg catalog** and install in one click —
+  and bring worlds/modpacks/backups in by uploading an archive.
 - **Multi-tenant and secure by default.** Namespace-per-server, NetworkPolicy,
   hardened `securityContext`, encrypted secrets, scoped subusers and admin roles.
 - **Self-hostable, no lock-in.** SQLite or Postgres, storageClass *or* hostPath,

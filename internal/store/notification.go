@@ -144,6 +144,10 @@ func (s *Store) DeleteEventsForServer(serverID uint) error {
 
 // ---- Settings (key/value) ----
 
+// SettingEggCatalogURL is the URL of an egg catalog manifest (a JSON list of
+// installable eggs) the admin can browse and install from.
+const SettingEggCatalogURL = "egg_catalog_url"
+
 // GetSetting returns a setting value, or "" if absent.
 func (s *Store) GetSetting(key string) (string, error) {
 	var v models.Setting

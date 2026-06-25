@@ -197,6 +197,17 @@ export const fr: Record<string, string> = {
     "Collez un JSON d'egg Pterodactyl/Pelican. Importer un egg dont le nom correspond à un modèle existant le met à jour.",
   "Import egg": "Importer l'egg",
   "Importing…": "Import…",
+  Import: "Importer",
+  Install: "Installer",
+  Category: "Catégorie",
+  "Import from URL": "Importer depuis une URL",
+  "Fetch an egg JSON straight from a URL (e.g. a raw file in an egg repository).":
+    "Récupère un JSON d'egg directement depuis une URL (p. ex. un fichier brut d'un dépôt d'eggs).",
+  "Egg catalog": "Catalogue d'eggs",
+  "Point Quetzal at a catalog manifest (a JSON list of eggs) to browse and install community eggs in one click.":
+    "Indiquez à Quetzal un manifeste de catalogue (une liste JSON d'eggs) pour parcourir et installer des eggs communautaires en un clic.",
+  "Catalog manifest URL (https://…)": "URL du manifeste de catalogue (https://…)",
+  'Installed "{name}".': "« {name} » installé.",
   "Template saved.": "Modèle enregistré.",
   'Delete template "{name}"? (Built-in ones return on restart.)':
     "Supprimer le modèle « {name} » ? (Les modèles intégrés reviennent au redémarrage.)",
