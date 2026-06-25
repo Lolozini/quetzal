@@ -11,22 +11,22 @@ import (
 
 func TestBlockedIP(t *testing.T) {
 	cases := map[string]bool{
-		"127.0.0.1":       true,  // loopback
-		"::1":             true,  // loopback v6
-		"10.1.2.3":        true,  // private
-		"192.168.0.1":     true,  // private
-		"172.16.5.5":      true,  // private
-		"169.254.169.254": true,  // link-local / cloud metadata
-		"0.0.0.0":         true,  // unspecified
-		"fe80::1":         true,  // link-local v6
-		"fc00::1":         true,  // unique-local v6 (private)
+		"127.0.0.1":       true, // loopback
+		"::1":             true, // loopback v6
+		"10.1.2.3":        true, // private
+		"192.168.0.1":     true, // private
+		"172.16.5.5":      true, // private
+		"169.254.169.254": true, // link-local / cloud metadata
+		"0.0.0.0":         true, // unspecified
+		"fe80::1":         true, // link-local v6
+		"fc00::1":         true, // unique-local v6 (private)
 		// IPv4-mapped IPv6 — a classic SSRF-bypass class; must still be blocked.
 		"::ffff:127.0.0.1":       true,
 		"::ffff:169.254.169.254": true,
 		"::ffff:10.0.0.1":        true,
 		"8.8.8.8":                false, // public
-		"1.1.1.1":         false, // public
-		"93.184.216.34":   false, // public
+		"1.1.1.1":                false, // public
+		"93.184.216.34":          false, // public
 	}
 	for ipStr, want := range cases {
 		if got := blockedIP(net.ParseIP(ipStr)); got != want {
