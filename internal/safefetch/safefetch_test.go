@@ -20,7 +20,11 @@ func TestBlockedIP(t *testing.T) {
 		"0.0.0.0":         true,  // unspecified
 		"fe80::1":         true,  // link-local v6
 		"fc00::1":         true,  // unique-local v6 (private)
-		"8.8.8.8":         false, // public
+		// IPv4-mapped IPv6 — a classic SSRF-bypass class; must still be blocked.
+		"::ffff:127.0.0.1":       true,
+		"::ffff:169.254.169.254": true,
+		"::ffff:10.0.0.1":        true,
+		"8.8.8.8":                false, // public
 		"1.1.1.1":         false, // public
 		"93.184.216.34":   false, // public
 	}
