@@ -3,13 +3,16 @@
 package e2e
 
 import (
+	"context"
 	"crypto/ed25519"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/lolozini/quetzal/internal/models"
@@ -78,20 +81,24 @@ func TestE2ESFTP(t *testing.T) {
 		t.Errorf("authorized_keys missing the owner's key:\n%s", cm.Data[reconciler.SFTPAuthKeysField])
 	}
 
-	// The pod has a running sftp container.
-	var pods corev1.PodList
-	if err := c.List(ctx, &pods, client.InNamespace(srv.Namespace)); err != nil {
-		t.Fatalf("list pods: %v", err)
-	}
-	var sawSFTP bool
-	for i := range pods.Items {
-		for _, cs := range pods.Items[i].Status.ContainerStatuses {
-			if cs.Name == "sftp" && cs.State.Running != nil {
-				sawSFTP = true
+	// The sftp sidecar runs in the always-on data-manager pod (a separate pod from
+	// the game, so its readiness isn't gated by reconcileUntilRunning above) — poll
+	// until its sftp container is running.
+	err = wait.PollUntilContextTimeout(ctx, 2*time.Second, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
+		var pods corev1.PodList
+		if err := c.List(ctx, &pods, client.InNamespace(srv.Namespace)); err != nil {
+			return false, nil
+		}
+		for i := range pods.Items {
+			for _, cs := range pods.Items[i].Status.ContainerStatuses {
+				if cs.Name == "sftp" && cs.State.Running != nil {
+					return true, nil
+				}
 			}
 		}
-	}
-	if !sawSFTP {
-		t.Error("sftp sidecar container is not running")
+		return false, nil
+	})
+	if err != nil {
+		t.Error("sftp sidecar container never became running")
 	}
 }

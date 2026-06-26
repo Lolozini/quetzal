@@ -82,7 +82,7 @@ func TestE2EBackupRestore(t *testing.T) {
 	if err := st.CreateBackup(b); err != nil {
 		t.Fatalf("create backup: %v", err)
 	}
-	waitBackupPhase(ctx, t, st, mgr, b.ID, models.BackupSucceeded, 4*time.Minute)
+	waitBackupPhase(ctx, t, st, mgr, rec, srv.ID, b.ID, models.BackupSucceeded, 4*time.Minute)
 	done, _ := st.GetBackup(b.ID)
 	if done.SizeBytes <= 0 {
 		t.Errorf("backup size = %d, want > 0", done.SizeBytes)
@@ -96,7 +96,9 @@ func TestE2EBackupRestore(t *testing.T) {
 	}
 
 	// A restore overwrites the volume in place, so the server must be stopped
-	// first: the Manager refuses to restore while a pod still mounts the volume.
+	// first: the Manager refuses to restore while any pod still mounts the volume.
+	// The data-manager pod mounts it permanently, but the reconciler scales it to
+	// zero while a restore is active (driven here by waitBackupPhase reconciling).
 	if err := st.SetDesiredState(srv.ID, models.StateStopped); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
@@ -109,7 +111,7 @@ func TestE2EBackupRestore(t *testing.T) {
 	if err := st.CreateBackup(r); err != nil {
 		t.Fatalf("create restore: %v", err)
 	}
-	waitBackupPhase(ctx, t, st, mgr, r.ID, models.BackupSucceeded, 4*time.Minute)
+	waitBackupPhase(ctx, t, st, mgr, rec, srv.ID, r.ID, models.BackupSucceeded, 4*time.Minute)
 
 	// Start the server again; the restored marker must be back on the volume.
 	if err := st.SetDesiredState(srv.ID, models.StateRunning); err != nil {
@@ -144,9 +146,13 @@ func waitNoPods(ctx context.Context, t *testing.T, cs kubernetes.Interface, ns, 
 	}
 }
 
-func waitBackupPhase(ctx context.Context, t *testing.T, st *store.Store, mgr *backup.Manager, id uint, want models.BackupPhase, timeout time.Duration) {
+func waitBackupPhase(ctx context.Context, t *testing.T, st *store.Store, mgr *backup.Manager, rec *reconciler.Reconciler, serverID, id uint, want models.BackupPhase, timeout time.Duration) {
 	t.Helper()
 	err := wait.PollUntilContextTimeout(ctx, 3*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+		// Mirror the controller tick: reconcile (so the data-manager pod scales to
+		// zero while a restore is active, releasing the ReadWriteOnce volume) then
+		// advance the backup/restore op.
+		_ = rec.ReconcileServer(ctx, serverID)
 		mgr.Process(ctx)
 		b, err := st.GetBackup(id)
 		if err != nil {
