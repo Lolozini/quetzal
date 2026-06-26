@@ -34,9 +34,12 @@ export function CreateServer({
     setTplSlug(t.slug);
     const def = t.images.find((i) => i.default) || t.images[0];
     setImage(def ? def.ref : "");
+    // Seed only editable variables: the form renders these, and they're what we
+    // submit. Non-editable defaults (e.g. TYPE=PAPER) are applied server-side, so
+    // sending them would trip the "variable is not editable" guard.
     const e: Record<string, string> = {};
     t.variables.forEach((v) => {
-      if (v.default) e[v.envVariable] = v.default;
+      if (v.editable && v.default) e[v.envVariable] = v.default;
     });
     setEnv(e);
     // UDP servers can only auto-sleep via the transparent proxy, so default it on.
