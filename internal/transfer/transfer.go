@@ -185,16 +185,9 @@ func (m *Manager) emit(srv *models.Server, msg string) {
 }
 
 // destinationReady reports whether the target cluster has the objects a restore
-// needs: the data PVC (for PVC storage) or at least the namespace (hostPath).
+// needs: the data PVC bound and ready in the server's namespace.
 func destinationReady(ctx context.Context, cs kubernetes.Interface, srv *models.Server) (bool, error) {
-	if srv.Storage.Type == models.StoragePVC {
-		_, err := cs.CoreV1().PersistentVolumeClaims(srv.Namespace).Get(ctx, reconciler.DataVolume, metav1.GetOptions{})
-		if apierrors.IsNotFound(err) {
-			return false, nil
-		}
-		return err == nil, err
-	}
-	_, err := cs.CoreV1().Namespaces().Get(ctx, srv.Namespace, metav1.GetOptions{})
+	_, err := cs.CoreV1().PersistentVolumeClaims(srv.Namespace).Get(ctx, reconciler.DataVolume, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return false, nil
 	}

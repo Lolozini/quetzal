@@ -77,11 +77,8 @@ func BuildNamespace(s *models.Server) *corev1.Namespace {
 	}
 }
 
-// BuildPVC returns the data PersistentVolumeClaim (nil for hostPath storage).
+// BuildPVC returns the data PersistentVolumeClaim backing the server.
 func BuildPVC(s *models.Server) *corev1.PersistentVolumeClaim {
-	if s.Storage.Type != models.StoragePVC {
-		return nil
-	}
 	size := s.Storage.Size
 	if size == "" {
 		size = "10Gi"
@@ -639,18 +636,6 @@ func buildResources(r models.Resources) corev1.ResourceRequirements {
 }
 
 func buildDataVolume(s *models.Server) corev1.Volume {
-	if s.Storage.Type == models.StorageHostPath {
-		hpType := corev1.HostPathDirectoryOrCreate
-		return corev1.Volume{
-			Name: dataVolume,
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: s.Storage.HostPath,
-					Type: &hpType,
-				},
-			},
-		}
-	}
 	return corev1.Volume{
 		Name: dataVolume,
 		VolumeSource: corev1.VolumeSource{

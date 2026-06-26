@@ -98,15 +98,11 @@ func (m *Manager) processPending(ctx context.Context) {
 				continue
 			}
 		}
-		hostPath := ""
-		if srv.Storage.Type == models.StorageHostPath {
-			hostPath = srv.Storage.HostPath
-		}
 		p := Params{
 			Image: Image(cfg), Namespace: srv.Namespace, Slug: srv.Slug,
 			BackupID: b.ID, Direction: b.Direction, SourceID: b.SourceID,
 			KeepLast: cfg.KeepLast, Repository: Repository(cfg, srv.Slug), Region: cfg.Region,
-			HostPath: hostPath, AccessKey: access, SecretKey: secret, RepoPassword: pass,
+			AccessKey: access, SecretKey: secret, RepoPassword: pass,
 		}
 		if err := ensureSecret(ctx, cs, BuildSecret(p)); err != nil {
 			m.finish(b, models.BackupFailed, 0, "create creds secret: "+err.Error())

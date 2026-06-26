@@ -37,8 +37,9 @@ network policy, and a multi-cluster API.
   and bring worlds/modpacks/backups in by uploading an archive.
 - **Multi-tenant and secure by default.** Namespace-per-server, NetworkPolicy,
   hardened `securityContext`, encrypted secrets, scoped subusers and admin roles.
-- **Self-hostable, no lock-in.** SQLite or Postgres, storageClass *or* hostPath,
-  any S3-compatible backup target, AGPL-3.0. Nothing hardcoded to one environment.
+- **Self-hostable, no lock-in.** SQLite or Postgres, any storageClass (a local
+  provisioner for single-node), any S3-compatible backup target, AGPL-3.0.
+  Nothing hardcoded to one environment.
 
 ---
 
@@ -118,7 +119,7 @@ network policy, and a multi-cluster API.
 ## Quickstart
 
 > **Prerequisites:** a Kubernetes cluster + `kubectl`, [Helm](https://helm.sh) v3,
-> and a storage class (or use `hostPath` for single-node). Optional:
+> and a storage class (a local provisioner like local-path for single-node). Optional:
 > metrics-server for CPU/RAM graphs.
 
 ```sh

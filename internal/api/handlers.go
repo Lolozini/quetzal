@@ -294,12 +294,12 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	if storage.Type == "" {
 		storage.Type = models.StoragePVC
 	}
-	if storage.Type == models.StoragePVC && storage.Size == "" {
-		storage.Size = "10Gi"
-	}
-	if storage.Type == models.StorageHostPath && storage.HostPath == "" {
-		writeError(w, http.StatusBadRequest, "hostPath storage requires a path")
+	if storage.Type != models.StoragePVC {
+		writeError(w, http.StatusBadRequest, "unsupported storage type (only pvc is supported)")
 		return
+	}
+	if storage.Size == "" {
+		storage.Size = "10Gi"
 	}
 
 	if err := validateExpose(req.Expose, len(tmpl.Ports) > 0); err != nil {
@@ -892,8 +892,7 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 
 // retainDataIfKept switches a kept PVC's bound PersistentVolume to Retain so the
 // underlying volume (and its data) survives the namespace/PVC deletion as a
-// Released PV. hostPath data is inherently retained (deleting the namespace never
-// touches the node path), so this is a no-op there.
+// Released PV.
 func (s *Server) retainDataIfKept(ctx context.Context, cs kubernetes.Interface, srv *models.Server, keepData bool) error {
 	if !keepData || srv.Storage.Type != models.StoragePVC {
 		return nil
