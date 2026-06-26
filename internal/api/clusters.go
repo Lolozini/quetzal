@@ -42,6 +42,9 @@ func (s *Server) handleListClusters(w http.ResponseWriter, r *http.Request) {
 type clusterRequest struct {
 	Name       string `json:"name"`
 	Kubeconfig string `json:"kubeconfig"` // optional on update
+	// DefaultStorageClass: nil leaves it unchanged on update; non-nil sets it
+	// (empty string = the cluster's own default storageClass).
+	DefaultStorageClass *string `json:"defaultStorageClass"`
 }
 
 func (s *Server) handleCreateCluster(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +76,9 @@ func (s *Server) handleCreateCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := &models.Cluster{Slug: slug, Name: req.Name}
+	if req.DefaultStorageClass != nil {
+		c.DefaultStorageClass = strings.TrimSpace(*req.DefaultStorageClass)
+	}
 	if err := s.Store.CreateCluster(c, req.Kubeconfig); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -118,7 +124,7 @@ func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.Store.UpdateCluster(c.ID, name, req.Kubeconfig); err != nil {
+	if err := s.Store.UpdateCluster(c.ID, name, req.Kubeconfig, req.DefaultStorageClass); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -247,6 +253,44 @@ func (s *Server) handleClusterNodes(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		out = append(out, info)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+type storageClassInfo struct {
+	Name        string `json:"name"`
+	Provisioner string `json:"provisioner"`
+	IsDefault   bool   `json:"isDefault"`
+}
+
+// handleClusterStorageClasses lists a cluster's StorageClasses so an admin can
+// pick the cluster's default from a dropdown of what actually exists.
+func (s *Server) handleClusterStorageClasses(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPerm(w, r, models.AdminPermClusters) {
+		return
+	}
+	c, ok := s.lookupCluster(w, r)
+	if !ok {
+		return
+	}
+	clients, err := s.Registry.For(c.ID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "cluster unavailable: "+err.Error())
+		return
+	}
+	scl, err := clients.Clientset.StorageV1().StorageClasses().List(r.Context(), metav1.ListOptions{})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	out := make([]storageClassInfo, 0, len(scl.Items))
+	for i := range scl.Items {
+		sc := &scl.Items[i]
+		out = append(out, storageClassInfo{
+			Name:        sc.Name,
+			Provisioner: sc.Provisioner,
+			IsDefault:   sc.Annotations["storageclass.kubernetes.io/is-default-class"] == "true",
+		})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

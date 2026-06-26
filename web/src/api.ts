@@ -342,11 +342,18 @@ export interface Cluster {
   slug: string;
   name: string;
   inCluster: boolean;
+  defaultStorageClass?: string;
   reachable: boolean;
   version?: string;
   nodeCount?: number;
   lastCheckedAt?: string;
   statusMessage?: string;
+}
+
+export interface StorageClassInfo {
+  name: string;
+  provisioner: string;
+  isDefault: boolean;
 }
 
 export interface ClusterNode {
@@ -606,11 +613,15 @@ export const api = {
   clusters: () => req<Cluster[]>("GET", "/api/clusters"),
   createCluster: (name: string, kubeconfig: string) =>
     req<Cluster>("POST", "/api/clusters", { name, kubeconfig }),
-  updateCluster: (id: number, body: { name?: string; kubeconfig?: string }) =>
-    req<Cluster>("PATCH", `/api/clusters/${id}`, body),
+  updateCluster: (
+    id: number,
+    body: { name?: string; kubeconfig?: string; defaultStorageClass?: string },
+  ) => req<Cluster>("PATCH", `/api/clusters/${id}`, body),
   deleteCluster: (id: number) => req<void>("DELETE", `/api/clusters/${id}`),
   testCluster: (id: number) => req<Cluster>("POST", `/api/clusters/${id}/test`),
   clusterNodes: (id: number) => req<ClusterNode[]>("GET", `/api/clusters/${id}/nodes`),
+  clusterStorageClasses: (id: number) =>
+    req<StorageClassInfo[]>("GET", `/api/clusters/${id}/storageclasses`),
 
   // File manager. Content read/write use raw bodies (not JSON), so they bypass
   // the req() helper; the browser sends a same-origin Origin so CSRF passes.
@@ -715,7 +726,7 @@ export interface CreateServerRequest {
   image?: string;
   memory?: string;
   cpu?: string;
-  storage?: { type: string; size?: string; storageClass?: string };
+  storage?: { type: string; size?: string };
   env?: Record<string, string>;
   expose?: Expose;
   hibernation?: Hibernation;

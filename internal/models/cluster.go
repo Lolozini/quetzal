@@ -22,6 +22,12 @@ type Cluster struct {
 	// Never serialized to API clients.
 	KubeconfigEnc string `json:"-"`
 
+	// DefaultStorageClass is the storageClass new servers on this cluster use for
+	// their data PVC. Empty means the cluster's own default storageClass. It is
+	// admin-controlled (chosen from the cluster's actual storageClasses), not set
+	// per server by tenants.
+	DefaultStorageClass string `json:"defaultStorageClass,omitempty"`
+
 	// Observed status, refreshed on demand and periodically by the controller.
 	Reachable     bool       `json:"reachable"`
 	Version       string     `json:"version,omitempty"`

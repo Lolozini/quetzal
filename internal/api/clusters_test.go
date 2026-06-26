@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -26,6 +27,59 @@ users:
   user:
     token: testtoken
 `
+
+// TestClusterDefaultStorageClass verifies the per-cluster default storageClass is
+// admin-controlled and applied to servers created on that cluster, rather than
+// being chosen per server by tenants.
+func TestClusterDefaultStorageClass(t *testing.T) {
+	srv, admin := newTestServer(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+
+	var edge struct {
+		ID                  uint   `json:"id"`
+		DefaultStorageClass string `json:"defaultStorageClass"`
+	}
+	r := post(t, admin, srv.URL+"/api/clusters", map[string]string{"name": "edge", "kubeconfig": fakeKubeconfig})
+	if r.StatusCode != http.StatusCreated {
+		t.Fatalf("create cluster = %d, want 201", r.StatusCode)
+	}
+	json.NewDecoder(r.Body).Decode(&edge)
+
+	// Admin pins the cluster's default storageClass.
+	body, _ := json.Marshal(map[string]any{"defaultStorageClass": "fast-ssd"})
+	pr, _ := http.NewRequest(http.MethodPatch, srv.URL+"/api/clusters/"+itoa(edge.ID), bytes.NewReader(body))
+	pr.Header.Set("Content-Type", "application/json")
+	presp, err := admin.Do(pr)
+	if err != nil || presp.StatusCode != http.StatusOK {
+		t.Fatalf("patch cluster sc = %v / %d, want 200", err, presp.StatusCode)
+	}
+	var updated struct {
+		DefaultStorageClass string `json:"defaultStorageClass"`
+	}
+	json.NewDecoder(presp.Body).Decode(&updated)
+	if updated.DefaultStorageClass != "fast-ssd" {
+		t.Fatalf("defaultStorageClass = %q, want fast-ssd", updated.DefaultStorageClass)
+	}
+
+	// A server created on the cluster inherits it, even if the client tries to set
+	// its own (storageClass is admin-controlled, not tenant-chosen).
+	var created struct {
+		Storage struct {
+			StorageClass string `json:"storageClass"`
+		} `json:"storage"`
+	}
+	cr := post(t, admin, srv.URL+"/api/servers", map[string]any{
+		"name": "edge srv", "template": "generic-process", "cluster": "edge",
+		"storage": map[string]any{"type": "pvc", "storageClass": "tenant-tried-this"},
+	})
+	if cr.StatusCode != http.StatusCreated {
+		t.Fatalf("create server = %d, want 201", cr.StatusCode)
+	}
+	json.NewDecoder(cr.Body).Decode(&created)
+	if created.Storage.StorageClass != "fast-ssd" {
+		t.Errorf("server storageClass = %q, want fast-ssd (cluster default, not tenant input)", created.Storage.StorageClass)
+	}
+}
 
 func TestClusters(t *testing.T) {
 	srv, admin := newTestServer(t)

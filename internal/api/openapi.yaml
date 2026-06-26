@@ -1597,6 +1597,21 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/ClusterNode" }
 
+  /api/clusters/{cid}/storageclasses:
+    parameters:
+      - { name: cid, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [Clusters]
+      summary: List a cluster's storage classes (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StorageClassInfo" }
+
   /api/internal/wake:
     post:
       tags: [Internal]
@@ -2024,6 +2039,7 @@ components:
         slug: { type: string }
         name: { type: string }
         inCluster: { type: boolean }
+        defaultStorageClass: { type: string, description: "empty = the cluster's own default storageClass" }
         reachable: { type: boolean }
         version: { type: string }
         nodeCount: { type: integer }
@@ -2039,6 +2055,12 @@ components:
         cpu: { type: string }
         memory: { type: string }
         internalIP: { type: string }
+    StorageClassInfo:
+      type: object
+      properties:
+        name: { type: string }
+        provisioner: { type: string }
+        isDefault: { type: boolean }
     ServerAccess:
       type: object
       properties:

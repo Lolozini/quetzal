@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, Cluster, ClusterNode } from "../api";
+import { api, ApiError, Cluster, ClusterNode, StorageClassInfo } from "../api";
 import { useT } from "../i18n";
 
 export function Clusters() {
@@ -11,6 +11,9 @@ export function Clusters() {
   const [busy, setBusy] = useState(false);
   const [nodesFor, setNodesFor] = useState<number | null>(null);
   const [nodes, setNodes] = useState<ClusterNode[]>([]);
+  const [scFor, setScFor] = useState<number | null>(null);
+  const [scList, setScList] = useState<StorageClassInfo[]>([]);
+  const [scValue, setScValue] = useState("");
 
   async function load() {
     try {
@@ -74,6 +77,32 @@ export function Clusters() {
     }
   }
 
+  async function showStorageClasses(c: Cluster) {
+    if (scFor === c.id) {
+      setScFor(null);
+      return;
+    }
+    setError("");
+    try {
+      setScList(await api.clusterStorageClasses(c.id));
+      setScValue(c.defaultStorageClass ?? "");
+      setScFor(c.id);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
+  async function saveStorageClass(c: Cluster) {
+    setError("");
+    try {
+      await api.updateCluster(c.id, { defaultStorageClass: scValue });
+      setScFor(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
   return (
     <div className="card">
       <h2>{t("Clusters")}</h2>
@@ -82,7 +111,7 @@ export function Clusters() {
       </p>
       <table>
         <thead>
-          <tr><th>{t("Name")}</th><th>{t("Type")}</th><th>{t("Status")}</th><th>{t("Nodes")}</th><th></th></tr>
+          <tr><th>{t("Name")}</th><th>{t("Type")}</th><th>{t("Status")}</th><th>{t("Nodes")}</th><th>{t("Storage class")}</th><th></th></tr>
         </thead>
         <tbody>
           {clusters.map((c) => (
@@ -97,9 +126,11 @@ export function Clusters() {
                 {c.statusMessage && <div className="muted" style={{ fontSize: 12 }} title={c.statusMessage}>{c.statusMessage.slice(0, 60)}</div>}
               </td>
               <td>{c.nodeCount ?? "—"}</td>
+              <td>{c.defaultStorageClass || <span className="muted">{t("(cluster default)")}</span>}</td>
               <td style={{ whiteSpace: "nowrap" }}>
                 <button onClick={() => test(c)}>{t("Test")}</button>{" "}
                 <button onClick={() => showNodes(c)}>{nodesFor === c.id ? t("Hide") : t("Nodes")}</button>{" "}
+                <button onClick={() => showStorageClasses(c)}>{scFor === c.id ? t("Hide") : t("Storage class")}</button>{" "}
                 {!c.inCluster && <button className="danger" onClick={() => remove(c)}>{t("Remove")}</button>}
               </td>
             </tr>
@@ -129,6 +160,36 @@ export function Clusters() {
             )}
           </tbody>
         </table>
+      )}
+
+      {scFor !== null && (
+        <div className="card" style={{ marginTop: 8 }}>
+          <h3>{t("Default storage class")}</h3>
+          <p className="muted">
+            {t("New servers on this cluster use this storageClass for their data volume. Leave it as the cluster default unless you have a reason to pin one.")}
+          </p>
+          <div className="row" style={{ gap: 8, alignItems: "center" }}>
+            <select value={scValue} onChange={(e) => setScValue(e.target.value)} style={{ width: "auto" }}>
+              <option value="">{t("(cluster default)")}</option>
+              {scList.map((sc) => (
+                <option key={sc.name} value={sc.name}>
+                  {sc.name}
+                  {sc.isDefault ? t(" (default)") : ""} — {sc.provisioner}
+                </option>
+              ))}
+            </select>
+            <button
+              className="primary"
+              onClick={() => {
+                const c = clusters.find((x) => x.id === scFor);
+                if (c) saveStorageClass(c);
+              }}
+            >
+              {t("Save")}
+            </button>
+          </div>
+          {scList.length === 0 && <p className="muted">{t("No storage classes found on this cluster.")}</p>}
+        </div>
       )}
 
       <form onSubmit={add} style={{ marginTop: 12 }}>

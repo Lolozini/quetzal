@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -81,8 +82,9 @@ func (s *Store) CreateCluster(c *models.Cluster, kubeconfig string) error {
 }
 
 // UpdateCluster persists a cluster's name and, when a non-empty kubeconfig is
-// given, re-encrypts and replaces its credentials.
-func (s *Store) UpdateCluster(id uint, name, kubeconfig string) error {
+// given, re-encrypts and replaces its credentials. A non-nil defaultStorageClass
+// sets it (empty string = the cluster's own default); nil leaves it unchanged.
+func (s *Store) UpdateCluster(id uint, name, kubeconfig string, defaultStorageClass *string) error {
 	fields := map[string]any{"name": name}
 	if kubeconfig != "" {
 		enc, err := s.sealValue(kubeconfig)
@@ -90,6 +92,9 @@ func (s *Store) UpdateCluster(id uint, name, kubeconfig string) error {
 			return err
 		}
 		fields["kubeconfig_enc"] = enc
+	}
+	if defaultStorageClass != nil {
+		fields["default_storage_class"] = strings.TrimSpace(*defaultStorageClass)
 	}
 	return s.db.Model(&models.Cluster{}).Where("id = ?", id).Updates(fields).Error
 }
