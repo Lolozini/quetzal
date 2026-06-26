@@ -17,6 +17,33 @@ func testTemplate() *models.Template {
 	}
 }
 
+func TestValidateResources(t *testing.T) {
+	ok := []models.Resources{
+		{},                          // blank = unlimited
+		{Memory: "4Gi"},             // proper unit
+		{Memory: "512Mi", CPU: "1"}, // 1 core
+		{Memory: "4Mi"},             // exactly the floor
+		{CPU: "500m"},
+	}
+	for _, r := range ok {
+		if err := validateResources(r); err != nil {
+			t.Errorf("validateResources(%+v) = %v, want nil", r, err)
+		}
+	}
+	bad := []models.Resources{
+		{Memory: "4"},   // 4 bytes — the forgotten-unit footgun
+		{Memory: "512"}, // 512 bytes
+		{Memory: "abc"}, // unparseable
+		{CPU: "-1"},     // negative
+		{Memory: "1Mi"}, // under the 4Mi floor
+	}
+	for _, r := range bad {
+		if err := validateResources(r); err == nil {
+			t.Errorf("validateResources(%+v) = nil, want error", r)
+		}
+	}
+}
+
 func TestResolveEnvToleratesNonEditableAtDefault(t *testing.T) {
 	tmpl := testTemplate()
 	// A client (e.g. the create form) that echoes a non-editable variable back
