@@ -406,6 +406,11 @@ func resolveEnv(tmpl *models.Template, reqEnv map[string]string) (map[string]str
 			return nil, fmt.Errorf("unknown variable %q", k)
 		}
 		if !v.Editable {
+			// Tolerate a client echoing a non-editable variable back at its
+			// default (a no-op); only reject an actual attempt to change it.
+			if val == v.Default {
+				continue
+			}
 			return nil, fmt.Errorf("variable %q is not editable", k)
 		}
 		if v.Type == models.VarEnum && len(v.Options) > 0 && !slices.Contains(v.Options, val) {
@@ -556,6 +561,11 @@ func resolveEnvUpdate(tmpl *models.Template, current, reqEnv map[string]string) 
 			return nil, fmt.Errorf("unknown variable %q", k)
 		}
 		if !v.Editable {
+			// Tolerate a client echoing a non-editable variable back at its
+			// default (a no-op); only reject an actual attempt to change it.
+			if val == v.Default {
+				continue
+			}
 			return nil, fmt.Errorf("variable %q is not editable", k)
 		}
 		if v.Secret && strings.TrimSpace(val) == "" {

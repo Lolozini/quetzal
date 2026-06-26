@@ -17,6 +17,23 @@ func testTemplate() *models.Template {
 	}
 }
 
+func TestResolveEnvToleratesNonEditableAtDefault(t *testing.T) {
+	tmpl := testTemplate()
+	// A client (e.g. the create form) that echoes a non-editable variable back
+	// at its template default must not be rejected — it's a no-op.
+	got, err := resolveEnv(tmpl, map[string]string{"EULA": "true", "BUILD": "latest"})
+	if err != nil {
+		t.Fatalf("non-editable var at its default should be accepted: %v", err)
+	}
+	if got["BUILD"] != "latest" {
+		t.Errorf("BUILD = %q, want latest", got["BUILD"])
+	}
+	// But an actual attempt to change a non-editable variable is still rejected.
+	if _, err := resolveEnv(tmpl, map[string]string{"EULA": "true", "BUILD": "999"}); err == nil {
+		t.Error("changing a non-editable var should error")
+	}
+}
+
 func TestResolveEnvUpdatePreservesSecretsAndCurrent(t *testing.T) {
 	tmpl := testTemplate()
 	current := map[string]string{"VERSION": "1.21", "RCON_PASS": "oldsecret", "EULA": "true", "BUILD": "123"}
