@@ -371,83 +371,59 @@ func TestBuildDeploymentConfigFilesInitContainers(t *testing.T) {
 	}
 }
 
-func TestBuildDeploymentSFTPSidecar(t *testing.T) {
+func TestBuildDeploymentGamePod(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
 	s.SFTP = models.SFTPConfig{Enabled: true}
 
-	// Without a system image, no SFTP sidecar.
-	dep0 := BuildDeployment(s, tmpl, "", nil)
-	for _, c := range dep0.Spec.Template.Spec.Containers {
+	// SFTP lives in the data-manager pod now, so the game pod never carries it.
+	dep := BuildDeployment(s, tmpl, "quetzal:test", nil)
+	for _, c := range dep.Spec.Template.Spec.Containers {
 		if c.Name == "sftp" {
-			t.Fatal("no SFTP sidecar expected without a system image")
+			t.Error("game pod must not carry the sftp sidecar (it's in the data-manager pod)")
 		}
 	}
 
-	dep := BuildDeployment(s, tmpl, "quetzal:test", nil)
-	var sidecar, copyInit bool
-	for _, c := range dep.Spec.Template.Spec.Containers {
-		if c.Name == "sftp" {
-			sidecar = true
-			if c.Image != s.Image {
-				t.Errorf("sftp sidecar image = %q, want game image %q", c.Image, s.Image)
-			}
-			if len(c.Command) == 0 || c.Command[0] != sftpBinPath {
-				t.Errorf("sftp command = %v, want %s", c.Command, sftpBinPath)
-			}
-			if len(c.Ports) == 0 || c.Ports[0].ContainerPort != SFTPPort {
-				t.Errorf("sftp port = %v, want %d", c.Ports, SFTPPort)
-			}
-		}
+	// The game pod is co-located with the data-manager pod via podAffinity so they
+	// can share the ReadWriteOnce data volume on one node.
+	aff := dep.Spec.Template.Spec.Affinity
+	if aff == nil || aff.PodAffinity == nil || len(aff.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution) == 0 {
+		t.Fatal("expected podAffinity to the data-manager pod")
 	}
-	for _, c := range dep.Spec.Template.Spec.InitContainers {
-		if c.Name == "sftp-copy" {
-			copyInit = true
-			if c.Image != "quetzal:test" {
-				t.Errorf("sftp-copy image = %q, want system image", c.Image)
-			}
-		}
-	}
-	if !sidecar || !copyInit {
-		t.Fatalf("expected sftp sidecar (%v) and sftp-copy init (%v)", sidecar, copyInit)
-	}
-	vols := map[string]bool{}
-	for _, v := range dep.Spec.Template.Spec.Volumes {
-		vols[v.Name] = true
-	}
-	for _, want := range []string{sftpHostKeyVol, sftpAuthKeyVol, renderBinVolume} {
-		if !vols[want] {
-			t.Errorf("missing volume %q", want)
-		}
+	term := aff.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution[0]
+	if term.TopologyKey != "kubernetes.io/hostname" || term.LabelSelector.MatchLabels[DataLabel] != s.Slug {
+		t.Errorf("podAffinity term = %+v, want same-host affinity to DataLabel=%s", term, s.Slug)
 	}
 }
 
-func TestBuildMaintenancePod(t *testing.T) {
+func TestBuildDataDeployment(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
-	pod := BuildMaintenancePod(s, tmpl, 1800)
 
-	if pod.Name != MaintName || pod.Namespace != s.Namespace {
-		t.Fatalf("name/ns = %s/%s", pod.Name, pod.Namespace)
+	dep := BuildDataDeployment(s, tmpl, "quetzal:test", 1)
+	if dep.Name != DataDeployName || dep.Namespace != s.Namespace {
+		t.Fatalf("name/ns = %s/%s", dep.Name, dep.Namespace)
 	}
-	// Must NOT carry the workload label, or the Deployment would adopt and delete it.
-	if _, ok := pod.Labels[ServerLabel]; ok {
-		t.Error("maintenance pod must not carry ServerLabel")
+	if dep.Spec.Replicas == nil || *dep.Spec.Replicas != 1 {
+		t.Errorf("replicas = %v, want 1", dep.Spec.Replicas)
 	}
-	if pod.Labels[MaintLabel] != s.Slug {
-		t.Errorf("maint label = %q, want %q", pod.Labels[MaintLabel], s.Slug)
+	pt := dep.Spec.Template
+	// Must carry DataLabel and NOT ServerLabel (so the game Deployment never
+	// adopts it and console/status code never mistakes it for the game container).
+	if pt.Labels[DataLabel] != s.Slug {
+		t.Errorf("data label = %q, want %q", pt.Labels[DataLabel], s.Slug)
 	}
-	if pod.Spec.RestartPolicy != corev1.RestartPolicyNever {
-		t.Errorf("restart policy = %v", pod.Spec.RestartPolicy)
+	if _, ok := pt.Labels[ServerLabel]; ok {
+		t.Error("data-manager pod must not carry ServerLabel")
 	}
-	if pod.Spec.ActiveDeadlineSeconds == nil || *pod.Spec.ActiveDeadlineSeconds != 1800 {
-		t.Errorf("activeDeadlineSeconds = %v, want 1800", pod.Spec.ActiveDeadlineSeconds)
+	if dep.Spec.Selector.MatchLabels[DataLabel] != s.Slug {
+		t.Errorf("selector = %v", dep.Spec.Selector.MatchLabels)
 	}
-	if pod.Spec.AutomountServiceAccountToken == nil || *pod.Spec.AutomountServiceAccountToken {
+	if pt.Spec.AutomountServiceAccountToken == nil || *pt.Spec.AutomountServiceAccountToken {
 		t.Error("service account token must not be automounted")
 	}
-	if len(pod.Spec.Containers) != 1 {
-		t.Fatalf("containers = %d", len(pod.Spec.Containers))
+	if len(pt.Spec.Containers) != 1 {
+		t.Fatalf("containers = %d, want 1 (no sftp without it enabled)", len(pt.Spec.Containers))
 	}
-	c := pod.Spec.Containers[0]
+	c := pt.Spec.Containers[0]
 	// Container name must match the workload so console.Exec targets it.
 	if c.Name != WorkloadName {
 		t.Errorf("container name = %q, want %q", c.Name, WorkloadName)
@@ -461,8 +437,48 @@ func TestBuildMaintenancePod(t *testing.T) {
 	if len(c.VolumeMounts) != 1 || c.VolumeMounts[0].Name != dataVolume || c.VolumeMounts[0].MountPath != tmpl.DataPath {
 		t.Errorf("volume mount = %+v, want data at %s", c.VolumeMounts, tmpl.DataPath)
 	}
-	if len(pod.Spec.Volumes) != 1 || pod.Spec.Volumes[0].Name != dataVolume {
-		t.Errorf("volumes = %+v, want the data volume", pod.Spec.Volumes)
+
+	// The reconciler passes 0 replicas during a restore (exclusive volume access).
+	if zero := BuildDataDeployment(s, tmpl, "quetzal:test", 0); zero.Spec.Replicas == nil || *zero.Spec.Replicas != 0 {
+		t.Errorf("replicas = %v, want 0", zero.Spec.Replicas)
+	}
+
+	// With SFTP enabled + a system image: the sftp sidecar + copy init + volumes
+	// live here (not in the game pod).
+	s.SFTP = models.SFTPConfig{Enabled: true}
+	sftpDep := BuildDataDeployment(s, tmpl, "quetzal:test", 1)
+	var sidecar, copyInit bool
+	for _, c := range sftpDep.Spec.Template.Spec.Containers {
+		if c.Name == "sftp" {
+			sidecar = true
+			if c.Image != s.Image {
+				t.Errorf("sftp image = %q, want game image %q", c.Image, s.Image)
+			}
+		}
+	}
+	for _, c := range sftpDep.Spec.Template.Spec.InitContainers {
+		if c.Name == "sftp-copy" {
+			copyInit = true
+		}
+	}
+	if !sidecar || !copyInit {
+		t.Fatalf("expected sftp sidecar (%v) and sftp-copy init (%v)", sidecar, copyInit)
+	}
+	vols := map[string]bool{}
+	for _, v := range sftpDep.Spec.Template.Spec.Volumes {
+		vols[v.Name] = true
+	}
+	for _, want := range []string{sftpHostKeyVol, sftpAuthKeyVol, renderBinVolume} {
+		if !vols[want] {
+			t.Errorf("missing volume %q", want)
+		}
+	}
+
+	// Without a system image, no sftp sidecar even when enabled.
+	for _, c := range BuildDataDeployment(s, tmpl, "", 1).Spec.Template.Spec.Containers {
+		if c.Name == "sftp" {
+			t.Error("no sftp sidecar expected without a system image")
+		}
 	}
 }
 
@@ -475,8 +491,9 @@ func TestBuildSFTPServiceAndAuthKeys(t *testing.T) {
 	if len(svc.Spec.Ports) != 1 || svc.Spec.Ports[0].Port != SFTPPort {
 		t.Errorf("sftp service ports = %+v", svc.Spec.Ports)
 	}
-	if svc.Spec.Selector[serverLabel] != s.Slug {
-		t.Errorf("sftp service selector = %v", svc.Spec.Selector)
+	// SFTP runs in the data-manager pod, so the Service selects it by DataLabel.
+	if svc.Spec.Selector[DataLabel] != s.Slug {
+		t.Errorf("sftp service selector = %v, want DataLabel=%s", svc.Spec.Selector, s.Slug)
 	}
 	cm := BuildSFTPAuthKeysConfigMap(s, []string{"ssh-ed25519 AAAA alice", "ssh-ed25519 BBBB bob"})
 	got := cm.Data[SFTPAuthKeysField]

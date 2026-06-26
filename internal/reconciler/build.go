@@ -41,13 +41,15 @@ const (
 	ActivatorLabel = "quetzal.dev/activator"
 	// ActivatorName is the activator Deployment's name within a server namespace.
 	ActivatorName = "activator"
-	// MaintLabel marks a server's ephemeral maintenance pod (value = slug). Like
-	// ActivatorLabel it is deliberately distinct from ServerLabel so the real
-	// workload's Deployment never adopts (and then scales away) the maintenance
-	// pod, and so console/status code never mistakes it for the game container.
-	MaintLabel = "quetzal.dev/maint"
-	// MaintName is the maintenance pod's name within a server namespace.
-	MaintName = "maintenance"
+	// DataLabel marks a server's permanent data-manager pod (value = slug). Like
+	// ActivatorLabel it is deliberately distinct from ServerLabel so the game
+	// Deployment never adopts it and console/status code never mistakes it for the
+	// game container. The data-manager mounts the data volume so files and SFTP
+	// work whether the game is running or stopped; the game pod is co-located with
+	// it (podAffinity) so both can share the ReadWriteOnce volume on one node.
+	DataLabel = "quetzal.dev/data"
+	// DataDeployName is the data-manager Deployment's name within a server namespace.
+	DataDeployName = "data-manager"
 	// WorkloadName is the Deployment/Service name within a server's namespace.
 	WorkloadName = "server"
 	// DataVolume is the name of a server's data PVC/volume.
@@ -163,21 +165,12 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 	containers := []corev1.Container{container}
 	volumes := []corev1.Volume{buildDataVolume(s)}
 
-	// Helper binaries (config render, sftp) are copied out of the Quetzal image
-	// into a shared volume by copy init containers, then executed from the game
-	// image so they run as the server's own user (correct file ownership).
-	sftp := systemImage != "" && s.SFTP.Enabled
-	needBin := systemImage != "" && (len(t.ConfigFiles) > 0 || sftp)
-
+	// config.files are rendered at startup by copy+render init containers (the
+	// renderer is copied out of the Quetzal image into a shared volume, then run
+	// from the game image so files get the server's ownership). SFTP and offline
+	// file access live in the separate, always-on data-manager pod.
 	if systemImage != "" && len(t.ConfigFiles) > 0 {
 		initContainers = append(initContainers, configRenderInitContainers(s, t, systemImage, secretKeys, dataPath)...)
-	}
-	if sftp {
-		initContainers = append(initContainers, sftpCopyInitContainer(systemImage, t))
-		containers = append(containers, sftpSidecar(s, t, dataPath))
-		volumes = append(volumes, sftpVolumes()...)
-	}
-	if needBin {
 		volumes = append(volumes, corev1.Volume{
 			Name:         renderBinVolume,
 			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
@@ -189,10 +182,13 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 		InitContainers: initContainers,
 		// Untrusted game code (mods/plugins) has no business talking to the
 		// Kubernetes API, so don't mount a ServiceAccount token into the pod.
-		AutomountServiceAccountToken:  &noAutomount,
-		SecurityContext:               buildPodSecurityContext(t),
-		Volumes:                       volumes,
-		NodeSelector:                  s.NodeSelector,
+		AutomountServiceAccountToken: &noAutomount,
+		SecurityContext:              buildPodSecurityContext(t),
+		Volumes:                      volumes,
+		NodeSelector:                 s.NodeSelector,
+		// Co-locate the game pod with the data-manager pod so both can mount the
+		// ReadWriteOnce data volume on the same node.
+		Affinity:                      dataPodAffinity(s),
 		TerminationGracePeriodSeconds: &grace,
 	}
 
@@ -216,61 +212,97 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 	}
 }
 
-// BuildMaintenancePod builds an ephemeral pod that mounts a server's data volume
-// so files can be managed while the server itself is stopped (its Deployment is
-// scaled to zero, freeing the ReadWriteOnce volume). It runs the game image, so
-// it has the same tools and runs as the server's own user (preserving file
-// ownership), but only sleeps; file operations exec into it the same way they do
-// the live container (its container is named WorkloadName so console.Exec targets
-// it). It carries MaintLabel (not ServerLabel) so the Deployment never adopts it,
-// and self-terminates after ttlSeconds (activeDeadlineSeconds) as a backstop; the
-// reconciler also removes it whenever the server is meant to be running, so it
-// never blocks the data volume against the real workload.
-func BuildMaintenancePod(s *models.Server, t *models.Template, ttlSeconds int64) *corev1.Pod {
+// dataPodAffinity co-locates a pod with the server's data-manager pod (same
+// node), so the game pod and the data-manager can both mount the ReadWriteOnce
+// data volume. We enforce this explicitly rather than relying on a local volume's
+// node affinity, so it holds for networked RWO storage too.
+func dataPodAffinity(s *models.Server) *corev1.Affinity {
+	return &corev1.Affinity{
+		PodAffinity: &corev1.PodAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{DataLabel: s.Slug}},
+				TopologyKey:   "kubernetes.io/hostname",
+			}},
+		},
+	}
+}
+
+// BuildDataDeployment builds the per-server data-manager Deployment: a small,
+// always-on pod that mounts the data volume so files and SFTP work whether the
+// game is running or stopped. It runs the game image (same tools and user as the
+// server, for correct file ownership) but only sleeps; file operations exec into
+// its container (named WorkloadName so console.Exec targets it). When SFTP is
+// enabled it also runs the SFTP sidecar. It carries DataLabel (not ServerLabel)
+// so the game Deployment never adopts it and status/console code never mistakes
+// it for the game container. replicas is normally 1, but the reconciler sets it
+// to 0 during a restore (which needs exclusive write access to the volume).
+func BuildDataDeployment(s *models.Server, t *models.Template, systemImage string, replicas int32) *appsv1.Deployment {
 	dataPath := t.DataPath
 	if dataPath == "" {
 		dataPath = "/data"
 	}
 	no := false
-	deadline := ttlSeconds
-	// `sleep` runs as PID 1 and ignores SIGTERM, so keep the grace period short:
-	// the pod holds no state to flush, and it must release the ReadWriteOnce data
-	// volume promptly when the server starts (the reconciler also force-deletes it).
-	grace := int64(2)
-	return &corev1.Pod{
-		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      MaintName,
-			Namespace: s.Namespace,
-			Labels: map[string]string{
-				managedByLabel: managedByValue,
-				MaintLabel:     s.Slug,
+	// `sleep` runs as PID 1 and ignores SIGTERM; keep the grace short so the pod
+	// releases the data volume promptly when scaled down for a restore.
+	grace := int64(5)
+
+	exec := corev1.Container{
+		Name:            workloadName,
+		Image:           s.Image,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		// A large fixed number, not `sleep infinity`: the latter is a GNU
+		// coreutils extension that busybox `sleep` rejects (~68 years is plenty).
+		Command:      []string{"sleep", "2147483647"},
+		VolumeMounts: []corev1.VolumeMount{{Name: dataVolume, MountPath: dataPath}},
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("50m"),
+				corev1.ResourceMemory: resource.MustParse("64Mi"),
 			},
+			Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
 		},
-		Spec: corev1.PodSpec{
-			RestartPolicy:                 corev1.RestartPolicyNever,
-			ActiveDeadlineSeconds:         &deadline,
-			TerminationGracePeriodSeconds: &grace,
-			AutomountServiceAccountToken:  &no,
-			SecurityContext:               buildPodSecurityContext(t),
-			NodeSelector:                  s.NodeSelector,
-			Volumes:                       []corev1.Volume{buildDataVolume(s)},
-			Containers: []corev1.Container{{
-				Name:            workloadName,
-				Image:           s.Image,
-				ImagePullPolicy: corev1.PullIfNotPresent,
-				// Idle keepalive; activeDeadlineSeconds bounds the real lifetime.
-				Command:      []string{"sleep", strconv.FormatInt(ttlSeconds+3600, 10)},
-				VolumeMounts: []corev1.VolumeMount{{Name: dataVolume, MountPath: dataPath}},
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("50m"),
-						corev1.ResourceMemory: resource.MustParse("64Mi"),
-					},
-					Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("512Mi")},
+		SecurityContext: buildContainerSecurityContext(t),
+	}
+
+	containers := []corev1.Container{exec}
+	initContainers := []corev1.Container{}
+	volumes := []corev1.Volume{buildDataVolume(s)}
+
+	if systemImage != "" && s.SFTP.Enabled {
+		initContainers = append(initContainers, sftpCopyInitContainer(systemImage, t))
+		containers = append(containers, sftpSidecar(s, t, dataPath))
+		volumes = append(volumes, sftpVolumes()...)
+		volumes = append(volumes, corev1.Volume{
+			Name:         renderBinVolume,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		})
+	}
+
+	podLabels := map[string]string{managedByLabel: managedByValue, DataLabel: s.Slug}
+	return &appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      DataDeployName,
+			Namespace: s.Namespace,
+			Labels:    labelsFor(s),
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			// One writer at a time on the RWO volume.
+			Strategy: appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType},
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{DataLabel: s.Slug}},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: podLabels},
+				Spec: corev1.PodSpec{
+					Containers:                    containers,
+					InitContainers:                initContainers,
+					AutomountServiceAccountToken:  &no,
+					SecurityContext:               buildPodSecurityContext(t),
+					NodeSelector:                  s.NodeSelector,
+					TerminationGracePeriodSeconds: &grace,
+					Volumes:                       volumes,
 				},
-				SecurityContext: buildContainerSecurityContext(t),
-			}},
+			},
 		},
 	}
 }
@@ -817,15 +849,17 @@ func sftpVolumes() []corev1.Volume {
 	}
 }
 
-// BuildSFTPService is the NodePort Service exposing a server's SFTP sidecar.
-// The NodePort is assigned by Kubernetes (not from Quetzal's game-port pool).
+// BuildSFTPService is the NodePort Service exposing a server's SFTP sidecar,
+// which runs in the always-on data-manager pod (so SFTP works whether the game
+// is running or stopped). The NodePort is assigned by Kubernetes (not from
+// Quetzal's game-port pool).
 func BuildSFTPService(s *models.Server) *corev1.Service {
 	return &corev1.Service{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
 		ObjectMeta: metav1.ObjectMeta{Name: SFTPServiceName, Namespace: s.Namespace, Labels: labelsFor(s)},
 		Spec: corev1.ServiceSpec{
 			Type:     corev1.ServiceTypeNodePort,
-			Selector: map[string]string{serverLabel: s.Slug},
+			Selector: map[string]string{DataLabel: s.Slug},
 			Ports: []corev1.ServicePort{{
 				Name: "sftp", Port: SFTPPort, TargetPort: intstr.FromInt32(SFTPPort), Protocol: corev1.ProtocolTCP,
 			}},

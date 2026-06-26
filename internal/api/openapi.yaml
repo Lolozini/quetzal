@@ -848,11 +848,10 @@ paths:
       tags: [Files]
       summary: List a directory
       description: >
-        Lists entries in `path` (relative to the server's data root). Works both
-        while the server is running (via the live container) and while it is
-        stopped (an ephemeral maintenance pod is started on demand to mount the
-        data volume — the first call may take a few seconds). `path` is confined
-        to the data root. All file endpoints share this behavior.
+        Lists entries in `path` (relative to the server's data root). File
+        operations run in the always-on data-manager pod, which mounts the data
+        volume, so they work whether the server is running or stopped. `path` is
+        confined to the data root. All file endpoints share this behavior.
       parameters:
         - { name: path, in: query, schema: { type: string }, description: Directory relative to the data root }
       responses:

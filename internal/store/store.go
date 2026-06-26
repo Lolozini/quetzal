@@ -571,6 +571,19 @@ func (s *Store) ListBackupsByPhase(phase models.BackupPhase) ([]models.Backup, e
 	return bs, nil
 }
 
+// HasActiveRestore reports whether a restore is pending or running for a server.
+// A restore overwrites the data volume in place, so it needs exclusive write
+// access; the reconciler scales the data-manager pod down while one is active.
+func (s *Store) HasActiveRestore(serverID uint) (bool, error) {
+	var n int64
+	err := s.db.Model(&models.Backup{}).
+		Where("server_id = ? AND direction = ? AND phase IN ?",
+			serverID, models.DirRestore,
+			[]models.BackupPhase{models.BackupPending, models.BackupRunning}).
+		Count(&n).Error
+	return n > 0, err
+}
+
 // UpdateBackup persists the mutable fields of an operation.
 func (s *Store) UpdateBackup(b *models.Backup) error {
 	return s.db.Model(&models.Backup{}).Where("id = ?", b.ID).

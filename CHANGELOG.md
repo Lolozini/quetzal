@@ -14,8 +14,18 @@ releases may include breaking changes).
   untrusted code game pods run, and disallowed by the baseline/restricted Pod
   Security Standards) and had no scheduling affinity, which broke rescheduling and
   cross-cluster transfer. Single-node setups use a local provisioner (e.g.
-  local-path) as the storageClass; the create form now exposes an optional storage
-  class. **Breaking:** servers created with `hostPath` storage must be recreated.
+  local-path) as the storageClass. **Breaking:** servers created with `hostPath`
+  storage must be recreated.
+- **storageClass is admin-controlled per cluster**, chosen from a dropdown of the
+  cluster's actual storage classes (Admin → Clusters), instead of a free-text
+  field at server creation. New servers inherit the target cluster's default.
+- **Files and SFTP now work whether the server is running or stopped**, with no
+  startup latency. A small always-on **data-manager pod** mounts the data volume
+  permanently and hosts file operations and the SFTP server; the game pod is
+  co-located with it (podAffinity) so both share the ReadWriteOnce volume on one
+  node. Replaces the previous on-demand maintenance pod (which only ran while
+  stopped) and the SFTP sidecar (which only ran while running). During a restore
+  the data-manager is scaled down so the restore gets exclusive volume access.
 
 ### Fixed
 

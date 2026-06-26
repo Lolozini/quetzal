@@ -61,9 +61,11 @@ network policy, and a multi-cluster API.
   `attach` subresource (no RCON server, no sidecar).
 - **File manager**: browse, edit, upload, rename, delete, download folders as
   `.tar.gz`, and upload an archive (world / modpack / Pterodactyl backup) that's
-  extracted into the volume. **Works while the server is stopped** via an
-  on-demand maintenance pod.
+  extracted into the volume.
 - Opt-in **SFTP** per server, authenticated by users' SSH public keys.
+- The **file manager and SFTP both stay available whether the server is running
+  or stopped** — a small always-on data-manager pod mounts the data volume, with
+  the game pod co-located so they share the volume on one node.
 
 **Networking**
 - Publish in-cluster (ClusterIP), on node IPs (**NodePort** from a managed port

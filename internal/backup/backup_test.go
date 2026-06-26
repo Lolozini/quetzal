@@ -13,12 +13,12 @@ import (
 	"github.com/lolozini/quetzal/internal/reconciler"
 )
 
-// TestServerHasPodsDetectsMaintPod guards the RWO-safety invariant: a restore
-// must be deferred while ANY pod mounts the data volume — including the offline
-// maintenance pod, which carries MaintLabel (not ServerLabel). If this check
-// missed it, a restore could run concurrently with the maintenance pod and
-// corrupt the volume.
-func TestServerHasPodsDetectsMaintPod(t *testing.T) {
+// TestServerHasPodsDetectsDataPod guards the RWO-safety invariant: a restore
+// must be deferred while ANY pod mounts the data volume — including the always-on
+// data-manager pod, which carries DataLabel (not ServerLabel). If this check
+// missed it, a restore could run concurrently with the data-manager and corrupt
+// the volume (the reconciler scales the data-manager down during a restore).
+func TestServerHasPodsDetectsDataPod(t *testing.T) {
 	const ns, slug = "quetzal-srv-s1", "s1"
 	mkPod := func(name, labelKey string) *corev1.Pod {
 		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
@@ -26,10 +26,10 @@ func TestServerHasPodsDetectsMaintPod(t *testing.T) {
 		}}
 	}
 
-	// Only the maintenance pod present -> must report true.
-	cs := fake.NewSimpleClientset(mkPod("maintenance", reconciler.MaintLabel))
+	// Only the data-manager pod present -> must report true.
+	cs := fake.NewSimpleClientset(mkPod("data-manager-abc", reconciler.DataLabel))
 	if has, err := serverHasPods(context.Background(), cs, ns, slug); err != nil || !has {
-		t.Fatalf("maint-only: has=%v err=%v, want true", has, err)
+		t.Fatalf("data-only: has=%v err=%v, want true", has, err)
 	}
 
 	// Only the workload pod present -> true (existing behavior).

@@ -7,8 +7,8 @@ import (
 )
 
 // TestSuspendedServerBlocksOfflineFilesForOwner verifies that suspension (an
-// admin-enforced freeze) also blocks offline file management for the owner —
-// otherwise the offline maintenance-pod path would let an owner edit files of a
+// admin-enforced freeze) also blocks file management for the owner — otherwise
+// the data-manager pod (which is always up) would let an owner edit files of a
 // server an admin deliberately suspended. The 403 is returned before any pod is
 // touched, so this exercises the gate without needing a cluster.
 func TestSuspendedServerBlocksOfflineFilesForOwner(t *testing.T) {
