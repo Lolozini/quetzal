@@ -16,7 +16,6 @@ export function CreateServer({
   const [image, setImage] = useState("");
   const [memory, setMemory] = useState("");
   const [size, setSize] = useState("10Gi");
-  const [storageClass, setStorageClass] = useState("");
   const [expose, setExpose] = useState<ExposeType>("ClusterIP");
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [cluster, setCluster] = useState("");
@@ -79,7 +78,6 @@ export function CreateServer({
         storage: {
           type: "pvc",
           size: size || undefined,
-          storageClass: storageClass || undefined,
         },
         expose: { type: expose },
         hibernation: { enabled: hibernate, idleMinutes: idleMin, wakeOnConnect: wakeOnConnect && !proxy, proxy },
@@ -167,13 +165,6 @@ export function CreateServer({
             <input value={size} onChange={(e) => setSize(e.target.value)} placeholder="10Gi" />
           </div>
         </div>
-
-        <label>{t("Storage class")}</label>
-        <input
-          value={storageClass}
-          placeholder={t("(optional) blank = cluster default")}
-          onChange={(e) => setStorageClass(e.target.value)}
-        />
 
         {tpl?.ports && tpl.ports.length > 0 && (
           <>

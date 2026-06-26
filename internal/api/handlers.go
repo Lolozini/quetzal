@@ -318,6 +318,11 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// storageClass is admin-controlled per cluster, not chosen by tenants: take
+	// the target cluster's default (empty = the cluster's own default class).
+	if cl, err := s.Store.GetCluster(clusterID); err == nil {
+		storage.StorageClass = cl.DefaultStorageClass
+	}
 
 	owner := userFrom(r.Context())
 	if err := s.checkQuota(owner, req.Memory, req.CPU); err != nil {

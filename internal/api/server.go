@@ -290,6 +290,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/clusters/{cid}", s.auth(s.handleDeleteCluster))
 	mux.Handle("POST /api/clusters/{cid}/test", s.auth(s.handleTestCluster))
 	mux.Handle("GET /api/clusters/{cid}/nodes", s.auth(s.handleClusterNodes))
+	mux.Handle("GET /api/clusters/{cid}/storageclasses", s.auth(s.handleClusterStorageClasses))
 
 	// Notification channels (Discord/webhook/email) + activity feed. Global
 	// channels are admin-only; server-scoped ones need PermSettings on the server.
