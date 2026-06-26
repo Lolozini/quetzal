@@ -307,6 +307,11 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := validateResources(models.Resources{Memory: req.Memory, CPU: req.CPU}); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	// Resolve the target cluster (default: the local / in-cluster cluster).
 	clusterID, err := s.resolveCluster(req.Cluster)
 	if err != nil {
@@ -605,15 +610,30 @@ func (s *Server) updateServerResources(r *http.Request, srv *models.Server, rsc 
 	return nil
 }
 
+// minMemoryBytes is the smallest memory limit we accept. A bare number is bytes
+// in Kubernetes quantity syntax, so "4" means 4 bytes — almost always a
+// forgotten unit. Anything under a few MiB can't run a container and makes the
+// kubelet fail the pod sandbox with a cryptic systemd/cgroup error, so we reject
+// it up front with a hint instead.
+const minMemoryBytes = 4 * 1024 * 1024 // 4Mi
+
 func validateResources(rsc models.Resources) error {
 	if strings.TrimSpace(rsc.Memory) != "" {
-		if _, err := resource.ParseQuantity(rsc.Memory); err != nil {
+		q, err := resource.ParseQuantity(rsc.Memory)
+		if err != nil {
 			return fmt.Errorf("invalid memory %q", rsc.Memory)
+		}
+		if q.CmpInt64(minMemoryBytes) < 0 {
+			return fmt.Errorf("memory limit %q is too small — did you forget a unit? e.g. 4Gi or 512Mi", rsc.Memory)
 		}
 	}
 	if strings.TrimSpace(rsc.CPU) != "" {
-		if _, err := resource.ParseQuantity(rsc.CPU); err != nil {
+		q, err := resource.ParseQuantity(rsc.CPU)
+		if err != nil {
 			return fmt.Errorf("invalid cpu %q", rsc.CPU)
+		}
+		if q.Sign() < 0 {
+			return fmt.Errorf("cpu limit %q cannot be negative", rsc.CPU)
 		}
 	}
 	return nil
