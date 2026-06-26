@@ -29,16 +29,13 @@ const (
 
 // Params is everything needed to render a backup/restore operation.
 type Params struct {
-	Image     string
-	Namespace string
-	Slug      string
-	BackupID  uint
-	Direction models.BackupDirection
-	SourceID  uint // restore: the backup ID to restore from
-	KeepLast  int
-	// HostPath, when set, mounts the data from a node path instead of the PVC
-	// (hostPath-backed servers).
-	HostPath     string
+	Image        string
+	Namespace    string
+	Slug         string
+	BackupID     uint
+	Direction    models.BackupDirection
+	SourceID     uint // restore: the backup ID to restore from
+	KeepLast     int
 	Repository   string // restic repository URL (s3:...)
 	Region       string
 	AccessKey    string
@@ -128,20 +125,13 @@ restic forget --host %q --keep-last %d --prune
 	ttl := int32(1800) // safety net; the controller deletes finished Jobs itself
 	ro := p.Direction == models.DirBackup
 
-	// Mount the same data the server uses: its PVC, or a node hostPath.
+	// Mount the same data the server uses: its PVC.
 	dataVolume := corev1.Volume{Name: "data"}
-	if p.HostPath != "" {
-		hpType := corev1.HostPathDirectoryOrCreate
-		dataVolume.VolumeSource = corev1.VolumeSource{
-			HostPath: &corev1.HostPathVolumeSource{Path: p.HostPath, Type: &hpType},
-		}
-	} else {
-		dataVolume.VolumeSource = corev1.VolumeSource{
-			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-				ClaimName: reconciler.DataVolume,
-				ReadOnly:  ro,
-			},
-		}
+	dataVolume.VolumeSource = corev1.VolumeSource{
+		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+			ClaimName: reconciler.DataVolume,
+			ReadOnly:  ro,
+		},
 	}
 
 	return &batchv1.Job{

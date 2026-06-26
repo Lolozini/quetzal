@@ -64,17 +64,11 @@ func TestRepository(t *testing.T) {
 	}
 }
 
-func TestBuildJobHostPathVolume(t *testing.T) {
-	// PVC-backed: volume is a PVC.
+func TestBuildJobDataVolume(t *testing.T) {
+	// Data is always the server's PVC.
 	pvc := BuildJob(Params{Slug: "s1", BackupID: 1, Direction: models.DirBackup})
-	if v := pvc.Spec.Template.Spec.Volumes[0]; v.PersistentVolumeClaim == nil || v.HostPath != nil {
+	if v := pvc.Spec.Template.Spec.Volumes[0]; v.PersistentVolumeClaim == nil {
 		t.Errorf("expected PVC volume, got %+v", v)
-	}
-	// hostPath-backed: volume is a hostPath at the node path.
-	hp := BuildJob(Params{Slug: "s1", BackupID: 2, Direction: models.DirBackup, HostPath: "/srv/games/s1"})
-	v := hp.Spec.Template.Spec.Volumes[0]
-	if v.HostPath == nil || v.HostPath.Path != "/srv/games/s1" || v.PersistentVolumeClaim != nil {
-		t.Errorf("expected hostPath volume /srv/games/s1, got %+v", v)
 	}
 }
 

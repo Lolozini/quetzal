@@ -1763,10 +1763,9 @@ components:
     Storage:
       type: object
       properties:
-        type: { type: string, enum: [pvc, hostPath] }
+        type: { type: string, enum: [pvc], default: pvc }
         size: { type: string, example: "10Gi" }
-        storageClass: { type: string }
-        hostPath: { type: string }
+        storageClass: { type: string, description: "empty = cluster default" }
         retainOnDelete: { type: boolean }
     Port:
       type: object

@@ -15,9 +15,8 @@ export function CreateServer({
   const [name, setName] = useState("");
   const [image, setImage] = useState("");
   const [memory, setMemory] = useState("");
-  const [storageType, setStorageType] = useState("pvc");
   const [size, setSize] = useState("10Gi");
-  const [hostPath, setHostPath] = useState("");
+  const [storageClass, setStorageClass] = useState("");
   const [expose, setExpose] = useState<ExposeType>("ClusterIP");
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [cluster, setCluster] = useState("");
@@ -78,9 +77,9 @@ export function CreateServer({
         memory: memory || undefined,
         start,
         storage: {
-          type: storageType,
-          size: storageType === "pvc" ? size : undefined,
-          hostPath: storageType === "hostPath" ? hostPath : undefined,
+          type: "pvc",
+          size: size || undefined,
+          storageClass: storageClass || undefined,
         },
         expose: { type: expose },
         hibernation: { enabled: hibernate, idleMinutes: idleMin, wakeOnConnect: wakeOnConnect && !proxy, proxy },
@@ -164,29 +163,17 @@ export function CreateServer({
             />
           </div>
           <div>
-            <label>{t("Storage")}</label>
-            <select value={storageType} onChange={(e) => setStorageType(e.target.value)}>
-              <option value="pvc">PVC (storageClass)</option>
-              <option value="hostPath">hostPath</option>
-            </select>
+            <label>{t("Volume size")}</label>
+            <input value={size} onChange={(e) => setSize(e.target.value)} placeholder="10Gi" />
           </div>
         </div>
 
-        {storageType === "pvc" ? (
-          <>
-            <label>{t("Volume size")}</label>
-            <input value={size} onChange={(e) => setSize(e.target.value)} />
-          </>
-        ) : (
-          <>
-            <label>{t("Host path")}</label>
-            <input
-              value={hostPath}
-              placeholder="/srv/games/..."
-              onChange={(e) => setHostPath(e.target.value)}
-            />
-          </>
-        )}
+        <label>{t("Storage class")}</label>
+        <input
+          value={storageClass}
+          placeholder={t("(optional) blank = cluster default")}
+          onChange={(e) => setStorageClass(e.target.value)}
+        />
 
         {tpl?.ports && tpl.ports.length > 0 && (
           <>

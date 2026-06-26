@@ -109,16 +109,19 @@ func (e Expose) LocalTraffic() bool {
 type StorageType string
 
 const (
-	StoragePVC      StorageType = "pvc"      // dynamic PVC via storageClass
-	StorageHostPath StorageType = "hostPath" // direct node path (homelab)
+	StoragePVC StorageType = "pvc" // dynamic PVC via storageClass
 )
 
-// Storage describes a server's persistent data backing.
+// Storage describes a server's persistent data backing. Data is always a PVC:
+// hostPath was removed because it lets a tenant mount arbitrary node paths (a
+// host-escape vector for the untrusted code game pods run, and forbidden by the
+// baseline/restricted Pod Security Standards) and has no scheduling affinity,
+// which breaks rescheduling and cross-cluster transfer. Single-node setups use a
+// local provisioner (e.g. local-path) as the storageClass.
 type Storage struct {
 	Type           StorageType `json:"type"`
-	Size           string      `json:"size,omitempty"`         // e.g. "20Gi" (pvc)
+	Size           string      `json:"size,omitempty"`         // e.g. "20Gi"
 	StorageClass   string      `json:"storageClass,omitempty"` // empty = cluster default
-	HostPath       string      `json:"hostPath,omitempty"`     // for hostPath
 	RetainOnDelete bool        `json:"retainOnDelete,omitempty"`
 }
 

@@ -233,7 +233,7 @@ export interface Server {
   image: string;
   env?: Record<string, string>;
   resources: { memory?: string; cpu?: string };
-  storage: { type: string; size?: string; hostPath?: string };
+  storage: { type: string; size?: string; storageClass?: string };
   ports?: Port[];
   expose: Expose;
   hibernation?: Hibernation;
@@ -715,7 +715,7 @@ export interface CreateServerRequest {
   image?: string;
   memory?: string;
   cpu?: string;
-  storage?: { type: string; size?: string; hostPath?: string };
+  storage?: { type: string; size?: string; storageClass?: string };
   env?: Record<string, string>;
   expose?: Expose;
   hibernation?: Hibernation;

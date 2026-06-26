@@ -8,8 +8,8 @@ Deployments, a Service, and an optional Ingress.
 
 - A Kubernetes cluster (v1.29+ recommended) and `kubectl` access.
 - [Helm](https://helm.sh/) v3.
-- A storage class for persistent volumes, **or** plan to use `hostPath` storage
-  (single-node / homelab).
+- A storage class for persistent volumes. Single-node / homelab setups can use a
+  local provisioner such as [local-path](https://github.com/rancher/local-path-provisioner).
 - For per-server CPU/RAM graphs: [metrics-server](https://github.com/kubernetes-sigs/metrics-server)
   (optional; the panel degrades gracefully without it).
 

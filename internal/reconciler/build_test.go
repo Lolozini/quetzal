@@ -116,12 +116,6 @@ func TestBuildPVCAndService(t *testing.T) {
 		t.Errorf("pvc size = %s, want 5Gi", got)
 	}
 
-	// hostPath storage -> no PVC
-	s.Storage = models.Storage{Type: models.StorageHostPath, HostPath: "/srv/x"}
-	if BuildPVC(s) != nil {
-		t.Error("expected no PVC for hostPath storage")
-	}
-
 	svc := BuildService(s, tmpl, false)
 	if len(svc.Spec.Ports) != 1 || svc.Spec.Ports[0].Port != 25565 {
 		t.Errorf("service ports = %+v", svc.Spec.Ports)

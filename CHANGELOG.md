@@ -7,6 +7,24 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- **Storage is now always a PVC.** Removed the user-selectable `hostPath` storage
+  type: it let a tenant mount arbitrary node paths (a host-escape vector for the
+  untrusted code game pods run, and disallowed by the baseline/restricted Pod
+  Security Standards) and had no scheduling affinity, which broke rescheduling and
+  cross-cluster transfer. Single-node setups use a local provisioner (e.g.
+  local-path) as the storageClass; the create form now exposes an optional storage
+  class. **Breaking:** servers created with `hostPath` storage must be recreated.
+
+### Fixed
+
+- Reject implausibly small memory limits (e.g. `4`, meaning 4 bytes for a
+  missing unit) instead of producing a pod stuck on a cryptic cgroup error;
+  resources are now validated on create as well as update.
+- Server creation no longer fails with `variable "TYPE" is not editable` when a
+  template has fixed (non-editable) variables.
+
 ## [0.1.0] - 2026-06-25
 
 Initial public release — a Kubernetes-native control plane and web UI for hosting

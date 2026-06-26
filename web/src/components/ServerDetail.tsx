@@ -259,8 +259,8 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
 
   async function remove() {
     if (!window.confirm("Delete this server? Its pod, service and config will be removed.")) return;
-    // Let the user decide the data lifecycle. For a PVC, "keep" retains the
-    // underlying volume (Released PV); hostPath data is kept on the node anyway.
+    // Let the user decide the data lifecycle: for a PVC, "keep" retains the
+    // underlying volume (Released PV) instead of deleting it.
     const isPVC = srv?.storage?.type === "pvc";
     const keepData = isPVC
       ? window.confirm("Keep the data volume?\n\nOK = keep the data (retain the volume)\nCancel = destroy the data permanently")

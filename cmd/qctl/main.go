@@ -49,7 +49,7 @@ Usage:
   qctl import-egg <file.json>          Import a Pterodactyl egg as a template
   qctl create --template <slug> --name <name> [opts]
         [--image <ref>] [--memory 4G] [--cpu 2]
-        [--storage pvc|hostpath] [--size 10Gi] [--hostpath /path]
+        [--size 10Gi] [--storage-class <name>]
         [--env KEY=VALUE ...] [--start]
   qctl ls                              List servers and status
   qctl set-state --slug <slug> --state Running|Stopped|Suspended
@@ -103,9 +103,8 @@ func cmdCreate(st *store.Store, args []string) {
 	image := f.str("image", "")
 	memory := f.str("memory", "")
 	cpu := f.str("cpu", "")
-	storageType := f.str("storage", "pvc")
 	size := f.str("size", "10Gi")
-	hostpath := f.str("hostpath", "")
+	storageClass := f.str("storage-class", "")
 	start := f.bool("start")
 	envs := f.multi("env")
 
@@ -141,15 +140,7 @@ func cmdCreate(st *store.Store, args []string) {
 		state = models.StateRunning
 	}
 
-	storage := models.Storage{Type: models.StorageType(storageType)}
-	if storage.Type == models.StorageHostPath {
-		if hostpath == "" {
-			fatalf("--hostpath required when --storage hostpath")
-		}
-		storage.HostPath = hostpath
-	} else {
-		storage.Size = size
-	}
+	storage := models.Storage{Type: models.StoragePVC, Size: size, StorageClass: storageClass}
 
 	srv := &models.Server{
 		Slug:            slug,
