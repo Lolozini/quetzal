@@ -41,10 +41,9 @@ type Server struct {
 	Registry *cluster.Registry
 	// SessionTTL controls how long a login lasts.
 	SessionTTL time.Duration
-	// MaintReadyTimeout bounds how long offline file access waits for the
-	// ephemeral maintenance pod to be ready (0 = defaultMaintReadyTimeout).
-	// Overridable in tests.
-	MaintReadyTimeout time.Duration
+	// DataReadyTimeout bounds how long file access waits for the data-manager pod
+	// to be ready (0 = defaultDataReadyTimeout). Overridable in tests.
+	DataReadyTimeout time.Duration
 	// Secure marks cookies Secure (set when served over HTTPS).
 	Secure bool
 	// NodePortMin/NodePortMax bound the control-plane node port pool (0 = use

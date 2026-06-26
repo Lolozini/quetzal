@@ -99,13 +99,11 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 		}
 	}
 
-	// When the server is meant to be running, remove any ephemeral maintenance
-	// pod first so it releases the (ReadWriteOnce) data volume for the real
-	// workload — otherwise the new server pod would be stuck Pending behind it.
-	if srv.Replicas() > 0 {
-		if err := r.deleteMaintenancePod(ctx, srv.Namespace); err != nil {
-			return fmt.Errorf("maintenance teardown: %w", err)
-		}
+	// The data-manager pod (files + SFTP) mounts the data volume permanently; the
+	// game pod is co-located with it via podAffinity. Ensure it before the game
+	// Deployment so the game pod has a node to anchor to.
+	if err := r.ensureDataDeployment(ctx, srv, tmpl); err != nil {
+		return fmt.Errorf("data manager: %w", err)
 	}
 
 	if err := r.ensureDeployment(ctx, srv, tmpl, secretKeys); err != nil {
@@ -241,16 +239,20 @@ func (r *Reconciler) deleteSFTP(ctx context.Context, s *models.Server) {
 	_ = r.Client.Delete(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: SFTPAuthKeysConfigMap, Namespace: s.Namespace}})
 }
 
-// deleteMaintenancePod removes a server's ephemeral maintenance pod (used for
-// offline file management). It force-deletes (grace 0) so the ReadWriteOnce data
-// volume is released immediately for the starting workload — the pod just sleeps
-// and holds no state to flush. Best-effort: a missing pod is not an error.
-func (r *Reconciler) deleteMaintenancePod(ctx context.Context, ns string) error {
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: MaintName, Namespace: ns}}
-	if err := r.Client.Delete(ctx, pod, client.GracePeriodSeconds(0)); err != nil && !apierrors.IsNotFound(err) {
-		return err
+// ensureDataDeployment reconciles the always-on data-manager Deployment (files +
+// SFTP). It normally runs one replica, but scales to zero while a restore is
+// active for the server: a restore overwrites the data volume in place and needs
+// exclusive write access, which it can't get while the data-manager holds the
+// ReadWriteOnce mount. Once the restore finishes, the next reconcile brings it
+// back.
+func (r *Reconciler) ensureDataDeployment(ctx context.Context, s *models.Server, t *models.Template) error {
+	replicas := int32(1)
+	if active, err := r.Store.HasActiveRestore(s.ID); err != nil {
+		return fmt.Errorf("check active restore: %w", err)
+	} else if active {
+		replicas = 0
 	}
-	return nil
+	return r.apply(ctx, BuildDataDeployment(s, t, r.ActivatorImage, replicas))
 }
 
 func (r *Reconciler) ensurePVC(ctx context.Context, want *corev1.PersistentVolumeClaim) error {

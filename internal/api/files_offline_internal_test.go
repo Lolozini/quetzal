@@ -47,11 +47,15 @@ func offlineTestServer(t *testing.T, objs ...runtime.Object) (*Server, *models.S
 	return s, srv
 }
 
-// TestEnsureMaintPodReusesRunning verifies a ready maintenance pod is reused
-// (not recreated) for offline file access.
-func TestEnsureMaintPodReusesRunning(t *testing.T) {
+// TestDataPodNameReturnsRunning verifies file access finds the always-on
+// data-manager pod (by DataLabel) when its container is running.
+func TestDataPodNameReturnsRunning(t *testing.T) {
 	running := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: reconciler.MaintName, Namespace: "quetzal-srv-s1"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "data-manager-abc",
+			Namespace: "quetzal-srv-s1",
+			Labels:    map[string]string{reconciler.DataLabel: "s1"},
+		},
 		Status: corev1.PodStatus{
 			Phase: corev1.PodRunning,
 			ContainerStatuses: []corev1.ContainerStatus{{
@@ -61,40 +65,22 @@ func TestEnsureMaintPodReusesRunning(t *testing.T) {
 		},
 	}
 	s, srv := offlineTestServer(t, running)
-	cs := s.Clientset
-
-	pod, err := s.ensureMaintPod(context.Background(), srv, cs)
+	pod, err := s.dataPodName(context.Background(), s.Clientset, srv.Namespace, srv.Slug)
 	if err != nil {
-		t.Fatalf("ensureMaintPod: %v", err)
+		t.Fatalf("dataPodName: %v", err)
 	}
-	if pod != reconciler.MaintName {
-		t.Fatalf("pod = %q, want %q", pod, reconciler.MaintName)
-	}
-	// No second pod should have been created.
-	list, _ := cs.CoreV1().Pods("quetzal-srv-s1").List(context.Background(), metav1.ListOptions{})
-	if len(list.Items) != 1 {
-		t.Fatalf("pod count = %d, want 1 (reused, not recreated)", len(list.Items))
+	if pod != "data-manager-abc" {
+		t.Fatalf("pod = %q, want data-manager-abc", pod)
 	}
 }
 
-// TestEnsureMaintPodCreatesWhenAbsent verifies that with no maintenance pod, one
-// is created (and, since the fake clientset never marks it running, the wait
-// times out — proving the create path runs).
-func TestEnsureMaintPodCreatesWhenAbsent(t *testing.T) {
+// TestDataPodNameTimesOutWhenAbsent verifies file access reports unavailability
+// when no data-manager pod is ready (e.g. during a restore, when the reconciler
+// has scaled it to zero).
+func TestDataPodNameTimesOutWhenAbsent(t *testing.T) {
 	s, srv := offlineTestServer(t)
-	s.MaintReadyTimeout = 60 * time.Millisecond
-	cs := s.Clientset
-
-	_, err := s.ensureMaintPod(context.Background(), srv, cs)
-	if err == nil {
-		t.Fatal("expected timeout error (fake pod never becomes ready)")
-	}
-	// The pod must have been created regardless.
-	got, gerr := cs.CoreV1().Pods("quetzal-srv-s1").Get(context.Background(), reconciler.MaintName, metav1.GetOptions{})
-	if gerr != nil {
-		t.Fatalf("maintenance pod not created: %v", gerr)
-	}
-	if got.Labels[reconciler.MaintLabel] != "s1" {
-		t.Errorf("created pod missing maint label: %v", got.Labels)
+	s.DataReadyTimeout = 60 * time.Millisecond
+	if _, err := s.dataPodName(context.Background(), s.Clientset, srv.Namespace, srv.Slug); err == nil {
+		t.Fatal("expected timeout error when no data-manager pod is ready")
 	}
 }
