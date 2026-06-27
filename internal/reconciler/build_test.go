@@ -176,6 +176,11 @@ func TestBuildNetworkPolicyBlocksMetadata(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
 	np := BuildNetworkPolicy(s, tmpl)
 
+	// Applies to every pod in the per-server namespace (empty selector), so the
+	// data-manager/activator/backup pods aren't left non-isolated.
+	if len(np.Spec.PodSelector.MatchLabels) != 0 || len(np.Spec.PodSelector.MatchExpressions) != 0 {
+		t.Errorf("podSelector = %+v, want empty (all pods)", np.Spec.PodSelector)
+	}
 	if len(np.Spec.Ingress) != 1 || len(np.Spec.Ingress[0].Ports) != 1 {
 		t.Fatalf("ingress = %+v", np.Spec.Ingress)
 	}
@@ -243,6 +248,37 @@ func TestBuildNetworkPolicyPortlessDeniesIngress(t *testing.T) {
 	np := BuildNetworkPolicy(s, tmpl)
 	if len(np.Spec.Ingress) != 0 {
 		t.Errorf("portless server should have no ingress rules (deny-all), got %+v", np.Spec.Ingress)
+	}
+}
+
+func TestBuildNetworkPolicyAllowsSFTPPort(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	s.Ports = nil
+	tmpl.Ports = nil // no game ports, so any ingress port is the SFTP one
+	s.SFTP = models.SFTPConfig{Enabled: true}
+	np := BuildNetworkPolicy(s, tmpl)
+	var sawSFTP bool
+	for _, rule := range np.Spec.Ingress {
+		for _, p := range rule.Ports {
+			if p.Port != nil && p.Port.IntVal == SFTPPort {
+				sawSFTP = true
+			}
+		}
+	}
+	if !sawSFTP {
+		t.Errorf("expected an ingress rule allowing the SFTP port %d, got %+v", SFTPPort, np.Spec.Ingress)
+	}
+}
+
+func TestBuildDataDeploymentDropsSFTPWhenSuspended(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	s.SFTP = models.SFTPConfig{Enabled: true}
+	s.DesiredState = models.StateSuspended
+	dep := BuildDataDeployment(s, tmpl, "quetzal:test", 1)
+	for _, c := range dep.Spec.Template.Spec.Containers {
+		if c.Name == "sftp" {
+			t.Error("a suspended server's data-manager must not run the sftp sidecar")
+		}
 	}
 }
 
