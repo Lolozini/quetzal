@@ -268,7 +268,11 @@ func BuildDataDeployment(s *models.Server, t *models.Template, systemImage strin
 	initContainers := []corev1.Container{}
 	volumes := []corev1.Volume{buildDataVolume(s)}
 
-	if systemImage != "" && s.SFTP.Enabled {
+	// Suspension is an admin-enforced freeze: drop SFTP so a suspended server's
+	// owner/subusers can't reach files over SFTP (the HTTP file API already
+	// returns 403 for non-admins). Admins can still inspect via the HTTP API,
+	// which uses the always-on exec container, so the data-manager stays up.
+	if systemImage != "" && s.SFTP.Enabled && s.DesiredState != models.StateSuspended {
 		initContainers = append(initContainers, sftpCopyInitContainer(systemImage, t))
 		containers = append(containers, sftpSidecar(s, t, dataPath))
 		volumes = append(volumes, sftpVolumes()...)
@@ -524,6 +528,13 @@ func BuildNetworkPolicy(s *models.Server, t *models.Template) *networkingv1.Netw
 			Port:     &port,
 		})
 	}
+	// SFTP runs in the data-manager pod; allow its port when enabled (otherwise a
+	// CNI that enforces NetworkPolicy would block the SFTP NodePort).
+	if s.SFTP.Enabled {
+		tcp := corev1.ProtocolTCP
+		sftpPort := intstr.FromInt32(SFTPPort)
+		ingressPorts = append(ingressPorts, networkingv1.NetworkPolicyPort{Protocol: &tcp, Port: &sftpPort})
+	}
 
 	dnsUDP := corev1.ProtocolUDP
 	dnsTCP := corev1.ProtocolTCP
@@ -537,7 +548,10 @@ func BuildNetworkPolicy(s *models.Server, t *models.Template) *networkingv1.Netw
 			Labels:    labelsFor(s),
 		},
 		Spec: networkingv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{serverLabel: s.Slug}},
+			// Apply to every pod in the server's (dedicated) namespace — the game
+			// pod, the data-manager (files/SFTP), the activator and backup Jobs —
+			// so none is left non-isolated with unrestricted egress.
+			PodSelector: metav1.LabelSelector{},
 			PolicyTypes: []networkingv1.PolicyType{
 				networkingv1.PolicyTypeIngress,
 				networkingv1.PolicyTypeEgress,
@@ -581,9 +595,10 @@ func BuildResourceQuota(s *models.Server) *corev1.ResourceQuota {
 		},
 		Spec: corev1.ResourceQuotaSpec{
 			Hard: corev1.ResourceList{
-				// Recreate strategy => at most one server pod; +1 activator
-				// (wake-on-connect) +1 transient backup/restore Job pod, with headroom.
-				corev1.ResourcePods:                   resource.MustParse("6"),
+				// Recreate strategy => at most one game pod + one data-manager pod
+				// (files/SFTP); +1 activator (wake-on-connect) +1 transient
+				// backup/restore Job pod, with headroom for a terminating pod.
+				corev1.ResourcePods:                   resource.MustParse("7"),
 				corev1.ResourceServices:               resource.MustParse("4"),
 				corev1.ResourcePersistentVolumeClaims: resource.MustParse("3"),
 			},
