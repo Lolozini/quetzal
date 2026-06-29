@@ -270,6 +270,20 @@ func TestBuildNetworkPolicyAllowsSFTPPort(t *testing.T) {
 	}
 }
 
+func TestBuildActivatorRunsAsNumericNonroot(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	dep := BuildActivatorDeployment(s, tmpl, ActivatorParams{Image: "quetzal:test", WakeURL: "http://x/wake", Token: "tok"})
+	sc := dep.Spec.Template.Spec.SecurityContext
+	// The Quetzal distroless image has a non-numeric USER (nonroot); without a
+	// numeric runAsUser the kubelet refuses the pod under runAsNonRoot.
+	if sc == nil || sc.RunAsUser == nil || *sc.RunAsUser == 0 {
+		t.Fatalf("activator must set a numeric non-zero runAsUser, got %+v", sc)
+	}
+	if sc.RunAsNonRoot == nil || !*sc.RunAsNonRoot {
+		t.Error("activator should run as non-root")
+	}
+}
+
 func TestBuildDataDeploymentDropsSFTPWhenSuspended(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
 	s.SFTP = models.SFTPConfig{Enabled: true}
