@@ -176,10 +176,20 @@ func TestBuildNetworkPolicyBlocksMetadata(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
 	np := BuildNetworkPolicy(s, tmpl)
 
-	// Applies to every pod in the per-server namespace (empty selector), so the
-	// data-manager/activator/backup pods aren't left non-isolated.
-	if len(np.Spec.PodSelector.MatchLabels) != 0 || len(np.Spec.PodSelector.MatchExpressions) != 0 {
-		t.Errorf("podSelector = %+v, want empty (all pods)", np.Spec.PodSelector)
+	// Selects the restricted (untrusted) workload pods by the netpol label.
+	if np.Spec.PodSelector.MatchLabels[netpolLabel] != netpolRestricted {
+		t.Errorf("podSelector = %+v, want %s=%s", np.Spec.PodSelector, netpolLabel, netpolRestricted)
+	}
+	// The game pod and data-manager carry that label; the activator does not (it
+	// needs apiserver egress the restrictive policy would block).
+	if BuildDeployment(s, tmpl, "", nil).Spec.Template.Labels[netpolLabel] != netpolRestricted {
+		t.Error("game pod should carry the restricted netpol label")
+	}
+	if BuildDataDeployment(s, tmpl, "", 1).Spec.Template.Labels[netpolLabel] != netpolRestricted {
+		t.Error("data-manager pod should carry the restricted netpol label")
+	}
+	if _, ok := BuildActivatorDeployment(s, tmpl, ActivatorParams{Image: "x", WakeURL: "u"}).Spec.Template.Labels[netpolLabel]; ok {
+		t.Error("activator must NOT carry the restricted netpol label (it needs apiserver egress)")
 	}
 	if len(np.Spec.Ingress) != 1 || len(np.Spec.Ingress[0].Ports) != 1 {
 		t.Fatalf("ingress = %+v", np.Spec.Ingress)
