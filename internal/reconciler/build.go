@@ -61,6 +61,12 @@ const (
 	metadataIP    = "169.254.169.254/32"
 )
 
+// distrolessNonrootUID is the uid of the "nonroot" user in the Quetzal distroless
+// image. It is set numerically wherever that image runs under runAsNonRoot, so
+// the kubelet can verify the user is non-root (a non-numeric image USER can't be
+// verified and the pod is refused).
+var distrolessNonrootUID = int64(65532)
+
 // labelsFor returns the standard labels for a server's objects.
 func labelsFor(s *models.Server) map[string]string {
 	return map[string]string{
@@ -423,7 +429,11 @@ func BuildActivatorDeployment(s *models.Server, t *models.Template, p ActivatorP
 					// token over HTTP; it needs no Kubernetes API access.
 					AutomountServiceAccountToken: &no,
 					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot:   &yes,
+						RunAsNonRoot: &yes,
+						// The activator runs the Quetzal (distroless nonroot) image,
+						// whose USER is non-numeric ("nonroot"); the kubelet then can't
+						// verify runAsNonRoot and refuses the pod. Pin the numeric uid.
+						RunAsUser:      &distrolessNonrootUID,
 						SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 					},
 					Containers: []corev1.Container{{
