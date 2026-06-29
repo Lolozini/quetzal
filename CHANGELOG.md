@@ -29,6 +29,13 @@ releases may include breaking changes).
 
 ### Fixed
 
+- Wake-on-connect: the activator pod failed to start (`container has runAsNonRoot
+  and image has non-numeric user (nonroot)`) because it ran the distroless Quetzal
+  image without a numeric `runAsUser`; pinned to uid 65532. Its wake callback to
+  the apiserver also timed out under CNIs that enforce NetworkPolicy: the default
+  policy now applies only to the untrusted workload pods (game + data-manager),
+  not the Quetzal-controlled activator/backup Job, which need cluster/external
+  egress the generic policy can't express.
 - The per-server SFTP NodePort is now drawn from Quetzal's managed node-port pool
   (the same pool as the game ports) instead of Kubernetes' auto-assignment, so the
   two allocators can no longer pick the same port and conflict. Released back to

@@ -50,6 +50,14 @@ const (
 	DataLabel = "quetzal.dev/data"
 	// DataDeployName is the data-manager Deployment's name within a server namespace.
 	DataDeployName = "data-manager"
+	// netpolLabel marks the pods that get the restrictive default NetworkPolicy:
+	// the game pod and the data-manager (they run game images / hold untrusted
+	// data, so their egress is limited to DNS + the internet, never the cluster).
+	// The activator and backup Job deliberately don't carry it — they are
+	// Quetzal-controlled and need cluster/external egress (the apiserver, S3) that
+	// the generic per-server policy can't express.
+	netpolLabel      = "quetzal.dev/netpol"
+	netpolRestricted = "restricted"
 	// WorkloadName is the Deployment/Service name within a server's namespace.
 	WorkloadName = "server"
 	// DataVolume is the name of a server's data PVC/volume.
@@ -133,6 +141,7 @@ func BuildSecret(s *models.Server, data map[string]string) *corev1.Secret {
 // lists env var names sourced from the per-server Secret (via secretKeyRef).
 func BuildDeployment(s *models.Server, t *models.Template, systemImage string, secretKeys []string) *appsv1.Deployment {
 	labels := labelsFor(s)
+	labels[netpolLabel] = netpolRestricted // restrictive egress (runs untrusted game code)
 	replicas := s.Replicas()
 
 	dataPath := t.DataPath
@@ -288,7 +297,7 @@ func BuildDataDeployment(s *models.Server, t *models.Template, systemImage strin
 		})
 	}
 
-	podLabels := map[string]string{managedByLabel: managedByValue, DataLabel: s.Slug}
+	podLabels := map[string]string{managedByLabel: managedByValue, DataLabel: s.Slug, netpolLabel: netpolRestricted}
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: metav1.ObjectMeta{
@@ -558,10 +567,13 @@ func BuildNetworkPolicy(s *models.Server, t *models.Template) *networkingv1.Netw
 			Labels:    labelsFor(s),
 		},
 		Spec: networkingv1.NetworkPolicySpec{
-			// Apply to every pod in the server's (dedicated) namespace — the game
-			// pod, the data-manager (files/SFTP), the activator and backup Jobs —
-			// so none is left non-isolated with unrestricted egress.
-			PodSelector: metav1.LabelSelector{},
+			// Apply to the untrusted workload pods — the game pod and the
+			// data-manager (files/SFTP) — which must not reach the cluster (k8s
+			// API, node metadata, other tenants). The activator and backup Job
+			// carry no netpol label: they're Quetzal-controlled and need egress the
+			// generic policy can't express (the apiserver for wake callbacks, S3),
+			// so they're intentionally left out of this restrictive policy.
+			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{netpolLabel: netpolRestricted}},
 			PolicyTypes: []networkingv1.PolicyType{
 				networkingv1.PolicyTypeIngress,
 				networkingv1.PolicyTypeEgress,
