@@ -520,12 +520,20 @@ func TestBuildDataDeployment(t *testing.T) {
 
 func TestBuildSFTPServiceAndAuthKeys(t *testing.T) {
 	s, _ := testServerAndTemplate()
-	svc := BuildSFTPService(s)
+	svc := BuildSFTPService(s, 31234)
 	if svc.Spec.Type != corev1.ServiceTypeNodePort {
 		t.Errorf("sftp service type = %v, want NodePort", svc.Spec.Type)
 	}
 	if len(svc.Spec.Ports) != 1 || svc.Spec.Ports[0].Port != SFTPPort {
 		t.Errorf("sftp service ports = %+v", svc.Spec.Ports)
+	}
+	// The NodePort is the one allocated from Quetzal's pool (not k8s auto-assign).
+	if svc.Spec.Ports[0].NodePort != 31234 {
+		t.Errorf("sftp nodePort = %d, want 31234 (from the pool)", svc.Spec.Ports[0].NodePort)
+	}
+	// 0 leaves it to Kubernetes (fallback).
+	if BuildSFTPService(s, 0).Spec.Ports[0].NodePort != 0 {
+		t.Error("nodePort 0 should leave the field unset")
 	}
 	// SFTP runs in the data-manager pod, so the Service selects it by DataLabel.
 	if svc.Spec.Selector[DataLabel] != s.Slug {

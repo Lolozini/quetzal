@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -88,10 +89,12 @@ func main() {
 	// Disabled when either is unset.
 	apiBase := env("QUETZAL_APISERVER_URL", "")
 	actCfg := activatorConfig{
-		image:     env("QUETZAL_IMAGE", ""),
-		wakeURL:   apiCallbackURL(apiBase, "wake"),
-		activeURL: apiCallbackURL(apiBase, "active"),
-		key:       crypto.KeyFromEnv("QUETZAL_SECRET_KEY"),
+		image:       env("QUETZAL_IMAGE", ""),
+		wakeURL:     apiCallbackURL(apiBase, "wake"),
+		activeURL:   apiCallbackURL(apiBase, "active"),
+		key:         crypto.KeyFromEnv("QUETZAL_SECRET_KEY"),
+		nodePortMin: envInt32("QUETZAL_NODEPORT_MIN", 0),
+		nodePortMax: envInt32("QUETZAL_NODEPORT_MAX", 0),
 	}
 
 	sched := scheduler.New(st, &executor{st: st, reg: reg})
@@ -262,10 +265,12 @@ func execCapture(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config,
 // activatorConfig carries the wake-on-connect settings applied to each
 // per-cluster reconciler.
 type activatorConfig struct {
-	image     string
-	wakeURL   string
-	activeURL string
-	key       []byte
+	image       string
+	wakeURL     string
+	activeURL   string
+	key         []byte
+	nodePortMin int32
+	nodePortMax int32
 }
 
 // apiCallbackURL builds an activator callback URL from the apiserver base URL
@@ -321,6 +326,8 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 		rec.WakeURL = actCfg.wakeURL
 		rec.ActiveURL = actCfg.activeURL
 		rec.WakeKey = actCfg.key
+		rec.NodePortMin = actCfg.nodePortMin
+		rec.NodePortMax = actCfg.nodePortMax
 		for _, s := range byCluster[c.ID] {
 			if err := rec.ReconcileServer(ctx, s.ID); err != nil {
 				log.Printf("reconcile server %s (cluster %s): %v", s.Slug, c.Slug, err)
@@ -396,6 +403,15 @@ func serveOps(addr string, st *store.Store) {
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return def
+}
+
+func envInt32(key string, def int32) int32 {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return int32(n)
+		}
 	}
 	return def
 }

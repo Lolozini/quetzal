@@ -196,12 +196,21 @@ func TestAllocateNodePortStableAndUnique(t *testing.T) {
 		t.Fatal("expected exhaustion error when pool is full")
 	}
 
-	// Releasing server 1 frees its two ports for reuse.
-	if err := s.ReleaseServerPorts(1); err != nil {
-		t.Fatalf("release: %v", err)
+	// ReleaseNodePort frees just one named allocation (e.g. SFTP), leaving the
+	// server's other ports intact.
+	if err := s.ReleaseNodePort(1, "query"); err != nil {
+		t.Fatalf("release one: %v", err)
+	}
+	if got, err := s.AllocateNodePort(1, "game", 30000, 30002); err != nil || got != a {
+		t.Fatalf("game port should be untouched after releasing query: got %d err %v", got, err)
 	}
 	if _, err := s.AllocateNodePort(3, "game", 30000, 30002); err != nil {
-		t.Fatalf("alloc after release: %v", err)
+		t.Fatalf("freed query port should be reusable: %v", err)
+	}
+
+	// Releasing server 1 frees its remaining ports for reuse.
+	if err := s.ReleaseServerPorts(1); err != nil {
+		t.Fatalf("release: %v", err)
 	}
 }
 

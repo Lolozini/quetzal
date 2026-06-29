@@ -29,6 +29,10 @@ releases may include breaking changes).
 
 ### Fixed
 
+- The per-server SFTP NodePort is now drawn from Quetzal's managed node-port pool
+  (the same pool as the game ports) instead of Kubernetes' auto-assignment, so the
+  two allocators can no longer pick the same port and conflict. Released back to
+  the pool when SFTP is disabled or the server is deleted.
 - Reject implausibly small memory limits (e.g. `4`, meaning 4 bytes for a
   missing unit) instead of producing a pod stuck on a cryptic cgroup error;
   resources are now validated on create as well as update.

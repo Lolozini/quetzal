@@ -778,6 +778,8 @@ func configRenderInitContainers(s *models.Server, t *models.Template, systemImag
 const (
 	// SFTPServiceName is the per-server NodePort Service exposing SFTP.
 	SFTPServiceName = "server-sftp"
+	// SFTPPortName is the node-port pool allocation key for the SFTP port.
+	SFTPPortName = "sftp"
 	// SFTPPort is the in-pod port the SFTP sidecar listens on.
 	SFTPPort int32 = 2022
 	// SFTPHostKeySecret holds the (stable) SSH host private key.
@@ -866,18 +868,22 @@ func sftpVolumes() []corev1.Volume {
 
 // BuildSFTPService is the NodePort Service exposing a server's SFTP sidecar,
 // which runs in the always-on data-manager pod (so SFTP works whether the game
-// is running or stopped). The NodePort is assigned by Kubernetes (not from
-// Quetzal's game-port pool).
-func BuildSFTPService(s *models.Server) *corev1.Service {
+// is running or stopped). nodePort is drawn from Quetzal's node-port pool — the
+// same pool as the game ports — so the two never collide; 0 lets Kubernetes pick.
+func BuildSFTPService(s *models.Server, nodePort int32) *corev1.Service {
+	sp := corev1.ServicePort{
+		Name: "sftp", Port: SFTPPort, TargetPort: intstr.FromInt32(SFTPPort), Protocol: corev1.ProtocolTCP,
+	}
+	if nodePort > 0 {
+		sp.NodePort = nodePort
+	}
 	return &corev1.Service{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
 		ObjectMeta: metav1.ObjectMeta{Name: SFTPServiceName, Namespace: s.Namespace, Labels: labelsFor(s)},
 		Spec: corev1.ServiceSpec{
 			Type:     corev1.ServiceTypeNodePort,
 			Selector: map[string]string{DataLabel: s.Slug},
-			Ports: []corev1.ServicePort{{
-				Name: "sftp", Port: SFTPPort, TargetPort: intstr.FromInt32(SFTPPort), Protocol: corev1.ProtocolTCP,
-			}},
+			Ports:    []corev1.ServicePort{sp},
 		},
 	}
 }
