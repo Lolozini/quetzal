@@ -37,6 +37,12 @@ type Reconciler struct {
 	WakeURL        string
 	ActiveURL      string
 	WakeKey        []byte
+
+	// NodePortMin/NodePortMax bound the node-port pool the SFTP Service draws
+	// from (0 = the store's defaults). Same pool as the game ports, so SFTP and
+	// game allocations never collide. Injected by the controller.
+	NodePortMin int32
+	NodePortMax int32
 }
 
 // New returns a Reconciler.
@@ -206,7 +212,13 @@ func (r *Reconciler) ensureSFTP(ctx context.Context, s *models.Server) error {
 	if err := r.apply(ctx, BuildSFTPAuthKeysConfigMap(s, lines)); err != nil {
 		return fmt.Errorf("sftp configmap: %w", err)
 	}
-	if err := r.apply(ctx, BuildSFTPService(s)); err != nil {
+	// Draw the SFTP NodePort from the same pool as the game ports (stable per
+	// server, no collision with Kubernetes' own auto-assignment).
+	nodePort, err := r.Store.AllocateNodePort(s.ID, SFTPPortName, r.NodePortMin, r.NodePortMax)
+	if err != nil {
+		return fmt.Errorf("sftp node port: %w", err)
+	}
+	if err := r.apply(ctx, BuildSFTPService(s, nodePort)); err != nil {
 		return fmt.Errorf("sftp service: %w", err)
 	}
 	return nil
@@ -237,6 +249,8 @@ func (r *Reconciler) ensureSFTPHostKey(ctx context.Context, s *models.Server) er
 func (r *Reconciler) deleteSFTP(ctx context.Context, s *models.Server) {
 	_ = r.Client.Delete(ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: SFTPServiceName, Namespace: s.Namespace}})
 	_ = r.Client.Delete(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: SFTPAuthKeysConfigMap, Namespace: s.Namespace}})
+	// Return the SFTP node port to the pool so it can be reused.
+	_ = r.Store.ReleaseNodePort(s.ID, SFTPPortName)
 }
 
 // ensureDataDeployment reconciles the always-on data-manager Deployment (files +

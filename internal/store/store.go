@@ -434,6 +434,12 @@ func (s *Store) AllocateNodePort(serverID uint, name string, min, max int32) (in
 	return alloc.NodePort, nil
 }
 
+// ReleaseNodePort frees a single named node-port allocation for a server (e.g.
+// the SFTP port when SFTP is disabled). A no-op if it isn't held.
+func (s *Store) ReleaseNodePort(serverID uint, name string) error {
+	return s.db.Where("server_id = ? AND port_name = ?", serverID, name).Delete(&models.PortAllocation{}).Error
+}
+
 // ReleaseServerPorts frees every node port held by a server.
 func (s *Store) ReleaseServerPorts(serverID uint) error {
 	return s.db.Where("server_id = ?", serverID).Delete(&models.PortAllocation{}).Error
