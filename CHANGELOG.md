@@ -7,6 +7,14 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **Minecraft EULA acceptance** for templates that declare the `eula` egg
+  feature: an "I accept the Minecraft EULA" toggle on create/settings; when
+  accepted, the controller renders `eula.txt=true` into the data volume at
+  startup (and writes nothing otherwise, so the server keeps asking). Mirrors
+  Pterodactyl's `eula` feature without modifying the imported egg.
+
 ### Changed
 
 - **Storage is now always a PVC.** Removed the user-selectable `hostPath` storage

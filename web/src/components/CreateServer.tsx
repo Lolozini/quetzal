@@ -24,6 +24,7 @@ export function CreateServer({
   const [wakeOnConnect, setWakeOnConnect] = useState(true);
   const [proxy, setProxy] = useState(false);
   const [env, setEnv] = useState<Record<string, string>>({});
+  const [eulaAccepted, setEulaAccepted] = useState(false);
   const [start, setStart] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -83,6 +84,7 @@ export function CreateServer({
         hibernation: { enabled: hibernate, idleMinutes: idleMin, wakeOnConnect: wakeOnConnect && !proxy, proxy },
         cluster: cluster || undefined,
         env,
+        eulaAccepted: tpl?.features?.includes("eula") ? eulaAccepted : undefined,
       };
       await api.createServer(body);
       onDone();
@@ -272,6 +274,21 @@ export function CreateServer({
               </div>
             ))}
           </>
+        )}
+
+        {tpl?.features?.includes("eula") && (
+          <label className="row" style={{ marginTop: 12 }}>
+            <input
+              type="checkbox"
+              style={{ width: "auto" }}
+              checked={eulaAccepted}
+              onChange={(e) => setEulaAccepted(e.target.checked)}
+            />
+            &nbsp;{t("I accept the")}&nbsp;
+            <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noreferrer">
+              {t("Minecraft EULA")}
+            </a>
+          </label>
         )}
 
         <label className="row" style={{ marginTop: 12 }}>

@@ -190,6 +190,7 @@ export interface Template {
   variables: TemplateVariable[];
   ports?: { name: string; port: number; protocol: string }[];
   install?: { image?: string; entrypoint?: string; script?: string };
+  features?: string[];
 }
 
 export interface ServerStatus {
@@ -239,6 +240,7 @@ export interface Server {
   hibernation?: Hibernation;
   hibernated?: boolean;
   sftp?: { enabled: boolean };
+  eulaAccepted?: boolean;
   clusterId?: number;
   transfer?: TransferState;
   status: ServerStatus;
@@ -683,6 +685,8 @@ export const api = {
   sftpInfo: (id: number) => req<SFTPInfo>("GET", `/api/servers/${id}/sftp`),
   setSFTP: (id: number, enabled: boolean) =>
     req<Server>("PATCH", `/api/servers/${id}`, { sftp: { enabled } }),
+  setEULA: (id: number, eulaAccepted: boolean) =>
+    req<Server>("PATCH", `/api/servers/${id}`, { eulaAccepted }),
 
   // Database hosts (admin) + per-server databases.
   databaseHosts: () => req<DatabaseHost[]>("GET", "/api/database-hosts"),
@@ -732,6 +736,7 @@ export interface CreateServerRequest {
   hibernation?: Hibernation;
   cluster?: string;
   start?: boolean;
+  eulaAccepted?: boolean;
 }
 
 // consoleSocket opens the live console WebSocket for a server.

@@ -188,7 +188,7 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 	// renderer is copied out of the Quetzal image into a shared volume, then run
 	// from the game image so files get the server's ownership). SFTP and offline
 	// file access live in the separate, always-on data-manager pod.
-	if systemImage != "" && len(t.ConfigFiles) > 0 {
+	if systemImage != "" && needsConfigRender(s, t) {
 		initContainers = append(initContainers, configRenderInitContainers(s, t, systemImage, secretKeys, dataPath)...)
 		volumes = append(volumes, corev1.Volume{
 			Name:         renderBinVolume,
@@ -779,9 +779,27 @@ const installMountPath = "/mnt/server"
 // apply a template's config.files. The render step uses the game image (s.Image)
 // and the same env as the main container, so ${VAR} (including secret env via
 // secretKeyRef) resolves and files are written as the server's user.
+// eulaSpec renders eula.txt=true when the template declares the "eula" egg
+// feature and the user accepted it; otherwise nothing is written (so the server
+// keeps asking for acceptance). Mirrors Pterodactyl's eula feature, where the
+// daemon writes the file once the user accepts — without modifying the egg.
+func eulaSpec(s *models.Server, t *models.Template) []configfile.Spec {
+	if !t.HasFeature("eula") || !s.EULAAccepted {
+		return nil
+	}
+	return []configfile.Spec{{Path: "eula.txt", Parser: "properties", Find: map[string]string{"eula": "true"}}}
+}
+
+// needsConfigRender reports whether the startup config-render init container is
+// needed: the template has config.files to render, or an egg feature (eula) that
+// renders a file once accepted.
+func needsConfigRender(s *models.Server, t *models.Template) bool {
+	return len(t.ConfigFiles) > 0 || len(eulaSpec(s, t)) > 0
+}
+
 func configRenderInitContainers(s *models.Server, t *models.Template, systemImage string, secretKeys []string, dataPath string) []corev1.Container {
 	primary := primaryPort(s, t)
-	specs := make([]configfile.Spec, 0, len(t.ConfigFiles))
+	specs := make([]configfile.Spec, 0, len(t.ConfigFiles)+1)
 	for _, cf := range t.ConfigFiles {
 		find := make(map[string]string, len(cf.Find))
 		for k, v := range cf.Find {
@@ -789,6 +807,7 @@ func configRenderInitContainers(s *models.Server, t *models.Template, systemImag
 		}
 		specs = append(specs, configfile.Spec{Path: cf.Path, Parser: string(cf.Parser), Find: find})
 	}
+	specs = append(specs, eulaSpec(s, t)...)
 	blob, _ := json.Marshal(specs)
 
 	renderEnv := append(buildEnv(s.Env, secretKeys),

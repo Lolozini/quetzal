@@ -20,7 +20,45 @@ export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (
       <p className="muted">{t("Changes apply on the next reconcile, which restarts the server.")}</p>
       {editable.length > 0 && <Variables serverId={server.id} vars={editable} env={server.env ?? {}} onSaved={onSaved} />}
       <ResourcesForm server={server} onSaved={onSaved} />
+      {tmpl?.features?.includes("eula") && <EULAToggle server={server} onSaved={onSaved} />}
       {tmpl?.install?.script && <Reinstall serverId={server.id} />}
+    </div>
+  );
+}
+
+// EULAToggle accepts/revokes the Minecraft EULA for templates with the "eula"
+// egg feature; on accept the controller writes eula.txt=true at next start.
+function EULAToggle({ server, onSaved }: { server: Server; onSaved: (s: Server) => void }) {
+  const { t } = useT();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function toggle(accepted: boolean) {
+    setBusy(true);
+    setError("");
+    try {
+      onSaved(await api.setEULA(server.id, accepted));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div style={{ marginTop: 12 }}>
+      <h3>{t("Minecraft EULA")}</h3>
+      <label className="row" style={{ gap: 6 }}>
+        <input
+          type="checkbox"
+          style={{ width: "auto" }}
+          checked={!!server.eulaAccepted}
+          disabled={busy}
+          onChange={(e) => toggle(e.target.checked)}
+        />
+        {t("I accept the")}&nbsp;
+        <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noreferrer">{t("Minecraft EULA")}</a>
+      </label>
+      <p className="muted">{t("Required for the server to start; applied on the next reconcile.")}</p>
+      {error && <div className="error">{error}</div>}
     </div>
   );
 }
