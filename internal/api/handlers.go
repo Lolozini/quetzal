@@ -213,12 +213,15 @@ func (s *Server) handleGetServer(w http.ResponseWriter, r *http.Request) {
 }
 
 type createServerRequest struct {
-	Name        string             `json:"name"`
-	Template    string             `json:"template"`
-	Image       string             `json:"image"`
-	Memory      string             `json:"memory"`
-	CPU         string             `json:"cpu"`
-	Storage     models.Storage     `json:"storage"`
+	Name     string         `json:"name"`
+	Template string         `json:"template"`
+	Image    string         `json:"image"`
+	Memory   string         `json:"memory"`
+	CPU      string         `json:"cpu"`
+	Storage  models.Storage `json:"storage"`
+	// Ports, when non-empty, overrides the template's ports (e.g. for imported
+	// eggs, which declare none — Pterodactyl allocates ports per server).
+	Ports       []models.PortSpec  `json:"ports"`
 	Env         map[string]string  `json:"env"`
 	Expose      models.Expose      `json:"expose"`
 	Hibernation models.Hibernation `json:"hibernation"`
@@ -305,7 +308,19 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		storage.Size = "10Gi"
 	}
 
-	if err := validateExpose(req.Expose, len(tmpl.Ports) > 0); err != nil {
+	// Ports: imported eggs declare none (Pterodactyl allocates per server), so the
+	// request may supply them; otherwise use the template's.
+	ports := tmpl.Ports
+	if len(req.Ports) > 0 {
+		var perr error
+		ports, perr = sanitizePorts(req.Ports)
+		if perr != nil {
+			writeError(w, http.StatusBadRequest, perr.Error())
+			return
+		}
+	}
+
+	if err := validateExpose(req.Expose, len(ports) > 0); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -353,7 +368,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		SecretEnvEnc:      sealed,
 		InstallGeneration: 1,
 		Storage:           storage,
-		Ports:             tmpl.Ports,
+		Ports:             ports,
 		Expose:            req.Expose,
 		Hibernation:       req.Hibernation,
 		EULAAccepted:      req.EULAAccepted,
@@ -367,17 +382,17 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	// NodePort exposure draws stable ports from the control-plane pool, which
 	// needs the server's ID, so allocate after the row exists.
 	if req.Expose.ServiceType() == models.ExposeNodePort {
-		ports, err := s.allocateNodePorts(srv.ID, tmpl.Ports)
+		allocated, err := s.allocateNodePorts(srv.ID, srv.Ports)
 		if err != nil {
 			_ = s.Store.DeleteServer(srv.ID) // avoid a half-configured record
 			writeError(w, http.StatusConflict, err.Error())
 			return
 		}
-		if err := s.Store.UpdateServerNetworking(srv.ID, req.Expose, ports); err != nil {
+		if err := s.Store.UpdateServerNetworking(srv.ID, req.Expose, allocated); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		srv.Ports = ports
+		srv.Ports = allocated
 	}
 	s.audit(r, srv.ID, "server.create", srv.Slug)
 	writeJSON(w, http.StatusCreated, srv)
@@ -865,6 +880,49 @@ func validateExpose(e models.Expose, hasPorts bool) error {
 		return errors.New("cannot publish a server that declares no ports")
 	}
 	return nil
+}
+
+// sanitizePorts validates and normalizes user-supplied per-server ports (used by
+// servers created from eggs, which declare none): valid port range, TCP/UDP
+// protocol (default TCP), a generated name when blank, and exactly one primary
+// (the first when none is marked). The NodePort field is ignored — it is
+// allocated server-side from the pool.
+func sanitizePorts(in []models.PortSpec) ([]models.PortSpec, error) {
+	out := make([]models.PortSpec, 0, len(in))
+	primaries := 0
+	seen := map[string]bool{}
+	for _, p := range in {
+		if p.Port < 1 || p.Port > 65535 {
+			return nil, fmt.Errorf("invalid port %d (want 1-65535)", p.Port)
+		}
+		proto := strings.ToUpper(strings.TrimSpace(p.Protocol))
+		if proto == "" {
+			proto = "TCP"
+		}
+		if proto != "TCP" && proto != "UDP" {
+			return nil, fmt.Errorf("invalid protocol %q (want TCP or UDP)", p.Protocol)
+		}
+		key := fmt.Sprintf("%d/%s", p.Port, proto)
+		if seen[key] {
+			return nil, fmt.Errorf("duplicate port %s", key)
+		}
+		seen[key] = true
+		name := strings.TrimSpace(p.Name)
+		if name == "" {
+			name = fmt.Sprintf("p%d", p.Port)
+		}
+		if p.Primary {
+			primaries++
+		}
+		out = append(out, models.PortSpec{Name: name, Port: p.Port, Protocol: proto, Primary: p.Primary})
+	}
+	if primaries > 1 {
+		return nil, errors.New("only one port can be primary")
+	}
+	if primaries == 0 && len(out) > 0 {
+		out[0].Primary = true
+	}
+	return out, nil
 }
 
 func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {

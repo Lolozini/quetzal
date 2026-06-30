@@ -330,6 +330,29 @@ func TestEULARendering(t *testing.T) {
 	}
 }
 
+func TestPodSecurityContextDefaultsNonRoot(t *testing.T) {
+	_, tmpl := testServerAndTemplate()
+	// A template with a declared user keeps it (built-in templates).
+	declared := int64(1000)
+	tmpl.SecurityContext = models.SecurityContext{RunAsUser: &declared}
+	if sc := buildPodSecurityContext(tmpl); sc.RunAsUser == nil || *sc.RunAsUser != 1000 {
+		t.Errorf("declared runAsUser should be kept, got %+v", sc.RunAsUser)
+	}
+	// An imported egg declares no securityContext -> default to non-root 988 with
+	// fsGroup so the volume is writable (it must not run as root).
+	tmpl.SecurityContext = models.SecurityContext{}
+	sc := buildPodSecurityContext(tmpl)
+	if sc.RunAsUser == nil || *sc.RunAsUser != defaultEggUID {
+		t.Errorf("default runAsUser = %v, want %d", sc.RunAsUser, defaultEggUID)
+	}
+	if sc.FSGroup == nil || *sc.FSGroup != defaultEggUID {
+		t.Errorf("default fsGroup = %v, want %d", sc.FSGroup, defaultEggUID)
+	}
+	if sc.RunAsNonRoot == nil || !*sc.RunAsNonRoot {
+		t.Error("default must set runAsNonRoot")
+	}
+}
+
 func TestBuildDeploymentWorkingDir(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
 	tmpl.DataPath = "/data"
