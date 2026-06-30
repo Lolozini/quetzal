@@ -158,6 +158,10 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 		// file rendering + sanitization, per the plan) lands in a later phase.
 		// When empty (e.g. itzg images), the image entrypoint is used as-is.
 		Command: startupCommand(t),
+		// Run in the data directory: egg startup commands use paths relative to it
+		// (e.g. `java -jar server.jar`), matching how Pterodactyl runs from the
+		// server's working dir. Harmless for entrypoint-driven images (itzg /data).
+		WorkingDir: dataPath,
 		// stdin must stay open so the console can attach to send commands.
 		Stdin:     true,
 		TTY:       false,

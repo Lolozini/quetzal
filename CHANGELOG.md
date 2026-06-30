@@ -29,11 +29,13 @@ releases may include breaking changes).
 
 ### Fixed
 
-- Imported eggs install correctly: their install script now (a) runs under a
-  POSIX shell even when the egg export uses Windows (CRLF) line endings, and
-  (b) receives the server's variables in its environment (e.g.
+- Imported eggs install and run correctly: their install script now (a) runs
+  under a POSIX shell even when the egg export uses Windows (CRLF) line endings,
+  and (b) receives the server's variables in its environment (e.g.
   `${SERVER_JARFILE}`, `${MINECRAFT_VERSION}`), as Pterodactyl runs it — without
-  them an egg's installer downloaded nothing and the pod crash-looped.
+  them an egg's installer downloaded nothing. And (c) the game container now runs
+  in the data directory, so egg startup commands using relative paths (e.g.
+  `java -jar server.jar`) find their files.
 - Multi-node co-location for the ReadWriteOnce data volume: the data-manager now
   has a preferred affinity back to the game pod (so a data-manager-only reschedule
   returns to the volume's node), and backup Jobs co-locate with the data-manager

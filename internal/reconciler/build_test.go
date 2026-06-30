@@ -294,6 +294,17 @@ func TestBuildNetworkPolicyAllowsSFTPPort(t *testing.T) {
 	}
 }
 
+func TestBuildDeploymentWorkingDir(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	tmpl.DataPath = "/data"
+	c := BuildDeployment(s, tmpl, "", nil).Spec.Template.Spec.Containers[0]
+	// Egg startup commands use paths relative to the data dir (e.g. `-jar
+	// server.jar`), so the game container must run there.
+	if c.WorkingDir != "/data" {
+		t.Errorf("game container WorkingDir = %q, want /data", c.WorkingDir)
+	}
+}
+
 func TestBuildInstallScriptStripsCRLF(t *testing.T) {
 	// A template stored with CRLF (imported before normalization) must still run:
 	// the builder strips \r so POSIX shells don't choke on `then\r`.
