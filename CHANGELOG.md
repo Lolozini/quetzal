@@ -41,6 +41,26 @@ releases may include breaking changes).
 
 ### Fixed
 
+- Imported eggs that size the JVM from `{{SERVER_MEMORY}}` (and friends) now
+  start: Quetzal injects the **Wings-provided globals** that eggs assume but
+  never declare as variables — `SERVER_MEMORY` (the memory limit in MiB),
+  `SERVER_PORT` (the primary allocation) and `SERVER_IP` (`0.0.0.0`) — into the
+  game, install and config-render containers. Previously `-Xmx{{SERVER_MEMORY}}M`
+  expanded to `-Xmx M` and the JVM refused to start (affected ~25 of the official
+  Minecraft eggs, e.g. Fabric, Spigot, Forge, the Technic packs and every proxy;
+  Paper/Purpur were spared as they use `-XX:MaxRAMPercentage`).
+- Imported egg **install scripts that need root** now run. About half the
+  official Minecraft eggs `apt-get`/`apk add` build dependencies in their
+  installer image (eclipse-temurin, ghcr.io/ptero-eggs/installers), which the
+  non-root runtime user can't do, so the install failed and no server jar was
+  produced. The install init container now runs as root (overriding the pod's
+  non-root default) and then chowns the data volume to the runtime user — the
+  Wings model — which also makes the data readable by the non-root game pod on
+  local-path (where `fsGroup` is a no-op).
+- Signal-based stop commands are honoured. Pterodactyl encodes some stops as a
+  caret token (`^C` = SIGINT, used by a few proxies/limbos); Quetzal no longer
+  writes the literal `^C` to the console (a no-op) but stops the server via pod
+  termination (SIGTERM + grace), which those servers handle as a clean shutdown.
 - Imported eggs no longer run as **root**: a template that declares no
   securityContext (eggs don't) now defaults to a non-root uid (988, the
   yolks/Pterodactyl "container" user) with a matching fsGroup so the data volume

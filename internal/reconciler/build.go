@@ -165,7 +165,7 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 		// stdin must stay open so the console can attach to send commands.
 		Stdin:     true,
 		TTY:       false,
-		Env:       buildEnv(s.Env, secretKeys),
+		Env:       gameEnv(s, t, secretKeys),
 		Ports:     buildContainerPorts(serverPorts(s, t)),
 		Resources: buildResources(s.Resources),
 		VolumeMounts: []corev1.VolumeMount{
@@ -704,6 +704,50 @@ func buildEnv(env map[string]string, secretKeys []string) []corev1.EnvVar {
 	return out
 }
 
+// gameEnv builds the full environment for a server's game, install and
+// config-render containers: the resolved template variables (including secret
+// values via secretKeyRef) plus the Wings-injected globals that imported eggs
+// assume but never declare as variables.
+func gameEnv(s *models.Server, t *models.Template, secretKeys []string) []corev1.EnvVar {
+	return append(buildEnv(s.Env, secretKeys), wingsEnv(s, t)...)
+}
+
+// wingsEnv synthesizes the globals Pterodactyl's Wings daemon injects into every
+// server and which imported egg startup/install scripts rely on, but which are
+// NOT egg variables (no egg declares them, so resolveEnv never produces them):
+//   - SERVER_MEMORY: the memory limit in MiB. Egg startups do `-Xmx{{SERVER_MEMORY}}M`;
+//     without it the command expands to `-Xmx M` and the JVM refuses to start.
+//   - SERVER_PORT:   the primary allocation port.
+//   - SERVER_IP:     the bind address (always 0.0.0.0 here; one Service per server).
+//
+// SERVER_MEMORY is omitted when the server has no memory limit (unlimited): there
+// is no meaningful value, and an egg that needs it should be given a limit.
+func wingsEnv(s *models.Server, t *models.Template) []corev1.EnvVar {
+	var out []corev1.EnvVar
+	if mib, ok := serverMemoryMiB(s.Resources.Memory); ok {
+		out = append(out, corev1.EnvVar{Name: "SERVER_MEMORY", Value: strconv.FormatInt(mib, 10)})
+	}
+	if p := primaryPort(s, t); p > 0 {
+		out = append(out, corev1.EnvVar{Name: "SERVER_PORT", Value: strconv.Itoa(int(p))})
+	}
+	out = append(out, corev1.EnvVar{Name: "SERVER_IP", Value: "0.0.0.0"})
+	return out
+}
+
+// serverMemoryMiB parses a Kubernetes memory quantity (e.g. "4Gi", "512Mi") into
+// whole mebibytes, the unit Pterodactyl's SERVER_MEMORY uses. Returns false when
+// no limit is set (unlimited) or the value can't be parsed.
+func serverMemoryMiB(mem string) (int64, bool) {
+	if mem == "" {
+		return 0, false
+	}
+	q, err := resource.ParseQuantity(mem)
+	if err != nil {
+		return 0, false
+	}
+	return q.Value() / (1024 * 1024), true
+}
+
 func buildContainerPorts(ports []models.PortSpec) []corev1.ContainerPort {
 	var out []corev1.ContainerPort
 	for _, p := range ports {
@@ -824,7 +868,7 @@ func configRenderInitContainers(s *models.Server, t *models.Template, systemImag
 	specs = append(specs, eulaSpec(s, t)...)
 	blob, _ := json.Marshal(specs)
 
-	renderEnv := append(buildEnv(s.Env, secretKeys),
+	renderEnv := append(gameEnv(s, t, secretKeys),
 		corev1.EnvVar{Name: "QUETZAL_DATA_PATH", Value: dataPath},
 		corev1.EnvVar{Name: "QUETZAL_CONFIG_FILES", Value: string(blob)},
 	)
@@ -1060,17 +1104,34 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 		entrypoint = "sh"
 	}
 	wrapped := buildInstallScript(installMountPath, t.Install.Script)
+	// Egg install scripts run as root under Wings: their installer images
+	// (eclipse-temurin, ghcr.io/ptero-eggs/installers) `apt-get`/`apk add` build
+	// dependencies, which non-root can't do. So run install as root, then hand the
+	// populated volume to the runtime user by chowning it — the Wings model. The
+	// chown is appended after buildInstallScript's marker write, so it runs only on
+	// an actual install (the skip paths `exit 0` before reaching it), not on every
+	// start. On local-path (where fsGroup is a no-op) this is what actually makes
+	// the data readable by the non-root runtime.
+	runUID := int64(defaultEggUID)
+	if t.SecurityContext.RunAsUser != nil {
+		runUID = *t.SecurityContext.RunAsUser
+	}
+	wrapped += fmt.Sprintf("\nchown -R %d:%d %q 2>/dev/null || true\n", runUID, runUID, installMountPath)
+
 	wipe := "0"
 	if s.InstallWipe {
 		wipe = "1"
 	}
 	// The egg install script reads the server's variables (e.g. ${SERVER_JARFILE},
-	// ${MINECRAFT_VERSION}) just like Pterodactyl runs it with the egg variables in
-	// env. Pass the full resolved env (incl. secretKeyRef) plus the install markers.
-	env := append(buildEnv(s.Env, secretKeys),
+	// ${MINECRAFT_VERSION}) and the Wings globals (${SERVER_MEMORY}, ${SERVER_PORT})
+	// just like Pterodactyl runs it. Pass the full resolved env plus install markers.
+	env := append(gameEnv(s, t, secretKeys),
 		corev1.EnvVar{Name: "QUETZAL_INSTALL_GEN", Value: strconv.Itoa(s.InstallGeneration)},
 		corev1.EnvVar{Name: "QUETZAL_INSTALL_WIPE", Value: wipe},
 	)
+	rootUID := int64(0)
+	no := false
+	yes := true
 	return []corev1.Container{{
 		Name:            "install",
 		Image:           image,
@@ -1078,6 +1139,15 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 		Command:         []string{entrypoint, "-c", wrapped},
 		Env:             env,
 		VolumeMounts:    []corev1.VolumeMount{{Name: dataVolume, MountPath: installMountPath}},
+		// Run as root even though the pod defaults to non-root: the container-level
+		// settings override the pod's runAsNonRoot so apt/apk and writes to
+		// root-owned paths in the installer image succeed. Caps are left at the
+		// image default (dpkg postinst needs CHOWN/DAC_OVERRIDE/SETUID).
+		SecurityContext: &corev1.SecurityContext{
+			RunAsUser:                &rootUID,
+			RunAsNonRoot:             &no,
+			AllowPrivilegeEscalation: &yes,
+		},
 	}}
 }
 
