@@ -1837,6 +1837,7 @@ components:
         sftp:
           type: object
           properties: { enabled: { type: boolean } }
+        eulaAccepted: { type: boolean, description: "Minecraft EULA acceptance (templates with the \"eula\" egg feature)" }
         clusterId: { type: integer }
         transfer:
           $ref: "#/components/schemas/TransferState"

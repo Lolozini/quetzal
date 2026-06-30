@@ -81,3 +81,11 @@ func (s *Store) UpdateServerSFTP(id uint, cfg models.SFTPConfig) error {
 	return s.db.Model(&models.Server{ID: id}).Select("sftp").
 		Updates(models.Server{SFTP: cfg}).Error
 }
+
+// UpdateServerEULA persists a server's Minecraft EULA acceptance. The column is
+// selected explicitly so a false value is written (GORM skips zero-value struct
+// fields otherwise).
+func (s *Store) UpdateServerEULA(id uint, accepted bool) error {
+	return s.db.Model(&models.Server{ID: id}).Select("eula_accepted").
+		Updates(models.Server{EULAAccepted: accepted}).Error
+}

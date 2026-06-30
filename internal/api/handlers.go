@@ -224,6 +224,9 @@ type createServerRequest struct {
 	Hibernation models.Hibernation `json:"hibernation"`
 	Cluster     string             `json:"cluster"` // target cluster slug ("" = local)
 	Start       bool               `json:"start"`
+	// EULAAccepted accepts the Minecraft EULA for templates with the "eula" egg
+	// feature (ignored for templates that don't declare it).
+	EULAAccepted bool `json:"eulaAccepted"`
 }
 
 func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
@@ -353,6 +356,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		Ports:             tmpl.Ports,
 		Expose:            req.Expose,
 		Hibernation:       req.Hibernation,
+		EULAAccepted:      req.EULAAccepted,
 		Status:            models.Status{Phase: models.PhaseStopped},
 	}
 	if err := s.Store.CreateServer(srv); err != nil {
@@ -689,6 +693,9 @@ type updateServerRequest struct {
 	Hibernation *models.Hibernation `json:"hibernation"`
 	// SFTP, when present, toggles the SFTP sidecar.
 	SFTP *models.SFTPConfig `json:"sftp"`
+	// EULAAccepted, when present, sets Minecraft EULA acceptance (templates with
+	// the "eula" egg feature). Applied on the next reconcile.
+	EULAAccepted *bool `json:"eulaAccepted"`
 	// Env, when present, edits the server's startup variables (validated against
 	// the template's variable contract). Secret variables left blank are kept.
 	Env *map[string]string `json:"env"`
@@ -732,6 +739,14 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		}
 		srv.SFTP = *req.SFTP
 		s.audit(r, srv.ID, "server.sftp", strconv.FormatBool(req.SFTP.Enabled))
+	}
+	if req.EULAAccepted != nil {
+		if err := s.Store.UpdateServerEULA(srv.ID, *req.EULAAccepted); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		srv.EULAAccepted = *req.EULAAccepted
+		s.audit(r, srv.ID, "server.eula", strconv.FormatBool(*req.EULAAccepted))
 	}
 	if req.Env != nil {
 		if err := s.updateServerEnv(r, srv, *req.Env); err != nil {

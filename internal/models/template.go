@@ -70,6 +70,17 @@ type Template struct {
 	SecurityContext SecurityContext `gorm:"serializer:json" json:"securityContext"`
 }
 
+// HasFeature reports whether the template declares the given egg feature flag
+// (e.g. "eula").
+func (t *Template) HasFeature(name string) bool {
+	for _, f := range t.Features {
+		if f == name {
+			return true
+		}
+	}
+	return false
+}
+
 // TemplateImage is one selectable container image for a template.
 type TemplateImage struct {
 	DisplayName string `json:"displayName"`

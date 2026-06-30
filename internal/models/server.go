@@ -183,6 +183,13 @@ type Server struct {
 	// SFTP, when enabled, adds a key-only SFTP sidecar exposing the data volume.
 	SFTP SFTPConfig `gorm:"serializer:json" json:"sftp"`
 
+	// EULAAccepted records the user's acceptance of the Minecraft EULA for
+	// templates that declare the "eula" egg feature. When true, the controller
+	// renders eula.txt=true into the data volume at startup; when false it writes
+	// nothing, so the server stops asking for acceptance (matching Pterodactyl's
+	// eula feature, where the daemon writes the file once the user accepts).
+	EULAAccepted bool `json:"eulaAccepted"`
+
 	// InstallGeneration drives reinstall: the install init container writes it to
 	// the install marker and re-runs the install script whenever the marker's
 	// generation differs (so bumping it triggers a reinstall on the next start).

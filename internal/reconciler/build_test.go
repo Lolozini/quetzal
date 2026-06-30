@@ -294,6 +294,42 @@ func TestBuildNetworkPolicyAllowsSFTPPort(t *testing.T) {
 	}
 }
 
+func TestEULARendering(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	tmpl.ConfigFiles = nil // isolate: only the eula feature can trigger a render
+
+	// No eula feature -> no eula spec, no config render.
+	if len(eulaSpec(s, tmpl)) != 0 || needsConfigRender(s, tmpl) {
+		t.Error("no eula feature -> nothing to render")
+	}
+
+	tmpl.Features = []string{"eula"}
+	// Feature present but not accepted -> still nothing (server keeps asking).
+	if len(eulaSpec(s, tmpl)) != 0 || needsConfigRender(s, tmpl) {
+		t.Error("eula not accepted -> nothing rendered")
+	}
+
+	// Accepted -> render eula.txt=true and the render init runs (even with no
+	// config.files) when a system image is configured.
+	s.EULAAccepted = true
+	spec := eulaSpec(s, tmpl)
+	if len(spec) != 1 || spec[0].Path != "eula.txt" || spec[0].Find["eula"] != "true" {
+		t.Fatalf("eulaSpec = %+v, want eula.txt eula=true", spec)
+	}
+	if !needsConfigRender(s, tmpl) {
+		t.Error("accepted eula should require a config render")
+	}
+	var hasRender bool
+	for _, ic := range BuildDeployment(s, tmpl, "quetzal:test", nil).Spec.Template.Spec.InitContainers {
+		if ic.Name == "render-config" {
+			hasRender = true
+		}
+	}
+	if !hasRender {
+		t.Error("accepted eula + system image should add the config-render init container")
+	}
+}
+
 func TestBuildDeploymentWorkingDir(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
 	tmpl.DataPath = "/data"
