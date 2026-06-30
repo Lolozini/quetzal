@@ -1,6 +1,31 @@
 package egg
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+// TestToTemplateNormalizesCRLF guards against Pterodactyl panel egg exports that
+// carry Windows line endings: a stray \r breaks POSIX shells when the install
+// script runs (e.g. `then\r` is not the `then` keyword).
+func TestToTemplateNormalizesCRLF(t *testing.T) {
+	crlf := "{\n" +
+		`  "name": "CRLF Egg",` + "\n" +
+		`  "docker_images": { "x": "img:tag" },` + "\n" +
+		`  "startup": "run\r\n--flag",` + "\n" +
+		`  "scripts": { "installation": { "script": "#!/bin/ash\r\nif [ -n \"$X\" ]; then\r\n echo hi\r\nfi\r\n", "container": "alpine", "entrypoint": "ash" } }` + "\n" +
+		"}"
+	tmpl, err := ToTemplate([]byte(crlf))
+	if err != nil {
+		t.Fatalf("ToTemplate: %v", err)
+	}
+	if strings.Contains(tmpl.Install.Script, "\r") {
+		t.Errorf("install script still contains CR: %q", tmpl.Install.Script)
+	}
+	if strings.Contains(tmpl.Startup, "\r") {
+		t.Errorf("startup still contains CR: %q", tmpl.Startup)
+	}
+}
 
 const sampleEgg = `{
   "name": "Paper Test",

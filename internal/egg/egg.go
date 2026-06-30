@@ -72,7 +72,7 @@ func ToTemplate(data []byte) (*models.Template, error) {
 		Name:         e.Name,
 		Author:       e.Author,
 		Description:  e.Description,
-		Startup:      e.Startup,
+		Startup:      normalizeNewlines(e.Startup),
 		Features:     e.Features,
 		FileDenylist: e.FileDenylist,
 		DataPath:     "/data",
@@ -142,7 +142,7 @@ func ToTemplate(data []byte) (*models.Template, error) {
 		t.Install = &models.InstallScript{
 			Image:      e.Scripts.Installation.Container,
 			Entrypoint: e.Scripts.Installation.Entrypoint,
-			Script:     e.Scripts.Installation.Script,
+			Script:     normalizeNewlines(e.Scripts.Installation.Script),
 		}
 	}
 
@@ -204,6 +204,14 @@ func decodeMaybeString(raw json.RawMessage, v any) error {
 var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
 
 // Slugify converts a name into a DNS-friendly slug.
+// normalizeNewlines converts Windows/old-Mac line endings to '\n'. Pterodactyl
+// panel egg exports frequently carry CRLF, which breaks POSIX shells when the
+// startup/install script is run (a stray '\r' makes `then\r` not a keyword).
+func normalizeNewlines(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return strings.ReplaceAll(s, "\r", "\n")
+}
+
 func Slugify(s string) string {
 	s = strings.ToLower(s)
 	s = nonSlug.ReplaceAllString(s, "-")

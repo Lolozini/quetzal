@@ -280,6 +280,15 @@ func TestBuildNetworkPolicyAllowsSFTPPort(t *testing.T) {
 	}
 }
 
+func TestBuildInstallScriptStripsCRLF(t *testing.T) {
+	// A template stored with CRLF (imported before normalization) must still run:
+	// the builder strips \r so POSIX shells don't choke on `then\r`.
+	out := buildInstallScript("/mnt/server", "if [ -n \"$X\" ]; then\r\n echo hi\r\nfi\r\n")
+	if strings.Contains(out, "\r") {
+		t.Errorf("wrapped install script still contains CR: %q", out)
+	}
+}
+
 func TestBuildActivatorRunsAsNumericNonroot(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
 	dep := BuildActivatorDeployment(s, tmpl, ActivatorParams{Image: "quetzal:test", WakeURL: "http://x/wake", Token: "tok"})
