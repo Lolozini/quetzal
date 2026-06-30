@@ -183,6 +183,13 @@ func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Suggest ports from port-like variables for templates that declare none, so
+	// the create form can pre-fill the per-server ports editor.
+	for i := range ts {
+		if len(ts[i].Ports) == 0 {
+			ts[i].SuggestedPorts = models.DetectPorts(ts[i].Variables)
+		}
+	}
 	writeJSON(w, http.StatusOK, ts)
 }
 

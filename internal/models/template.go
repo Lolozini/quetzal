@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"strconv"
+	"strings"
+	"time"
+)
 
 // ConsoleType describes how the control plane sends commands to a server.
 type ConsoleType string
@@ -65,6 +69,10 @@ type Template struct {
 	DataPath string `gorm:"default:/data" json:"dataPath"`
 	// Ports declared by this game (game + query + voice, etc.).
 	Ports []PortSpec `gorm:"serializer:json" json:"ports,omitempty"`
+	// SuggestedPorts is a computed (not persisted) hint for the create form: ports
+	// inferred from the template's port-like variables when the template declares
+	// none (imported eggs allocate ports per server). See DetectPorts.
+	SuggestedPorts []PortSpec `gorm:"-" json:"suggestedPorts,omitempty"`
 
 	// SecurityContext defaults for the workload (overridable per server).
 	SecurityContext SecurityContext `gorm:"serializer:json" json:"securityContext"`
@@ -79,6 +87,63 @@ func (t *Template) HasFeature(name string) bool {
 		}
 	}
 	return false
+}
+
+// DetectPorts infers per-server ports from a template's port-like variables.
+// Imported eggs declare no ports (Pterodactyl allocates them per server) but
+// expose extra ports as variables (QUERY_PORT, RCON_PORT, STEAM_PORT…). A
+// variable whose name ends in PORT and whose default is a valid port number is
+// surfaced as a suggestion to pre-fill the create form's ports editor. The first
+// match is flagged primary as a default — the main game port is usually the
+// allocation, not a variable, so the user confirms which is primary. A blank/0/
+// non-numeric default means the port is unset or disabled, and is skipped.
+// Returns nil when nothing matches (the editor stays manual).
+func DetectPorts(vars []TemplateVariable) []PortSpec {
+	var out []PortSpec
+	seen := map[int32]bool{}
+	for _, v := range vars {
+		name := strings.ToUpper(v.EnvVariable)
+		// Wings globals Quetzal sets itself are not user-allocatable ports.
+		if name == "SERVER_PORT" || name == "SERVER_IP" || name == "SERVER_MEMORY" {
+			continue
+		}
+		if name != "PORT" && !strings.HasSuffix(name, "PORT") {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(v.Default))
+		if err != nil || n < 1 || n > 65535 {
+			continue
+		}
+		p := int32(n)
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, PortSpec{
+			Name:     portVarName(v.EnvVariable),
+			Port:     p,
+			Protocol: "TCP",
+			Primary:  len(out) == 0,
+		})
+	}
+	return out
+}
+
+// portVarName derives a short, DNS-friendly Service port name from a port
+// variable's env name (QUERY_PORT -> "query", STEAM_PORT -> "steam").
+func portVarName(env string) string {
+	n := strings.ToLower(env)
+	n = strings.TrimSuffix(n, "_port")
+	n = strings.TrimSuffix(n, "port")
+	n = strings.Trim(n, "_-")
+	n = strings.ReplaceAll(n, "_", "-")
+	if n == "" {
+		n = "game"
+	}
+	if len(n) > 15 {
+		n = n[:15]
+	}
+	return n
 }
 
 // TemplateImage is one selectable container image for a template.

@@ -29,6 +29,8 @@ export function CreateServer({
   const [customPorts, setCustomPorts] = useState<{ port: string; protocol: string }[]>([
     { port: "25565", protocol: "TCP" },
   ]);
+  // Which custom-ports row is the primary (the port players connect to).
+  const [primaryIdx, setPrimaryIdx] = useState(0);
   const [start, setStart] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -45,8 +47,22 @@ export function CreateServer({
       if (v.editable && v.default) e[v.envVariable] = v.default;
     });
     setEnv(e);
+    // Pre-fill the ports editor: templates that declare no ports (imported eggs)
+    // expose extra ports as variables (QUERY_PORT, RCON_PORT…). Seed those so the
+    // user starts from the egg's ports instead of a blank row.
+    const sugg = t.ports?.length ? [] : t.suggestedPorts ?? [];
+    if (sugg.length > 0) {
+      setCustomPorts(sugg.map((p) => ({ port: String(p.port), protocol: (p.protocol || "TCP").toUpperCase() })));
+      const pi = sugg.findIndex((p) => p.primary);
+      setPrimaryIdx(pi >= 0 ? pi : 0);
+    } else {
+      setCustomPorts([{ port: "25565", protocol: "TCP" }]);
+      setPrimaryIdx(0);
+    }
     // UDP servers can only auto-sleep via the transparent proxy, so default it on.
-    setProxy((t.ports ?? []).some((p) => p.protocol.toUpperCase() === "UDP"));
+    setProxy(
+      [...(t.ports ?? []), ...sugg].some((p) => p.protocol.toUpperCase() === "UDP"),
+    );
   }
 
   useEffect(() => {
@@ -91,7 +107,7 @@ export function CreateServer({
         eulaAccepted: tpl?.features?.includes("eula") ? eulaAccepted : undefined,
         ports:
           usingCustomPorts && effPorts.length > 0
-            ? effPorts.map((p, i) => ({ port: p.port, protocol: p.protocol, primary: i === 0 }))
+            ? effPorts.map((p) => ({ port: p.port, protocol: p.protocol, primary: p.primary }))
             : undefined,
       };
       await api.createServer(body);
@@ -109,8 +125,11 @@ export function CreateServer({
   const tplPorts = tpl?.ports ?? [];
   const usingCustomPorts = tplPorts.length === 0;
   const effPorts = usingCustomPorts
-    ? customPorts.filter((p) => p.port.trim() !== "").map((p) => ({ port: Number(p.port), protocol: p.protocol }))
-    : tplPorts.map((p) => ({ port: p.port, protocol: p.protocol }));
+    ? customPorts
+        .map((p, i) => ({ port: Number(p.port), protocol: p.protocol, primary: i === primaryIdx, blank: p.port.trim() === "" }))
+        .filter((p) => !p.blank)
+        .map(({ blank, ...p }) => p)
+    : tplPorts.map((p, i) => ({ port: p.port, protocol: p.protocol, primary: i === 0 }));
   const hasPorts = effPorts.length > 0;
   // Hibernation needs reliable idle detection, which today only works for TCP
   // (UDP players are invisible to the connection probe). Hide the toggle for any
@@ -187,7 +206,7 @@ export function CreateServer({
           <>
             <label>{t("Ports")}</label>
             <div className="muted" style={{ fontSize: 12 }}>
-              {t("This template declares no ports; define them here (the first is the primary).")}
+              {t("This template declares no ports; define them here and pick the primary (the port players connect to).")}
             </div>
             {customPorts.map((p, i) => (
               <div className="row" key={i} style={{ gap: 6, marginTop: 4, alignItems: "center" }}>
@@ -212,10 +231,23 @@ export function CreateServer({
                   <option value="TCP">TCP</option>
                   <option value="UDP">UDP</option>
                 </select>
-                {i === 0 ? (
-                  <span className="muted" style={{ fontSize: 12 }}>{t("primary")}</span>
-                ) : (
-                  <button type="button" onClick={() => setCustomPorts(customPorts.filter((_, j) => j !== i))}>
+                <label className="muted" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                  <input
+                    type="radio"
+                    name="primaryPort"
+                    checked={i === primaryIdx}
+                    onChange={() => setPrimaryIdx(i)}
+                  />
+                  {t("primary")}
+                </label>
+                {customPorts.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomPorts(customPorts.filter((_, j) => j !== i));
+                      setPrimaryIdx((cur) => (i === cur ? 0 : cur > i ? cur - 1 : cur));
+                    }}
+                  >
                     {t("Remove")}
                   </button>
                 )}

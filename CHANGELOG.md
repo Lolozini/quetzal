@@ -9,6 +9,13 @@ releases may include breaking changes).
 
 ### Added
 
+- **Port suggestions for imported eggs**: the create form now pre-fills the
+  per-server ports editor from the template's port-like variables (`QUERY_PORT`,
+  `RCON_PORT`, `STEAM_PORT`…, detected by name + a valid numeric default), so a
+  server imported from a Pterodactyl egg starts with its extra ports already
+  filled in instead of a blank row. The editor gained a per-row "primary"
+  selector to pick the port players connect to (the main game port is usually the
+  allocation, not a variable). Exposed as `Template.suggestedPorts` in the API.
 - **Per-server ports** can be defined at creation for templates that declare none
   (imported Pterodactyl eggs allocate ports per server, not in the egg): a small
   ports editor (number + TCP/UDP, first is primary), and the network-exposure

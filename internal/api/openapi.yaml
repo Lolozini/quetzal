@@ -1947,6 +1947,13 @@ components:
         ports:
           type: array
           items: { $ref: "#/components/schemas/Port" }
+        suggestedPorts:
+          type: array
+          description: >-
+            Computed (not persisted) port suggestions inferred from the
+            template's port-like variables, returned only when the template
+            declares no ports. Used to pre-fill the create form's ports editor.
+          items: { $ref: "#/components/schemas/Port" }
     ScheduleTask:
       type: object
       required: [action]

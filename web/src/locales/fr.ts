@@ -226,6 +226,11 @@ export const fr: Record<string, string> = {
   Test: "Tester",
   Hide: "Masquer",
   Remove: "Supprimer",
+  Ports: "Ports",
+  primary: "principal",
+  "Add port": "Ajouter un port",
+  "This template declares no ports; define them here and pick the primary (the port players connect to).":
+    "Ce modèle ne déclare aucun port ; définissez-les ici et choisissez le principal (celui auquel les joueurs se connectent).",
   Node: "Nœud",
   Ready: "Prêt",
   Version: "Version",
