@@ -42,13 +42,20 @@ releases may include breaking changes).
 ### Fixed
 
 - Imported eggs that size the JVM from `{{SERVER_MEMORY}}` (and friends) now
-  start: Quetzal injects the **Wings-provided globals** that eggs assume but
-  never declare as variables — `SERVER_MEMORY` (the memory limit in MiB),
-  `SERVER_PORT` (the primary allocation) and `SERVER_IP` (`0.0.0.0`) — into the
-  game, install and config-render containers. Previously `-Xmx{{SERVER_MEMORY}}M`
+  start: Quetzal injects the full set of **Wings-provided globals** that eggs
+  assume but never declare as variables, matching Wings' contract — `SERVER_MEMORY`
+  (the memory limit in MiB), `SERVER_PORT` (the primary allocation), `SERVER_IP`
+  (`0.0.0.0`), `TZ` (UTC) and `STARTUP` (the resolved invocation) — into the game,
+  install and config-render containers. Previously `-Xmx{{SERVER_MEMORY}}M`
   expanded to `-Xmx M` and the JVM refused to start (affected ~25 of the official
   Minecraft eggs, e.g. Fabric, Spigot, Forge, the Technic packs and every proxy;
   Paper/Purpur were spared as they use `-XX:MaxRAMPercentage`).
+- `config.files` placeholders now resolve `{{config.docker.interface}}` to the
+  bind-all address (`0.0.0.0`), like `{{server.build.default.ip}}`. Wings
+  substitutes its Docker bridge IP there; in Kubernetes each server has its own
+  Service, so binding to all interfaces is correct. Previously the literal
+  placeholder was written into the config and broke proxy binds (Waterfall,
+  Travertine).
 - Imported egg **install scripts that need root** now run. About half the
   official Minecraft eggs `apt-get`/`apk add` build dependencies in their
   installer image (eclipse-temurin, ghcr.io/ptero-eggs/installers), which the
