@@ -176,7 +176,7 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 	}
 
 	noAutomount := false
-	initContainers := installInitContainers(s, t)
+	initContainers := installInitContainers(s, t, secretKeys)
 	containers := []corev1.Container{container}
 	volumes := []corev1.Volume{buildDataVolume(s)}
 
@@ -237,6 +237,27 @@ func dataPodAffinity(s *models.Server) *corev1.Affinity {
 			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
 				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{DataLabel: s.Slug}},
 				TopologyKey:   "kubernetes.io/hostname",
+			}},
+		},
+	}
+}
+
+// preferGamePodNode is the data-manager's soft co-location with the game pod.
+// The data-manager is the durable anchor, so this is preferred (not required): a
+// cold start (no game pod yet) still schedules, while a data-manager recreated
+// on its own — e.g. after an SFTP toggle, which rolls only the data-manager — is
+// pulled back to the node where the game pod already holds the ReadWriteOnce
+// volume, instead of stranding on another node. (A required reverse affinity
+// would deadlock against the game pod's required forward affinity.)
+func preferGamePodNode(s *models.Server) *corev1.Affinity {
+	return &corev1.Affinity{
+		PodAffinity: &corev1.PodAffinity{
+			PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{{
+				Weight: 100,
+				PodAffinityTerm: corev1.PodAffinityTerm{
+					LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{serverLabel: s.Slug}},
+					TopologyKey:   "kubernetes.io/hostname",
+				},
 			}},
 		},
 	}
@@ -318,6 +339,7 @@ func BuildDataDeployment(s *models.Server, t *models.Template, systemImage strin
 					AutomountServiceAccountToken:  &no,
 					SecurityContext:               buildPodSecurityContext(t),
 					NodeSelector:                  s.NodeSelector,
+					Affinity:                      preferGamePodNode(s),
 					TerminationGracePeriodSeconds: &grace,
 					Volumes:                       volumes,
 				},
@@ -988,7 +1010,7 @@ printf '%%s' "$QUETZAL_INSTALL_GEN" > "$marker"
 `, mount, userScript)
 }
 
-func installInitContainers(s *models.Server, t *models.Template) []corev1.Container {
+func installInitContainers(s *models.Server, t *models.Template, secretKeys []string) []corev1.Container {
 	if t.Install == nil || t.Install.Script == "" {
 		return nil
 	}
@@ -1005,16 +1027,20 @@ func installInitContainers(s *models.Server, t *models.Template) []corev1.Contai
 	if s.InstallWipe {
 		wipe = "1"
 	}
+	// The egg install script reads the server's variables (e.g. ${SERVER_JARFILE},
+	// ${MINECRAFT_VERSION}) just like Pterodactyl runs it with the egg variables in
+	// env. Pass the full resolved env (incl. secretKeyRef) plus the install markers.
+	env := append(buildEnv(s.Env, secretKeys),
+		corev1.EnvVar{Name: "QUETZAL_INSTALL_GEN", Value: strconv.Itoa(s.InstallGeneration)},
+		corev1.EnvVar{Name: "QUETZAL_INSTALL_WIPE", Value: wipe},
+	)
 	return []corev1.Container{{
 		Name:            "install",
 		Image:           image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Command:         []string{entrypoint, "-c", wrapped},
-		Env: []corev1.EnvVar{
-			{Name: "QUETZAL_INSTALL_GEN", Value: strconv.Itoa(s.InstallGeneration)},
-			{Name: "QUETZAL_INSTALL_WIPE", Value: wipe},
-		},
-		VolumeMounts: []corev1.VolumeMount{{Name: dataVolume, MountPath: installMountPath}},
+		Env:             env,
+		VolumeMounts:    []corev1.VolumeMount{{Name: dataVolume, MountPath: installMountPath}},
 	}}
 }
 

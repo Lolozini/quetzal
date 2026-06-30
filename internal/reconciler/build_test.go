@@ -104,6 +104,20 @@ func TestBuildDeploymentInstallInitContainer(t *testing.T) {
 	if ic.VolumeMounts[0].MountPath != "/mnt/server" || ic.VolumeMounts[0].Name != "data" {
 		t.Errorf("install mount = %+v, want data at /mnt/server", ic.VolumeMounts[0])
 	}
+
+	// The egg install script needs the server's variables in env (e.g.
+	// ${SERVER_JARFILE}); without them an egg's installer downloads nothing.
+	s.Env = map[string]string{"SERVER_JARFILE": "server.jar"}
+	ic = BuildDeployment(s, tmpl, "", nil).Spec.Template.Spec.InitContainers[0]
+	var jar string
+	for _, e := range ic.Env {
+		if e.Name == "SERVER_JARFILE" {
+			jar = e.Value
+		}
+	}
+	if jar != "server.jar" {
+		t.Errorf("install container missing the server's variables (SERVER_JARFILE), env=%+v", ic.Env)
+	}
 }
 
 func TestBuildPVCAndService(t *testing.T) {
@@ -485,6 +499,19 @@ func TestBuildDataDeployment(t *testing.T) {
 	}
 	if dep.Spec.Selector.MatchLabels[DataLabel] != s.Slug {
 		t.Errorf("selector = %v", dep.Spec.Selector.MatchLabels)
+	}
+	// Soft (preferred) co-location back to the game pod, so a data-manager-only
+	// reschedule returns to the node holding the RWO volume (required would
+	// deadlock against the game pod's required forward affinity).
+	aff := pt.Spec.Affinity
+	if aff == nil || aff.PodAffinity == nil || len(aff.PodAffinity.PreferredDuringSchedulingIgnoredDuringExecution) == 0 {
+		t.Fatal("data-manager should prefer the game pod's node")
+	}
+	if aff.PodAffinity.PreferredDuringSchedulingIgnoredDuringExecution[0].PodAffinityTerm.LabelSelector.MatchLabels[ServerLabel] != s.Slug {
+		t.Error("data-manager preferred affinity should target the game pod (ServerLabel)")
+	}
+	if len(aff.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution) != 0 {
+		t.Error("data-manager reverse affinity must be preferred, not required (deadlock)")
 	}
 	if pt.Spec.AutomountServiceAccountToken == nil || *pt.Spec.AutomountServiceAccountToken {
 		t.Error("service account token must not be automounted")

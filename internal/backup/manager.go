@@ -103,6 +103,7 @@ func (m *Manager) processPending(ctx context.Context) {
 			BackupID: b.ID, Direction: b.Direction, SourceID: b.SourceID,
 			KeepLast: cfg.KeepLast, Repository: Repository(cfg, srv.Slug), Region: cfg.Region,
 			AccessKey: access, SecretKey: secret, RepoPassword: pass,
+			NodeSelector: srv.NodeSelector,
 		}
 		if err := ensureSecret(ctx, cs, BuildSecret(p)); err != nil {
 			m.finish(b, models.BackupFailed, 0, "create creds secret: "+err.Error())
