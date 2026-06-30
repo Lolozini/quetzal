@@ -731,6 +731,7 @@ export interface CreateServerRequest {
   memory?: string;
   cpu?: string;
   storage?: { type: string; size?: string };
+  ports?: { name?: string; port: number; protocol: string; primary?: boolean }[];
   env?: Record<string, string>;
   expose?: Expose;
   hibernation?: Hibernation;

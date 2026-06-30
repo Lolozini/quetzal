@@ -17,6 +17,36 @@ func testTemplate() *models.Template {
 	}
 }
 
+func TestSanitizePorts(t *testing.T) {
+	// Defaults: blank protocol -> TCP, generated name, first becomes primary.
+	out, err := sanitizePorts([]models.PortSpec{{Port: 25565}, {Port: 25575, Protocol: "udp"}})
+	if err != nil {
+		t.Fatalf("sanitizePorts: %v", err)
+	}
+	if len(out) != 2 || out[0].Protocol != "TCP" || out[1].Protocol != "UDP" {
+		t.Fatalf("protocols = %+v", out)
+	}
+	if !out[0].Primary || out[1].Primary {
+		t.Errorf("first port should default to primary: %+v", out)
+	}
+	if out[0].Name == "" {
+		t.Error("blank name should be generated")
+	}
+	// Rejections.
+	bad := [][]models.PortSpec{
+		{{Port: 0}},                       // out of range
+		{{Port: 70000}},                   // out of range
+		{{Port: 25565, Protocol: "sctp"}}, // bad protocol
+		{{Port: 25565}, {Port: 25565}},    // duplicate
+		{{Port: 25565, Primary: true}, {Port: 25575, Primary: true}}, // two primaries
+	}
+	for i, in := range bad {
+		if _, err := sanitizePorts(in); err == nil {
+			t.Errorf("case %d: expected error for %+v", i, in)
+		}
+	}
+}
+
 func TestValidateResources(t *testing.T) {
 	ok := []models.Resources{
 		{},                          // blank = unlimited

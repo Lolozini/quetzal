@@ -741,15 +741,29 @@ func buildDataVolume(s *models.Server) corev1.Volume {
 	}
 }
 
+// defaultEggUID is the uid/gid imported eggs run as when they declare no
+// securityContext. 988 is the "container" user in yolks/Pterodactyl egg images
+// (so HOME=/home/container is owned by it); fsGroup chowns the data volume to it.
+const defaultEggUID = 988
+
 func buildPodSecurityContext(t *models.Template) *corev1.PodSecurityContext {
 	sc := &corev1.PodSecurityContext{
 		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 	}
+	// A template that declares no user (imported eggs) would otherwise run as the
+	// image's default user — root for most egg images. Default to a non-root uid
+	// and chown the volume to it via fsGroup. Built-in templates set RunAsUser, so
+	// they keep their own context.
+	if t.SecurityContext.RunAsUser == nil {
+		def := int64(defaultEggUID)
+		yes := true
+		sc.RunAsUser, sc.RunAsGroup, sc.FSGroup = &def, &def, &def
+		sc.RunAsNonRoot = &yes
+		return sc
+	}
+	sc.RunAsUser = t.SecurityContext.RunAsUser
 	if t.SecurityContext.FSGroup != nil {
 		sc.FSGroup = t.SecurityContext.FSGroup
-	}
-	if t.SecurityContext.RunAsUser != nil {
-		sc.RunAsUser = t.SecurityContext.RunAsUser
 	}
 	if t.SecurityContext.RunAsGroup != nil {
 		sc.RunAsGroup = t.SecurityContext.RunAsGroup

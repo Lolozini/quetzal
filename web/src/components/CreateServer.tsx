@@ -25,6 +25,10 @@ export function CreateServer({
   const [proxy, setProxy] = useState(false);
   const [env, setEnv] = useState<Record<string, string>>({});
   const [eulaAccepted, setEulaAccepted] = useState(false);
+  // Per-server ports, used when the template declares none (imported eggs).
+  const [customPorts, setCustomPorts] = useState<{ port: string; protocol: string }[]>([
+    { port: "25565", protocol: "TCP" },
+  ]);
   const [start, setStart] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -85,6 +89,10 @@ export function CreateServer({
         cluster: cluster || undefined,
         env,
         eulaAccepted: tpl?.features?.includes("eula") ? eulaAccepted : undefined,
+        ports:
+          usingCustomPorts && effPorts.length > 0
+            ? effPorts.map((p, i) => ({ port: p.port, protocol: p.protocol, primary: i === 0 }))
+            : undefined,
       };
       await api.createServer(body);
       onDone();
@@ -96,11 +104,18 @@ export function CreateServer({
   }
 
   const editable = tpl?.variables.filter((v) => v.editable) ?? [];
+  // Templates with no ports (imported eggs) let the user define them per server,
+  // matching Pterodactyl's per-server allocations.
+  const tplPorts = tpl?.ports ?? [];
+  const usingCustomPorts = tplPorts.length === 0;
+  const effPorts = usingCustomPorts
+    ? customPorts.filter((p) => p.port.trim() !== "").map((p) => ({ port: Number(p.port), protocol: p.protocol }))
+    : tplPorts.map((p) => ({ port: p.port, protocol: p.protocol }));
+  const hasPorts = effPorts.length > 0;
   // Hibernation needs reliable idle detection, which today only works for TCP
   // (UDP players are invisible to the connection probe). Hide the toggle for any
   // server exposing a UDP port so it isn't enabled as a silent no-op.
-  const tcpOnly =
-    !!tpl?.ports && tpl.ports.length > 0 && tpl.ports.every((p) => p.protocol.toUpperCase() !== "UDP");
+  const tcpOnly = hasPorts && effPorts.every((p) => p.protocol.toUpperCase() !== "UDP");
 
   return (
     <div className="card">
@@ -168,7 +183,55 @@ export function CreateServer({
           </div>
         </div>
 
-        {tpl?.ports && tpl.ports.length > 0 && (
+        {usingCustomPorts && (
+          <>
+            <label>{t("Ports")}</label>
+            <div className="muted" style={{ fontSize: 12 }}>
+              {t("This template declares no ports; define them here (the first is the primary).")}
+            </div>
+            {customPorts.map((p, i) => (
+              <div className="row" key={i} style={{ gap: 6, marginTop: 4, alignItems: "center" }}>
+                <input
+                  type="number"
+                  min={1}
+                  max={65535}
+                  style={{ width: 120 }}
+                  value={p.port}
+                  placeholder="25565"
+                  onChange={(e) =>
+                    setCustomPorts(customPorts.map((q, j) => (j === i ? { ...q, port: e.target.value } : q)))
+                  }
+                />
+                <select
+                  style={{ width: "auto" }}
+                  value={p.protocol}
+                  onChange={(e) =>
+                    setCustomPorts(customPorts.map((q, j) => (j === i ? { ...q, protocol: e.target.value } : q)))
+                  }
+                >
+                  <option value="TCP">TCP</option>
+                  <option value="UDP">UDP</option>
+                </select>
+                {i === 0 ? (
+                  <span className="muted" style={{ fontSize: 12 }}>{t("primary")}</span>
+                ) : (
+                  <button type="button" onClick={() => setCustomPorts(customPorts.filter((_, j) => j !== i))}>
+                    {t("Remove")}
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              style={{ marginTop: 4 }}
+              onClick={() => setCustomPorts([...customPorts, { port: "", protocol: "TCP" }])}
+            >
+              {t("Add port")}
+            </button>
+          </>
+        )}
+
+        {hasPorts && (
           <>
             <label>{t("Network exposure")}</label>
             <select value={expose} onChange={(e) => setExpose(e.target.value as ExposeType)}>
@@ -177,8 +240,7 @@ export function CreateServer({
               <option value="LoadBalancer">LoadBalancer (external IP)</option>
             </select>
             <div className="muted" style={{ fontSize: 12 }}>
-              Ports:{" "}
-              {tpl.ports.map((p) => `${p.port}/${p.protocol}`).join(", ")}
+              Ports: {effPorts.map((p) => `${p.port}/${p.protocol}`).join(", ")}
             </div>
             <label className="row" style={{ marginTop: 8 }}>
               <input

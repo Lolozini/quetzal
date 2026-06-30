@@ -9,6 +9,10 @@ releases may include breaking changes).
 
 ### Added
 
+- **Per-server ports** can be defined at creation for templates that declare none
+  (imported Pterodactyl eggs allocate ports per server, not in the egg): a small
+  ports editor (number + TCP/UDP, first is primary), and the network-exposure
+  selector appears once a port is defined.
 - **Minecraft EULA acceptance** for templates that declare the `eula` egg
   feature: an "I accept the Minecraft EULA" toggle on create/settings; when
   accepted, the controller renders `eula.txt=true` into the data volume at
@@ -37,6 +41,10 @@ releases may include breaking changes).
 
 ### Fixed
 
+- Imported eggs no longer run as **root**: a template that declares no
+  securityContext (eggs don't) now defaults to a non-root uid (988, the
+  yolks/Pterodactyl "container" user) with a matching fsGroup so the data volume
+  stays writable. Built-in templates keep their own context.
 - Imported eggs install and run correctly: their install script now (a) runs
   under a POSIX shell even when the egg export uses Windows (CRLF) line endings,
   and (b) receives the server's variables in its environment (e.g.
