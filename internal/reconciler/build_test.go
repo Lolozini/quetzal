@@ -51,8 +51,23 @@ func TestBuildDeployment(t *testing.T) {
 			t.Errorf("command[%d] = %q, want %q", i, c.Command[i], wantCmd[i])
 		}
 	}
-	if len(c.Env) != 1 || c.Env[0].Name != "MSG" || c.Env[0].Value != "hi" {
-		t.Errorf("env = %+v", c.Env)
+	env := map[string]string{}
+	for _, e := range c.Env {
+		env[e.Name] = e.Value
+	}
+	if env["MSG"] != "hi" {
+		t.Errorf("env = %+v, want MSG=hi", c.Env)
+	}
+	// Wings-injected globals imported eggs assume (memory in MiB, primary port,
+	// bind IP). Without SERVER_MEMORY, `-Xmx{{SERVER_MEMORY}}M` expands to `-Xmx M`.
+	if env["SERVER_MEMORY"] != "1024" { // 1Gi
+		t.Errorf("SERVER_MEMORY = %q, want 1024", env["SERVER_MEMORY"])
+	}
+	if env["SERVER_PORT"] != "25565" {
+		t.Errorf("SERVER_PORT = %q, want 25565", env["SERVER_PORT"])
+	}
+	if env["SERVER_IP"] != "0.0.0.0" {
+		t.Errorf("SERVER_IP = %q, want 0.0.0.0", env["SERVER_IP"])
 	}
 	if len(c.VolumeMounts) != 1 || c.VolumeMounts[0].MountPath != "/data" {
 		t.Errorf("volumeMounts = %+v", c.VolumeMounts)
@@ -117,6 +132,59 @@ func TestBuildDeploymentInstallInitContainer(t *testing.T) {
 	}
 	if jar != "server.jar" {
 		t.Errorf("install container missing the server's variables (SERVER_JARFILE), env=%+v", ic.Env)
+	}
+}
+
+func TestInstallRunsAsRootAndChowns(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	tmpl.Install = &models.InstallScript{Image: "debian:slim", Script: "apt-get update"}
+	ic := BuildDeployment(s, tmpl, "", nil).Spec.Template.Spec.InitContainers[0]
+
+	// Install must run as root (overriding the pod's non-root default) so installer
+	// images can apt-get/apk and write root-owned paths.
+	sc := ic.SecurityContext
+	if sc == nil || sc.RunAsUser == nil || *sc.RunAsUser != 0 {
+		t.Fatalf("install must run as root, got %+v", sc)
+	}
+	if sc.RunAsNonRoot == nil || *sc.RunAsNonRoot {
+		t.Error("install container must set runAsNonRoot=false to override the pod default")
+	}
+	// ...then hand the volume to the runtime user (988) so the non-root game pod can
+	// read it (fsGroup is a no-op on local-path).
+	script := ic.Command[len(ic.Command)-1]
+	if !strings.Contains(script, "chown -R 988:988") {
+		t.Errorf("install script should chown the data to the runtime uid:\n%s", script)
+	}
+}
+
+func TestInstallChownsDeclaredUID(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	uid := int64(1000)
+	tmpl.SecurityContext = models.SecurityContext{RunAsUser: &uid}
+	tmpl.Install = &models.InstallScript{Image: "debian:slim", Script: "true"}
+	ic := BuildDeployment(s, tmpl, "", nil).Spec.Template.Spec.InitContainers[0]
+	script := ic.Command[len(ic.Command)-1]
+	if !strings.Contains(script, "chown -R 1000:1000") {
+		t.Errorf("install should chown to the template's declared uid:\n%s", script)
+	}
+}
+
+func TestWingsEnvOmitsMemoryWhenUnlimited(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	s.Resources.Memory = "" // unlimited
+	for _, e := range wingsEnv(s, tmpl) {
+		if e.Name == "SERVER_MEMORY" {
+			t.Errorf("SERVER_MEMORY should be omitted when no limit is set, got %q", e.Value)
+		}
+	}
+}
+
+func TestIsConsoleStop(t *testing.T) {
+	if !isConsoleStop("stop") || !isConsoleStop("end") {
+		t.Error("plain console commands should be sent to stdin")
+	}
+	if isConsoleStop("^C") || isConsoleStop("") {
+		t.Error("signal tokens and empty commands must not be written to stdin")
 	}
 }
 

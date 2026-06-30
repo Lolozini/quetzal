@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -97,7 +98,7 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 	// Graceful stop: when transitioning a currently-running server to a
 	// non-running state and the template defines a stop command, deliver it
 	// before scaling to zero (SIGTERM + termination grace period follow).
-	if srv.DesiredState != models.StateRunning && tmpl.StopCommand != "" && r.OnStop != nil {
+	if srv.DesiredState != models.StateRunning && isConsoleStop(tmpl.StopCommand) && r.OnStop != nil {
 		if running, _ := r.deploymentRunning(ctx, srv.Namespace); running {
 			if err := r.OnStop(ctx, srv.Namespace, srv.Slug, tmpl.StopCommand); err != nil {
 				log.Printf("graceful stop for %s (continuing to scale down): %v", srv.Slug, err)
@@ -594,4 +595,14 @@ func mergeLabels(into, from map[string]string) map[string]string {
 		into[k] = v
 	}
 	return into
+}
+
+// isConsoleStop reports whether a template's stop command should be written to
+// the container's stdin for a graceful stop. Pterodactyl encodes a signal-based
+// stop as a caret token (e.g. "^C" = SIGINT, used by some proxies/limbos); that
+// isn't console input, so writing the literal "^C" does nothing. For those we
+// skip the stdin write and let pod termination deliver SIGTERM (+ the grace
+// period), which those servers handle as a clean shutdown.
+func isConsoleStop(cmd string) bool {
+	return cmd != "" && !strings.HasPrefix(cmd, "^")
 }
