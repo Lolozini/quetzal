@@ -189,6 +189,9 @@ export interface Template {
   images: TemplateImage[];
   variables: TemplateVariable[];
   ports?: { name: string; port: number; protocol: string }[];
+  // Ports inferred from port-like variables when the template declares none
+  // (imported eggs); used to pre-fill the create form's ports editor.
+  suggestedPorts?: { name: string; port: number; protocol: string; primary?: boolean }[];
   install?: { image?: string; entrypoint?: string; script?: string };
   features?: string[];
 }
