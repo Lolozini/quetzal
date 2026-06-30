@@ -69,6 +69,14 @@ func TestBuildDeployment(t *testing.T) {
 	if env["SERVER_IP"] != "0.0.0.0" {
 		t.Errorf("SERVER_IP = %q, want 0.0.0.0", env["SERVER_IP"])
 	}
+	if env["TZ"] != "UTC" {
+		t.Errorf("TZ = %q, want UTC", env["TZ"])
+	}
+	// STARTUP is the resolved invocation in shell form (Wings exports it for
+	// entrypoints that `eval "$STARTUP"`).
+	if env["STARTUP"] != "echo ${MSG}; sleep 1" {
+		t.Errorf("STARTUP = %q, want the shell-form startup", env["STARTUP"])
+	}
 	if len(c.VolumeMounts) != 1 || c.VolumeMounts[0].MountPath != "/data" {
 		t.Errorf("volumeMounts = %+v", c.VolumeMounts)
 	}
@@ -500,6 +508,7 @@ func TestToShellTemplate(t *testing.T) {
 		"{{server.build.default.port}}":        "25565",
 		"{{server.build.env.RCON_PASSWORD}}":   "${RCON_PASSWORD}",
 		"{{ server.build.default.ip }}":        "0.0.0.0",
+		"{{config.docker.interface}}":          "0.0.0.0", // Wings bridge IP -> bind-all in k8s
 		"{{MOTD}}":                             "${MOTD}",
 		"{{env.FOO}}":                          "${FOO}",
 		"prefix-{{server.build.default.port}}": "prefix-25565",

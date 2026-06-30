@@ -731,6 +731,15 @@ func wingsEnv(s *models.Server, t *models.Template) []corev1.EnvVar {
 		out = append(out, corev1.EnvVar{Name: "SERVER_PORT", Value: strconv.Itoa(int(p))})
 	}
 	out = append(out, corev1.EnvVar{Name: "SERVER_IP", Value: "0.0.0.0"})
+	// TZ: Wings always injects a timezone; default to UTC (servers log in a stable
+	// zone). STARTUP: the resolved invocation, which Wings exports so an image
+	// entrypoint or wrapper can `eval "$STARTUP"`. We keep the shell ${VAR} form so
+	// it expands against the env injected above (only set when a startup is defined;
+	// entrypoint-driven images leave it empty, as Wings does).
+	out = append(out, corev1.EnvVar{Name: "TZ", Value: "UTC"})
+	if t.Startup != "" {
+		out = append(out, corev1.EnvVar{Name: "STARTUP", Value: startupVarRe.ReplaceAllString(t.Startup, "${$1}")})
+	}
 	return out
 }
 
@@ -1049,7 +1058,11 @@ func toShellTemplate(v string, primary int32) string {
 		switch {
 		case inner == "server.build.default.port":
 			return strconv.Itoa(int(primary))
-		case inner == "server.build.default.ip":
+		case inner == "server.build.default.ip", inner == "config.docker.interface":
+			// The bind address. Wings substitutes its Docker bridge interface here;
+			// in Kubernetes each server has its own pod IP and a dedicated Service,
+			// so binding to all interfaces is correct (and writing the literal
+			// placeholder, as before, broke proxies like Waterfall/Travertine).
 			return "0.0.0.0"
 		case strings.HasPrefix(inner, "server.build.env."):
 			return "${" + strings.TrimPrefix(inner, "server.build.env.") + "}"
