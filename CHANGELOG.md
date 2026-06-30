@@ -29,6 +29,16 @@ releases may include breaking changes).
 
 ### Fixed
 
+- Imported eggs install correctly: their install script now (a) runs under a
+  POSIX shell even when the egg export uses Windows (CRLF) line endings, and
+  (b) receives the server's variables in its environment (e.g.
+  `${SERVER_JARFILE}`, `${MINECRAFT_VERSION}`), as Pterodactyl runs it — without
+  them an egg's installer downloaded nothing and the pod crash-looped.
+- Multi-node co-location for the ReadWriteOnce data volume: the data-manager now
+  has a preferred affinity back to the game pod (so a data-manager-only reschedule
+  returns to the volume's node), and backup Jobs co-locate with the data-manager
+  (backups mount the volume while it's still held); restore Jobs run only after
+  the volume is free. No effect on single-node clusters.
 - Wake-on-connect: the activator pod failed to start (`container has runAsNonRoot
   and image has non-numeric user (nonroot)`) because it ran the distroless Quetzal
   image without a numeric `runAsUser`; pinned to uid 65532. Its wake callback to

@@ -72,6 +72,32 @@ func TestBuildJobDataVolume(t *testing.T) {
 	}
 }
 
+func TestBuildJobCoLocation(t *testing.T) {
+	ns := map[string]string{"disktype": "ssd"}
+	// Backup co-locates with the data-manager (which still holds the RWO volume).
+	b := BuildJob(Params{Slug: "s1", BackupID: 1, Direction: models.DirBackup, NodeSelector: ns})
+	ps := b.Spec.Template.Spec
+	if ps.NodeSelector["disktype"] != "ssd" {
+		t.Errorf("backup NodeSelector = %v, want it propagated", ps.NodeSelector)
+	}
+	if ps.Affinity == nil || ps.Affinity.PodAffinity == nil ||
+		len(ps.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution) == 0 {
+		t.Fatal("backup Job must co-locate (podAffinity) with the data-manager")
+	}
+	term := ps.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution[0]
+	if term.LabelSelector.MatchLabels[reconciler.DataLabel] != "s1" || term.TopologyKey != "kubernetes.io/hostname" {
+		t.Errorf("backup affinity term = %+v", term)
+	}
+	// Restore runs after all data pods are gone (volume free) -> no podAffinity.
+	r := BuildJob(Params{Slug: "s1", BackupID: 2, Direction: models.DirRestore, SourceID: 1, NodeSelector: ns})
+	if r.Spec.Template.Spec.Affinity != nil {
+		t.Errorf("restore Job should have no podAffinity, got %+v", r.Spec.Template.Spec.Affinity)
+	}
+	if r.Spec.Template.Spec.NodeSelector["disktype"] != "ssd" {
+		t.Errorf("restore NodeSelector = %v, want it propagated", r.Spec.Template.Spec.NodeSelector)
+	}
+}
+
 func TestBuildJobBackup(t *testing.T) {
 	p := Params{
 		Image: "restic/restic:test", Namespace: "quetzal-srv-s1", Slug: "s1",

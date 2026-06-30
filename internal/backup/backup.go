@@ -41,6 +41,9 @@ type Params struct {
 	AccessKey    string
 	SecretKey    string
 	RepoPassword string
+	// NodeSelector co-locates the Job with the server's pods (it mounts the same
+	// ReadWriteOnce data PVC), mirroring the game/data-manager placement.
+	NodeSelector map[string]string
 }
 
 // Repository builds a restic S3 repository URL for a server. Each server gets
@@ -134,6 +137,20 @@ restic forget --host %q --keep-last %d --prune
 		},
 	}
 
+	// A backup mounts the volume read-only while the data-manager still holds the
+	// ReadWriteOnce mount, so the Job must land on the same node. A restore runs
+	// only after every data-mounting pod is gone (the manager defers it), so the
+	// volume is free and node placement is left to the volume/NodeSelector.
+	var affinity *corev1.Affinity
+	if p.Direction == models.DirBackup {
+		affinity = &corev1.Affinity{PodAffinity: &corev1.PodAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
+				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{reconciler.DataLabel: p.Slug}},
+				TopologyKey:   "kubernetes.io/hostname",
+			}},
+		}}
+	}
+
 	return &batchv1.Job{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "batch/v1", Kind: "Job"},
 		ObjectMeta: metav1.ObjectMeta{Name: JobName(p), Namespace: p.Namespace, Labels: labels(p)},
@@ -144,6 +161,8 @@ restic forget --host %q --keep-last %d --prune
 				ObjectMeta: metav1.ObjectMeta{Labels: labels(p)},
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
+					NodeSelector:  p.NodeSelector,
+					Affinity:      affinity,
 					Containers: []corev1.Container{{
 						Name:    "restic",
 						Image:   p.Image,
