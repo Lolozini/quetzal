@@ -969,6 +969,11 @@ var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // (reinstall) optionally wipe the volume, run the script, then record the new
 // generation. QUETZAL_INSTALL_GEN / QUETZAL_INSTALL_WIPE are passed as env.
 func buildInstallScript(mount, userScript string) string {
+	// Pterodactyl panel egg exports often carry Windows line endings (CRLF). A
+	// stray \r breaks POSIX shells (`then\r` is not `then`, a bare \r line is a
+	// "not found" command), so normalize before embedding the script.
+	userScript = strings.ReplaceAll(userScript, "\r\n", "\n")
+	userScript = strings.ReplaceAll(userScript, "\r", "\n")
 	return fmt.Sprintf(`marker="%[1]s/.quetzal-installed"
 if [ -f "$marker" ]; then
   cur="$(cat "$marker" 2>/dev/null)"
