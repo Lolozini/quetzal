@@ -50,12 +50,12 @@ releases may include breaking changes).
 
 - `HOME` is now the server's data directory (matching Pterodactyl, where the
   container home *is* the server dir) instead of the image default
-  (`/home/container`, which isn't on the volume). Games that resolve files via
-  `$HOME` — notably SteamCMD titles looking up `~/.steam/sdk64/steamclient.so`,
-  which the installer places on the data volume — failed and **segfaulted at
-  library load** (e.g. Valheim crashing in its crossplay/PlayFab init, regardless
-  of the crossplay flag). Set on the game, install (→ install mount), config-render,
-  data-manager and SFTP containers.
+  (`/home/container`, which isn't on the data volume and is unreadable to the
+  non-root user). Games and tools that resolve files via `$HOME` — notably
+  SteamCMD titles looking up `~/.steam/sdk64/steamclient.so`, which the installer
+  places on the data volume — now find them instead of hitting an empty/denied
+  path. Set on the game, install (→ install mount), config-render, data-manager
+  and SFTP containers.
 - Egg startup commands now run under **bash** (falling back to sh), matching how
   Pterodactyl runs them. Many eggs use bash-only syntax — `[[ ]]` (Forge),
   process substitution and `trap`/`wait` for graceful stop and log filtering
