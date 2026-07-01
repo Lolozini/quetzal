@@ -42,14 +42,16 @@ func TestBuildDeployment(t *testing.T) {
 	if !c.Stdin {
 		t.Errorf("container.Stdin must be true for console attach")
 	}
-	wantCmd := []string{"/bin/sh", "-c", "echo ${MSG}; sleep 1"}
-	if len(c.Command) != len(wantCmd) {
+	// Startup runs via a bash-preferring wrapper (falls back to sh); the resolved
+	// command is passed as $0 so bash-only egg syntax works.
+	if len(c.Command) != 4 || c.Command[0] != "/bin/sh" || c.Command[1] != "-c" {
 		t.Fatalf("command = %v", c.Command)
 	}
-	for i := range wantCmd {
-		if c.Command[i] != wantCmd[i] {
-			t.Errorf("command[%d] = %q, want %q", i, c.Command[i], wantCmd[i])
-		}
+	if !strings.Contains(c.Command[2], "bash -c") {
+		t.Errorf("startup wrapper should prefer bash, got %q", c.Command[2])
+	}
+	if c.Command[3] != "echo ${MSG}; sleep 1" {
+		t.Errorf("startup cmd = %q, want the substituted startup", c.Command[3])
 	}
 	env := map[string]string{}
 	for _, e := range c.Env {

@@ -1166,6 +1166,15 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 
 var startupVarRe = regexp.MustCompile(`{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}`)
 
+// startupBashWrapper runs the (already-substituted) startup command under bash
+// when available, falling back to sh. Pterodactyl runs egg startup under bash and
+// many eggs use bash-only syntax — `[[ ]]` (Forge), process substitution and
+// `trap`/`wait` for graceful stop + log filtering (Valheim and most SteamCMD
+// eggs) — which dash (/bin/sh) rejects ("[[: not found", "redirection
+// unexpected"). The user command is passed as a positional arg ($0), so bash/sh
+// parse it verbatim with no re-quoting.
+const startupBashWrapper = `if command -v bash >/dev/null 2>&1; then exec bash -c "$0"; else exec sh -c "$0"; fi`
+
 // startupCommand builds the container command from a template's startup string,
 // substituting {{VAR}} with the shell ${VAR} so env values expand at runtime.
 // Returns nil when no startup is defined (use the image entrypoint).
@@ -1174,7 +1183,7 @@ func startupCommand(t *models.Template) []string {
 		return nil
 	}
 	cmd := startupVarRe.ReplaceAllString(t.Startup, "${$1}")
-	return []string{"/bin/sh", "-c", cmd}
+	return []string{"/bin/sh", "-c", startupBashWrapper, cmd}
 }
 
 func protocol(p string) corev1.Protocol {
