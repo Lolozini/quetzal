@@ -36,7 +36,6 @@ import (
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/internal/transfer"
 	"github.com/lolozini/quetzal/internal/version"
-	"github.com/lolozini/quetzal/templates"
 )
 
 func main() {
@@ -60,9 +59,6 @@ func main() {
 	}
 	if err := st.Migrate(); err != nil {
 		log.Fatalf("migrate: %v", err)
-	}
-	if err := templates.Seed(st); err != nil {
-		log.Fatalf("seed templates: %v", err)
 	}
 
 	cfg, err := ctrlconfig.GetConfig()
