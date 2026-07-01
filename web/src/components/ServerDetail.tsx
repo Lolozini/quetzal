@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, AuditEntry, Cluster, ExposeType, hasAdminPerm, PowerAction, Server, ServerStats, User } from "../api";
+import { api, ApiError, Cluster, EventEntry, ExposeType, hasAdminPerm, PowerAction, Server, ServerStats, User } from "../api";
 import { useT } from "../i18n";
 import { Access } from "./Access";
 import { Backups } from "./Backups";
@@ -117,13 +117,21 @@ function DiskBar({ used, total }: { used: number; total: number }) {
   );
 }
 
-function StatsPanel({ stats, history, statsMsg }: { stats: ServerStats | null; history: Sample[]; statsMsg: string }) {
+// A stopped/suspended/hibernated server has no pod to sample, so resource stats
+// are simply absent — not an error. Show a neutral placeholder in that case, and
+// a soft generic note (never a raw "no pod found" / crashloop message, which
+// belongs in the activity log) when a running server's metrics are momentarily
+// unavailable.
+const offlinePhases = ["", "Stopped", "Suspended", "Hibernated"];
+
+function StatsPanel({ stats, history, phase }: { stats: ServerStats | null; history: Sample[]; phase: string }) {
   const { t } = useT();
   if (!stats) {
+    const offline = offlinePhases.includes(phase);
     return (
       <div className="kv">
         <span className="k">{t("Resources")}</span>
-        <span>{statsMsg || "—"}</span>
+        <span className="muted">{offline ? "—" : t("Resources unavailable")}</span>
       </div>
     );
   }
@@ -183,7 +191,6 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [stats, setStats] = useState<ServerStats | null>(null);
   const [history, setHistory] = useState<Sample[]>([]);
-  const [statsMsg, setStatsMsg] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
@@ -192,26 +199,33 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
     let active = true;
     setHistory([]); // fresh buffer per server
     const load = async () => {
+      let phase = "";
       try {
         const s = await api.server(id);
-        if (active) setSrv(s);
+        if (!active) return;
+        setSrv(s);
+        phase = s.status?.phase ?? "";
       } catch (e) {
         if (active) setError(String(e));
+      }
+      // No pod when the server is offline: skip the stats call entirely (avoids a
+      // pointless "no pod found" every poll) and clear the panel.
+      if (offlinePhases.includes(phase)) {
+        if (active) setStats(null);
+        return;
       }
       try {
         const st = await api.stats(id);
         if (active) {
           setStats(st);
-          setStatsMsg("");
           setHistory((h) =>
             [...h, { t: Date.now(), cpu: st.cpuMillicores, mem: st.memoryBytes, rx: st.rxBytes, tx: st.txBytes }].slice(-MAX_SAMPLES),
           );
         }
-      } catch (e) {
-        if (active) {
-          setStats(null);
-          setStatsMsg(e instanceof ApiError ? e.message : String(e));
-        }
+      } catch {
+        // A running server whose metrics are momentarily unavailable: leave the
+        // panel to show a soft note rather than a raw error.
+        if (active) setStats(null);
       }
     };
     load();
@@ -385,7 +399,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
             </span>
           </div>
         )}
-        <StatsPanel stats={stats} history={history} statsMsg={statsMsg} />
+        <StatsPanel stats={stats} history={history} phase={srv.status?.phase ?? ""} />
         {srv.status.message && (
           <div className="kv">
             <span className="k">{t("Message")}</span>
@@ -508,7 +522,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
       <Backups id={id} />
       {canManage && <Access id={id} />}
       {canManage && <Notifications serverId={id} />}
-      <ServerAudit id={id} />
+      <ServerActivity id={id} slug={srv?.slug ?? ""} />
       <div className="card">
         <Console id={id} phase={srv?.status?.phase ?? ""} />
       </div>
@@ -595,15 +609,22 @@ function SFTPCard({ id, initialEnabled, username }: { id: number; initialEnabled
   );
 }
 
-function ServerAudit({ id }: { id: number }) {
+// ServerActivity is the per-server timeline. It reads the events feed (a superset
+// of the audit log: every audited action emits an event, plus the controller's
+// own lifecycle events) so crashes, OOM kills and restarts show up alongside user
+// actions — not just in notifications.
+function ServerActivity({ id, slug }: { id: number; slug: string }) {
   const { t } = useT();
-  const [entries, setEntries] = useState<AuditEntry[]>([]);
+  const [entries, setEntries] = useState<EventEntry[]>([]);
   useEffect(() => {
-    const load = () => api.serverAudit(id).then(setEntries).catch(() => {});
+    const load = () => api.serverEvents(id).then(setEntries).catch(() => {});
     load();
     const iv = setInterval(load, 5000);
     return () => clearInterval(iv);
   }, [id]);
+  // Event messages are prefixed with the server slug ("slug: …"); drop it in this
+  // already server-scoped view.
+  const strip = (m: string) => (slug && m.startsWith(slug + ": ") ? m.slice(slug.length + 2) : m);
   return (
     <div className="card">
       <Collapsible title={t("Activity")} count={entries.length}>
@@ -611,14 +632,14 @@ function ServerAudit({ id }: { id: number }) {
           <p className="muted">{t("No activity yet.")}</p>
         ) : (
           <table>
-            <thead><tr><th>{t("When")}</th><th>{t("User")}</th><th>{t("Action")}</th><th>{t("Detail")}</th></tr></thead>
+            <thead><tr><th>{t("When")}</th><th>{t("User")}</th><th>{t("Event")}</th><th>{t("Detail")}</th></tr></thead>
             <tbody>
               {entries.map((e) => (
                 <tr key={e.id}>
                   <td>{new Date(e.createdAt).toLocaleString()}</td>
-                  <td>{e.username}</td>
-                  <td><code>{e.action}</code></td>
-                  <td>{e.detail}</td>
+                  <td>{e.username || t("system")}</td>
+                  <td><code>{e.type}</code></td>
+                  <td>{strip(e.message)}</td>
                 </tr>
               ))}
             </tbody>

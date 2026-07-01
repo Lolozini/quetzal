@@ -188,7 +188,10 @@ export const fr: Record<string, string> = {
   "No activity yet.": "Aucune activité pour l'instant.",
   When: "Quand",
   Action: "Action",
+  Event: "Événement",
+  system: "système",
   Detail: "Détail",
+  "Resources unavailable": "Ressources indisponibles",
 
   // Eggs / templates
   "Eggs / templates": "Eggs / modèles",

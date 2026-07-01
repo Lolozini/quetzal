@@ -421,6 +421,8 @@ export interface EventEntry {
 export const EVENT_TYPES = [
   "server.running",
   "server.crashed",
+  "server.oomkilled",
+  "server.restarted",
   "server.hibernated",
   "server.power",
   "server.create",
