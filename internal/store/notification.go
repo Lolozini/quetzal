@@ -148,6 +148,12 @@ func (s *Store) DeleteEventsForServer(serverID uint) error {
 // installable eggs) the admin can browse and install from.
 const SettingEggCatalogURL = "egg_catalog_url"
 
+// SettingEndpointHost is an admin-configured hostname (DNS) published to players
+// in a server's external endpoints instead of the raw node IP. When set it is
+// used for NodePort game endpoints and the SFTP connection string; when blank
+// the detected node address is used.
+const SettingEndpointHost = "endpoint_host"
+
 // GetSetting returns a setting value, or "" if absent.
 func (s *Store) GetSetting(key string) (string, error) {
 	var v models.Setting

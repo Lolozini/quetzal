@@ -264,6 +264,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/email-settings", s.auth(s.handleSetEmailSettings))
 	mux.Handle("POST /api/email-settings/test", s.auth(s.handleTestEmail))
 
+	mux.Handle("GET /api/network-settings", s.auth(s.handleGetNetworkSettings))
+	mux.Handle("PUT /api/network-settings", s.auth(s.handleSetNetworkSettings))
+
 	// Database hosts (admin registry) + per-server databases.
 	mux.Handle("GET /api/database-hosts", s.auth(s.handleListDatabaseHosts))
 	mux.Handle("POST /api/database-hosts", s.auth(s.handleCreateDatabaseHost))

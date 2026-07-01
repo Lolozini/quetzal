@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { AdminPermInfo, AdminRole, api, ApiError, AuditEntry, EmailSettingsInput, hasAdminPerm, User } from "../api";
+import { AdminPermInfo, AdminRole, api, ApiError, AuditEntry, EmailSettingsInput, hasAdminPerm, NetworkSettings, User } from "../api";
 import { useT } from "../i18n";
 import { Collapsible } from "./Collapsible";
 import { Clusters } from "./Clusters";
@@ -14,6 +14,7 @@ export function Admin({ user }: { user: User }) {
       {can("users") && <Users me={user} />}
       {user.isAdmin && <Roles />}
       {can("templates") && <Templates />}
+      {can("settings") && <NetworkSettingsCard />}
       {can("settings") && <EmailSettingsCard />}
       {can("database-hosts") && <DatabaseHosts />}
       {can("clusters") && <Clusters />}
@@ -318,6 +319,65 @@ function Roles() {
           </button>
           {editing != null && <button type="button" onClick={resetForm}>{t("Cancel")}</button>}
         </div>
+      </form>
+    </div>
+  );
+}
+
+function NetworkSettingsCard() {
+  const { t } = useT();
+  const [settings, setSettings] = useState<NetworkSettings>({ endpointHost: "", nodeAddress: "" });
+  const [host, setHost] = useState("");
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    try {
+      const s = await api.networkSettings();
+      setSettings(s);
+      setHost(s.endpointHost || "");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setMsg("");
+    setError("");
+    try {
+      await api.setNetworkSettings(host.trim());
+      setMsg(t("Saved. New endpoints use it on the next reconcile."));
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2>{t("Network")}</h2>
+      <p className="muted">
+        {t("Public hostname shown to players in server endpoints and the SFTP connection, instead of the raw node IP. Point a DNS record at your node, then enter it here.")}
+      </p>
+      <form onSubmit={save}>
+        <label>{t("Endpoint hostname (blank = use node IP)")}</label>
+        <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="play.example.com" />
+        {settings.nodeAddress && (
+          <p className="muted" style={{ marginTop: 4 }}>
+            {t("Detected node address:")} <code>{settings.nodeAddress}</code> — {t("your DNS record should point here.")}
+          </p>
+        )}
+        {msg && <div className="notice">{msg}</div>}
+        {error && <div className="error">{error}</div>}
+        <button className="primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? t("Saving…") : t("Save")}</button>
       </form>
     </div>
   );

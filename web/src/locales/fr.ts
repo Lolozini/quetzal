@@ -154,6 +154,16 @@ export const fr: Record<string, string> = {
   "Create role": "Créer le rôle",
   'Delete role "{name}"?': "Supprimer le rôle « {name} » ?",
 
+  // Network
+  Network: "Réseau",
+  "Public hostname shown to players in server endpoints and the SFTP connection, instead of the raw node IP. Point a DNS record at your node, then enter it here.":
+    "Nom d'hôte public affiché aux joueurs dans les endpoints des serveurs et la connexion SFTP, au lieu de l'IP brute du nœud. Faites pointer un enregistrement DNS vers votre nœud, puis saisissez-le ici.",
+  "Endpoint hostname (blank = use node IP)": "Nom d'hôte des endpoints (vide = utiliser l'IP du nœud)",
+  "Detected node address:": "Adresse du nœud détectée :",
+  "your DNS record should point here.": "votre enregistrement DNS doit pointer ici.",
+  "Saved. New endpoints use it on the next reconcile.":
+    "Enregistré. Les nouveaux endpoints l'utilisent à la prochaine réconciliation.",
+
   // Email (SMTP)
   "Email (SMTP)": "E-mail (SMTP)",
   "Outbound email for self-service password reset.": "E-mail sortant pour la réinitialisation de mot de passe en self-service.",

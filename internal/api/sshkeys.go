@@ -90,6 +90,7 @@ func (s *Server) handleServerSFTP(w http.ResponseWriter, r *http.Request) {
 		"enabled":  srv.SFTP.Enabled,
 		"username": userFrom(r.Context()).Username,
 		"port":     0,
+		"host":     "",
 	}
 	if srv.SFTP.Enabled {
 		cs, _, err := s.clientsFor(srv)
@@ -108,6 +109,9 @@ func (s *Server) handleServerSFTP(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusServiceUnavailable, "could not read SFTP service")
 			return
 		}
+		// Advertise the configured DNS name (or the detected node address) so the
+		// connection string matches the game endpoint instead of a placeholder.
+		resp["host"] = s.endpointHost(r.Context(), cs)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
