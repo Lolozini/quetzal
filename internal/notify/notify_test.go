@@ -209,19 +209,46 @@ func TestWebhookNoSecretNoSignature(t *testing.T) {
 }
 
 func TestDiscordSendsContent(t *testing.T) {
-	var payload map[string]string
+	var payload struct {
+		Embeds []struct {
+			Title       string `json:"title"`
+			Description string `json:"description"`
+			Color       int    `json:"color"`
+			Fields      []struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			} `json:"fields"`
+		} `json:"embeds"`
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &payload)
 		w.WriteHeader(204)
 	}))
 	defer srv.Close()
-	e := models.Event{Type: models.EventServerRunning, Message: "is up"}
+	e := models.Event{Type: models.EventServerRunning, Message: "srv: is up"}
 	if err := deliverDiscord(context.Background(), srv.Client(), map[string]string{"url": srv.URL}, e); err != nil {
 		t.Fatalf("deliver: %v", err)
 	}
-	if !strings.Contains(payload["content"], "is up") {
-		t.Errorf("discord content = %q", payload["content"])
+	if len(payload.Embeds) != 1 {
+		t.Fatalf("want one embed, got %+v", payload)
+	}
+	em := payload.Embeds[0]
+	if em.Title != models.EventServerRunning {
+		t.Errorf("embed title = %q, want %q", em.Title, models.EventServerRunning)
+	}
+	if !strings.Contains(em.Description, "is up") {
+		t.Errorf("embed description = %q", em.Description)
+	}
+	// A controller event has no actor, so the User field falls back to "system".
+	var user string
+	for _, f := range em.Fields {
+		if f.Name == "User" {
+			user = f.Value
+		}
+	}
+	if user != "system" {
+		t.Errorf("User field = %q, want system", user)
 	}
 }
 

@@ -39,13 +39,57 @@ func deliverDiscord(ctx context.Context, client *http.Client, cfg map[string]str
 	if url == "" {
 		return fmt.Errorf("discord: missing url")
 	}
-	body, _ := json.Marshal(map[string]string{"content": summary(e)})
+	body, _ := json.Marshal(discordEmbed(e))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return doExpect2xx(client, req)
+}
+
+// discordEmbed renders an event as a Discord embed carrying the same fields as
+// the activity log: the event type as the title, the message (which already
+// includes the server) as the body, the actor and time as fields, and a colour
+// keyed to severity so trouble stands out.
+func discordEmbed(e models.Event) map[string]any {
+	user := e.Username
+	if user == "" {
+		user = "system"
+	}
+	ts := e.CreatedAt
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+	embed := map[string]any{
+		"title":     e.Type,
+		"color":     discordColor(e.Type),
+		"timestamp": ts.UTC().Format(time.RFC3339),
+		"fields": []map[string]any{
+			{"name": "User", "value": user, "inline": true},
+		},
+	}
+	if e.Message != "" {
+		embed["description"] = e.Message
+	}
+	return map[string]any{"embeds": []map[string]any{embed}}
+}
+
+// discordColor maps an event type to an embed colour: red for trouble, amber for
+// a restart, green for healthy, grey for idle/stopped, blurple otherwise.
+func discordColor(t string) int {
+	switch t {
+	case models.EventServerCrashed, models.EventServerOOMKilled:
+		return 0xED4245 // red
+	case models.EventServerRestarted:
+		return 0xF0B232 // amber
+	case models.EventServerRunning:
+		return 0x57F287 // green
+	case models.EventServerHibernated, models.EventServerStopped:
+		return 0x99AAB5 // grey
+	default:
+		return 0x5865F2 // blurple
+	}
 }
 
 // ---- Generic webhook ----
