@@ -19,7 +19,7 @@ export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (
   return (
     <div className="card">
       <h2>{t("Startup & resources")}</h2>
-      <p className="muted">{t("Edit this server's configuration. Each section shows whether saving it restarts the server.")}</p>
+      <p className="muted">{t("Edit this server's configuration. A ↻ marker appears on a pending change that will restart the server.")}</p>
       {editable.length > 0 && <Variables serverId={server.id} vars={editable} env={server.env ?? {}} onSaved={onSaved} />}
       <ResourcesForm server={server} onSaved={onSaved} />
       {tmpl && (tmpl.ports?.length ?? 0) === 0 && <ServerPorts server={server} onSaved={onSaved} />}
@@ -48,7 +48,7 @@ function EULAToggle({ server, onSaved }: { server: Server; onSaved: (s: Server) 
   }
   return (
     <div style={{ marginTop: 12 }}>
-      <h3>{t("Minecraft EULA")} <RestartHint /></h3>
+      <h3>{t("Minecraft EULA")}</h3>
       <label className="row" style={{ gap: 6 }}>
         <input
           type="checkbox"
@@ -79,6 +79,18 @@ function ServerPorts({ server, onSaved }: { server: Server; onSaved: (s: Server)
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
 
+  // Dirty when the current ports differ from what's saved on the server, so the
+  // restart hint only shows once there's a pending change.
+  const currentSig = JSON.stringify(
+    rows
+      .map((r, i) => ({ port: r.port.trim(), protocol: r.protocol.toUpperCase(), primary: i === primaryIdx }))
+      .filter((r) => r.port !== ""),
+  );
+  const savedSig = JSON.stringify(
+    (server.ports ?? []).map((p) => ({ port: String(p.port), protocol: (p.protocol || "TCP").toUpperCase(), primary: !!p.primary })),
+  );
+  const dirty = currentSig !== savedSig;
+
   async function save() {
     setBusy(true);
     setError("");
@@ -99,7 +111,7 @@ function ServerPorts({ server, onSaved }: { server: Server; onSaved: (s: Server)
 
   return (
     <div style={{ marginTop: 12 }}>
-      <h3>{t("Ports")} <RestartHint /></h3>
+      <h3>{t("Ports")} {dirty && <RestartHint />}</h3>
       <p className="muted" style={{ fontSize: 12 }}>
         {t("The ports this server exposes; pick the primary (the port players connect to).")}
       </p>
@@ -140,7 +152,7 @@ function Reinstall({ serverId }: { serverId: number }) {
 
   return (
     <div style={{ marginTop: 12 }}>
-      <h3>{t("Reinstall")} <RestartHint /></h3>
+      <h3>{t("Reinstall")}</h3>
       <p className="muted">{t("Re-runs the template's install script. Applied on the next reconcile, which restarts the server.")}</p>
       <label className="row" style={{ gap: 6 }}>
         <input type="checkbox" style={{ width: "auto" }} checked={wipe} onChange={(e) => setWipe(e.target.checked)} />
@@ -174,6 +186,10 @@ function Variables({
     for (const x of vars) v[x.envVariable] = x.secret ? "" : (env[x.envVariable] ?? x.default ?? "");
     return v;
   });
+  // Baseline for the dirty check: the values as last seeded/saved. The restart
+  // hint shows only while there are unsaved edits.
+  const [saved, setSaved] = useState(values);
+  const dirty = Object.keys(values).some((k) => values[k] !== saved[k]);
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -186,6 +202,7 @@ function Variables({
     try {
       const s = await api.setServerEnv(serverId, values);
       onSaved(s);
+      setSaved(values);
       setMsg(t("Variables saved."));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -196,7 +213,7 @@ function Variables({
 
   return (
     <form onSubmit={submit} style={{ marginTop: 12 }}>
-      <h3>{t("Variables")} <RestartHint /></h3>
+      <h3>{t("Variables")} {dirty && <RestartHint />}</h3>
       {vars.map((v) => (
         <div key={v.envVariable} style={{ marginBottom: 8 }}>
           <label>{v.name || v.envVariable}{v.required ? " *" : ""}</label>
@@ -227,6 +244,7 @@ function ResourcesForm({ server, onSaved }: { server: Server; onSaved: (s: Serve
   const { t } = useT();
   const [memory, setMemory] = useState(server.resources.memory ?? "");
   const [cpu, setCpu] = useState(server.resources.cpu ?? "");
+  const dirty = memory.trim() !== (server.resources.memory ?? "") || cpu.trim() !== (server.resources.cpu ?? "");
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -249,7 +267,7 @@ function ResourcesForm({ server, onSaved }: { server: Server; onSaved: (s: Serve
 
   return (
     <form onSubmit={submit} style={{ marginTop: 12 }}>
-      <h3>{t("Resource limits")} <RestartHint /></h3>
+      <h3>{t("Resource limits")} {dirty && <RestartHint />}</h3>
       <div className="grid2">
         <div><label>{t("Memory (blank = unlimited)")}</label><input value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="2Gi" /></div>
         <div><label>{t("CPU (blank = unlimited)")}</label><input value={cpu} onChange={(e) => setCpu(e.target.value)} placeholder="1000m" /></div>

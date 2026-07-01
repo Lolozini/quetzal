@@ -6,7 +6,6 @@ import { Backups } from "./Backups";
 import { Collapsible } from "./Collapsible";
 import { Console } from "./Console";
 import { Databases } from "./Databases";
-import { RestartHint } from "./RestartHint";
 import { Files } from "./Files";
 import { Notifications } from "./Notifications";
 import { Schedules } from "./Schedules";
@@ -384,7 +383,6 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
                 <option value="NodePort">NodePort</option>
                 <option value="LoadBalancer">LoadBalancer</option>
               </select>
-              <RestartHint live />
             </span>
           </div>
         )}
@@ -467,7 +465,6 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
                 onChange={(e) => saveHib({ idleMinutes: Number(e.target.value) })}
               />
               &nbsp;{t("min")}
-              <RestartHint live />
               {srv.hibernation?.enabled && (
                 <>
                   {tcpOnly && (
