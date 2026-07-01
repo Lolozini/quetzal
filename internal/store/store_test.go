@@ -214,6 +214,57 @@ func TestAllocateNodePortStableAndUnique(t *testing.T) {
 	}
 }
 
+func TestAllocateNodePortRandomizedAndExhaustive(t *testing.T) {
+	// Filling all but one slot must still yield the single remaining port,
+	// proving the random-start scan wraps and never misses a free port.
+	s := newTestStore(t)
+	const lo, hi = int32(30000), int32(30004)
+	got := map[int32]bool{}
+	for i := 0; i < 4; i++ {
+		p, err := s.AllocateNodePort(uint(i+1), "game", lo, hi)
+		if err != nil {
+			t.Fatalf("alloc %d: %v", i, err)
+		}
+		if p < lo || p > hi {
+			t.Fatalf("port out of range: %d", p)
+		}
+		if got[p] {
+			t.Fatalf("duplicate port %d", p)
+		}
+		got[p] = true
+	}
+	var free int32
+	for p := lo; p <= hi; p++ {
+		if !got[p] {
+			free = p
+		}
+	}
+	last, err := s.AllocateNodePort(99, "game", lo, hi)
+	if err != nil {
+		t.Fatalf("alloc last: %v", err)
+	}
+	if last != free {
+		t.Fatalf("expected the sole free port %d, got %d", free, last)
+	}
+
+	// The first allocation into an empty range is not deterministically the
+	// lowest port: across many fresh pools the chosen ports vary (the old
+	// sequential code always returned min). A wide range makes an all-identical
+	// draw astronomically unlikely, so this is effectively non-flaky.
+	seen := map[int32]bool{}
+	for i := 0; i < 24; i++ {
+		fs := newTestStore(t)
+		p, err := fs.AllocateNodePort(1, "game", 30000, 32767)
+		if err != nil {
+			t.Fatalf("fresh alloc: %v", err)
+		}
+		seen[p] = true
+	}
+	if len(seen) < 2 {
+		t.Fatalf("node port allocation not randomized: all draws returned the same port")
+	}
+}
+
 func TestDeleteServerReleasesPorts(t *testing.T) {
 	s := newTestStore(t)
 	srv := &models.Server{Slug: "p", Namespace: "ns"}

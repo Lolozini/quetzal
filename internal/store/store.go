@@ -3,11 +3,13 @@
 package store
 
 import (
+	crand "crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"math/rand"
 	"strings"
 	"time"
@@ -432,7 +434,14 @@ func (s *Store) AllocateNodePort(serverID uint, name string, min, max int32) (in
 		for _, r := range rows {
 			used[r.NodePort] = true
 		}
-		for p := min; p <= max; p++ {
+		// Scan the range from a random start (wrapping) rather than always taking
+		// the lowest free port: this scatters allocations so a server's ports can't
+		// be guessed from its neighbours', while still finding a free port whenever
+		// one exists.
+		span := int(max-min) + 1
+		start := randRange(span)
+		for i := 0; i < span; i++ {
+			p := min + int32((start+i)%span)
 			if used[p] {
 				continue
 			}
@@ -456,6 +465,19 @@ func (s *Store) ReleaseNodePort(serverID uint, name string) error {
 // ReleaseServerPorts frees every node port held by a server.
 func (s *Store) ReleaseServerPorts(serverID uint) error {
 	return s.db.Where("server_id = ?", serverID).Delete(&models.PortAllocation{}).Error
+}
+
+// randRange returns a uniform random int in [0,n) using crypto/rand (so node
+// port placement is unpredictable), falling back to math/rand if the system
+// source is unavailable. n <= 1 always yields 0.
+func randRange(n int) int {
+	if n <= 1 {
+		return 0
+	}
+	if bn, err := crand.Int(crand.Reader, big.NewInt(int64(n))); err == nil {
+		return int(bn.Int64())
+	}
+	return rand.Intn(n)
 }
 
 // ---- single-value secret helpers ----
