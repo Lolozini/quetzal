@@ -174,5 +174,3 @@ tr.clickable:hover { background: var(--panel-2); cursor: pointer; }
   vertical-align: middle; white-space: nowrap;
 }
 .restart-hint::before { content: "↻"; font-size: 13px; }
-.restart-hint.live { color: var(--muted); }
-.restart-hint.live::before { content: "✓"; }

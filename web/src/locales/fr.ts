@@ -230,9 +230,8 @@ export const fr: Record<string, string> = {
   "Add port": "Ajouter un port",
   "Save ports": "Enregistrer les ports",
   "restarts the server": "redémarre le serveur",
-  "applied without a restart": "appliqué sans redémarrage",
-  "Edit this server's configuration. Each section shows whether saving it restarts the server.":
-    "Modifiez la configuration de ce serveur. Chaque section indique si l'enregistrement redémarre le serveur.",
+  "Edit this server's configuration. A ↻ marker appears on a pending change that will restart the server.":
+    "Modifiez la configuration de ce serveur. Un marqueur ↻ apparaît sur une modification non enregistrée qui redémarrera le serveur.",
   "Ports saved; the server restarts to apply.": "Ports enregistrés ; le serveur redémarre pour appliquer.",
   "The ports this server exposes; pick the primary (the port players connect to). Saving restarts the server.":
     "Les ports exposés par ce serveur ; choisissez le principal (celui auquel les joueurs se connectent). L'enregistrement redémarre le serveur.",
