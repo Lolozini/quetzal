@@ -22,7 +22,6 @@ import (
 	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/internal/version"
-	"github.com/lolozini/quetzal/templates"
 	webui "github.com/lolozini/quetzal/web"
 )
 
@@ -45,16 +44,13 @@ func main() {
 	if err := st.Migrate(); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
-	if err := templates.Seed(st); err != nil {
-		log.Fatalf("seed templates: %v", err)
-	}
 	if _, err := st.EnsureLocalCluster(); err != nil {
 		log.Fatalf("ensure local cluster: %v", err)
 	}
 
 	// Migration-only mode (used by an init container so a single process owns
-	// schema creation/seeding, avoiding a race between the apiserver and
-	// controller on a fresh shared database).
+	// schema creation, avoiding a race between the apiserver and controller on a
+	// fresh shared database).
 	if env("QUETZAL_MIGRATE_ONLY", "") == "true" {
 		log.Printf("migration complete; exiting (QUETZAL_MIGRATE_ONLY)")
 		return

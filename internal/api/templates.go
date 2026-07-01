@@ -119,8 +119,8 @@ func (s *Server) handleExportTemplate(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDeleteTemplate removes a template (admin), refusing while servers still
-// use it. Built-in templates are re-seeded on the next controller/apiserver
-// start, so deleting one only hides it until restart.
+// use it. Deletion is permanent: templates come from egg imports, so nothing
+// re-creates a deleted one.
 func (s *Server) handleDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPerm(w, r, models.AdminPermTemplates) {
 		return

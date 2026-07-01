@@ -9,6 +9,11 @@ releases may include breaking changes).
 
 ### Added
 
+- **Template search on the create-server form**: once there are more than a
+  handful of templates, a search box filters the picker by name (imported eggs
+  are named after their catalog path, e.g. `minecraft/java/paper`, so a search
+  matches by game or variant). The current selection stays visible even when it
+  doesn't match the filter.
 - **Port suggestions for imported eggs**: the create form now pre-fills the
   per-server ports editor from the template's port-like variables (`QUERY_PORT`,
   `RCON_PORT`, `STEAM_PORT`…, detected by name + a valid numeric default), so a
@@ -45,6 +50,15 @@ releases may include breaking changes).
   node. Replaces the previous on-demand maintenance pod (which only ran while
   stopped) and the SFTP sidecar (which only ran while running). During a restore
   the data-manager is scaled down so the restore gets exclusive volume access.
+
+### Removed
+
+- **Built-in templates are no longer seeded into the database.** Fresh instances
+  start with an empty template list; add templates by importing Pterodactyl/Pelican
+  eggs (the intended workflow). The former built-ins (Paper, CurseForge, Valheim,
+  a generic process) were redundant with egg import and cluttered the picker. They
+  remain in the tree only as test fixtures. Existing seeded templates can be
+  deleted from Admin → Templates and will not come back on restart.
 
 ### Fixed
 

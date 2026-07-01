@@ -12,7 +12,6 @@ import (
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/store"
-	"github.com/lolozini/quetzal/templates"
 )
 
 func main() {
@@ -67,7 +66,6 @@ func openStore() *store.Store {
 	})
 	must(err)
 	must(st.Migrate())
-	must(templates.Seed(st))
 	return st
 }
 
