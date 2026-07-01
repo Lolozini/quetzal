@@ -30,6 +30,38 @@ function formatRate(bps: number): string {
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}/s`;
 }
 
+// parseCpuMillis parses a Kubernetes CPU quantity to millicores ("2" -> 2000,
+// "1500m" -> 1500); null when empty/unparseable (no limit set).
+function parseCpuMillis(q?: string): number | null {
+  if (!q) return null;
+  const s = q.trim();
+  const n = s.endsWith("m") ? parseFloat(s.slice(0, -1)) : parseFloat(s) * 1000;
+  return isNaN(n) ? null : n;
+}
+
+// parseMemBytes parses a Kubernetes memory quantity to bytes (Ki/Mi/Gi/Ti or
+// k/M/G/T, or plain bytes); null when empty/unparseable.
+function parseMemBytes(q?: string): number | null {
+  if (!q) return null;
+  const m = q.trim().match(/^(\d+(?:\.\d+)?)([EPTGMK]i?)?$/i);
+  if (!m) return null;
+  const f: Record<string, number> = {
+    "": 1,
+    ki: 2 ** 10, mi: 2 ** 20, gi: 2 ** 30, ti: 2 ** 40, pi: 2 ** 50, ei: 2 ** 60,
+    k: 1e3, m: 1e6, g: 1e9, t: 1e12, p: 1e15, e: 1e18,
+  };
+  const u = (m[2] || "").toLowerCase();
+  return u in f ? parseFloat(m[1]) * f[u] : null;
+}
+
+// formatCores renders millicores as human cores: 12 -> "0.01", 1500 -> "1.5".
+function formatCores(millicores: number): string {
+  const cores = millicores / 1000;
+  if (cores >= 10) return cores.toFixed(0);
+  if (cores >= 1) return cores.toFixed(1);
+  return cores.toFixed(2);
+}
+
 // A rolling sample of a server's live resource usage, kept client-side to draw
 // the time-series charts (CPU/RAM/network); rx/tx are cumulative counters.
 interface Sample {
@@ -113,17 +145,28 @@ function StatsPanel({ stats, history, statsMsg }: { stats: ServerStats | null; h
     txRate.push(dtx >= 0 ? dtx / dt : 0);
   }
   const hasNet = history.some((s) => s.rx !== undefined);
+  // Show CPU in cores (millicores aren't meaningful to most users) and, when a
+  // limit is set, usage vs. limit with a percentage — like the memory and disk
+  // readouts.
+  const cpuLimM = parseCpuMillis(stats.cpuLimit);
+  const cpuVal = cpuLimM
+    ? `${formatCores(stats.cpuMillicores)} / ${formatCores(cpuLimM)} ${t("cores")} (${Math.min(100, Math.round((stats.cpuMillicores / cpuLimM) * 100))}%)`
+    : `${formatCores(stats.cpuMillicores)} ${t("cores")}`;
+  const memLimB = parseMemBytes(stats.memoryLimit);
+  const memVal = memLimB
+    ? `${formatMem(stats.memoryBytes)} / ${formatMem(memLimB)} (${Math.min(100, Math.round((stats.memoryBytes / memLimB) * 100))}%)`
+    : formatMem(stats.memoryBytes);
   return (
     <div className="charts">
       <Chart
         label={t("CPU")}
-        value={`${stats.cpuMillicores}m${stats.cpuLimit ? ` / ${stats.cpuLimit}` : ""}`}
+        value={cpuVal}
         points={history.map((s) => s.cpu)}
         color="var(--accent)"
       />
       <Chart
         label={t("Memory")}
-        value={`${formatMem(stats.memoryBytes)}${stats.memoryLimit ? ` / ${stats.memoryLimit}` : ""}`}
+        value={memVal}
         points={history.map((s) => s.mem)}
         color="var(--accent-2)"
       />

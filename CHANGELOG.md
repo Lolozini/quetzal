@@ -39,6 +39,10 @@ releases may include breaking changes).
 
 ### Changed
 
+- **Friendlier resource readouts** on the server page: CPU is shown in **cores**
+  (e.g. `0.01 cores`) instead of raw millicores (`12m`), and both CPU and Memory
+  show **used / limit with a percentage** when the pod has a limit set (e.g.
+  `1.13 GiB / 4.00 GiB (28%)`), matching the disk bar.
 - **Long sections collapse to keep pages short.** The activity log (admin and
   per-server) and the admin **Eggs / templates** section are now collapsible and
   start collapsed, showing a count in the header — so a busy audit trail or a

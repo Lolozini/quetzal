@@ -240,6 +240,7 @@ export const fr: Record<string, string> = {
   Ready: "Prêt",
   Version: "Version",
   CPU: "CPU",
+  cores: "cœurs",
   IP: "IP",
   "No nodes (or not listable).": "Aucun nœud (ou non listable).",
   "Register a remote cluster": "Enregistrer un cluster distant",
