@@ -229,7 +229,7 @@ export const fr: Record<string, string> = {
   Ports: "Ports",
   primary: "principal",
   "Add port": "Ajouter un port",
-  "Search templates…": "Rechercher un modèle…",
+  "Search or select a template…": "Rechercher ou choisir un modèle…",
   "No templates match your search.": "Aucun modèle ne correspond à votre recherche.",
   "This template declares no ports; define them here and pick the primary (the port players connect to).":
     "Ce modèle ne déclare aucun port ; définissez-les ici et choisissez le principal (celui auquel les joueurs se connectent).",

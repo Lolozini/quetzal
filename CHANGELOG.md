@@ -9,11 +9,10 @@ releases may include breaking changes).
 
 ### Added
 
-- **Template search on the create-server form**: once there are more than a
-  handful of templates, a search box filters the picker by name (imported eggs
-  are named after their catalog path, e.g. `minecraft/java/paper`, so a search
-  matches by game or variant). The current selection stays visible even when it
-  doesn't match the filter.
+- **Searchable template picker on the create-server form**: the template
+  dropdown is now a combobox — open it and start typing to filter by name (no
+  separate search field). Imported eggs are named after their catalog path (e.g.
+  `minecraft/java/paper`), so a search matches by game, category or variant.
 - **Port suggestions for imported eggs**: the create form now pre-fills the
   per-server ports editor from the template's port-like variables (`QUERY_PORT`,
   `RCON_PORT`, `STEAM_PORT`…, detected by name + a valid numeric default), so a

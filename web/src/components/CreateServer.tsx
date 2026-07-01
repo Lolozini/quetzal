@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, Cluster, CreateServerRequest, ExposeType, Template } from "../api";
 import { useT } from "../i18n";
+import { Combobox } from "./Combobox";
 
 export function CreateServer({
   onDone,
@@ -12,7 +13,6 @@ export function CreateServer({
   const { t } = useT();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [tplSlug, setTplSlug] = useState("");
-  const [tplFilter, setTplFilter] = useState("");
   const [name, setName] = useState("");
   const [image, setImage] = useState("");
   const [memory, setMemory] = useState("");
@@ -85,18 +85,6 @@ export function CreateServer({
   }, []);
 
   const tpl = templates.find((t) => t.slug === tplSlug);
-  // Filter the template picker by name (imported eggs are prefixed with their
-  // path, e.g. "minecraft/java/paper", so a search matches by game or variant).
-  const q = tplFilter.trim().toLowerCase();
-  const visibleTemplates = q
-    ? templates.filter((x) => x.name.toLowerCase().includes(q))
-    : templates;
-  // Keep the current selection in the option list even when it's filtered out,
-  // so the <select> still shows what's chosen.
-  const optionTemplates =
-    tpl && !visibleTemplates.some((x) => x.slug === tpl.slug)
-      ? [tpl, ...visibleTemplates]
-      : visibleTemplates;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -158,32 +146,16 @@ export function CreateServer({
       </div>
       <form onSubmit={submit}>
         <label>{t("Template")}</label>
-        {templates.length > 8 && (
-          <input
-            type="search"
-            placeholder={t("Search templates…")}
-            value={tplFilter}
-            onChange={(e) => setTplFilter(e.target.value)}
-          />
-        )}
-        <select
+        <Combobox
+          options={templates.map((x) => ({ value: x.slug, label: x.name }))}
           value={tplSlug}
-          onChange={(e) => {
-            const t = templates.find((x) => x.slug === e.target.value);
-            if (t) selectTemplate(t);
+          placeholder={t("Search or select a template…")}
+          emptyLabel={t("No templates match your search.")}
+          onChange={(slug) => {
+            const x = templates.find((y) => y.slug === slug);
+            if (x) selectTemplate(x);
           }}
-        >
-          {optionTemplates.map((t) => (
-            <option key={t.slug} value={t.slug}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-        {q && visibleTemplates.length === 0 && (
-          <div className="muted" style={{ fontSize: 12 }}>
-            {t("No templates match your search.")}
-          </div>
-        )}
+        />
         {tpl?.description && <p className="muted">{tpl.description}</p>}
 
         {clusters.length > 1 && (
