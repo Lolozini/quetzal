@@ -119,3 +119,20 @@ tr.clickable:hover { background: var(--panel-2); cursor: pointer; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .kv { display: grid; grid-template-columns: 140px 1fr; gap: 6px; margin: 4px 0; }
 .kv .k { color: var(--muted); }
+
+/* Combobox: a text input that behaves like a filterable dropdown. */
+.combobox { position: relative; }
+.combobox input { padding-right: 28px; }
+.combobox-caret {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--muted); pointer-events: none; font-size: 12px;
+}
+.combobox-list {
+  position: absolute; z-index: 30; left: 0; right: 0; margin-top: 4px;
+  max-height: 280px; overflow-y: auto;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.combobox-item { padding: 8px 10px; cursor: pointer; white-space: nowrap; }
+.combobox-item.active, .combobox-item:hover { background: var(--border); }
+.combobox-empty { padding: 8px 10px; color: var(--muted); font-size: 13px; }
