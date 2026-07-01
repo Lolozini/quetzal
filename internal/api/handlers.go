@@ -1300,25 +1300,71 @@ func (s *Server) handleServerStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// addIOStats augments resp with rxBytes/txBytes (cumulative) and disk
-// total/used, read from the running pod. Errors are swallowed by design.
+// addIOStats augments resp with rxBytes/txBytes (cumulative) and data-volume
+// disk usage, read from the running pod. Errors are swallowed by design.
+//
+// Disk is reported as actual usage of the data volume (du) against the PVC's
+// declared size — NOT df: on local-path (hostPath-backed) PVCs df reports the
+// whole host filesystem, not the per-server volume. du is walked at most once
+// per diskUsageTTL (cached), so the 4s stats poll stays cheap; net counters are
+// still read every poll.
 func (s *Server) addIOStats(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, srv *models.Server, pod string, resp map[string]any) {
 	ioCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	root := s.dataRoot(srv)
-	cmd := []string{"sh", "-c", `cat /proc/net/dev 2>/dev/null; echo "@@DF@@"; df -kP "$1" 2>/dev/null`, "_", root}
+
+	used, fresh := s.cachedDiskUsage(srv.ID)
+	script := `cat /proc/net/dev 2>/dev/null`
+	if !fresh {
+		script += `; echo "@@DU@@"; du -sk "$1" 2>/dev/null`
+	}
 	var out strings.Builder
-	if err := console.Exec(ioCtx, cs, cfg, srv.Namespace, pod, cmd, nil, &out); err != nil {
+	if err := console.Exec(ioCtx, cs, cfg, srv.Namespace, pod, []string{"sh", "-c", script, "_", root}, nil, &out); err != nil {
 		return
 	}
-	netPart, dfPart, _ := strings.Cut(out.String(), "@@DF@@")
+	netPart, duPart, hasDU := strings.Cut(out.String(), "@@DU@@")
 	rx, tx := stats.ParseNetDev([]byte(netPart))
 	resp["rxBytes"] = rx
 	resp["txBytes"] = tx
-	if total, used := stats.ParseDiskUsage([]byte(dfPart)); total > 0 {
-		resp["diskTotalBytes"] = total
-		resp["diskUsedBytes"] = used
+
+	if !fresh && hasDU {
+		if u := stats.ParseDuUsed([]byte(duPart)); u >= 0 {
+			used, fresh = u, true
+			s.setDiskUsage(srv.ID, u)
+		}
 	}
+	if fresh {
+		resp["diskUsedBytes"] = used
+		// Total = the PVC's declared size (there is no per-volume quota to read on
+		// local-path). Omitted when unparseable, so the UI just hides the bar.
+		if q, err := resource.ParseQuantity(srv.Storage.Size); err == nil && q.Value() > 0 {
+			resp["diskTotalBytes"] = q.Value()
+		}
+	}
+}
+
+// diskUsageTTL bounds how often du walks a server's data volume for the stats
+// endpoint (usage changes slowly; the poll runs every few seconds).
+const diskUsageTTL = 30 * time.Second
+
+// cachedDiskUsage returns a server's last du reading if still within the TTL.
+func (s *Server) cachedDiskUsage(id uint) (int64, bool) {
+	s.diskUsageMu.Lock()
+	defer s.diskUsageMu.Unlock()
+	if smp, ok := s.diskUsage[id]; ok && time.Since(smp.at) < diskUsageTTL {
+		return smp.usedBytes, true
+	}
+	return 0, false
+}
+
+// setDiskUsage records a fresh du reading for a server.
+func (s *Server) setDiskUsage(id uint, used int64) {
+	s.diskUsageMu.Lock()
+	defer s.diskUsageMu.Unlock()
+	if s.diskUsage == nil {
+		s.diskUsage = map[uint]diskSample{}
+	}
+	s.diskUsage[id] = diskSample{usedBytes: used, at: time.Now()}
 }
 
 // ---- helpers ----

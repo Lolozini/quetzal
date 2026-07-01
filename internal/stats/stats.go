@@ -100,20 +100,18 @@ func ParseNetDev(raw []byte) (rxBytes, txBytes int64) {
 	return rxBytes, txBytes
 }
 
-// ParseDiskUsage reads total/used bytes for a filesystem from `df -kP <path>`
-// output (POSIX format: one record per filesystem, blocks in 1 KiB units). It
-// returns the last data row, so a header + single row parses correctly.
-func ParseDiskUsage(raw []byte) (totalBytes, usedBytes int64) {
-	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
-		f := strings.Fields(line)
-		if len(f) < 4 || f[0] == "Filesystem" {
-			continue
-		}
-		total, err1 := strconv.ParseInt(f[1], 10, 64)
-		used, err2 := strconv.ParseInt(f[2], 10, 64)
-		if err1 == nil && err2 == nil {
-			totalBytes, usedBytes = total*1024, used*1024
-		}
+// ParseDuUsed reads used bytes from `du -sk <path>` output (a single summary
+// record "<kib>\t<path>", KiB blocks). Returns -1 when it can't parse. Used
+// instead of df for per-volume usage: on local-path (hostPath-backed) PVCs df
+// reports the whole host filesystem, so only du of the data dir is meaningful.
+func ParseDuUsed(raw []byte) int64 {
+	f := strings.Fields(strings.TrimSpace(string(raw)))
+	if len(f) < 1 {
+		return -1
 	}
-	return totalBytes, usedBytes
+	kib, err := strconv.ParseInt(f[0], 10, 64)
+	if err != nil {
+		return -1
+	}
+	return kib * 1024
 }

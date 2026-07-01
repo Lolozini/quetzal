@@ -72,6 +72,13 @@ releases may include breaking changes).
 
 ### Fixed
 
+- The per-server **Disk** metric now reports usage of the server's **data volume**
+  against the **PVC's declared size**, instead of the node filesystem. It's read
+  with `du` (actual usage) rather than `df`: on local-path (hostPath-backed) PVCs
+  `df` reports the whole host disk (e.g. `166/215 GiB`) instead of the server's
+  volume — now it shows used vs. the PVC size (e.g. `3/10 GiB`). The `du` walk is
+  cached (30s) so the 4s stats poll stays cheap; network counters still update
+  every poll.
 - Imported eggs now mount their data at **`/home/container`** (Pterodactyl's
   guaranteed server directory) instead of `/data`. Many eggs hardcode
   `/home/container` in their `config.files` (e.g. Terraria's `worldpath`) or
