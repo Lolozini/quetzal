@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, Cluster, CreateServerRequest, ExposeType, Template } from "../api";
 import { useT } from "../i18n";
 import { Combobox } from "./Combobox";
+import { PortsEditor } from "./PortsEditor";
 
 export function CreateServer({
   onDone,
@@ -206,58 +207,14 @@ export function CreateServer({
             <div className="muted" style={{ fontSize: 12 }}>
               {t("This template declares no ports; define them here and pick the primary (the port players connect to).")}
             </div>
-            {customPorts.map((p, i) => (
-              <div className="row" key={i} style={{ gap: 6, marginTop: 4, alignItems: "center" }}>
-                <input
-                  type="number"
-                  min={1}
-                  max={65535}
-                  style={{ width: 120 }}
-                  value={p.port}
-                  placeholder="25565"
-                  onChange={(e) =>
-                    setCustomPorts(customPorts.map((q, j) => (j === i ? { ...q, port: e.target.value } : q)))
-                  }
-                />
-                <select
-                  style={{ width: "auto" }}
-                  value={p.protocol}
-                  onChange={(e) =>
-                    setCustomPorts(customPorts.map((q, j) => (j === i ? { ...q, protocol: e.target.value } : q)))
-                  }
-                >
-                  <option value="TCP">TCP</option>
-                  <option value="UDP">UDP</option>
-                </select>
-                <label className="muted" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
-                  <input
-                    type="radio"
-                    name="primaryPort"
-                    checked={i === primaryIdx}
-                    onChange={() => setPrimaryIdx(i)}
-                  />
-                  {t("primary")}
-                </label>
-                {customPorts.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCustomPorts(customPorts.filter((_, j) => j !== i));
-                      setPrimaryIdx((cur) => (i === cur ? 0 : cur > i ? cur - 1 : cur));
-                    }}
-                  >
-                    {t("Remove")}
-                  </button>
-                )}
-              </div>
-            ))}
-            <button
-              type="button"
-              style={{ marginTop: 4 }}
-              onClick={() => setCustomPorts([...customPorts, { port: "", protocol: "TCP" }])}
-            >
-              {t("Add port")}
-            </button>
+            <PortsEditor
+              ports={customPorts}
+              primaryIdx={primaryIdx}
+              onChange={(p, i) => {
+                setCustomPorts(p);
+                setPrimaryIdx(i);
+              }}
+            />
           </>
         )}
 

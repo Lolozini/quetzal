@@ -724,6 +724,10 @@ type updateServerRequest struct {
 	// Resources, when present, updates the CPU/memory limits (re-checked against
 	// the owner's quota). Applied on the next reconcile, which restarts the pod.
 	Resources *models.Resources `json:"resources"`
+	// Ports, when present, replaces the server's per-server port set (the ports
+	// editor for imported eggs). Reallocates pool node ports as needed and rolls
+	// the pod on the next reconcile.
+	Ports *[]models.PortSpec `json:"ports"`
 }
 
 func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
@@ -782,29 +786,61 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if req.Expose == nil {
+	if req.Ports == nil && req.Expose == nil {
 		writeJSON(w, http.StatusOK, srv) // nothing else to change
 		return
 	}
-	expose := *req.Expose
-	if err := validateExpose(expose, len(srv.Ports) > 0); err != nil {
+
+	// Networking: the port set and/or the exposure. Recompute them together so
+	// the pool node-port allocations stay consistent with both.
+	portsChanged := req.Ports != nil
+	newPorts := srv.Ports
+	if portsChanged {
+		sanitized, perr := sanitizePorts(*req.Ports)
+		if perr != nil {
+			writeError(w, http.StatusBadRequest, perr.Error())
+			return
+		}
+		newPorts = sanitized
+	}
+	expose := srv.Expose
+	if req.Expose != nil {
+		expose = *req.Expose
+	}
+	if err := validateExpose(expose, len(newPorts) > 0); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	var ports []models.PortSpec
 	if expose.ServiceType() == models.ExposeNodePort {
-		var err error
-		if ports, err = s.allocateNodePorts(srv.ID, srv.Ports); err != nil {
+		// Free node ports for game ports no longer present so the pool set matches
+		// the new list. Ports that survive keep their allocation (allocateNodePorts
+		// reuses by name), so unchanged external ports stay stable. The SFTP port
+		// has its own allocation key and is left untouched.
+		if portsChanged {
+			keep := map[string]bool{}
+			for _, p := range newPorts {
+				keep[portAllocName(p)] = true
+			}
+			for _, p := range srv.Ports {
+				if !keep[portAllocName(p)] {
+					_ = s.Store.ReleaseNodePort(srv.ID, portAllocName(p))
+				}
+			}
+		}
+		allocated, err := s.allocateNodePorts(srv.ID, newPorts)
+		if err != nil {
 			writeError(w, http.StatusConflict, err.Error())
 			return
 		}
+		ports = allocated
 	} else {
-		if err := s.Store.ReleaseServerPorts(srv.ID); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
+		// Not NodePort: release every game port's pool allocation (leaving SFTP).
+		for _, p := range srv.Ports {
+			_ = s.Store.ReleaseNodePort(srv.ID, portAllocName(p))
 		}
-		ports = clearNodePorts(srv.Ports)
+		ports = clearNodePorts(newPorts)
 	}
 	if err := s.Store.UpdateServerNetworking(srv.ID, expose, ports); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -812,7 +848,7 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	}
 	srv.Expose = expose
 	srv.Ports = ports
-	s.audit(r, srv.ID, "server.update", "expose="+string(expose.ServiceType()))
+	s.audit(r, srv.ID, "server.update", fmt.Sprintf("expose=%s ports=%d", expose.ServiceType(), len(ports)))
 	writeJSON(w, http.StatusOK, srv)
 }
 
@@ -855,17 +891,23 @@ func (s *Server) allocateNodePorts(serverID uint, ports []models.PortSpec) ([]mo
 	out := make([]models.PortSpec, len(ports))
 	copy(out, ports)
 	for i := range out {
-		name := out[i].Name
-		if name == "" {
-			name = fmt.Sprintf("p%d", out[i].Port)
-		}
-		np, err := s.Store.AllocateNodePort(serverID, name, s.NodePortMin, s.NodePortMax)
+		np, err := s.Store.AllocateNodePort(serverID, portAllocName(out[i]), s.NodePortMin, s.NodePortMax)
 		if err != nil {
 			return nil, err
 		}
 		out[i].NodePort = np
 	}
 	return out, nil
+}
+
+// portAllocName is a port's key in the node-port pool: its explicit name, or a
+// stable name derived from the port number when unnamed. Must match between
+// allocation and release so a port frees the same key it reserved.
+func portAllocName(p models.PortSpec) string {
+	if p.Name != "" {
+		return p.Name
+	}
+	return fmt.Sprintf("p%d", p.Port)
 }
 
 func clearNodePorts(ports []models.PortSpec) []models.PortSpec {
