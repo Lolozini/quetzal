@@ -9,6 +9,10 @@ releases may include breaking changes).
 
 ### Added
 
+- **Restart hints on the server page**: each editable section now flags whether
+  saving it **restarts the server** (Variables, Resource limits, Ports, EULA,
+  Reinstall — a small `↻` chip) or **applies without a restart** (Exposure,
+  Hibernation), so it's clear up front which changes bounce a running server.
 - **Editable ports after creation**: a server's per-server ports (number,
   TCP/UDP, primary) can now be changed from **Settings → Ports**, not just at
   creation. Saving reallocates pool node ports as needed (unchanged ports keep

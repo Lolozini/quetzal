@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, Server, Template, TemplateVariable } from "../api";
 import { useT } from "../i18n";
 import { PortsEditor, PortRow } from "./PortsEditor";
+import { RestartHint } from "./RestartHint";
 
 // ServerSettings edits a running server's startup variables and resource limits.
 // Both apply on the next reconcile, which restarts the server.
@@ -18,7 +19,7 @@ export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (
   return (
     <div className="card">
       <h2>{t("Startup & resources")}</h2>
-      <p className="muted">{t("Changes apply on the next reconcile, which restarts the server.")}</p>
+      <p className="muted">{t("Edit this server's configuration. Each section shows whether saving it restarts the server.")}</p>
       {editable.length > 0 && <Variables serverId={server.id} vars={editable} env={server.env ?? {}} onSaved={onSaved} />}
       <ResourcesForm server={server} onSaved={onSaved} />
       {tmpl && (tmpl.ports?.length ?? 0) === 0 && <ServerPorts server={server} onSaved={onSaved} />}
@@ -47,7 +48,7 @@ function EULAToggle({ server, onSaved }: { server: Server; onSaved: (s: Server) 
   }
   return (
     <div style={{ marginTop: 12 }}>
-      <h3>{t("Minecraft EULA")}</h3>
+      <h3>{t("Minecraft EULA")} <RestartHint /></h3>
       <label className="row" style={{ gap: 6 }}>
         <input
           type="checkbox"
@@ -98,9 +99,9 @@ function ServerPorts({ server, onSaved }: { server: Server; onSaved: (s: Server)
 
   return (
     <div style={{ marginTop: 12 }}>
-      <h3>{t("Ports")}</h3>
+      <h3>{t("Ports")} <RestartHint /></h3>
       <p className="muted" style={{ fontSize: 12 }}>
-        {t("The ports this server exposes; pick the primary (the port players connect to). Saving restarts the server.")}
+        {t("The ports this server exposes; pick the primary (the port players connect to).")}
       </p>
       <PortsEditor ports={rows} primaryIdx={primaryIdx} onChange={(p, i) => { setRows(p); setPrimaryIdx(i); }} />
       {error && <div className="error">{error}</div>}
@@ -139,7 +140,7 @@ function Reinstall({ serverId }: { serverId: number }) {
 
   return (
     <div style={{ marginTop: 12 }}>
-      <h3>{t("Reinstall")}</h3>
+      <h3>{t("Reinstall")} <RestartHint /></h3>
       <p className="muted">{t("Re-runs the template's install script. Applied on the next reconcile, which restarts the server.")}</p>
       <label className="row" style={{ gap: 6 }}>
         <input type="checkbox" style={{ width: "auto" }} checked={wipe} onChange={(e) => setWipe(e.target.checked)} />
@@ -195,7 +196,7 @@ function Variables({
 
   return (
     <form onSubmit={submit} style={{ marginTop: 12 }}>
-      <h3>{t("Variables")}</h3>
+      <h3>{t("Variables")} <RestartHint /></h3>
       {vars.map((v) => (
         <div key={v.envVariable} style={{ marginBottom: 8 }}>
           <label>{v.name || v.envVariable}{v.required ? " *" : ""}</label>
@@ -248,7 +249,7 @@ function ResourcesForm({ server, onSaved }: { server: Server; onSaved: (s: Serve
 
   return (
     <form onSubmit={submit} style={{ marginTop: 12 }}>
-      <h3>{t("Resource limits")}</h3>
+      <h3>{t("Resource limits")} <RestartHint /></h3>
       <div className="grid2">
         <div><label>{t("Memory (blank = unlimited)")}</label><input value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="2Gi" /></div>
         <div><label>{t("CPU (blank = unlimited)")}</label><input value={cpu} onChange={(e) => setCpu(e.target.value)} placeholder="1000m" /></div>
