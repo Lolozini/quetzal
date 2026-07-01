@@ -228,6 +228,10 @@ export const fr: Record<string, string> = {
   Ports: "Ports",
   primary: "principal",
   "Add port": "Ajouter un port",
+  "Save ports": "Enregistrer les ports",
+  "Ports saved; the server restarts to apply.": "Ports enregistrés ; le serveur redémarre pour appliquer.",
+  "The ports this server exposes; pick the primary (the port players connect to). Saving restarts the server.":
+    "Les ports exposés par ce serveur ; choisissez le principal (celui auquel les joueurs se connectent). L'enregistrement redémarre le serveur.",
   "Search or select a template…": "Rechercher ou choisir un modèle…",
   "No templates match your search.": "Aucun modèle ne correspond à votre recherche.",
   "This template declares no ports; define them here and pick the primary (the port players connect to).":

@@ -216,6 +216,72 @@ func TestCreateServerExposeWithoutPortsRejected(t *testing.T) {
 	}
 }
 
+// TestUpdateServerPortsEdit covers editing a server's per-server ports after
+// creation: adding a port reallocates the node-port set, the primary flag is
+// honoured, and emptying the ports while externally exposed is rejected.
+func TestUpdateServerPortsEdit(t *testing.T) {
+	ts, c := newTestServer(t)
+	post(t, c, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+
+	type port struct {
+		Port     int32  `json:"port"`
+		Protocol string `json:"protocol"`
+		Primary  bool   `json:"primary"`
+		NodePort int32  `json:"nodePort"`
+	}
+	type server struct {
+		ID    uint   `json:"id"`
+		Ports []port `json:"ports"`
+	}
+
+	// generic-process declares no ports; supply per-server ports + NodePort.
+	var srv server
+	r := post(t, c, ts.URL+"/api/servers", map[string]any{
+		"name":     "edit-ports",
+		"template": "generic-process",
+		"ports":    []map[string]any{{"port": 25565, "protocol": "TCP", "primary": true}},
+		"expose":   map[string]string{"type": "NodePort"},
+	})
+	if r.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d", r.StatusCode)
+	}
+	json.NewDecoder(r.Body).Decode(&srv)
+	if len(srv.Ports) != 1 || srv.Ports[0].NodePort < 30000 {
+		t.Fatalf("create ports = %+v", srv.Ports)
+	}
+
+	// Edit: add a second (UDP) port, keep the first primary.
+	url := ts.URL + "/api/servers/" + itoa(srv.ID)
+	body := `{"ports":[{"port":25565,"protocol":"TCP","primary":true},{"port":25575,"protocol":"UDP"}]}`
+	req, _ := http.NewRequest(http.MethodPatch, url, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	pr, err := c.Do(req)
+	if err != nil || pr.StatusCode != http.StatusOK {
+		t.Fatalf("patch = %v / %d", err, pr.StatusCode)
+	}
+	var patched server
+	json.NewDecoder(pr.Body).Decode(&patched)
+	if len(patched.Ports) != 2 {
+		t.Fatalf("edited ports = %+v", patched.Ports)
+	}
+	for _, p := range patched.Ports {
+		if p.NodePort < 30000 {
+			t.Errorf("port %d missing node port: %+v", p.Port, p)
+		}
+	}
+	if !patched.Ports[0].Primary || patched.Ports[1].Primary {
+		t.Errorf("primary flags wrong: %+v", patched.Ports)
+	}
+
+	// Emptying the ports while NodePort-exposed is rejected (nothing to publish).
+	req2, _ := http.NewRequest(http.MethodPatch, url, strings.NewReader(`{"ports":[]}`))
+	req2.Header.Set("Content-Type", "application/json")
+	pr2, _ := c.Do(req2)
+	if pr2.StatusCode != http.StatusBadRequest {
+		t.Errorf("empty ports on NodePort = %d, want 400", pr2.StatusCode)
+	}
+}
+
 func TestDeleteServerKeepDataRetainsPV(t *testing.T) {
 	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "k.db"), Silent: true})
 	if err != nil {

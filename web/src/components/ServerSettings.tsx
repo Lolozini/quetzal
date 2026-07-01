@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, Server, Template, TemplateVariable } from "../api";
 import { useT } from "../i18n";
+import { PortsEditor, PortRow } from "./PortsEditor";
 
 // ServerSettings edits a running server's startup variables and resource limits.
 // Both apply on the next reconcile, which restarts the server.
@@ -20,6 +21,7 @@ export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (
       <p className="muted">{t("Changes apply on the next reconcile, which restarts the server.")}</p>
       {editable.length > 0 && <Variables serverId={server.id} vars={editable} env={server.env ?? {}} onSaved={onSaved} />}
       <ResourcesForm server={server} onSaved={onSaved} />
+      {tmpl && (tmpl.ports?.length ?? 0) === 0 && <ServerPorts server={server} onSaved={onSaved} />}
       {tmpl?.features?.includes("eula") && <EULAToggle server={server} onSaved={onSaved} />}
       {tmpl?.install?.script && <Reinstall serverId={server.id} />}
     </div>
@@ -59,6 +61,53 @@ function EULAToggle({ server, onSaved }: { server: Server; onSaved: (s: Server) 
       </label>
       <p className="muted">{t("Required for the server to start; applied on the next reconcile.")}</p>
       {error && <div className="error">{error}</div>}
+    </div>
+  );
+}
+
+// ServerPorts edits a server's per-server ports (imported eggs allocate ports
+// per server, not in the egg). Saving reallocates node ports if needed and
+// restarts the server on the next reconcile.
+function ServerPorts({ server, onSaved }: { server: Server; onSaved: (s: Server) => void }) {
+  const { t } = useT();
+  const init = (server.ports ?? []).map((p) => ({ port: String(p.port), protocol: (p.protocol || "TCP").toUpperCase() }));
+  const [rows, setRows] = useState<PortRow[]>(init.length ? init : [{ port: "", protocol: "TCP" }]);
+  const initPrimary = (server.ports ?? []).findIndex((p) => p.primary);
+  const [primaryIdx, setPrimaryIdx] = useState(initPrimary >= 0 ? initPrimary : 0);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [msg, setMsg] = useState("");
+
+  async function save() {
+    setBusy(true);
+    setError("");
+    setMsg("");
+    try {
+      const ports = rows
+        .map((r, i) => ({ port: Number(r.port), protocol: r.protocol, primary: i === primaryIdx, blank: r.port.trim() === "" }))
+        .filter((r) => !r.blank)
+        .map(({ blank, ...p }) => p);
+      onSaved(await api.setServerPorts(server.id, ports));
+      setMsg(t("Ports saved; the server restarts to apply."));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <h3>{t("Ports")}</h3>
+      <p className="muted" style={{ fontSize: 12 }}>
+        {t("The ports this server exposes; pick the primary (the port players connect to). Saving restarts the server.")}
+      </p>
+      <PortsEditor ports={rows} primaryIdx={primaryIdx} onChange={(p, i) => { setRows(p); setPrimaryIdx(i); }} />
+      {error && <div className="error">{error}</div>}
+      {msg && <div className="notice">{msg}</div>}
+      <button className="primary" style={{ marginTop: 8 }} onClick={save} disabled={busy}>
+        {busy ? t("Saving…") : t("Save ports")}
+      </button>
     </div>
   );
 }

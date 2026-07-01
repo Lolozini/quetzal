@@ -548,6 +548,8 @@ export const api = {
     req<Server>("PATCH", `/api/servers/${id}`, { env }),
   setServerResources: (id: number, resources: { memory: string; cpu: string }) =>
     req<Server>("PATCH", `/api/servers/${id}`, { resources }),
+  setServerPorts: (id: number, ports: { port: number; protocol: string; primary: boolean }[]) =>
+    req<Server>("PATCH", `/api/servers/${id}`, { ports }),
   reinstallServer: (id: number, wipeData: boolean) =>
     req<{ status: string; wipeData: boolean }>("POST", `/api/servers/${id}/reinstall`, { wipeData }),
   stats: (id: number) => req<ServerStats>("GET", `/api/servers/${id}/stats`),
