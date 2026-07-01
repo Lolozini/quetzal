@@ -62,6 +62,11 @@ func TestToTemplate(t *testing.T) {
 	if tmpl.Slug != "paper-test" {
 		t.Errorf("slug = %q, want paper-test", tmpl.Slug)
 	}
+	// Imported eggs mount their data at /home/container (Pterodactyl's server dir),
+	// which many eggs hardcode in config.files / resolve files against.
+	if tmpl.DataPath != "/home/container" {
+		t.Errorf("dataPath = %q, want /home/container", tmpl.DataPath)
+	}
 	if tmpl.StopCommand != "stop" {
 		t.Errorf("stopCommand = %q, want stop", tmpl.StopCommand)
 	}
