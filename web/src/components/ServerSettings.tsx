@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, Server, Template, TemplateVariable } from "../api";
 import { useT } from "../i18n";
-import { PortsEditor, PortRow } from "./PortsEditor";
+import { PortsEditor, PortRow, rowsToPorts } from "./PortsEditor";
 import { RestartHint } from "./RestartHint";
 
 // ServerSettings edits a running server's startup variables and resource limits.
@@ -80,26 +80,23 @@ function ServerPorts({ server, onSaved }: { server: Server; onSaved: (s: Server)
   const [msg, setMsg] = useState("");
 
   // Dirty when the current ports differ from what's saved on the server, so the
-  // restart hint only shows once there's a pending change.
-  const currentSig = JSON.stringify(
-    rows
-      .map((r, i) => ({ port: r.port.trim(), protocol: r.protocol.toUpperCase(), primary: i === primaryIdx }))
-      .filter((r) => r.port !== ""),
-  );
-  const savedSig = JSON.stringify(
-    (server.ports ?? []).map((p) => ({ port: String(p.port), protocol: (p.protocol || "TCP").toUpperCase(), primary: !!p.primary })),
-  );
-  const dirty = currentSig !== savedSig;
+  // restart hint only shows once there's a pending change. Compare on the
+  // expanded, order-independent form so a "TCP/UDP" row equals its saved TCP+UDP
+  // pair.
+  const sig = (ps: { port: number | string; protocol: string; primary?: boolean }[]) =>
+    JSON.stringify(
+      ps
+        .map((p) => ({ port: Number(p.port), protocol: p.protocol.toUpperCase(), primary: !!p.primary }))
+        .sort((a, b) => a.port - b.port || a.protocol.localeCompare(b.protocol)),
+    );
+  const dirty = sig(rowsToPorts(rows, primaryIdx)) !== sig(server.ports ?? []);
 
   async function save() {
     setBusy(true);
     setError("");
     setMsg("");
     try {
-      const ports = rows
-        .map((r, i) => ({ port: Number(r.port), protocol: r.protocol, primary: i === primaryIdx, blank: r.port.trim() === "" }))
-        .filter((r) => !r.blank)
-        .map(({ blank, ...p }) => p);
+      const ports = rowsToPorts(rows, primaryIdx);
       onSaved(await api.setServerPorts(server.id, ports));
       setMsg(t("Ports saved; the server restarts to apply."));
     } catch (e) {

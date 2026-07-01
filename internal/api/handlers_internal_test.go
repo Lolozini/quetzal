@@ -47,6 +47,45 @@ func TestSanitizePorts(t *testing.T) {
 	}
 }
 
+func TestSanitizePortsSharedPortDualProtocol(t *testing.T) {
+	// The same port number on TCP and UDP (e.g. Minecraft game + query) is valid
+	// and gets protocol-suffixed names so the Kubernetes Service stays valid.
+	out, err := sanitizePorts([]models.PortSpec{
+		{Port: 25565, Protocol: "TCP"},
+		{Port: 25565, Protocol: "UDP"},
+	})
+	if err != nil {
+		t.Fatalf("dual-protocol same port rejected: %v", err)
+	}
+	if len(out) != 2 {
+		t.Fatalf("want 2 ports, got %d", len(out))
+	}
+	if out[0].Name == out[1].Name {
+		t.Fatalf("names must be unique, both %q", out[0].Name)
+	}
+	if out[0].Name != "p25565-tcp" || out[1].Name != "p25565-udp" {
+		t.Fatalf("unexpected names: %q, %q", out[0].Name, out[1].Name)
+	}
+
+	// A single-protocol port keeps the bare name (no needless rename that would
+	// reallocate an existing server's node port).
+	single, err := sanitizePorts([]models.PortSpec{{Port: 25565, Protocol: "TCP"}})
+	if err != nil {
+		t.Fatalf("single port: %v", err)
+	}
+	if single[0].Name != "p25565" {
+		t.Fatalf("single-protocol name = %q, want p25565", single[0].Name)
+	}
+
+	// Explicit duplicate names are rejected rather than producing an invalid Service.
+	if _, err := sanitizePorts([]models.PortSpec{
+		{Port: 25565, Protocol: "TCP", Name: "dup"},
+		{Port: 25575, Protocol: "UDP", Name: "dup"},
+	}); err == nil {
+		t.Fatal("expected error for duplicate explicit port names")
+	}
+}
+
 func TestValidateResources(t *testing.T) {
 	ok := []models.Resources{
 		{},                          // blank = unlimited
