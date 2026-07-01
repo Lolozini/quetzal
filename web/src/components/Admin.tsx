@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { AdminPermInfo, AdminRole, api, ApiError, AuditEntry, EmailSettingsInput, hasAdminPerm, User } from "../api";
 import { useT } from "../i18n";
+import { Collapsible } from "./Collapsible";
 import { Clusters } from "./Clusters";
 import { DatabaseHosts } from "./DatabaseHosts";
 import { Notifications } from "./Notifications";
@@ -434,24 +435,25 @@ function GlobalAudit() {
   }, []);
   return (
     <div className="card">
-      <h2>{t("Activity log")}</h2>
-      {entries.length === 0 ? (
-        <p className="muted">{t("No activity yet.")}</p>
-      ) : (
-        <table>
-          <thead><tr><th>{t("When")}</th><th>{t("User")}</th><th>{t("Action")}</th><th>{t("Detail")}</th></tr></thead>
-          <tbody>
-            {entries.map((e) => (
-              <tr key={e.id}>
-                <td>{new Date(e.createdAt).toLocaleString()}</td>
-                <td>{e.username}</td>
-                <td><code>{e.action}</code></td>
-                <td>{e.detail}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <Collapsible title={t("Activity log")} count={entries.length}>
+        {entries.length === 0 ? (
+          <p className="muted">{t("No activity yet.")}</p>
+        ) : (
+          <table>
+            <thead><tr><th>{t("When")}</th><th>{t("User")}</th><th>{t("Action")}</th><th>{t("Detail")}</th></tr></thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr key={e.id}>
+                  <td>{new Date(e.createdAt).toLocaleString()}</td>
+                  <td>{e.username}</td>
+                  <td><code>{e.action}</code></td>
+                  <td>{e.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Collapsible>
     </div>
   );
 }

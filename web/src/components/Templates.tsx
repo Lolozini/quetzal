@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, CatalogEgg, Template } from "../api";
 import { useT } from "../i18n";
+import { Collapsible } from "./Collapsible";
 
 // Templates is the admin egg catalog: import Pterodactyl/Pelican eggs, browse,
 // edit (as native JSON), export and delete templates.
@@ -105,7 +106,7 @@ export function Templates() {
   }
 
   async function remove(t: Template) {
-    if (!window.confirm(tr('Delete template "{name}"? (Built-in ones return on restart.)', { name: t.name }))) return;
+    if (!window.confirm(tr('Delete template "{name}"?', { name: t.name }))) return;
     setError("");
     try {
       await api.deleteTemplate(t.slug);
@@ -117,7 +118,7 @@ export function Templates() {
 
   return (
     <div className="card">
-      <h2>{tr("Eggs / templates")}</h2>
+      <Collapsible title={tr("Eggs / templates")} count={templates.length}>
       <p className="muted">{tr("The catalog of game/app templates. Import existing Pterodactyl/Pelican eggs, or edit and export your own.")}</p>
 
       {templates.length > 0 && (
@@ -225,6 +226,7 @@ export function Templates() {
 
       {msg && <div className="notice">{msg}</div>}
       {error && <div className="error">{error}</div>}
+      </Collapsible>
     </div>
   );
 }

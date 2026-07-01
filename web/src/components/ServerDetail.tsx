@@ -3,6 +3,7 @@ import { api, ApiError, AuditEntry, Cluster, ExposeType, hasAdminPerm, PowerActi
 import { useT } from "../i18n";
 import { Access } from "./Access";
 import { Backups } from "./Backups";
+import { Collapsible } from "./Collapsible";
 import { Console } from "./Console";
 import { Databases } from "./Databases";
 import { Files } from "./Files";
@@ -547,24 +548,25 @@ function ServerAudit({ id }: { id: number }) {
   }, [id]);
   return (
     <div className="card">
-      <h3>{t("Activity")}</h3>
-      {entries.length === 0 ? (
-        <p className="muted">{t("No activity yet.")}</p>
-      ) : (
-        <table>
-          <thead><tr><th>{t("When")}</th><th>{t("User")}</th><th>{t("Action")}</th><th>{t("Detail")}</th></tr></thead>
-          <tbody>
-            {entries.map((e) => (
-              <tr key={e.id}>
-                <td>{new Date(e.createdAt).toLocaleString()}</td>
-                <td>{e.username}</td>
-                <td><code>{e.action}</code></td>
-                <td>{e.detail}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <Collapsible title={t("Activity")} count={entries.length}>
+        {entries.length === 0 ? (
+          <p className="muted">{t("No activity yet.")}</p>
+        ) : (
+          <table>
+            <thead><tr><th>{t("When")}</th><th>{t("User")}</th><th>{t("Action")}</th><th>{t("Detail")}</th></tr></thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr key={e.id}>
+                  <td>{new Date(e.createdAt).toLocaleString()}</td>
+                  <td>{e.username}</td>
+                  <td><code>{e.action}</code></td>
+                  <td>{e.detail}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Collapsible>
     </div>
   );
 }

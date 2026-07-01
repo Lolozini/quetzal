@@ -209,8 +209,7 @@ export const fr: Record<string, string> = {
   "Catalog manifest URL (https://…)": "URL du manifeste de catalogue (https://…)",
   'Installed "{name}".': "« {name} » installé.",
   "Template saved.": "Modèle enregistré.",
-  'Delete template "{name}"? (Built-in ones return on restart.)':
-    "Supprimer le modèle « {name} » ? (Les modèles intégrés reviennent au redémarrage.)",
+  'Delete template "{name}"?': "Supprimer le modèle « {name} » ?",
   'Imported "{name}".': "Importé « {name} ».",
 
   // Clusters
