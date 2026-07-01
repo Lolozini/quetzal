@@ -21,6 +21,8 @@ const (
 	EventServerHibernate  = "server.hibernation"
 	EventServerRunning    = "server.running"    // controller: came up
 	EventServerCrashed    = "server.crashed"    // controller: crashloop
+	EventServerRestarted  = "server.restarted"  // controller: container restarted
+	EventServerOOMKilled  = "server.oomkilled"  // controller: killed for OOM
 	EventServerStopped    = "server.stopped"    // controller: went down
 	EventServerHibernated = "server.hibernated" // controller: auto-slept
 	EventServerTransfer   = "server.transfer"   // controller: cross-cluster move

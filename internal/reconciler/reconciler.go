@@ -400,17 +400,18 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 	case s.Hibernated:
 		st.Phase = models.PhaseHibernated
 	default: // Running
-		restarts, crashloop, msg := r.inspectPods(ctx, s.Namespace, s.Slug)
-		st.CrashCount = restarts
+		h := r.inspectPods(ctx, s.Namespace, s.Slug)
+		st.CrashCount = h.restarts
 		switch {
-		case crashloop:
+		case h.crashloop:
 			st.Phase = models.PhaseCrashed
-			st.Message = msg
+			st.Message = h.msg
 		case r.deploymentReady(ctx, s.Namespace):
 			st.Phase = models.PhaseRunning
 		default:
 			st.Phase = models.PhaseStarting
 		}
+		r.emitRestartEvents(s, s.Status, h, st.CrashCount)
 	}
 
 	// Surface the silent no-op: enabling SFTP needs a system image (the SFTP
@@ -454,6 +455,32 @@ func (r *Reconciler) emitTransition(s *models.Server, old models.Phase, st model
 	}
 }
 
+// emitRestartEvents records an event when a container restart is newly observed,
+// so a server that keeps dying and coming back (classically an OOM loop) is
+// visible in the activity log instead of restarting silently. It fires on any
+// growth in the cumulative restart count, and also when the count resets to a
+// positive value (a fresh pod that already restarted before we first saw it).
+func (r *Reconciler) emitRestartEvents(s *models.Server, old models.Status, h podHealth, newCount int) {
+	increased := newCount > old.CrashCount
+	reset := newCount < old.CrashCount && newCount > 0
+	if !increased && !reset {
+		return
+	}
+	switch {
+	case h.oomKilled:
+		r.emitEvent(s, models.EventServerOOMKilled,
+			fmt.Sprintf("ran out of memory (OOMKilled) and was restarted — %d restart(s) so far", newCount))
+	case h.crashloop:
+		// The crashloop phase transition already emits server.crashed; don't double up.
+	case h.exitCode != 0:
+		r.emitEvent(s, models.EventServerRestarted,
+			fmt.Sprintf("container exited (code %d) and was restarted — %d so far", h.exitCode, newCount))
+	default:
+		r.emitEvent(s, models.EventServerRestarted,
+			fmt.Sprintf("container restarted — %d so far", newCount))
+	}
+}
+
 // emitEvent appends a server-scoped event (best-effort). The apiserver's
 // dispatcher delivers it on its next pass.
 func (r *Reconciler) emitEvent(s *models.Server, eventType, message string) {
@@ -481,25 +508,55 @@ func (r *Reconciler) deploymentRunning(ctx context.Context, ns string) (bool, er
 	return dep.Spec.Replicas != nil && *dep.Spec.Replicas > 0, nil
 }
 
-// inspectPods sums container restarts and detects CrashLoopBackOff.
-func (r *Reconciler) inspectPods(ctx context.Context, ns, slug string) (restarts int, crashloop bool, msg string) {
+// podHealth is what inspectPods observes about a server's pods: cumulative
+// container restarts, whether any container is in CrashLoopBackOff, and why the
+// last restart happened (so a silent OOM restart loop can be surfaced).
+type podHealth struct {
+	restarts   int
+	crashloop  bool
+	msg        string
+	oomKilled  bool
+	termReason string // last termination reason, e.g. "OOMKilled", "Error"
+	exitCode   int32  // last termination exit code (0 when unknown)
+}
+
+// inspectPods sums container restarts, detects CrashLoopBackOff, and records the
+// most recent termination (reason + exit code) — including OOMKilled, which
+// otherwise leaves no trace when the container restarts fast enough to never
+// enter CrashLoopBackOff.
+func (r *Reconciler) inspectPods(ctx context.Context, ns, slug string) podHealth {
+	var h podHealth
 	var pods corev1.PodList
 	if err := r.Client.List(ctx, &pods, client.InNamespace(ns), client.MatchingLabels{serverLabel: slug}); err != nil {
-		return 0, false, ""
+		return h
+	}
+	note := func(term *corev1.ContainerStateTerminated) {
+		if term == nil {
+			return
+		}
+		h.termReason = term.Reason
+		h.exitCode = term.ExitCode
+		if term.Reason == "OOMKilled" {
+			h.oomKilled = true
+		}
 	}
 	for i := range pods.Items {
 		for _, cs := range pods.Items[i].Status.ContainerStatuses {
-			restarts += int(cs.RestartCount)
+			h.restarts += int(cs.RestartCount)
 			if cs.State.Waiting != nil && cs.State.Waiting.Reason == "CrashLoopBackOff" {
-				crashloop = true
-				msg = cs.State.Waiting.Message
-				if msg == "" {
-					msg = "container in CrashLoopBackOff"
+				h.crashloop = true
+				h.msg = cs.State.Waiting.Message
+				if h.msg == "" {
+					h.msg = "container in CrashLoopBackOff"
 				}
 			}
+			// The previous run's exit explains a restart even once the container is
+			// back up; a container terminated right now is captured too.
+			note(cs.LastTerminationState.Terminated)
+			note(cs.State.Terminated)
 		}
 	}
-	return restarts, crashloop, msg
+	return h
 }
 
 // endpointsFor computes the reachable addresses for a server and picks a primary
