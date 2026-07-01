@@ -48,6 +48,13 @@ releases may include breaking changes).
 
 ### Fixed
 
+- Egg startup commands now run under **bash** (falling back to sh), matching how
+  Pterodactyl runs them. Many eggs use bash-only syntax — `[[ ]]` (Forge),
+  process substitution and `trap`/`wait` for graceful stop and log filtering
+  (Valheim and most SteamCMD eggs) — which dash (`/bin/sh`) rejected with
+  "[[: not found" or "Syntax error: redirection unexpected", crashing the server
+  on boot. The resolved command is passed as a positional arg, so it's parsed
+  verbatim with no re-quoting.
 - Imported eggs that size the JVM from `{{SERVER_MEMORY}}` (and friends) now
   start: Quetzal injects the full set of **Wings-provided globals** that eggs
   assume but never declare as variables, matching Wings' contract — `SERVER_MEMORY`
