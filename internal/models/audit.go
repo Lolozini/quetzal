@@ -13,4 +13,9 @@ type AuditEntry struct {
 	ServerID uint   `gorm:"index" json:"serverId,omitempty"`
 	Action   string `json:"action"`
 	Detail   string `json:"detail,omitempty"`
+
+	// ServerName is the slug of the server this entry concerns, filled in at read
+	// time for the global log so an admin can tell which server an action hit.
+	// Not persisted; empty for panel-wide actions or deleted servers.
+	ServerName string `gorm:"-" json:"serverName,omitempty"`
 }

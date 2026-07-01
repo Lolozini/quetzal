@@ -926,6 +926,27 @@ func (s *Store) ListAudit(limit int) ([]models.AuditEntry, error) {
 	return es, err
 }
 
+// ServerSlugsByID maps the given server IDs to their slugs (id 0 and deleted
+// servers are simply absent). Used to label global audit entries with the
+// server they concern without loading whole server rows.
+func (s *Store) ServerSlugsByID(ids []uint) (map[uint]string, error) {
+	out := map[uint]string{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		ID   uint
+		Slug string
+	}
+	if err := s.db.Model(&models.Server{}).Select("id", "slug").Where("id IN ?", ids).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.ID] = r.Slug
+	}
+	return out, nil
+}
+
 // ---- API keys ----
 
 // CreateAPIKey stores an API key (hash only).

@@ -265,6 +265,33 @@ func TestAllocateNodePortRandomizedAndExhaustive(t *testing.T) {
 	}
 }
 
+func TestServerSlugsByID(t *testing.T) {
+	s := newTestStore(t)
+	a := &models.Server{Slug: "alpha", Namespace: "ns-a"}
+	b := &models.Server{Slug: "beta", Namespace: "ns-b"}
+	if err := s.CreateServer(a); err != nil {
+		t.Fatalf("create a: %v", err)
+	}
+	if err := s.CreateServer(b); err != nil {
+		t.Fatalf("create b: %v", err)
+	}
+	// Known ids resolve; an unknown/deleted id (99) is simply absent.
+	m, err := s.ServerSlugsByID([]uint{a.ID, b.ID, 99})
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if m[a.ID] != "alpha" || m[b.ID] != "beta" {
+		t.Fatalf("wrong slugs: %+v", m)
+	}
+	if _, ok := m[99]; ok {
+		t.Fatalf("unknown id should be absent, got %q", m[99])
+	}
+	// Empty input is a no-op, not an error.
+	if m, err := s.ServerSlugsByID(nil); err != nil || len(m) != 0 {
+		t.Fatalf("empty lookup = %v, %v", m, err)
+	}
+}
+
 func TestDeleteServerReleasesPorts(t *testing.T) {
 	s := newTestStore(t)
 	srv := &models.Server{Slug: "p", Namespace: "ns"}

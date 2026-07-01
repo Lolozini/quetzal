@@ -188,6 +188,7 @@ export const fr: Record<string, string> = {
   "No activity yet.": "Aucune activité pour l'instant.",
   When: "Quand",
   Action: "Action",
+  Server: "Serveur",
   Event: "Événement",
   system: "système",
   Detail: "Détail",

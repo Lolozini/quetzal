@@ -156,6 +156,7 @@ export interface AuditEntry {
   userId: number;
   username: string;
   serverId?: number;
+  serverName?: string;
   action: string;
   detail?: string;
 }
