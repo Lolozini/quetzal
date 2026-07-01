@@ -510,7 +510,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
       {canManage && <Notifications serverId={id} />}
       <ServerAudit id={id} />
       <div className="card">
-        <Console id={id} />
+        <Console id={id} phase={srv?.status?.phase ?? ""} />
       </div>
     </>
   );
@@ -539,13 +539,28 @@ function SFTPCard({ id, initialEnabled, username }: { id: number; initialEnabled
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // While SFTP is enabled but the node port hasn't been allocated yet, poll for
+  // it so the connection details appear on their own — no manual refresh needed.
+  useEffect(() => {
+    if (!enabled || port > 0) return;
+    let tries = 0;
+    const iv = setInterval(() => {
+      if (tries++ >= 20) {
+        clearInterval(iv);
+        return;
+      }
+      refresh();
+    }, 2000);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, port]);
+
   async function toggle() {
     setBusy(true);
     setError("");
     try {
       await api.setSFTP(id, !enabled);
       setEnabled(!enabled);
-      if (!enabled) setTimeout(refresh, 1500); // give the controller a moment
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -573,7 +588,6 @@ function SFTPCard({ id, initialEnabled, username }: { id: number; initialEnabled
               <code>sftp -P {port} {username}@{host || <>&lt;node-ip&gt;</>}</code>
             </div>
           )}
-          <button onClick={refresh} style={{ marginTop: 8 }}>{t("Refresh")}</button>
         </div>
       )}
       {error && <div className="error">{error}</div>}
