@@ -36,19 +36,17 @@ func TestParseNetDev(t *testing.T) {
 	}
 }
 
-func TestParseDiskUsage(t *testing.T) {
-	raw := []byte(`Filesystem     1024-blocks    Used Available Capacity Mounted on
-/dev/sda1         10000000 2000000   8000000      20% /data`)
-	total, used := ParseDiskUsage(raw)
-	if total != 10000000*1024 {
-		t.Errorf("total = %d, want %d", total, int64(10000000)*1024)
+func TestParseDuUsed(t *testing.T) {
+	if got := ParseDuUsed([]byte("204800\t/home/container\n")); got != 204800*1024 {
+		t.Errorf("used = %d, want %d", got, int64(204800)*1024)
 	}
-	if used != 2000000*1024 {
-		t.Errorf("used = %d, want %d", used, int64(2000000)*1024)
+	// du without a trailing path (BusyBox) still parses the leading count.
+	if got := ParseDuUsed([]byte("512\n")); got != 512*1024 {
+		t.Errorf("used = %d, want %d", got, int64(512)*1024)
 	}
-	// Garbage / empty input yields zeros, not a panic.
-	if tot, u := ParseDiskUsage([]byte("nonsense")); tot != 0 || u != 0 {
-		t.Errorf("garbage = %d/%d, want 0/0", tot, u)
+	// Empty / non-numeric input returns -1 (not a panic, not a bogus 0).
+	if got := ParseDuUsed([]byte("   ")); got != -1 {
+		t.Errorf("empty = %d, want -1", got)
 	}
 }
 

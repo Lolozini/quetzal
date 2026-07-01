@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -76,6 +77,17 @@ type Server struct {
 	TrustProxy bool
 
 	upgrader websocket.Upgrader
+
+	// diskUsageMu guards diskUsage, a short-TTL cache of per-server data-volume
+	// usage (du) so the 4s stats poll doesn't walk the whole volume every time.
+	diskUsageMu sync.Mutex
+	diskUsage   map[uint]diskSample
+}
+
+// diskSample is a cached data-volume usage reading (du) with its timestamp.
+type diskSample struct {
+	usedBytes int64
+	at        time.Time
 }
 
 // New builds an API server.
