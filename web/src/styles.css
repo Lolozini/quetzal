@@ -166,3 +166,13 @@ tr.clickable:hover { background: var(--panel-2); cursor: pointer; }
   position: sticky; top: 0; z-index: 1;
   background: var(--panel);
 }
+
+/* RestartHint: inline chip flagging whether a save bounces the server. */
+.restart-hint {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-left: 10px; font-size: 12px; color: var(--warn);
+  vertical-align: middle; white-space: nowrap;
+}
+.restart-hint::before { content: "↻"; font-size: 13px; }
+.restart-hint.live { color: var(--muted); }
+.restart-hint.live::before { content: "✓"; }
