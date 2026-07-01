@@ -48,6 +48,14 @@ releases may include breaking changes).
 
 ### Fixed
 
+- Imported eggs now mount their data at **`/home/container`** (Pterodactyl's
+  guaranteed server directory) instead of `/data`. Many eggs hardcode
+  `/home/container` in their `config.files` (e.g. Terraria's `worldpath`) or
+  resolve files against it — 58 of the ~250 upstream game eggs — so with the data
+  volume elsewhere they wrote outside it and failed (e.g. Terraria: world save
+  "Permission denied"). Aligns the data dir, `HOME`, `WorkingDir` and hardcoded
+  paths exactly as on Pterodactyl. Built-in Quetzal templates keep their own
+  DataPath. (Re-import existing eggs to pick up the new path.)
 - `HOME` is now the server's data directory (matching Pterodactyl, where the
   container home *is* the server dir) instead of the image default
   (`/home/container`, which isn't on the data volume and is unreadable to the

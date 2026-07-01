@@ -75,8 +75,13 @@ func ToTemplate(data []byte) (*models.Template, error) {
 		Startup:      normalizeNewlines(e.Startup),
 		Features:     e.Features,
 		FileDenylist: e.FileDenylist,
-		DataPath:     "/data",
-		Console:      models.ConsoleConfig{Type: models.ConsoleAttach},
+		// Pterodactyl eggs assume the server directory is /home/container (Wings'
+		// guaranteed path): many hardcode it in config.files (e.g. Terraria's
+		// worldpath) or resolve files via it. Mount the data volume there — as
+		// Wings does — so those paths land on the volume. (Built-in Quetzal
+		// templates set their own DataPath, e.g. /data.)
+		DataPath: "/home/container",
+		Console:  models.ConsoleConfig{Type: models.ConsoleAttach},
 	}
 
 	// Images.
