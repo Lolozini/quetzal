@@ -28,6 +28,9 @@ type Store interface {
 	LatestEventID() (uint, error)
 	GetSetting(key string) (string, error)
 	SetSetting(key, value string) error
+	// ServerIdentity resolves a server's display name and slug for labelling
+	// notifications (both empty when the server is gone or id is 0).
+	ServerIdentity(id uint) (name, slug string, err error)
 }
 
 // Dispatcher delivers events to channels.
@@ -147,14 +150,28 @@ func (d *Dispatcher) dispatch(ctx context.Context, e models.Event, channels []mo
 func (d *Dispatcher) DeliverTo(ctx context.Context, c *models.NotificationChannel, cfg map[string]string, e models.Event) error {
 	ctx, cancel := context.WithTimeout(ctx, d.Timeout)
 	defer cancel()
+	name, slug := d.serverIdentity(e.ServerID)
 	switch c.Type {
 	case models.ChannelDiscord:
-		return deliverDiscord(ctx, d.Client, cfg, e)
+		return deliverDiscord(ctx, d.Client, cfg, e, name, slug)
 	case models.ChannelWebhook:
-		return deliverWebhook(ctx, d.Client, cfg, e)
+		return deliverWebhook(ctx, d.Client, cfg, e, name, slug)
 	case models.ChannelEmail:
-		return deliverEmail(ctx, cfg, e)
+		return deliverEmail(ctx, cfg, e, name, slug)
 	default:
 		return errUnknownType(c.Type)
 	}
+}
+
+// serverIdentity resolves a server's display name and slug for a notification,
+// tolerating a missing store or a since-deleted server (returns empties).
+func (d *Dispatcher) serverIdentity(id uint) (name, slug string) {
+	if id == 0 || d.Store == nil {
+		return "", ""
+	}
+	name, slug, err := d.Store.ServerIdentity(id)
+	if err != nil {
+		return "", ""
+	}
+	return name, slug
 }

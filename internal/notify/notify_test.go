@@ -23,6 +23,14 @@ type fakeStore struct {
 	events   []models.Event
 	channels []models.NotificationChannel
 	settings map[string]string
+	servers  map[uint][2]string // id -> {displayName, slug}
+}
+
+func (f *fakeStore) ServerIdentity(id uint) (string, string, error) {
+	if s, ok := f.servers[id]; ok {
+		return s[0], s[1], nil
+	}
+	return "", "", nil
 }
 
 func (f *fakeStore) EnabledChannels() ([]models.NotificationChannel, error) {
@@ -171,7 +179,7 @@ func TestWebhookSignsAndSetsHeaders(t *testing.T) {
 	defer srv.Close()
 
 	e := models.Event{ID: 42, Type: models.EventServerCrashed, ServerID: 3, Message: "down"}
-	err := deliverWebhook(context.Background(), srv.Client(), map[string]string{"url": srv.URL, "secret": secret}, e)
+	err := deliverWebhook(context.Background(), srv.Client(), map[string]string{"url": srv.URL, "secret": secret}, e, "Prod Box", "prod-box")
 	if err != nil {
 		t.Fatalf("deliver: %v", err)
 	}
@@ -191,6 +199,9 @@ func TestWebhookSignsAndSetsHeaders(t *testing.T) {
 	if p.ID != 42 || p.ServerID != 3 || p.Message != "down" {
 		t.Errorf("payload mismatch: %+v", p)
 	}
+	if p.ServerName != "Prod Box" || p.ServerSlug != "prod-box" {
+		t.Errorf("server identity missing: name=%q slug=%q", p.ServerName, p.ServerSlug)
+	}
 }
 
 func TestWebhookNoSecretNoSignature(t *testing.T) {
@@ -200,7 +211,7 @@ func TestWebhookNoSecretNoSignature(t *testing.T) {
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
-	if err := deliverWebhook(context.Background(), srv.Client(), map[string]string{"url": srv.URL}, models.Event{ID: 1}); err != nil {
+	if err := deliverWebhook(context.Background(), srv.Client(), map[string]string{"url": srv.URL}, models.Event{ID: 1}, "", ""); err != nil {
 		t.Fatalf("deliver: %v", err)
 	}
 	if hasSig {
@@ -227,7 +238,7 @@ func TestDiscordSendsContent(t *testing.T) {
 	}))
 	defer srv.Close()
 	e := models.Event{Type: models.EventServerRunning, Message: "srv: is up"}
-	if err := deliverDiscord(context.Background(), srv.Client(), map[string]string{"url": srv.URL}, e); err != nil {
+	if err := deliverDiscord(context.Background(), srv.Client(), map[string]string{"url": srv.URL}, e, "My Server", "srv"); err != nil {
 		t.Fatalf("deliver: %v", err)
 	}
 	if len(payload.Embeds) != 1 {
@@ -237,18 +248,20 @@ func TestDiscordSendsContent(t *testing.T) {
 	if em.Title != models.EventServerRunning {
 		t.Errorf("embed title = %q, want %q", em.Title, models.EventServerRunning)
 	}
-	if !strings.Contains(em.Description, "is up") {
-		t.Errorf("embed description = %q", em.Description)
+	// The slug prefix is stripped from the body since the server is its own field.
+	if em.Description != "is up" {
+		t.Errorf("embed description = %q, want %q", em.Description, "is up")
+	}
+	fields := map[string]string{}
+	for _, f := range em.Fields {
+		fields[f.Name] = f.Value
+	}
+	if fields["Server"] != "My Server" {
+		t.Errorf("Server field = %q, want the display name", fields["Server"])
 	}
 	// A controller event has no actor, so the User field falls back to "system".
-	var user string
-	for _, f := range em.Fields {
-		if f.Name == "User" {
-			user = f.Value
-		}
-	}
-	if user != "system" {
-		t.Errorf("User field = %q, want system", user)
+	if fields["User"] != "system" {
+		t.Errorf("User field = %q, want system", fields["User"])
 	}
 }
 
@@ -257,14 +270,14 @@ func TestNon2xxIsError(t *testing.T) {
 		w.WriteHeader(500)
 	}))
 	defer srv.Close()
-	if err := deliverDiscord(context.Background(), srv.Client(), map[string]string{"url": srv.URL}, models.Event{}); err == nil {
+	if err := deliverDiscord(context.Background(), srv.Client(), map[string]string{"url": srv.URL}, models.Event{}, "", ""); err == nil {
 		t.Error("expected error on 500")
 	}
 }
 
 func TestEmailValidatesAndBuildsMessage(t *testing.T) {
 	// Missing required fields -> error, no dial attempted.
-	if err := deliverEmail(context.Background(), map[string]string{"host": "mail"}, models.Event{}); err == nil {
+	if err := deliverEmail(context.Background(), map[string]string{"host": "mail"}, models.Event{}, "", ""); err == nil {
 		t.Error("expected error when from/to missing")
 	}
 	msg := string(buildMessage("a@x.test", []string{"b@y.test", "c@y.test"}, "Subj", "Body"))

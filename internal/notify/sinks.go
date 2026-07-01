@@ -24,22 +24,50 @@ func errUnknownType(t models.ChannelType) error {
 	return fmt.Errorf("unknown channel type %q", t)
 }
 
-// summary renders a one-line human description of an event.
-func summary(e models.Event) string {
-	if e.Message != "" {
-		return fmt.Sprintf("%s — %s", e.Type, e.Message)
+// serverLabel is the friendly server name for a notification: the display name,
+// falling back to the slug (empty for panel-wide events).
+func serverLabel(name, slug string) string {
+	if s := strings.TrimSpace(name); s != "" {
+		return s
 	}
-	return e.Type
+	return slug
+}
+
+// stripSlug drops the "slug: " prefix the event message carries, so the server
+// can be shown as its own field/label instead of being duplicated inline.
+func stripSlug(msg, slug string) string {
+	if slug != "" {
+		if p := slug + ": "; strings.HasPrefix(msg, p) {
+			return msg[len(p):]
+		}
+	}
+	return msg
+}
+
+// eventUser is the actor for a notification, "system" for controller events.
+func eventUser(e models.Event) string {
+	if e.Username != "" {
+		return e.Username
+	}
+	return "system"
+}
+
+// eventTime is the event's timestamp, defaulting to now when unset.
+func eventTime(e models.Event) time.Time {
+	if e.CreatedAt.IsZero() {
+		return time.Now()
+	}
+	return e.CreatedAt
 }
 
 // ---- Discord ----
 
-func deliverDiscord(ctx context.Context, client *http.Client, cfg map[string]string, e models.Event) error {
+func deliverDiscord(ctx context.Context, client *http.Client, cfg map[string]string, e models.Event, name, slug string) error {
 	url := strings.TrimSpace(cfg["url"])
 	if url == "" {
 		return fmt.Errorf("discord: missing url")
 	}
-	body, _ := json.Marshal(discordEmbed(e))
+	body, _ := json.Marshal(discordEmbed(e, name, slug))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -49,28 +77,23 @@ func deliverDiscord(ctx context.Context, client *http.Client, cfg map[string]str
 }
 
 // discordEmbed renders an event as a Discord embed carrying the same fields as
-// the activity log: the event type as the title, the message (which already
-// includes the server) as the body, the actor and time as fields, and a colour
+// the activity log: the event type as the title, the message as the body, the
+// server (its friendly name), the actor and the time as fields, and a colour
 // keyed to severity so trouble stands out.
-func discordEmbed(e models.Event) map[string]any {
-	user := e.Username
-	if user == "" {
-		user = "system"
+func discordEmbed(e models.Event, name, slug string) map[string]any {
+	fields := make([]map[string]any, 0, 2)
+	if label := serverLabel(name, slug); label != "" {
+		fields = append(fields, map[string]any{"name": "Server", "value": label, "inline": true})
 	}
-	ts := e.CreatedAt
-	if ts.IsZero() {
-		ts = time.Now()
-	}
+	fields = append(fields, map[string]any{"name": "User", "value": eventUser(e), "inline": true})
 	embed := map[string]any{
 		"title":     e.Type,
 		"color":     discordColor(e.Type),
-		"timestamp": ts.UTC().Format(time.RFC3339),
-		"fields": []map[string]any{
-			{"name": "User", "value": user, "inline": true},
-		},
+		"timestamp": eventTime(e).UTC().Format(time.RFC3339),
+		"fields":    fields,
 	}
-	if e.Message != "" {
-		embed["description"] = e.Message
+	if msg := stripSlug(e.Message, slug); msg != "" {
+		embed["description"] = msg
 	}
 	return map[string]any{"embeds": []map[string]any{embed}}
 }
@@ -96,27 +119,26 @@ func discordColor(t string) int {
 
 // webhookPayload is the stable JSON contract delivered to generic webhooks.
 type webhookPayload struct {
-	ID        uint              `json:"id"`
-	Type      string            `json:"type"`
-	ServerID  uint              `json:"serverId,omitempty"`
-	Username  string            `json:"username,omitempty"`
-	Message   string            `json:"message"`
-	Data      map[string]string `json:"data,omitempty"`
-	Timestamp string            `json:"timestamp"`
+	ID         uint              `json:"id"`
+	Type       string            `json:"type"`
+	ServerID   uint              `json:"serverId,omitempty"`
+	ServerName string            `json:"serverName,omitempty"`
+	ServerSlug string            `json:"serverSlug,omitempty"`
+	Username   string            `json:"username,omitempty"`
+	Message    string            `json:"message"`
+	Data       map[string]string `json:"data,omitempty"`
+	Timestamp  string            `json:"timestamp"`
 }
 
-func deliverWebhook(ctx context.Context, client *http.Client, cfg map[string]string, e models.Event) error {
+func deliverWebhook(ctx context.Context, client *http.Client, cfg map[string]string, e models.Event, name, slug string) error {
 	url := strings.TrimSpace(cfg["url"])
 	if url == "" {
 		return fmt.Errorf("webhook: missing url")
 	}
-	ts := e.CreatedAt
-	if ts.IsZero() {
-		ts = time.Now()
-	}
 	body, _ := json.Marshal(webhookPayload{
-		ID: e.ID, Type: e.Type, ServerID: e.ServerID, Username: e.Username,
-		Message: e.Message, Data: e.Data, Timestamp: ts.UTC().Format(time.RFC3339),
+		ID: e.ID, Type: e.Type, ServerID: e.ServerID, ServerName: name, ServerSlug: slug,
+		Username: e.Username, Message: e.Message, Data: e.Data,
+		Timestamp: eventTime(e).UTC().Format(time.RFC3339),
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -148,12 +170,34 @@ func doExpect2xx(client *http.Client, req *http.Request) error {
 
 // ---- Email (SMTP) ----
 
-func deliverEmail(ctx context.Context, cfg map[string]string, e models.Event) error {
+func deliverEmail(ctx context.Context, cfg map[string]string, e models.Event, name, slug string) error {
 	to := splitList(cfg["to"])
 	if len(to) == 0 {
 		return fmt.Errorf("email: to is required")
 	}
-	return SendMail(ctx, cfg, to, "[Quetzal] "+e.Type, summary(e))
+	label := serverLabel(name, slug)
+	subject := "[Quetzal] "
+	if label != "" {
+		subject += label + " — "
+	}
+	subject += e.Type
+	return SendMail(ctx, cfg, to, subject, emailBody(e, label, slug))
+}
+
+// emailBody renders the same fields as the Discord embed as a plain-text block:
+// server, event, actor, time, then the message.
+func emailBody(e models.Event, label, slug string) string {
+	var b strings.Builder
+	if label != "" {
+		fmt.Fprintf(&b, "Server: %s\n", label)
+	}
+	fmt.Fprintf(&b, "Event:  %s\n", e.Type)
+	fmt.Fprintf(&b, "User:   %s\n", eventUser(e))
+	fmt.Fprintf(&b, "Time:   %s\n", eventTime(e).UTC().Format(time.RFC3339))
+	if msg := stripSlug(e.Message, slug); msg != "" {
+		fmt.Fprintf(&b, "\n%s\n", msg)
+	}
+	return b.String()
 }
 
 // SendMail sends a plain-text email to the given recipients using the SMTP

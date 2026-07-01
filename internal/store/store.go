@@ -926,6 +926,27 @@ func (s *Store) ListAudit(limit int) ([]models.AuditEntry, error) {
 	return es, err
 }
 
+// ServerIdentity returns a server's display name and slug (both empty if the
+// server no longer exists). Used to label notifications with the friendly name
+// rather than the slug.
+func (s *Store) ServerIdentity(id uint) (name, slug string, err error) {
+	if id == 0 {
+		return "", "", nil
+	}
+	var row struct {
+		DisplayName string
+		Slug        string
+	}
+	err = s.db.Model(&models.Server{}).Select("display_name", "slug").Where("id = ?", id).First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", "", nil
+	}
+	if err != nil {
+		return "", "", err
+	}
+	return row.DisplayName, row.Slug, nil
+}
+
 // ServerSlugsByID maps the given server IDs to their slugs (id 0 and deleted
 // servers are simply absent). Used to label global audit entries with the
 // server they concern without loading whole server rows.
