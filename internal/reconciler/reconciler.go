@@ -516,7 +516,7 @@ func (r *Reconciler) endpointsFor(ctx context.Context, s *models.Server, t *mode
 
 	switch s.Expose.ServiceType() {
 	case models.ExposeNodePort:
-		host := r.firstNodeAddress(ctx)
+		host := r.endpointHost(ctx)
 		if host == "" {
 			host = "<node-ip>"
 		}
@@ -543,6 +543,19 @@ func (r *Reconciler) endpointsFor(ctx context.Context, s *models.Server, t *mode
 		addr = eps[0]
 	}
 	return eps, addr
+}
+
+// endpointHost is the host published in a server's external NodePort endpoints:
+// the admin-configured DNS name (SettingEndpointHost) when set, otherwise the
+// detected node address. Letting the admin pin a hostname means players see a
+// stable, memorable address instead of the raw node IP.
+func (r *Reconciler) endpointHost(ctx context.Context) string {
+	if h, err := r.Store.GetSetting(store.SettingEndpointHost); err == nil {
+		if h = strings.TrimSpace(h); h != "" {
+			return h
+		}
+	}
+	return r.firstNodeAddress(ctx)
 }
 
 // firstNodeAddress returns a usable node address, preferring an ExternalIP and

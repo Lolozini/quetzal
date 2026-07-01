@@ -520,6 +520,7 @@ function SFTPCard({ id, initialEnabled, username }: { id: number; initialEnabled
   const { t } = useT();
   const [enabled, setEnabled] = useState(initialEnabled);
   const [port, setPort] = useState(0);
+  const [host, setHost] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -528,6 +529,7 @@ function SFTPCard({ id, initialEnabled, username }: { id: number; initialEnabled
       const info = await api.sftpInfo(id);
       setEnabled(info.enabled);
       setPort(info.port);
+      setHost(info.host);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
@@ -568,7 +570,7 @@ function SFTPCard({ id, initialEnabled, username }: { id: number; initialEnabled
           {port > 0 && (
             <div className="kv">
               <span className="k">{t("Connect")}</span>
-              <code>sftp -P {port} {username}@&lt;node-ip&gt;</code>
+              <code>sftp -P {port} {username}@{host || <>&lt;node-ip&gt;</>}</code>
             </div>
           )}
           <button onClick={refresh} style={{ marginTop: 8 }}>{t("Refresh")}</button>

@@ -62,6 +62,13 @@ export interface EmailSettingsInput {
   publicUrl: string;
 }
 
+export interface NetworkSettings {
+  // endpointHost is the DNS name published to players instead of the node IP.
+  endpointHost: string;
+  // nodeAddress is the detected node IP, shown as a hint for the DNS record.
+  nodeAddress: string;
+}
+
 // LoginResult is either the authenticated user or a 2FA challenge: when the
 // account has two-factor enabled, the password step returns twoFactorRequired
 // and the client must resubmit with a code.
@@ -139,6 +146,8 @@ export interface SFTPInfo {
   enabled: boolean;
   username: string;
   port: number;
+  // host is the DNS name / node address to connect to (empty until provisioned).
+  host: string;
 }
 
 export interface AuditEntry {
@@ -518,6 +527,10 @@ export const api = {
   setEmailSettings: (body: EmailSettingsInput) =>
     req<void>("PUT", "/api/email-settings", body),
   testEmail: (to?: string) => req<void>("POST", "/api/email-settings/test", { to }),
+  // Network settings (admin): the DNS name published in external endpoints.
+  networkSettings: () => req<NetworkSettings>("GET", "/api/network-settings"),
+  setNetworkSettings: (endpointHost: string) =>
+    req<void>("PUT", "/api/network-settings", { endpointHost }),
 
   templates: () => req<Template[]>("GET", "/api/templates"),
   template: (slug: string) => req<Template>("GET", `/api/templates/${slug}`),
