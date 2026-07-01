@@ -322,7 +322,10 @@ func TestCreateServerDuplicateNames(t *testing.T) {
 	}
 }
 
-func TestDeleteServerKeepDataRetainsPV(t *testing.T) {
+// TestDeleteServerDropsDataVolume verifies deletion never retains the data:
+// the bound PV keeps its reclaim policy (so the cluster reclaims it) rather than
+// being switched to Retain, and the namespace is torn down — no orphans.
+func TestDeleteServerDropsDataVolume(t *testing.T) {
 	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "k.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
@@ -365,7 +368,7 @@ func TestDeleteServerKeepDataRetainsPV(t *testing.T) {
 		t.Fatalf("seed pvc: %v", err)
 	}
 
-	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/servers/"+itoa(created.ID)+"?keepData=true", nil)
+	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/servers/"+itoa(created.ID), nil)
 	dr, err := c.Do(req)
 	if err != nil || dr.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete = %v / %d", err, dr.StatusCode)
@@ -375,8 +378,8 @@ func TestDeleteServerKeepDataRetainsPV(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get pv: %v", err)
 	}
-	if pv.Spec.PersistentVolumeReclaimPolicy != corev1.PersistentVolumeReclaimRetain {
-		t.Errorf("reclaim policy = %q, want Retain", pv.Spec.PersistentVolumeReclaimPolicy)
+	if pv.Spec.PersistentVolumeReclaimPolicy != corev1.PersistentVolumeReclaimDelete {
+		t.Errorf("reclaim policy = %q, want Delete (data must not be retained)", pv.Spec.PersistentVolumeReclaimPolicy)
 	}
 }
 

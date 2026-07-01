@@ -16,7 +16,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -1023,20 +1022,9 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// keepData decides the data lifecycle. The query param (sent by the UI's
-	// delete dialog) wins; otherwise fall back to the server's stored policy.
-	keep := srv.Storage.RetainOnDelete
-	if q := r.URL.Query().Get("keepData"); q != "" {
-		keep = q == "true"
-	}
 	cs, _, err := s.clientsFor(srv)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "target cluster unavailable: "+err.Error())
-		return
-	}
-	// Retain the data volume first, while the PVC still exists to resolve its PV.
-	if err := s.retainDataIfKept(r.Context(), cs, srv, keep); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// Remove the DB rows BEFORE the namespace. Once the server row is gone the
@@ -1048,37 +1036,19 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	_ = s.Store.DeleteAccessForServer(srv.ID)
 	_ = s.Store.DeleteChannelsForServer(srv.ID)
 	s.dropServerDatabases(r.Context(), srv.ID)
-	s.audit(r, 0, "server.delete", srv.Slug+" (keepData="+strconv.FormatBool(keep)+")")
+	s.audit(r, 0, "server.delete", srv.Slug)
 	if err := s.Store.DeleteServer(srv.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Best-effort immediate namespace teardown; if it fails, GCOrphanNamespaces
-	// (which deletes managed namespaces with no matching server row) cleans up.
+	// Delete the namespace, cascading its pod, service, config AND the data PVC —
+	// so the volume and its data are reclaimed and no orphaned resources are left.
+	// Best-effort; if it fails, GCOrphanNamespaces (which deletes managed
+	// namespaces with no matching server row) cleans up.
 	if err := s.deleteNamespace(r.Context(), cs, srv.Namespace); err != nil {
 		log.Printf("delete server %s: namespace teardown deferred to GC: %v", srv.Slug, err)
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// retainDataIfKept switches a kept PVC's bound PersistentVolume to Retain so the
-// underlying volume (and its data) survives the namespace/PVC deletion as a
-// Released PV.
-func (s *Server) retainDataIfKept(ctx context.Context, cs kubernetes.Interface, srv *models.Server, keepData bool) error {
-	if !keepData || srv.Storage.Type != models.StoragePVC {
-		return nil
-	}
-	pv := boundPV(ctx, cs, srv.Namespace)
-	if pv == "" {
-		return nil
-	}
-	patch := []byte(`{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}`)
-	if _, err := cs.CoreV1().PersistentVolumes().Patch(ctx, pv, types.StrategicMergePatchType, patch, metav1.PatchOptions{}); err != nil {
-		return fmt.Errorf("retain volume %s: %w", pv, err)
-	}
-	// Surface the retained PV so the operator can recover/rebind it later.
-	log.Printf("server %s deleted with keepData: retained PersistentVolume %q (now Released)", srv.Slug, pv)
-	return nil
 }
 
 // deleteNamespace removes a server's namespace (cascading its objects), treating
@@ -1089,15 +1059,6 @@ func (s *Server) deleteNamespace(ctx context.Context, cs kubernetes.Interface, n
 		return err
 	}
 	return nil
-}
-
-// boundPV returns the PersistentVolume backing a server's data PVC, or "".
-func boundPV(ctx context.Context, cs kubernetes.Interface, ns string) string {
-	pvc, err := cs.CoreV1().PersistentVolumeClaims(ns).Get(ctx, reconciler.DataVolume, metav1.GetOptions{})
-	if err != nil {
-		return ""
-	}
-	return pvc.Spec.VolumeName
 }
 
 type powerRequest struct {

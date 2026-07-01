@@ -230,6 +230,8 @@ export const fr: Record<string, string> = {
   "Add port": "Ajouter un port",
   "Save ports": "Enregistrer les ports",
   "restarts the server": "redémarre le serveur",
+  "Delete this server? Its pod, service, config and data volume are permanently removed. This cannot be undone.":
+    "Supprimer ce serveur ? Son pod, son service, sa config et son volume de données sont supprimés définitivement. Action irréversible.",
   "Edit this server's configuration. A ↻ marker appears on a pending change that will restart the server.":
     "Modifiez la configuration de ce serveur. Un marqueur ↻ apparaît sur une modification non enregistrée qui redémarrera le serveur.",
   "Ports saved; the server restarts to apply.": "Ports enregistrés ; le serveur redémarre pour appliquer.",

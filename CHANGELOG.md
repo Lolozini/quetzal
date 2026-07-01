@@ -44,6 +44,11 @@ releases may include breaking changes).
 
 ### Changed
 
+- **Deleting a server now always removes its data volume.** The keep-or-destroy
+  prompt is gone: deleting a server tears down its namespace, cascading the PVC
+  and the underlying volume/data, so nothing is left orphaned. **Breaking:** data
+  is always deleted — back it up first if you need to keep it. Removed the
+  `retainOnDelete` storage flag and the `?keepData=` delete parameter.
 - **Server names are no longer required to be unique.** A server's display name
   is now a free label — duplicates are allowed, matching Pterodactyl/Pelican.
   Its stable identity is the slug: a readable prefix from the name plus a short

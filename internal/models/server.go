@@ -119,10 +119,9 @@ const (
 // which breaks rescheduling and cross-cluster transfer. Single-node setups use a
 // local provisioner (e.g. local-path) as the storageClass.
 type Storage struct {
-	Type           StorageType `json:"type"`
-	Size           string      `json:"size,omitempty"`         // e.g. "20Gi"
-	StorageClass   string      `json:"storageClass,omitempty"` // empty = cluster default
-	RetainOnDelete bool        `json:"retainOnDelete,omitempty"`
+	Type         StorageType `json:"type"`
+	Size         string      `json:"size,omitempty"`         // e.g. "20Gi"
+	StorageClass string      `json:"storageClass,omitempty"` // empty = cluster default
 }
 
 // Resources holds the container resource limits/requests.
