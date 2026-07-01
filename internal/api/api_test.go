@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -282,6 +283,45 @@ func TestUpdateServerPortsEdit(t *testing.T) {
 	}
 }
 
+// TestCreateServerDuplicateNames verifies two servers can share a display name:
+// each gets a distinct slug (readable base + random suffix) and its own
+// namespace, so nothing collides.
+func TestCreateServerDuplicateNames(t *testing.T) {
+	ts, c := newTestServer(t)
+	post(t, c, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+
+	type server struct {
+		DisplayName string `json:"displayName"`
+		Slug        string `json:"slug"`
+		Namespace   string `json:"namespace"`
+	}
+	create := func() server {
+		r := post(t, c, ts.URL+"/api/servers", map[string]any{"name": "Survival", "template": "generic-process"})
+		if r.StatusCode != http.StatusCreated {
+			t.Fatalf("create = %d", r.StatusCode)
+		}
+		var s server
+		json.NewDecoder(r.Body).Decode(&s)
+		return s
+	}
+	a, b := create(), create()
+
+	if a.DisplayName != "Survival" || b.DisplayName != "Survival" {
+		t.Fatalf("display names = %q / %q, want both Survival", a.DisplayName, b.DisplayName)
+	}
+	if a.Slug == b.Slug {
+		t.Fatalf("slugs collide: %q", a.Slug)
+	}
+	for _, s := range []server{a, b} {
+		if !strings.HasPrefix(s.Slug, "survival-") {
+			t.Errorf("slug %q missing readable base", s.Slug)
+		}
+		if s.Namespace != "quetzal-srv-"+s.Slug {
+			t.Errorf("namespace %q, want quetzal-srv-%s", s.Namespace, s.Slug)
+		}
+	}
+}
+
 func TestDeleteServerKeepDataRetainsPV(t *testing.T) {
 	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "k.db"), Silent: true})
 	if err != nil {
@@ -293,15 +333,12 @@ func TestDeleteServerKeepDataRetainsPV(t *testing.T) {
 	if err := templates.Seed(st); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	// Seed the cluster with the PVC/PV a controller would have created for slug "keepme".
+	// The controller-created PV; the PVC is seeded after we know the server's
+	// namespace (the slug carries a random suffix, so it isn't derivable here).
 	cs := fake.NewSimpleClientset(
 		&corev1.PersistentVolume{
 			ObjectMeta: metav1.ObjectMeta{Name: "pv-1"},
 			Spec:       corev1.PersistentVolumeSpec{PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimDelete},
-		},
-		&corev1.PersistentVolumeClaim{
-			ObjectMeta: metav1.ObjectMeta{Name: "data", Namespace: "quetzal-srv-keepme"},
-			Spec:       corev1.PersistentVolumeClaimSpec{VolumeName: "pv-1"},
 		},
 	)
 	ts := httptest.NewServer(api.New(st, cs, &rest.Config{}).Handler())
@@ -310,12 +347,23 @@ func TestDeleteServerKeepDataRetainsPV(t *testing.T) {
 	c := &http.Client{Jar: jar}
 
 	post(t, c, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
-	var created struct{ ID uint }
+	var created struct {
+		ID        uint   `json:"id"`
+		Namespace string `json:"namespace"`
+	}
 	r := post(t, c, ts.URL+"/api/servers", map[string]any{"name": "keepme", "template": "generic-process"})
 	if r.StatusCode != http.StatusCreated {
 		t.Fatalf("create = %d", r.StatusCode)
 	}
 	json.NewDecoder(r.Body).Decode(&created)
+
+	if _, err := cs.CoreV1().PersistentVolumeClaims(created.Namespace).Create(context.Background(),
+		&corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: "data", Namespace: created.Namespace},
+			Spec:       corev1.PersistentVolumeClaimSpec{VolumeName: "pv-1"},
+		}, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("seed pvc: %v", err)
+	}
 
 	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/servers/"+itoa(created.ID)+"?keepData=true", nil)
 	dr, err := c.Do(req)

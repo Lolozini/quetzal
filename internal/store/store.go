@@ -24,6 +24,10 @@ import (
 // ErrNotFound is returned when a record does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrDuplicate is returned when an insert violates a unique constraint (e.g. a
+// server slug collision). Relies on gorm's TranslateError.
+var ErrDuplicate = errors.New("duplicate")
+
 // Driver enumerates supported database engines.
 type Driver string
 
@@ -52,7 +56,10 @@ type Store struct {
 
 // Open opens (and pings) the database for the given config.
 func Open(cfg Config) (*Store, error) {
-	gcfg := &gorm.Config{}
+	// TranslateError maps driver-specific errors (e.g. a unique-constraint
+	// violation) to gorm sentinels like ErrDuplicatedKey, so callers can detect
+	// them portably across SQLite and Postgres.
+	gcfg := &gorm.Config{TranslateError: true}
 	if cfg.Silent {
 		gcfg.Logger = logger.Default.LogMode(logger.Silent)
 	}
@@ -258,7 +265,13 @@ func (s *Store) ListTemplates() ([]models.Template, error) {
 
 // CreateServer inserts a new server.
 func (s *Store) CreateServer(srv *models.Server) error {
-	return s.db.Create(srv).Error
+	if err := s.db.Create(srv).Error; err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			return ErrDuplicate
+		}
+		return err
+	}
+	return nil
 }
 
 // GetServer returns a server by ID.

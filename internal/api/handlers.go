@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log"
@@ -31,6 +32,41 @@ import (
 
 // maxServerSlugLen keeps "quetzal-srv-<slug>" within the 63-char namespace limit.
 const maxServerSlugLen = 50
+
+// slugSuffixLen is the length of the random suffix that makes a server slug
+// unique independently of its (non-unique) display name.
+const slugSuffixLen = 4
+
+// serverSlugBase is the readable prefix of a server's slug, derived from the
+// display name and capped to leave room for the "-<suffix>". Falls back to
+// "server" when the name yields no slug characters (the name is a free label,
+// so it may be all emoji/non-latin).
+func serverSlugBase(name string) string {
+	b := egg.Slugify(name)
+	if max := maxServerSlugLen - slugSuffixLen - 1; len(b) > max {
+		b = strings.TrimRight(b[:max], "-")
+	}
+	if b == "" {
+		b = "server"
+	}
+	return b
+}
+
+// randSlugSuffix returns a short DNS-safe random string ([a-z0-9]).
+func randSlugSuffix() string {
+	const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, slugSuffixLen)
+	if _, err := rand.Read(b); err != nil {
+		n := time.Now().UnixNano()
+		for i := range b {
+			b[i] = byte(n >> (i * 8))
+		}
+	}
+	for i := range b {
+		b[i] = alphabet[int(b[i])%len(alphabet)]
+	}
+	return string(b)
+}
 
 // ---- setup & auth ----
 
@@ -254,20 +290,11 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "unknown template")
 		return
 	}
-	slug := egg.Slugify(req.Name)
-	// Cap the slug so the per-server namespace ("quetzal-srv-<slug>") stays within
-	// the 63-char DNS-1123 limit.
-	if len(slug) > maxServerSlugLen {
-		slug = strings.TrimRight(slug[:maxServerSlugLen], "-")
-	}
-	if slug == "" {
-		writeError(w, http.StatusBadRequest, "name produces an empty slug")
-		return
-	}
-	if _, err := s.Store.GetServerBySlug(slug); err == nil {
-		writeError(w, http.StatusConflict, "a server with this name already exists")
-		return
-	}
+	// The display name is a free, non-unique label (duplicates allowed, like
+	// Pterodactyl). The server's stable identity is the slug — a readable prefix
+	// derived from the name plus a short random suffix — generated once at create
+	// and never changed, so renaming or reusing a name never touches resources.
+	slugBase := serverSlugBase(req.Name)
 
 	image := req.Image
 	if image == "" {
@@ -361,13 +388,11 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	srv := &models.Server{
-		Slug:              slug,
 		DisplayName:       req.Name,
 		OwnerID:           owner.ID,
 		TemplateID:        tmpl.ID,
 		TemplateVersion:   tmpl.Version,
 		Image:             image,
-		Namespace:         reconciler.NamespaceFor(slug),
 		ClusterID:         clusterID,
 		DesiredState:      state,
 		Resources:         models.Resources{Memory: req.Memory, CPU: req.CPU},
@@ -381,8 +406,27 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		EULAAccepted:      req.EULAAccepted,
 		Status:            models.Status{Phase: models.PhaseStopped},
 	}
-	if err := s.Store.CreateServer(srv); err != nil {
+	// Assign a unique slug/namespace by inserting; the uniqueIndex on slug is the
+	// source of truth, so on the (astronomically rare) random-suffix collision we
+	// just regenerate and retry.
+	var created bool
+	for attempt := 0; attempt < 8; attempt++ {
+		srv.ID = 0
+		srv.Slug = slugBase + "-" + randSlugSuffix()
+		srv.Namespace = reconciler.NamespaceFor(srv.Slug)
+		err := s.Store.CreateServer(srv)
+		if err == nil {
+			created = true
+			break
+		}
+		if errors.Is(err, store.ErrDuplicate) {
+			continue
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !created {
+		writeError(w, http.StatusInternalServerError, "could not allocate a unique server slug")
 		return
 	}
 

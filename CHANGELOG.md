@@ -44,6 +44,15 @@ releases may include breaking changes).
 
 ### Changed
 
+- **Server names are no longer required to be unique.** A server's display name
+  is now a free label — duplicates are allowed, matching Pterodactyl/Pelican.
+  Its stable identity is the slug: a readable prefix from the name plus a short
+  random suffix (e.g. `survival-a1b2`), generated once at creation and never
+  changed. This fully decouples the per-server namespace and Kubernetes
+  resources from the name (so naming can never cause a resource collision, and
+  renaming becomes possible). Previously a second server with the same name — or
+  a name that slugified identically — was rejected with a 409. Existing servers
+  keep their slugs.
 - **Friendlier resource readouts** on the server page: CPU is shown in **cores**
   (e.g. `0.01 cores`) instead of raw millicores (`12m`), and both CPU and Memory
   show **used / limit with a percentage** when the pod has a limit set (e.g.
