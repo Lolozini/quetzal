@@ -71,6 +71,11 @@ func TestBuildDeployment(t *testing.T) {
 	if env["SERVER_IP"] != "0.0.0.0" {
 		t.Errorf("SERVER_IP = %q, want 0.0.0.0", env["SERVER_IP"])
 	}
+	// HOME must be the data dir (Pterodactyl parity) so $HOME-relative lookups
+	// (e.g. SteamCMD's ~/.steam/sdk64/steamclient.so) resolve onto the volume.
+	if env["HOME"] != "/data" {
+		t.Errorf("HOME = %q, want /data", env["HOME"])
+	}
 	if env["TZ"] != "UTC" {
 		t.Errorf("TZ = %q, want UTC", env["TZ"])
 	}
@@ -142,6 +147,17 @@ func TestBuildDeploymentInstallInitContainer(t *testing.T) {
 	}
 	if jar != "server.jar" {
 		t.Errorf("install container missing the server's variables (SERVER_JARFILE), env=%+v", ic.Env)
+	}
+	// Install HOME is the install mount so installers writing to ~ (e.g. SteamCMD's
+	// ~/.steam) land on the data volume.
+	var home string
+	for _, e := range ic.Env {
+		if e.Name == "HOME" {
+			home = e.Value
+		}
+	}
+	if home != "/mnt/server" {
+		t.Errorf("install HOME = %q, want /mnt/server", home)
 	}
 }
 

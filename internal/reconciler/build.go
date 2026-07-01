@@ -163,9 +163,14 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 		// server's working dir. Harmless for entrypoint-driven images (itzg /data).
 		WorkingDir: dataPath,
 		// stdin must stay open so the console can attach to send commands.
-		Stdin:     true,
-		TTY:       false,
-		Env:       gameEnv(s, t, secretKeys),
+		Stdin: true,
+		TTY:   false,
+		// HOME = the data dir, matching Pterodactyl (where the container's home IS
+		// the server dir). Many games resolve files via $HOME — notably SteamCMD
+		// titles look up ~/.steam/sdk64/steamclient.so, which the installer places
+		// under the data volume; leaving the image default ($HOME=/home/container,
+		// not on the volume) makes that lookup fail and segfaults the game.
+		Env:       homeEnv(gameEnv(s, t, secretKeys), dataPath),
 		Ports:     buildContainerPorts(serverPorts(s, t)),
 		Resources: buildResources(s.Resources),
 		VolumeMounts: []corev1.VolumeMount{
@@ -293,6 +298,7 @@ func BuildDataDeployment(s *models.Server, t *models.Template, systemImage strin
 		// A large fixed number, not `sleep infinity`: the latter is a GNU
 		// coreutils extension that busybox `sleep` rejects (~68 years is plenty).
 		Command:      []string{"sleep", "2147483647"},
+		Env:          homeEnv(nil, dataPath), // file/SFTP ops land in the data dir
 		VolumeMounts: []corev1.VolumeMount{{Name: dataVolume, MountPath: dataPath}},
 		Resources: corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
@@ -712,6 +718,14 @@ func gameEnv(s *models.Server, t *models.Template, secretKeys []string) []corev1
 	return append(buildEnv(s.Env, secretKeys), wingsEnv(s, t)...)
 }
 
+// homeEnv sets HOME to the given path (the data dir at runtime, or the install
+// mount during install), overriding the image default so $HOME resolves onto the
+// server's volume. This matches Pterodactyl, where the container's home IS the
+// server directory. Appended last so it wins over any image/egg HOME.
+func homeEnv(env []corev1.EnvVar, path string) []corev1.EnvVar {
+	return append(env, corev1.EnvVar{Name: "HOME", Value: path})
+}
+
 // wingsEnv synthesizes the globals Pterodactyl's Wings daemon injects into every
 // server and which imported egg startup/install scripts rely on, but which are
 // NOT egg variables (no egg declares them, so resolveEnv never produces them):
@@ -877,10 +891,10 @@ func configRenderInitContainers(s *models.Server, t *models.Template, systemImag
 	specs = append(specs, eulaSpec(s, t)...)
 	blob, _ := json.Marshal(specs)
 
-	renderEnv := append(gameEnv(s, t, secretKeys),
+	renderEnv := homeEnv(append(gameEnv(s, t, secretKeys),
 		corev1.EnvVar{Name: "QUETZAL_DATA_PATH", Value: dataPath},
 		corev1.EnvVar{Name: "QUETZAL_CONFIG_FILES", Value: string(blob)},
-	)
+	), dataPath)
 	sc := buildContainerSecurityContext(t)
 	return []corev1.Container{
 		{
@@ -958,6 +972,7 @@ func sftpSidecar(s *models.Server, t *models.Template, dataPath string) corev1.C
 			{Name: "QUETZAL_DATA_PATH", Value: dataPath},
 			{Name: "QUETZAL_SFTP_HOST_KEY", Value: sftpSecretDir + "/hostkey/" + SFTPHostKeyField},
 			{Name: "QUETZAL_SFTP_AUTHORIZED_KEYS", Value: sftpSecretDir + "/auth/" + SFTPAuthKeysField},
+			{Name: "HOME", Value: dataPath},
 		},
 		Ports: []corev1.ContainerPort{{Name: "sftp", ContainerPort: SFTPPort, Protocol: corev1.ProtocolTCP}},
 		VolumeMounts: []corev1.VolumeMount{
@@ -1138,10 +1153,12 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 	// The egg install script reads the server's variables (e.g. ${SERVER_JARFILE},
 	// ${MINECRAFT_VERSION}) and the Wings globals (${SERVER_MEMORY}, ${SERVER_PORT})
 	// just like Pterodactyl runs it. Pass the full resolved env plus install markers.
-	env := append(gameEnv(s, t, secretKeys),
+	// HOME = the install mount (the volume root during install): SteamCMD and other
+	// installers write into ~ (e.g. ~/.steam), which must land on the data volume.
+	env := homeEnv(append(gameEnv(s, t, secretKeys),
 		corev1.EnvVar{Name: "QUETZAL_INSTALL_GEN", Value: strconv.Itoa(s.InstallGeneration)},
 		corev1.EnvVar{Name: "QUETZAL_INSTALL_WIPE", Value: wipe},
-	)
+	), installMountPath)
 	rootUID := int64(0)
 	no := false
 	yes := true
