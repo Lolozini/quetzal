@@ -392,5 +392,18 @@ func (s *Server) handleGlobalAudit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Label each entry with the server it concerns (the global log spans every
+	// server, so the action + detail alone don't say which one).
+	var ids []uint
+	for i := range es {
+		if es[i].ServerID != 0 {
+			ids = append(ids, es[i].ServerID)
+		}
+	}
+	if names, err := s.Store.ServerSlugsByID(ids); err == nil {
+		for i := range es {
+			es[i].ServerName = names[es[i].ServerID]
+		}
+	}
 	writeJSON(w, http.StatusOK, es)
 }

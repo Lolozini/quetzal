@@ -500,12 +500,13 @@ function GlobalAudit() {
           <p className="muted">{t("No activity yet.")}</p>
         ) : (
           <table>
-            <thead><tr><th>{t("When")}</th><th>{t("User")}</th><th>{t("Action")}</th><th>{t("Detail")}</th></tr></thead>
+            <thead><tr><th>{t("When")}</th><th>{t("User")}</th><th>{t("Server")}</th><th>{t("Action")}</th><th>{t("Detail")}</th></tr></thead>
             <tbody>
               {entries.map((e) => (
                 <tr key={e.id}>
                   <td>{new Date(e.createdAt).toLocaleString()}</td>
                   <td>{e.username}</td>
+                  <td>{e.serverName || (e.serverId ? `#${e.serverId}` : "—")}</td>
                   <td><code>{e.action}</code></td>
                   <td>{e.detail}</td>
                 </tr>
