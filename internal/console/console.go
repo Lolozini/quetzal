@@ -14,12 +14,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/httpstream"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -313,7 +315,7 @@ func Exec(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, ns, po
 			TTY:       false,
 		}, scheme.ParameterCodec)
 
-	executor, err := remotecommand.NewSPDYExecutor(cfg, "POST", req.URL())
+	executor, err := execExecutor(cfg, req.URL())
 	if err != nil {
 		return err
 	}
@@ -330,6 +332,23 @@ func Exec(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, ns, po
 		return err
 	}
 	return nil
+}
+
+// execExecutor builds a remote-exec executor that prefers the WebSocket
+// transport and falls back to SPDY when the apiserver doesn't support the
+// websocket upgrade. WebSocket streams exec stdin far more reliably than SPDY,
+// whose stdin channel can race and deliver nothing under load — e.g. a file
+// upload occasionally landing as an empty file despite a success response.
+func execExecutor(cfg *rest.Config, u *url.URL) (remotecommand.Executor, error) {
+	spdyExec, err := remotecommand.NewSPDYExecutor(cfg, "POST", u)
+	if err != nil {
+		return nil, err
+	}
+	wsExec, err := remotecommand.NewWebSocketExecutor(cfg, "GET", u.String())
+	if err != nil {
+		return nil, err
+	}
+	return remotecommand.NewFallbackExecutor(wsExec, spdyExec, httpstream.IsUpgradeFailure)
 }
 
 func send(ctx context.Context, out chan<- Message, m Message) {
