@@ -153,4 +153,16 @@ tr.clickable:hover { background: var(--panel-2); cursor: pointer; }
   font-size: 0.72em; font-weight: 400; color: var(--muted);
   border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px;
 }
-.collapsible-body { margin-top: 12px; }
+/* Bound the expanded content and scroll inside it, so a long log or a large
+   egg list doesn't stretch the page even when open. */
+.collapsible-body {
+  margin-top: 12px;
+  max-height: 60vh;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+/* Keep table headers visible while scrolling the collapsed body. */
+.collapsible-body table thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--panel);
+}
