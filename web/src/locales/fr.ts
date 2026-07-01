@@ -242,6 +242,8 @@ export const fr: Record<string, string> = {
   Ports: "Ports",
   primary: "principal",
   "Add port": "Ajouter un port",
+  "Pick TCP / UDP for a port that needs both (e.g. a game port that also serves a UDP query).":
+    "Choisissez TCP / UDP pour un port qui a besoin des deux (ex. un port de jeu qui sert aussi une requête UDP).",
   "Save ports": "Enregistrer les ports",
   "restarts the server": "redémarre le serveur",
   "Delete this server? Its pod, service, config and data volume are permanently removed. This cannot be undone.":

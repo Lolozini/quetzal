@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, Cluster, CreateServerRequest, ExposeType, Template } from "../api";
 import { useT } from "../i18n";
 import { Combobox } from "./Combobox";
-import { PortsEditor } from "./PortsEditor";
+import { PortsEditor, rowsToPorts } from "./PortsEditor";
 
 export function CreateServer({
   onDone,
@@ -127,10 +127,7 @@ export function CreateServer({
   const tplPorts = tpl?.ports ?? [];
   const usingCustomPorts = tplPorts.length === 0;
   const effPorts = usingCustomPorts
-    ? customPorts
-        .map((p, i) => ({ port: Number(p.port), protocol: p.protocol, primary: i === primaryIdx, blank: p.port.trim() === "" }))
-        .filter((p) => !p.blank)
-        .map(({ blank, ...p }) => p)
+    ? rowsToPorts(customPorts, primaryIdx)
     : tplPorts.map((p, i) => ({ port: p.port, protocol: p.protocol, primary: i === 0 }));
   const hasPorts = effPorts.length > 0;
   // Hibernation needs reliable idle detection, which today only works for TCP

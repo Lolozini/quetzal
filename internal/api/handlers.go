@@ -983,6 +983,17 @@ func sanitizePorts(in []models.PortSpec) ([]models.PortSpec, error) {
 	out := make([]models.PortSpec, 0, len(in))
 	primaries := 0
 	seen := map[string]bool{}
+	seenName := map[string]bool{}
+	// A port number carrying both TCP and UDP (e.g. Minecraft Java game 25565/TCP
+	// + query 25565/UDP, or a Source game 27015/UDP + RCON 27015/TCP) needs its
+	// auto-generated names disambiguated by protocol, since Kubernetes requires
+	// unique ServicePort/containerPort names. Single-protocol ports keep the bare
+	// "p<port>" so existing servers aren't renamed (which would reallocate their
+	// node port).
+	portCount := map[int32]int{}
+	for _, p := range in {
+		portCount[p.Port]++
+	}
 	for _, p := range in {
 		if p.Port < 1 || p.Port > 65535 {
 			return nil, fmt.Errorf("invalid port %d (want 1-65535)", p.Port)
@@ -1001,8 +1012,16 @@ func sanitizePorts(in []models.PortSpec) ([]models.PortSpec, error) {
 		seen[key] = true
 		name := strings.TrimSpace(p.Name)
 		if name == "" {
-			name = fmt.Sprintf("p%d", p.Port)
+			if portCount[p.Port] > 1 {
+				name = fmt.Sprintf("p%d-%s", p.Port, strings.ToLower(proto))
+			} else {
+				name = fmt.Sprintf("p%d", p.Port)
+			}
 		}
+		if seenName[name] {
+			return nil, fmt.Errorf("duplicate port name %q", name)
+		}
+		seenName[name] = true
 		if p.Primary {
 			primaries++
 		}
