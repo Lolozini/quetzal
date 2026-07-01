@@ -32,6 +32,10 @@ releases may include breaking changes).
 
 ### Changed
 
+- **Long sections collapse to keep pages short.** The activity log (admin and
+  per-server) and the admin **Eggs / templates** section are now collapsible and
+  start collapsed, showing a count in the header — so a busy audit trail or a
+  large egg catalog no longer stretches the page. Click the header to expand.
 - **Storage is now always a PVC.** Removed the user-selectable `hostPath` storage
   type: it let a tenant mount arbitrary node paths (a host-escape vector for the
   untrusted code game pods run, and disallowed by the baseline/restricted Pod
