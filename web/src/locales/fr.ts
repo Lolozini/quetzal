@@ -196,8 +196,8 @@ export const fr: Record<string, string> = {
 
   // Eggs / templates
   "Eggs / templates": "Eggs / modèles",
-  "The catalog of game/app templates. Import existing Pterodactyl/Pelican eggs, or edit and export your own.":
-    "Le catalogue des modèles de jeux/apps. Importez des eggs Pterodactyl/Pelican existants, ou éditez et exportez les vôtres.",
+  "The game/app templates available to servers. Import existing Pterodactyl/Pelican eggs, or edit and export your own.":
+    "Les modèles de jeux/apps disponibles pour les serveurs. Importez des eggs Pterodactyl/Pelican existants, ou éditez et exportez les vôtres.",
   Slug: "Slug",
   Images: "Images",
   Vars: "Vars",
@@ -212,16 +212,11 @@ export const fr: Record<string, string> = {
   "Import egg": "Importer l'egg",
   "Importing…": "Import…",
   Import: "Importer",
-  Install: "Installer",
-  Category: "Catégorie",
   "Import from URL": "Importer depuis une URL",
+  "Point at the raw JSON file; a GitHub/GitLab file page link is converted automatically.":
+    "Indiquez le fichier JSON brut ; un lien vers la page d'un fichier GitHub/GitLab est converti automatiquement.",
   "Fetch an egg JSON straight from a URL (e.g. a raw file in an egg repository).":
     "Récupère un JSON d'egg directement depuis une URL (p. ex. un fichier brut d'un dépôt d'eggs).",
-  "Egg catalog": "Catalogue d'eggs",
-  "Point Quetzal at a catalog manifest (a JSON list of eggs) to browse and install community eggs in one click.":
-    "Indiquez à Quetzal un manifeste de catalogue (une liste JSON d'eggs) pour parcourir et installer des eggs communautaires en un clic.",
-  "Catalog manifest URL (https://…)": "URL du manifeste de catalogue (https://…)",
-  'Installed "{name}".': "« {name} » installé.",
   "Template saved.": "Modèle enregistré.",
   'Delete template "{name}"?': "Supprimer le modèle « {name} » ?",
   'Imported "{name}".': "Importé « {name} ».",

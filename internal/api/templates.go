@@ -45,7 +45,7 @@ func (s *Server) handleImportEgg(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := egg.ToTemplate(data)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid egg: "+err.Error())
+		writeError(w, http.StatusBadRequest, eggParseError(data, err))
 		return
 	}
 	saved, err := s.Store.UpsertTemplate(t)
