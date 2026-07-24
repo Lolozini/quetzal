@@ -144,10 +144,6 @@ func (s *Store) DeleteEventsForServer(serverID uint) error {
 
 // ---- Settings (key/value) ----
 
-// SettingEggCatalogURL is the URL of an egg catalog manifest (a JSON list of
-// installable eggs) the admin can browse and install from.
-const SettingEggCatalogURL = "egg_catalog_url"
-
 // SettingEndpointHost is an admin-configured hostname (DNS) published to players
 // in a server's external endpoints instead of the raw node IP. When set it is
 // used for NodePort game endpoints and the SFTP connection string; when blank

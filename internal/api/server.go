@@ -198,8 +198,6 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/templates/{slug}", s.auth(s.handleGetTemplate))
 	mux.Handle("POST /api/templates/import", s.auth(s.handleImportEgg))
 	mux.Handle("POST /api/templates/import-url", s.auth(s.handleImportEggURL))
-	mux.Handle("GET /api/egg-catalog", s.auth(s.handleGetEggCatalog))
-	mux.Handle("PUT /api/egg-catalog", s.auth(s.handleSetEggCatalog))
 	mux.Handle("PUT /api/templates/{slug}", s.auth(s.handleUpdateTemplate))
 	mux.Handle("DELETE /api/templates/{slug}", s.auth(s.handleDeleteTemplate))
 	mux.Handle("GET /api/templates/{slug}/export", s.auth(s.handleExportTemplate))

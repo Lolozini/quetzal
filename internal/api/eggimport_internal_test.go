@@ -95,62 +95,70 @@ func TestImportEggURLValidation(t *testing.T) {
 	}
 }
 
-func TestEggCatalogGetAndSet(t *testing.T) {
+func TestRawFileURLNormalizesBlobPages(t *testing.T) {
+	cases := []struct{ in, want string }{
+		// A GitHub blob page serves HTML; the raw host serves the JSON.
+		{
+			"https://github.com/pterodactyl/game-eggs/blob/master/minecraft/java/paper/egg-paper.json",
+			"https://raw.githubusercontent.com/pterodactyl/game-eggs/master/minecraft/java/paper/egg-paper.json",
+		},
+		// Query strings (?plain=1) are dropped.
+		{
+			"https://github.com/o/r/blob/main/a/b.json?plain=1",
+			"https://raw.githubusercontent.com/o/r/main/a/b.json",
+		},
+		// GitLab blob -> raw.
+		{
+			"https://gitlab.com/group/proj/-/blob/main/eggs/x.json",
+			"https://gitlab.com/group/proj/-/raw/main/eggs/x.json",
+		},
+		// Already-raw and unrelated URLs are untouched.
+		{
+			"https://raw.githubusercontent.com/o/r/main/e.json",
+			"https://raw.githubusercontent.com/o/r/main/e.json",
+		},
+		{"https://eggs.example/e.json", "https://eggs.example/e.json"},
+		{"not a url", "not a url"},
+	}
+	for _, c := range cases {
+		if got := rawFileURL(c.in); got != c.want {
+			t.Errorf("rawFileURL(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestImportEggURLFetchesRawForBlobPage(t *testing.T) {
 	s := eggTestServer(t)
-
-	// No catalog configured -> empty list, no fetch.
+	var fetched string
+	s.Fetch = func(_ context.Context, url string, _ int64) ([]byte, error) {
+		fetched = url
+		return []byte(eggJSON), nil
+	}
 	rr := httptest.NewRecorder()
-	s.handleGetEggCatalog(rr, asUser(httptest.NewRequest(http.MethodGet, "/api/egg-catalog", nil), admin))
-	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"eggs":[]`) {
-		t.Fatalf("empty catalog = %d %s", rr.Code, rr.Body.String())
+	req := asUser(httptest.NewRequest(http.MethodPost, "/api/templates/import-url",
+		strings.NewReader(`{"url":"https://github.com/o/r/blob/main/egg.json"}`)), admin)
+	s.handleImportEggURL(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rr.Code, rr.Body.String())
 	}
-
-	// Set a catalog URL.
-	rr = httptest.NewRecorder()
-	s.handleSetEggCatalog(rr, asUser(httptest.NewRequest(http.MethodPut, "/api/egg-catalog",
-		strings.NewReader(`{"url":"https://eggs.example/catalog.json"}`)), admin))
-	if rr.Code != http.StatusNoContent {
-		t.Fatalf("set catalog = %d", rr.Code)
+	if fetched != "https://raw.githubusercontent.com/o/r/main/egg.json" {
+		t.Errorf("fetched %q, want the raw URL", fetched)
 	}
+}
 
-	// Now GET fetches + parses the manifest (mixed valid/invalid entries).
+func TestImportEggHTMLGivesActionableError(t *testing.T) {
+	s := eggTestServer(t)
 	s.Fetch = func(_ context.Context, _ string, _ int64) ([]byte, error) {
-		return []byte(`[{"name":"A","url":"https://x/a.json"},{"name":"no-url"},{"url":"no-name"}]`), nil
+		return []byte("<!DOCTYPE html>\n<html><body>not an egg</body></html>"), nil
 	}
-	rr = httptest.NewRecorder()
-	s.handleGetEggCatalog(rr, asUser(httptest.NewRequest(http.MethodGet, "/api/egg-catalog", nil), admin))
-	body := rr.Body.String()
-	if rr.Code != http.StatusOK {
-		t.Fatalf("get catalog = %d %s", rr.Code, body)
-	}
-	if !strings.Contains(body, `"name":"A"`) || strings.Contains(body, "no-url") || strings.Contains(body, "no-name") {
-		t.Errorf("catalog should list only complete entries: %s", body)
-	}
-}
-
-func TestSetEggCatalogRejectsBadScheme(t *testing.T) {
-	s := eggTestServer(t)
 	rr := httptest.NewRecorder()
-	s.handleSetEggCatalog(rr, asUser(httptest.NewRequest(http.MethodPut, "/api/egg-catalog",
-		strings.NewReader(`{"url":" file:///etc/passwd"}`)), admin))
+	req := asUser(httptest.NewRequest(http.MethodPost, "/api/templates/import-url",
+		strings.NewReader(`{"url":"https://example.test/page"}`)), admin)
+	s.handleImportEggURL(rr, req)
 	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("bad scheme status = %d, want 400", rr.Code)
+		t.Fatalf("status = %d, want 400", rr.Code)
 	}
-}
-
-func TestParseCatalogFormats(t *testing.T) {
-	// Bare array.
-	got, err := parseCatalog([]byte(`[{"name":"A","url":"u1"}]`))
-	if err != nil || len(got) != 1 || got[0].Name != "A" {
-		t.Fatalf("bare array: %v %+v", err, got)
-	}
-	// Wrapped {"eggs":[...]}.
-	got, err = parseCatalog([]byte(`{"eggs":[{"name":"B","url":"u2"},{"name":"C","url":"u3"}]}`))
-	if err != nil || len(got) != 2 {
-		t.Fatalf("wrapped: %v %+v", err, got)
-	}
-	// Garbage.
-	if _, err := parseCatalog([]byte(`not json`)); err == nil {
-		t.Error("garbage should error")
+	if !strings.Contains(rr.Body.String(), "web page") {
+		t.Errorf("error should explain the page/raw mistake: %s", rr.Body.String())
 	}
 }

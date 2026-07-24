@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, CatalogEgg, Template } from "../api";
+import { api, ApiError, Template } from "../api";
 import { useT } from "../i18n";
 import { Collapsible } from "./Collapsible";
 
-// Templates is the admin egg catalog: import Pterodactyl/Pelican eggs, browse,
-// edit (as native JSON), export and delete templates.
+// Templates is the admin egg manager: import Pterodactyl/Pelican eggs (pasted or
+// by URL), browse, edit (as native JSON), export and delete templates.
 export function Templates() {
   const { t: tr } = useT();
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -12,9 +12,6 @@ export function Templates() {
   const [msg, setMsg] = useState("");
   const [importJson, setImportJson] = useState("");
   const [importUrl, setImportUrl] = useState("");
-  const [catalogUrl, setCatalogUrl] = useState("");
-  const [catalog, setCatalog] = useState<CatalogEgg[]>([]);
-  const [catalogErr, setCatalogErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<{ slug: string; json: string } | null>(null);
 
@@ -25,19 +22,8 @@ export function Templates() {
       setError(e instanceof ApiError ? e.message : String(e));
     }
   }
-  async function loadCatalog() {
-    try {
-      const c = await api.eggCatalog();
-      setCatalogUrl(c.catalogUrl);
-      setCatalog(c.eggs);
-      setCatalogErr(c.error ?? "");
-    } catch (e) {
-      setCatalogErr(e instanceof ApiError ? e.message : String(e));
-    }
-  }
   useEffect(() => {
     load();
-    loadCatalog();
   }, []);
 
   async function importFrom(promise: Promise<Template>, ok: (t: Template) => string) {
@@ -59,16 +45,6 @@ export function Templates() {
       setImportUrl("");
       return tr('Imported "{name}".', { name: t.name });
     });
-  }
-
-  async function saveCatalogUrl() {
-    setError("");
-    try {
-      await api.setEggCatalog(catalogUrl.trim());
-      await loadCatalog();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
-    }
   }
 
   async function doImport() {
@@ -119,7 +95,7 @@ export function Templates() {
   return (
     <div className="card">
       <Collapsible title={tr("Eggs / templates")} count={templates.length}>
-      <p className="muted">{tr("The catalog of game/app templates. Import existing Pterodactyl/Pelican eggs, or edit and export your own.")}</p>
+      <p className="muted">{tr("The game/app templates available to servers. Import existing Pterodactyl/Pelican eggs, or edit and export your own.")}</p>
 
       {templates.length > 0 && (
         <table>
@@ -159,6 +135,8 @@ export function Templates() {
             <button className="primary" onClick={saveEdit} disabled={busy}>{busy ? tr("Saving…") : tr("Save")}</button>
             <button onClick={() => setEditing(null)}>{tr("Cancel")}</button>
           </div>
+          {msg && <div className="notice" style={{ marginTop: 8 }}>{msg}</div>}
+          {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
@@ -188,44 +166,17 @@ export function Templates() {
               {tr("Import")}
             </button>
           </div>
+          <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+            {tr("Point at the raw JSON file; a GitHub/GitLab file page link is converted automatically.")}
+          </p>
 
-          <h3 style={{ marginTop: 20 }}>{tr("Egg catalog")}</h3>
-          <p className="muted">{tr("Point Quetzal at a catalog manifest (a JSON list of eggs) to browse and install community eggs in one click.")}</p>
-          <div className="row">
-            <input
-              value={catalogUrl}
-              onChange={(e) => setCatalogUrl(e.target.value)}
-              placeholder={tr("Catalog manifest URL (https://…)")}
-              style={{ flex: 1 }}
-            />
-            <button onClick={saveCatalogUrl} disabled={busy}>{tr("Save")}</button>
-            <button onClick={loadCatalog} disabled={busy}>{tr("Refresh")}</button>
-          </div>
-          {catalogErr && <div className="error" style={{ marginTop: 8 }}>{catalogErr}</div>}
-          {catalog.length > 0 && (
-            <table style={{ marginTop: 8 }}>
-              <thead><tr><th>{tr("Name")}</th><th>{tr("Category")}</th><th></th></tr></thead>
-              <tbody>
-                {catalog.map((e) => (
-                  <tr key={e.url}>
-                    <td>{e.name}{e.description ? <div className="muted" style={{ fontSize: 12 }}>{e.description}</div> : null}</td>
-                    <td>{e.category || "—"}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      <button className="primary" disabled={busy}
-                        onClick={() => importFrom(api.importEggUrl(e.url), (t) => tr('Installed "{name}".', { name: t.name }))}>
-                        {tr("Install")}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          {/* Feedback sits with the import controls: this panel scrolls, so a
+              message at the bottom of the card would be missed. */}
+          {msg && <div className="notice" style={{ marginTop: 8 }}>{msg}</div>}
+          {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
         </div>
       )}
 
-      {msg && <div className="notice">{msg}</div>}
-      {error && <div className="error">{error}</div>}
       </Collapsible>
     </div>
   );
