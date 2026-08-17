@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -255,6 +256,30 @@ func (s *Server) handleExtractArchive(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// writeScript writes stdin to $1, atomically and only when the whole payload
+// arrived. It spools beside the target and moves the temp file into place at the
+// end, so a stream that dies midway (or delivers nothing at all — the exec stdin
+// channel can come up empty against a container that has only just started)
+// leaves the existing file untouched instead of truncating it to nothing. $2, if
+// set, is the byte count expected; a mismatch fails the write.
+const writeScript = `dst="$1"; want="$2"
+tmp="$dst.quetzal-part.$$"
+cat > "$tmp" || { rm -f "$tmp"; exit 1; }
+if [ -n "$want" ]; then
+  got=$(wc -c < "$tmp" | tr -d ' ')
+  if [ "$got" != "$want" ]; then
+    rm -f "$tmp"
+    echo "short write: received $got of $want bytes" >&2
+    exit 1
+  fi
+fi
+mv -f "$tmp" "$dst"`
+
+// maxRetriableWrite bounds how much of an upload is held in memory so a failed
+// write can be retried. Editor saves and config files sit far below it; a larger
+// body still streams straight through, but gets a single attempt.
+const maxRetriableWrite = 8 << 20 // 8 MiB
+
 func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {
 	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
 	if !ok {
@@ -262,7 +287,34 @@ func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {
 	}
 	full := jail(root, r.URL.Query().Get("path"))
 	body := http.MaxBytesReader(w, r.Body, 256<<20) // 256 MiB cap
-	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", `cat > "$1"`, "_", full}, body, io.Discard); err != nil {
+
+	// Hold a small payload so a lost write can be retried: the first exec into a
+	// freshly-started container occasionally delivers no stdin at all, and a
+	// second attempt on a warm channel goes through.
+	var retry []byte
+	var src io.Reader = body
+	expected := ""
+	if r.ContentLength >= 0 {
+		expected = strconv.FormatInt(r.ContentLength, 10)
+		if r.ContentLength <= maxRetriableWrite {
+			buf, err := io.ReadAll(body)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "could not read body")
+				return
+			}
+			retry, src = buf, bytes.NewReader(buf)
+		}
+	}
+
+	write := func(in io.Reader) error {
+		return s.execFile(r.Context(), cs, cfg, srv.Namespace, pod,
+			[]string{"sh", "-c", writeScript, "_", full, expected}, in, io.Discard)
+	}
+	err := write(src)
+	if err != nil && retry != nil {
+		err = write(bytes.NewReader(retry))
+	}
+	if err != nil {
 		writeError(w, http.StatusBadGateway, "write failed: "+err.Error())
 		return
 	}
