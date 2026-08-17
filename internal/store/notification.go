@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -143,6 +144,22 @@ func (s *Store) DeleteEventsForServer(serverID uint) error {
 }
 
 // ---- Settings (key/value) ----
+
+// EndpointHostFor returns the hostname to publish for servers on a cluster: the
+// cluster's own override when set, otherwise the panel-wide setting, otherwise
+// "" (the caller falls back to the detected node address). Each cluster fronts
+// its own nodes, so a single global name would send players to the wrong one.
+func EndpointHostFor(s *Store, clusterID uint) string {
+	if clusterID != 0 {
+		if c, err := s.GetCluster(clusterID); err == nil {
+			if h := strings.TrimSpace(c.EndpointHost); h != "" {
+				return h
+			}
+		}
+	}
+	h, _ := s.GetSetting(SettingEndpointHost)
+	return strings.TrimSpace(h)
+}
 
 // SettingEndpointHost is an admin-configured hostname (DNS) published to players
 // in a server's external endpoints instead of the raw node IP. When set it is

@@ -560,3 +560,40 @@ func TestNodePortSharedByNumberAndRenameable(t *testing.T) {
 		t.Errorf("destination changed: %d != %d", got, b)
 	}
 }
+
+func TestEndpointHostForPrefersCluster(t *testing.T) {
+	s := newTestStore(t)
+	a := &models.Cluster{Slug: "a", Name: "A"}
+	b := &models.Cluster{Slug: "b", Name: "B"}
+	if err := s.CreateCluster(a, ""); err != nil {
+		t.Fatalf("create a: %v", err)
+	}
+	if err := s.CreateCluster(b, ""); err != nil {
+		t.Fatalf("create b: %v", err)
+	}
+
+	// Nothing configured anywhere: the caller falls back to the node address.
+	if h := EndpointHostFor(s, a.ID); h != "" {
+		t.Fatalf("unconfigured host = %q, want empty", h)
+	}
+	// The panel-wide setting covers every cluster...
+	if err := s.SetSetting(SettingEndpointHost, "play.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []uint{0, a.ID, b.ID} {
+		if h := EndpointHostFor(s, id); h != "play.example.com" {
+			t.Errorf("cluster %d host = %q, want the global one", id, h)
+		}
+	}
+	// ...until a cluster pins its own, which must not leak to the other one.
+	host := "play.cluster-a.example"
+	if err := s.UpdateCluster(a.ID, a.Name, "", nil, &host); err != nil {
+		t.Fatalf("set cluster host: %v", err)
+	}
+	if h := EndpointHostFor(s, a.ID); h != host {
+		t.Errorf("cluster A host = %q, want its own %q", h, host)
+	}
+	if h := EndpointHostFor(s, b.ID); h != "play.example.com" {
+		t.Errorf("cluster B host = %q, want the global one", h)
+	}
+}

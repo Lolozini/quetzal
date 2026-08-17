@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, Cluster, EventEntry, ExposeType, hasAdminPerm, PowerAction, Server, ServerStats, User } from "../api";
+import { api, ApiError, Cluster, EventEntry, ExposeType, hasAdminPerm, OFFLINE_PHASES, PowerAction, Server, ServerStats, User } from "../api";
 import { useT } from "../i18n";
 import { Access } from "./Access";
 import { Backups } from "./Backups";
@@ -117,17 +117,14 @@ function DiskBar({ used, total }: { used: number; total: number }) {
   );
 }
 
-// A stopped/suspended/hibernated server has no pod to sample, so resource stats
-// are simply absent — not an error. Show a neutral placeholder in that case, and
-// a soft generic note (never a raw "no pod found" / crashloop message, which
-// belongs in the activity log) when a running server's metrics are momentarily
-// unavailable.
-const offlinePhases = ["", "Stopped", "Suspended", "Hibernated"];
-
+// A server with no pod has no resource stats — that is absence, not an error.
+// Show a neutral placeholder then, and a soft generic note (never a raw "no pod
+// found" / crashloop message, which belongs in the activity log) when a running
+// server's metrics are momentarily unavailable.
 function StatsPanel({ stats, history, phase }: { stats: ServerStats | null; history: Sample[]; phase: string }) {
   const { t } = useT();
   if (!stats) {
-    const offline = offlinePhases.includes(phase);
+    const offline = OFFLINE_PHASES.includes(phase);
     return (
       <div className="kv">
         <span className="k">{t("Resources")}</span>
@@ -210,7 +207,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
       }
       // No pod when the server is offline: skip the stats call entirely (avoids a
       // pointless "no pod found" every poll) and clear the panel.
-      if (offlinePhases.includes(phase)) {
+      if (OFFLINE_PHASES.includes(phase)) {
         if (active) setStats(null);
         return;
       }
@@ -630,7 +627,14 @@ function ServerActivity({ id, slug }: { id: number; slug: string }) {
   }, [id]);
   // Event messages are prefixed with the server slug ("slug: …"); drop it in this
   // already server-scoped view.
-  const strip = (m: string) => (slug && m.startsWith(slug + ": ") ? m.slice(slug.length + 2) : m);
+  // Messages are prefixed with the server slug ("slug: detail"), and an action
+  // with no detail records the slug alone. Both are noise in a view that is
+  // already scoped to one server.
+  const strip = (m: string) => {
+    if (!slug) return m;
+    if (m.startsWith(slug + ": ")) return m.slice(slug.length + 2);
+    return m === slug ? "" : m;
+  };
   return (
     <div className="card">
       <Collapsible title={t("Activity")} count={entries.length}>

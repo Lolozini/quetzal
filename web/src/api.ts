@@ -358,6 +358,8 @@ export interface Cluster {
   name: string;
   inCluster: boolean;
   defaultStorageClass?: string;
+  // endpointHost overrides the panel-wide hostname for servers on this cluster.
+  endpointHost?: string;
   reachable: boolean;
   version?: string;
   nodeCount?: number;
@@ -434,6 +436,11 @@ export const EVENT_TYPES = [
 ] as const;
 
 export type PowerAction = "start" | "stop" | "restart" | "kill";
+
+// Phases in which a server has no pod: nothing to sample, stream or attach to.
+// Shared so the console and the stats panel can't drift apart. "" covers a
+// server whose status hasn't loaded yet.
+export const OFFLINE_PHASES = ["", "Stopped", "Suspended", "Hibernated"];
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -621,7 +628,7 @@ export const api = {
     req<Cluster>("POST", "/api/clusters", { name, kubeconfig }),
   updateCluster: (
     id: number,
-    body: { name?: string; kubeconfig?: string; defaultStorageClass?: string },
+    body: { name?: string; kubeconfig?: string; defaultStorageClass?: string; endpointHost?: string },
   ) => req<Cluster>("PATCH", `/api/clusters/${id}`, body),
   deleteCluster: (id: number) => req<void>("DELETE", `/api/clusters/${id}`),
   testCluster: (id: number) => req<Cluster>("POST", `/api/clusters/${id}/test`),

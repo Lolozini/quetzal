@@ -111,7 +111,7 @@ func (s *Server) handleServerSFTP(w http.ResponseWriter, r *http.Request) {
 		}
 		// Advertise the configured DNS name (or the detected node address) so the
 		// connection string matches the game endpoint instead of a placeholder.
-		resp["host"] = s.endpointHost(r.Context(), cs)
+		resp["host"] = s.endpointHost(r.Context(), cs, srv.ClusterID)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

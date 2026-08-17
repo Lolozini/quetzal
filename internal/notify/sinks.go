@@ -37,10 +37,16 @@ func serverLabel(name, slug string) string {
 // stripSlug drops the "slug: " prefix the event message carries, so the server
 // can be shown as its own field/label instead of being duplicated inline.
 func stripSlug(msg, slug string) string {
-	if slug != "" {
-		if p := slug + ": "; strings.HasPrefix(msg, p) {
-			return msg[len(p):]
-		}
+	if slug == "" {
+		return msg
+	}
+	if p := slug + ": "; strings.HasPrefix(msg, p) {
+		return msg[len(p):]
+	}
+	// An action with no detail records the slug alone, which carries nothing once
+	// the server is its own field.
+	if msg == slug {
+		return ""
 	}
 	return msg
 }

@@ -161,6 +161,11 @@ export const fr: Record<string, string> = {
   "Endpoint hostname (blank = use node IP)": "Nom d'hôte des endpoints (vide = utiliser l'IP du nœud)",
   "Detected node address:": "Adresse du nœud détectée :",
   "your DNS record should point here.": "votre enregistrement DNS doit pointer ici.",
+  Hostname: "Nom d'hôte",
+  "(panel default)": "(défaut du panel)",
+  "Endpoint hostname": "Nom d'hôte des endpoints",
+  "Hostname published to players for servers on this cluster. Each cluster fronts its own nodes, so set it per cluster; leave it blank to use the panel-wide hostname from Network settings.":
+    "Nom d'hôte publié aux joueurs pour les serveurs de ce cluster. Chaque cluster a ses propres nœuds : réglez-le par cluster ; laissez vide pour utiliser le nom d'hôte global des réglages Réseau.",
   "Saved. New endpoints use it on the next reconcile.":
     "Enregistré. Les nouveaux endpoints l'utilisent à la prochaine réconciliation.",
 

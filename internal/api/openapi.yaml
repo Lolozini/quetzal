@@ -236,6 +236,38 @@ paths:
         "204": { description: Password reset }
         "400": { description: Invalid/expired token or weak password }
         "429": { $ref: "#/components/responses/RateLimited" }
+  /api/network-settings:
+    get:
+      tags: [Servers]
+      summary: Get the published endpoint hostname (admin)
+      description: >-
+        Returns the panel-wide hostname advertised to players instead of the raw
+        node IP, plus the detected node address as a hint for the DNS record. A
+        cluster may override the hostname for its own servers.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  endpointHost: { type: string }
+                  nodeAddress: { type: string, description: Detected node address (hint only) }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [Servers]
+      summary: Set the published endpoint hostname (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { endpointHost: { type: string, description: "Hostname, or empty to fall back to the node address" } }
+      responses:
+        "204": { description: Saved }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /api/email-settings:
     get:
       tags: [Email]
@@ -481,6 +513,12 @@ paths:
                   enabled: { type: boolean }
                   username: { type: string }
                   port: { type: integer }
+                  host:
+                    type: string
+                    description: >-
+                      Hostname to connect to: the cluster's endpoint hostname, else
+                      the panel-wide one, else the detected node address. Empty
+                      until SFTP is provisioned.
 
   /api/me/2fa/setup:
     post:
@@ -578,7 +616,8 @@ paths:
       description: >-
         Fetches an egg JSON from a URL (SSRF-guarded: http(s) only, non-public
         addresses refused) and imports it as a template, like /import. Used for
-        ad-hoc imports and one-click catalog installs.
+        ad-hoc imports. Repository file-page URLs (GitHub/GitLab "blob") are
+        rewritten to their raw equivalent before fetching.
       requestBody:
         required: true
         content:
@@ -2004,6 +2043,7 @@ components:
         name: { type: string }
         inCluster: { type: boolean }
         defaultStorageClass: { type: string, description: "empty = the cluster's own default storageClass" }
+        endpointHost: { type: string, description: "hostname published for this cluster's servers; empty = the panel-wide setting" }
         reachable: { type: boolean }
         version: { type: string }
         nodeCount: { type: integer }
@@ -2043,6 +2083,9 @@ components:
         userId: { type: integer }
         username: { type: string }
         serverId: { type: integer }
+        serverName:
+          type: string
+          description: Slug of the server the action targeted, resolved at read time (global log only).
         action: { type: string }
         detail: { type: string }
     Event:

@@ -364,3 +364,67 @@ func TestBuildMessageEncodesNonASCIISubject(t *testing.T) {
 		t.Errorf("ASCII subject = %q, want it verbatim", got)
 	}
 }
+
+func TestStripSlugDropsBareSlugMessage(t *testing.T) {
+	// An action with no detail records the slug alone; once the server is its own
+	// field that carries nothing, so it must not surface as a message.
+	if got := stripSlug("survival-a1b2", "survival-a1b2"); got != "" {
+		t.Errorf("bare slug = %q, want empty", got)
+	}
+	if got := stripSlug("survival-a1b2: crashed", "survival-a1b2"); got != "crashed" {
+		t.Errorf("prefixed = %q, want the detail", got)
+	}
+	// Unrelated text, and a message that merely starts with the slug, are kept.
+	if got := stripSlug("panel-wide thing", "survival-a1b2"); got != "panel-wide thing" {
+		t.Errorf("unrelated message altered: %q", got)
+	}
+	if got := stripSlug("survival-a1b2x", "survival-a1b2"); got != "survival-a1b2x" {
+		t.Errorf("near-match altered: %q", got)
+	}
+}
+
+func TestDispatchResolvesServerOncePerEvent(t *testing.T) {
+	var hits int
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		hits++
+		mu.Unlock()
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	st := &countingStore{fakeStore: fakeStore{
+		events: []models.Event{{ID: 1, Type: models.EventServerCrashed, ServerID: 7, Message: "boom"}},
+		channels: []models.NotificationChannel{
+			{ID: 1, Type: models.ChannelDiscord, Enabled: true, ServerID: 7, ConfigEnc: srv.URL},
+			{ID: 2, Type: models.ChannelWebhook, Enabled: true, ServerID: 7, ConfigEnc: srv.URL},
+			{ID: 3, Type: models.ChannelDiscord, Enabled: true, ServerID: 7, ConfigEnc: srv.URL},
+		},
+		settings: map[string]string{cursorKey: "0"},
+		servers:  map[uint][2]string{7: {"Prod Box", "prod-box"}},
+	}}
+	d := New(st)
+	d.Client = srv.Client()
+	d.drain(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	if hits != 3 {
+		t.Fatalf("deliveries = %d, want 3", hits)
+	}
+	if st.identityCalls != 1 {
+		t.Errorf("ServerIdentity called %d times for one event, want 1", st.identityCalls)
+	}
+}
+
+// countingStore counts server-identity lookups.
+type countingStore struct {
+	fakeStore
+	identityCalls int
+}
+
+func (c *countingStore) ServerIdentity(id uint) (string, string, error) {
+	c.identityCalls++
+	return c.fakeStore.ServerIdentity(id)
+}

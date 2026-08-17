@@ -14,6 +14,8 @@ export function Clusters() {
   const [scFor, setScFor] = useState<number | null>(null);
   const [scList, setScList] = useState<StorageClassInfo[]>([]);
   const [scValue, setScValue] = useState("");
+  const [ehFor, setEhFor] = useState<number | null>(null);
+  const [ehValue, setEhValue] = useState("");
 
   async function load() {
     try {
@@ -77,6 +79,27 @@ export function Clusters() {
     }
   }
 
+  async function showEndpointHost(c: Cluster) {
+    if (ehFor === c.id) {
+      setEhFor(null);
+      return;
+    }
+    setError("");
+    setEhValue(c.endpointHost ?? "");
+    setEhFor(c.id);
+  }
+
+  async function saveEndpointHost(c: Cluster) {
+    setError("");
+    try {
+      await api.updateCluster(c.id, { endpointHost: ehValue.trim() });
+      setEhFor(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
   async function showStorageClasses(c: Cluster) {
     if (scFor === c.id) {
       setScFor(null);
@@ -111,7 +134,7 @@ export function Clusters() {
       </p>
       <table>
         <thead>
-          <tr><th>{t("Name")}</th><th>{t("Type")}</th><th>{t("Status")}</th><th>{t("Nodes")}</th><th>{t("Storage class")}</th><th></th></tr>
+          <tr><th>{t("Name")}</th><th>{t("Type")}</th><th>{t("Status")}</th><th>{t("Nodes")}</th><th>{t("Storage class")}</th><th>{t("Hostname")}</th><th></th></tr>
         </thead>
         <tbody>
           {clusters.map((c) => (
@@ -127,10 +150,12 @@ export function Clusters() {
               </td>
               <td>{c.nodeCount ?? "—"}</td>
               <td>{c.defaultStorageClass || <span className="muted">{t("(cluster default)")}</span>}</td>
+              <td>{c.endpointHost || <span className="muted">{t("(panel default)")}</span>}</td>
               <td style={{ whiteSpace: "nowrap" }}>
                 <button onClick={() => test(c)}>{t("Test")}</button>{" "}
                 <button onClick={() => showNodes(c)}>{nodesFor === c.id ? t("Hide") : t("Nodes")}</button>{" "}
                 <button onClick={() => showStorageClasses(c)}>{scFor === c.id ? t("Hide") : t("Storage class")}</button>{" "}
+                <button onClick={() => showEndpointHost(c)}>{ehFor === c.id ? t("Hide") : t("Hostname")}</button>{" "}
                 {!c.inCluster && <button className="danger" onClick={() => remove(c)}>{t("Remove")}</button>}
               </td>
             </tr>
@@ -189,6 +214,32 @@ export function Clusters() {
             </button>
           </div>
           {scList.length === 0 && <p className="muted">{t("No storage classes found on this cluster.")}</p>}
+        </div>
+      )}
+
+      {ehFor !== null && (
+        <div className="card" style={{ marginTop: 8 }}>
+          <h3>{t("Endpoint hostname")}</h3>
+          <p className="muted">
+            {t("Hostname published to players for servers on this cluster. Each cluster fronts its own nodes, so set it per cluster; leave it blank to use the panel-wide hostname from Network settings.")}
+          </p>
+          <div className="row" style={{ gap: 8, alignItems: "center" }}>
+            <input
+              value={ehValue}
+              onChange={(e) => setEhValue(e.target.value)}
+              placeholder="play.example.com"
+              style={{ flex: 1 }}
+            />
+            <button
+              className="primary"
+              onClick={() => {
+                const c = clusters.find((x) => x.id === ehFor);
+                if (c) saveEndpointHost(c);
+              }}
+            >
+              {t("Save")}
+            </button>
+          </div>
         </div>
       )}
 

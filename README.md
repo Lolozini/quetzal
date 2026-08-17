@@ -33,8 +33,8 @@ network policy, and a multi-cluster API.
   citizen — described by a **template** (Quetzal's "egg").
 - **A migration path, not a rewrite.** Import your existing **Pterodactyl/Pelican
   eggs** as-is (variables, startup, install scripts, `config.files`) — paste the
-  JSON, fetch from a URL, or browse an **egg catalog** and install in one click —
-  and bring worlds/modpacks/backups in by uploading an archive.
+  JSON or fetch it from a URL (a GitHub/GitLab file page link works) — and bring
+  worlds/modpacks/backups in by uploading an archive.
 - **Multi-tenant and secure by default.** Namespace-per-server, NetworkPolicy,
   hardened `securityContext`, encrypted secrets, scoped subusers and admin roles.
 - **Self-hostable, no lock-in.** SQLite or Postgres, any storageClass (a local

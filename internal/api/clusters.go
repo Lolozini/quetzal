@@ -45,6 +45,9 @@ type clusterRequest struct {
 	// DefaultStorageClass: nil leaves it unchanged on update; non-nil sets it
 	// (empty string = the cluster's own default storageClass).
 	DefaultStorageClass *string `json:"defaultStorageClass"`
+	// EndpointHost: nil leaves it unchanged on update; non-nil sets it (empty
+	// string = fall back to the panel-wide endpoint hostname).
+	EndpointHost *string `json:"endpointHost"`
 }
 
 func (s *Server) handleCreateCluster(w http.ResponseWriter, r *http.Request) {
@@ -78,6 +81,9 @@ func (s *Server) handleCreateCluster(w http.ResponseWriter, r *http.Request) {
 	c := &models.Cluster{Slug: slug, Name: req.Name}
 	if req.DefaultStorageClass != nil {
 		c.DefaultStorageClass = strings.TrimSpace(*req.DefaultStorageClass)
+	}
+	if req.EndpointHost != nil {
+		c.EndpointHost = strings.TrimSpace(*req.EndpointHost)
 	}
 	if err := s.Store.CreateCluster(c, req.Kubeconfig); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -124,7 +130,7 @@ func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.Store.UpdateCluster(c.ID, name, req.Kubeconfig, req.DefaultStorageClass); err != nil {
+	if err := s.Store.UpdateCluster(c.ID, name, req.Kubeconfig, req.DefaultStorageClass, req.EndpointHost); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

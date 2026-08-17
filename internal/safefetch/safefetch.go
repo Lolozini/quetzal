@@ -2,7 +2,7 @@
 // allows http(s), refuses to connect to non-public IPs (loopback, private,
 // link-local — including the cloud metadata endpoint 169.254.169.254), bounds
 // the response size, and caps redirects. It is used for admin-initiated fetches
-// of egg/catalog JSON from arbitrary URLs.
+// of egg JSON from arbitrary URLs.
 package safefetch
 
 import (
@@ -45,7 +45,7 @@ func guard(_, address string, _ syscall.RawConn) error {
 // non-public addresses (see blockedIP). The guard runs for every actual TCP
 // connection — each resolved IP and each redirect hop — so it also defeats DNS
 // rebinding. Pair it with CheckRedirect on an http.Client for any outbound
-// request to a user-supplied URL (egg/catalog fetch, notification webhooks).
+// request to a user-supplied URL (egg fetch, notification webhooks).
 func SafeTransport() *http.Transport {
 	dialer := &net.Dialer{Timeout: 10 * time.Second, Control: guard}
 	return &http.Transport{
