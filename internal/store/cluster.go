@@ -84,7 +84,7 @@ func (s *Store) CreateCluster(c *models.Cluster, kubeconfig string) error {
 // UpdateCluster persists a cluster's name and, when a non-empty kubeconfig is
 // given, re-encrypts and replaces its credentials. A non-nil defaultStorageClass
 // sets it (empty string = the cluster's own default); nil leaves it unchanged.
-func (s *Store) UpdateCluster(id uint, name, kubeconfig string, defaultStorageClass *string) error {
+func (s *Store) UpdateCluster(id uint, name, kubeconfig string, defaultStorageClass, endpointHost *string) error {
 	fields := map[string]any{"name": name}
 	if kubeconfig != "" {
 		enc, err := s.sealValue(kubeconfig)
@@ -95,6 +95,9 @@ func (s *Store) UpdateCluster(id uint, name, kubeconfig string, defaultStorageCl
 	}
 	if defaultStorageClass != nil {
 		fields["default_storage_class"] = strings.TrimSpace(*defaultStorageClass)
+	}
+	if endpointHost != nil {
+		fields["endpoint_host"] = strings.TrimSpace(*endpointHost)
 	}
 	return s.db.Model(&models.Cluster{}).Where("id = ?", id).Updates(fields).Error
 }

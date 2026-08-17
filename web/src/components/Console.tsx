@@ -1,15 +1,11 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { ConsoleMessage, consoleSocket } from "../api";
+import { ConsoleMessage, consoleSocket, OFFLINE_PHASES } from "../api";
 import { useT } from "../i18n";
 
 interface Line {
   cls: string;
   text: string;
 }
-
-// A server with no pod (Stopped/Suspended/Hibernated) has nothing to stream, so
-// we don't hold a socket open against it; any other phase is treated as live.
-const offlinePhases = ["", "Stopped", "Suspended", "Hibernated"];
 
 export function Console({ id, phase }: { id: number; phase: string }) {
   const { t } = useT();
@@ -18,7 +14,8 @@ export function Console({ id, phase }: { id: number; phase: string }) {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
-  const live = !offlinePhases.includes(phase);
+  // A server with no pod has nothing to stream, so we hold no socket against it.
+  const live = !OFFLINE_PHASES.includes(phase);
 
   useEffect(() => {
     if (!live) return;
@@ -28,6 +25,11 @@ export function Console({ id, phase }: { id: number; phase: string }) {
     let stopped = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let wasOpen = false;
+    // Back off between attempts so a server that never comes up (a crash loop, a
+    // slow image pull) doesn't hammer the apiserver from every open tab. Reset
+    // once a session actually establishes, so a normal restart reconnects fast.
+    let delay = 1000;
+    const maxDelay = 30000;
 
     // Self-healing connection: while the server is live we keep a socket open,
     // reconnecting after a short delay if it drops (e.g. the pod is still coming
@@ -38,6 +40,7 @@ export function Console({ id, phase }: { id: number; phase: string }) {
       wsRef.current = ws;
       ws.onopen = () => {
         wasOpen = true;
+        delay = 1000;
         setConnected(true);
       };
       ws.onclose = () => {
@@ -45,7 +48,8 @@ export function Console({ id, phase }: { id: number; phase: string }) {
         if (stopped) return;
         if (wasOpen) append("sys", t("— disconnected —") + "\n");
         wasOpen = false;
-        retry = setTimeout(connect, 3000);
+        retry = setTimeout(connect, delay);
+        delay = Math.min(delay * 2, maxDelay);
       };
       ws.onmessage = (ev) => {
         try {

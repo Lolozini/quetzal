@@ -44,6 +44,12 @@ type Reconciler struct {
 	// game allocations never collide. Injected by the controller.
 	NodePortMin int32
 	NodePortMax int32
+
+	// ClusterID is the cluster this reconciler drives. It selects that cluster's
+	// endpoint hostname, since each cluster has its own nodes and a single
+	// panel-wide name would advertise one cluster's address for another's
+	// servers. 0 = the control plane's own cluster.
+	ClusterID uint
 }
 
 // New returns a Reconciler.
@@ -603,14 +609,12 @@ func (r *Reconciler) endpointsFor(ctx context.Context, s *models.Server, t *mode
 }
 
 // endpointHost is the host published in a server's external NodePort endpoints:
-// the admin-configured DNS name (SettingEndpointHost) when set, otherwise the
-// detected node address. Letting the admin pin a hostname means players see a
-// stable, memorable address instead of the raw node IP.
+// this cluster's own hostname if it has one, else the panel-wide setting, else
+// the detected node address. Letting the admin pin a hostname means players see
+// a stable, memorable address instead of the raw node IP.
 func (r *Reconciler) endpointHost(ctx context.Context) string {
-	if h, err := r.Store.GetSetting(store.SettingEndpointHost); err == nil {
-		if h = strings.TrimSpace(h); h != "" {
-			return h
-		}
+	if h := store.EndpointHostFor(r.Store, r.ClusterID); h != "" {
+		return h
 	}
 	return r.firstNodeAddress(ctx)
 }
@@ -619,12 +623,20 @@ func (r *Reconciler) endpointHost(ctx context.Context) string {
 // falling back to an InternalIP.
 func (r *Reconciler) firstNodeAddress(ctx context.Context) string {
 	var nodes corev1.NodeList
-	if err := r.Client.List(ctx, &nodes); err != nil || len(nodes.Items) == 0 {
+	if err := r.Client.List(ctx, &nodes); err != nil {
 		return ""
 	}
+	return NodeAddress(nodes.Items)
+}
+
+// NodeAddress picks the address to reach a cluster on: the first ExternalIP,
+// falling back to the first InternalIP, and "" when neither exists. Exported so
+// the apiserver derives the same address as the controller from its own client,
+// instead of keeping a second copy of the preference order.
+func NodeAddress(nodes []corev1.Node) string {
 	var internal string
-	for i := range nodes.Items {
-		for _, a := range nodes.Items[i].Status.Addresses {
+	for i := range nodes {
+		for _, a := range nodes[i].Status.Addresses {
 			switch a.Type {
 			case corev1.NodeExternalIP:
 				if a.Address != "" {

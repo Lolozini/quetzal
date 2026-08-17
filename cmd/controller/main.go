@@ -324,6 +324,7 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 		rec.WakeKey = actCfg.key
 		rec.NodePortMin = actCfg.nodePortMin
 		rec.NodePortMax = actCfg.nodePortMax
+		rec.ClusterID = c.ID
 		for _, s := range byCluster[c.ID] {
 			if err := rec.ReconcileServer(ctx, s.ID); err != nil {
 				log.Printf("reconcile server %s (cluster %s): %v", s.Slug, c.Slug, err)

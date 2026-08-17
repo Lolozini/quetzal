@@ -69,7 +69,7 @@ type Server struct {
 	// Mailer sends outbound system email (password reset). Defaults to
 	// notify.SendMail; overridable in tests.
 	Mailer MailSender
-	// Fetch performs SSRF-guarded outbound GETs (egg/catalog import). Defaults to
+	// Fetch performs SSRF-guarded outbound GETs (egg import). Defaults to
 	// safefetch.Get; overridable in tests.
 	Fetch Fetcher
 	// TrustProxy honors X-Forwarded-For when deriving the client IP (set when
@@ -82,6 +82,18 @@ type Server struct {
 	// usage (du) so the 4s stats poll doesn't walk the whole volume every time.
 	diskUsageMu sync.Mutex
 	diskUsage   map[uint]diskSample
+
+	// nodeAddrMu guards nodeAddr, a per-cluster cache of the detected node
+	// address so repeated lookups (the SFTP panel polls while a port is being
+	// provisioned) don't list every node in the cluster each time.
+	nodeAddrMu sync.Mutex
+	nodeAddr   map[uint]nodeAddrEntry
+}
+
+// nodeAddrEntry is a cached node address with the time it was read.
+type nodeAddrEntry struct {
+	addr string
+	at   time.Time
 }
 
 // diskSample is a cached data-volume usage reading (du) with its timestamp.

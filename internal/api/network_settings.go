@@ -4,12 +4,13 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/store"
 )
 
@@ -58,9 +59,9 @@ func (s *Server) detectedNodeAddress(r *http.Request) string {
 	return nodeAddress(r.Context(), s.Clientset)
 }
 
-// nodeAddress picks a usable node address (ExternalIP, else InternalIP) from a
-// clientset, returning "" on any failure. Shared by the settings hint and the
-// SFTP connection string.
+// nodeAddress lists a cluster's nodes and picks the address to reach it on,
+// returning "" on any failure. The preference order lives in the reconciler so
+// the panel and the controller can't drift apart.
 func nodeAddress(ctx context.Context, cs kubernetes.Interface) string {
 	if cs == nil {
 		return ""
@@ -69,31 +70,44 @@ func nodeAddress(ctx context.Context, cs kubernetes.Interface) string {
 	if err != nil {
 		return ""
 	}
-	var internal string
-	for i := range nl.Items {
-		for _, a := range nl.Items[i].Status.Addresses {
-			switch a.Type {
-			case corev1.NodeExternalIP:
-				if a.Address != "" {
-					return a.Address
-				}
-			case corev1.NodeInternalIP:
-				if internal == "" {
-					internal = a.Address
-				}
-			}
-		}
+	return reconciler.NodeAddress(nl.Items)
+}
+
+// nodeAddrTTL bounds how long a looked-up node address is reused. Node IPs
+// essentially never change, and the SFTP panel polls every couple of seconds
+// while a port is being provisioned, so without this every poll would list the
+// whole cluster.
+const nodeAddrTTL = 5 * time.Minute
+
+// cachedNodeAddress is nodeAddress with a short per-cluster cache.
+func (s *Server) cachedNodeAddress(ctx context.Context, cs kubernetes.Interface, clusterID uint) string {
+	s.nodeAddrMu.Lock()
+	if e, ok := s.nodeAddr[clusterID]; ok && time.Since(e.at) < nodeAddrTTL {
+		s.nodeAddrMu.Unlock()
+		return e.addr
 	}
-	return internal
+	s.nodeAddrMu.Unlock()
+
+	addr := nodeAddress(ctx, cs)
+	if addr == "" {
+		return "" // don't cache a failure: the next call should retry
+	}
+	s.nodeAddrMu.Lock()
+	if s.nodeAddr == nil {
+		s.nodeAddr = map[uint]nodeAddrEntry{}
+	}
+	s.nodeAddr[clusterID] = nodeAddrEntry{addr: addr, at: time.Now()}
+	s.nodeAddrMu.Unlock()
+	return addr
 }
 
 // endpointHost is the host to advertise in a server's external endpoints: the
-// admin-configured DNS name when set, otherwise the given cluster's node
+// cluster's own DNS name, else the panel-wide one, else that cluster's node
 // address. Mirrors the controller's endpoint computation so the SFTP string and
 // the game endpoint agree.
-func (s *Server) endpointHost(ctx context.Context, cs kubernetes.Interface) string {
-	if h, _ := s.Store.GetSetting(store.SettingEndpointHost); strings.TrimSpace(h) != "" {
-		return strings.TrimSpace(h)
+func (s *Server) endpointHost(ctx context.Context, cs kubernetes.Interface, clusterID uint) string {
+	if h := store.EndpointHostFor(s.Store, clusterID); h != "" {
+		return h
 	}
-	return nodeAddress(ctx, cs)
+	return s.cachedNodeAddress(ctx, cs, clusterID)
 }

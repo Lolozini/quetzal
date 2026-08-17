@@ -127,19 +127,27 @@ func (d *Dispatcher) cursor() uint {
 	return uint(n)
 }
 
-// dispatch delivers one event to every matching channel.
+// dispatch delivers one event to every matching channel. The event's server is
+// resolved once here rather than per channel, so fanning out to several sinks
+// costs one lookup, not one each.
 func (d *Dispatcher) dispatch(ctx context.Context, e models.Event, channels []models.NotificationChannel) {
+	var name, slug string
+	var resolved bool
 	for i := range channels {
 		c := channels[i]
 		if !c.Matches(e.Type, e.ServerID) {
 			continue
+		}
+		if !resolved {
+			name, slug = d.serverIdentity(e.ServerID)
+			resolved = true
 		}
 		cfg, err := d.Store.ChannelConfig(&c)
 		if err != nil {
 			d.Logger.Printf("notify: channel %d config: %v", c.ID, err)
 			continue
 		}
-		if err := d.DeliverTo(ctx, &c, cfg, e); err != nil {
+		if err := d.deliverTo(ctx, &c, cfg, e, name, slug); err != nil {
 			d.Logger.Printf("notify: channel %d (%s) deliver event %d: %v", c.ID, c.Type, e.ID, err)
 		}
 	}
@@ -148,9 +156,14 @@ func (d *Dispatcher) dispatch(ctx context.Context, e models.Event, channels []mo
 // DeliverTo sends one event to a single channel. Exposed so the API can send a
 // test event. It bounds the delivery with the dispatcher's timeout.
 func (d *Dispatcher) DeliverTo(ctx context.Context, c *models.NotificationChannel, cfg map[string]string, e models.Event) error {
+	name, slug := d.serverIdentity(e.ServerID)
+	return d.deliverTo(ctx, c, cfg, e, name, slug)
+}
+
+// deliverTo is DeliverTo with the event's server already resolved.
+func (d *Dispatcher) deliverTo(ctx context.Context, c *models.NotificationChannel, cfg map[string]string, e models.Event, name, slug string) error {
 	ctx, cancel := context.WithTimeout(ctx, d.Timeout)
 	defer cancel()
-	name, slug := d.serverIdentity(e.ServerID)
 	switch c.Type {
 	case models.ChannelDiscord:
 		return deliverDiscord(ctx, d.Client, cfg, e, name, slug)

@@ -28,6 +28,12 @@ type Cluster struct {
 	// per server by tenants.
 	DefaultStorageClass string `json:"defaultStorageClass,omitempty"`
 
+	// EndpointHost is the hostname published to players for servers on this
+	// cluster, overriding the panel-wide setting. Each cluster has its own nodes,
+	// so a single global name would send players on one cluster to another's.
+	// Empty falls back to the global setting, then to the detected node address.
+	EndpointHost string `json:"endpointHost,omitempty"`
+
 	// Observed status, refreshed on demand and periodically by the controller.
 	Reachable     bool       `json:"reachable"`
 	Version       string     `json:"version,omitempty"`
