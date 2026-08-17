@@ -454,3 +454,81 @@ func TestOpenAPIDocsArePublic(t *testing.T) {
 		t.Errorf("docs content-type = %q, want text/html", ct)
 	}
 }
+
+// TestAddUDPKeepsPublishedPort covers the upgrade the same-port feature exists
+// for: turning an existing TCP port into TCP+UDP must publish both protocols on
+// the one external port, and must not move the port players already use.
+func TestAddUDPKeepsPublishedPort(t *testing.T) {
+	ts, c := newTestServer(t)
+	post(t, c, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+
+	type port struct {
+		Name     string `json:"name"`
+		Port     int32  `json:"port"`
+		Protocol string `json:"protocol"`
+		NodePort int32  `json:"nodePort"`
+	}
+	type server struct {
+		ID    uint   `json:"id"`
+		Ports []port `json:"ports"`
+	}
+
+	var srv server
+	r := post(t, c, ts.URL+"/api/servers", map[string]any{
+		"name":     "dual-proto",
+		"template": "generic-process",
+		"ports":    []map[string]any{{"port": 25565, "protocol": "TCP", "primary": true}},
+		"expose":   map[string]string{"type": "NodePort"},
+	})
+	if r.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d", r.StatusCode)
+	}
+	json.NewDecoder(r.Body).Decode(&srv)
+	if len(srv.Ports) != 1 {
+		t.Fatalf("create ports = %+v", srv.Ports)
+	}
+	published := srv.Ports[0].NodePort
+	if published < 30000 {
+		t.Fatalf("no node port allocated: %+v", srv.Ports)
+	}
+
+	// Add UDP on the same number, exactly as the "TCP / UDP" option does.
+	body := `{"ports":[{"port":25565,"protocol":"TCP","primary":true},{"port":25565,"protocol":"UDP"}]}`
+	req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/servers/"+itoa(srv.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	pr, err := c.Do(req)
+	if err != nil || pr.StatusCode != http.StatusOK {
+		t.Fatalf("patch = %v / %d", err, pr.StatusCode)
+	}
+	var patched server
+	json.NewDecoder(pr.Body).Decode(&patched)
+	if len(patched.Ports) != 2 {
+		t.Fatalf("want 2 ports, got %+v", patched.Ports)
+	}
+	names := map[string]bool{}
+	for _, p := range patched.Ports {
+		// Both protocols publish the same external port...
+		if p.NodePort != published {
+			t.Errorf("%s port moved to %d, want the original %d", p.Protocol, p.NodePort, published)
+		}
+		// ...under distinct names, since Kubernetes rejects duplicates.
+		if names[p.Name] {
+			t.Errorf("duplicate port name %q", p.Name)
+		}
+		names[p.Name] = true
+	}
+
+	// Dropping UDP again leaves the published port untouched.
+	body = `{"ports":[{"port":25565,"protocol":"TCP","primary":true}]}`
+	req, _ = http.NewRequest(http.MethodPatch, ts.URL+"/api/servers/"+itoa(srv.ID), strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	pr2, err := c.Do(req)
+	if err != nil || pr2.StatusCode != http.StatusOK {
+		t.Fatalf("patch back = %v / %d", err, pr2.StatusCode)
+	}
+	var reverted server
+	json.NewDecoder(pr2.Body).Decode(&reverted)
+	if len(reverted.Ports) != 1 || reverted.Ports[0].NodePort != published {
+		t.Errorf("reverting moved the port: %+v (want %d)", reverted.Ports, published)
+	}
+}

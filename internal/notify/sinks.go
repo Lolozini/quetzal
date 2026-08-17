@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
 	"net/smtp"
@@ -200,6 +201,22 @@ func emailBody(e models.Event, label, slug string) string {
 	return b.String()
 }
 
+// stripCRLF removes the line breaks that would end a header and let the rest of
+// the value be read as further headers, or as the message body. Header values
+// carry attacker-influenced text (a server's display name is a free label), so
+// nothing reaches a header without passing through here.
+func stripCRLF(s string) string {
+	return strings.NewReplacer("\r", " ", "\n", " ").Replace(s)
+}
+
+// encodeHeader makes an arbitrary string safe as a header value: no line breaks,
+// and non-ASCII wrapped in an RFC 2047 encoded-word, since net/smtp never
+// negotiates SMTPUTF8 and a raw 8-bit header is rejected by strict MTAs (and
+// mangled by the rest). Pure ASCII is returned unchanged.
+func encodeHeader(s string) string {
+	return mime.QEncoding.Encode("utf-8", stripCRLF(s))
+}
+
 // SendMail sends a plain-text email to the given recipients using the SMTP
 // settings in cfg (host, port, username, password, from, tls). It is used both
 // for notification email channels and for system mail such as password reset.
@@ -282,9 +299,9 @@ func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, 
 
 func buildMessage(from string, to []string, subject, body string) []byte {
 	var b strings.Builder
-	fmt.Fprintf(&b, "From: %s\r\n", from)
-	fmt.Fprintf(&b, "To: %s\r\n", strings.Join(to, ", "))
-	fmt.Fprintf(&b, "Subject: %s\r\n", subject)
+	fmt.Fprintf(&b, "From: %s\r\n", stripCRLF(from))
+	fmt.Fprintf(&b, "To: %s\r\n", stripCRLF(strings.Join(to, ", ")))
+	fmt.Fprintf(&b, "Subject: %s\r\n", encodeHeader(subject))
 	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
 	b.WriteString("MIME-Version: 1.0\r\n")
 	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")

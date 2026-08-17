@@ -403,9 +403,11 @@ const (
 	DefaultNodePortMax int32 = 32767
 )
 
-// AllocateNodePort reserves the lowest free node port in [min,max] for a named
-// server port, persisting it so it stays stable across reconciles. If the
-// (server, name) pair already holds an allocation it is returned unchanged.
+// AllocateNodePort reserves a free node port in [min,max] for a named server
+// port, persisting it so it stays stable across reconciles. The range is
+// scanned from a random start, so allocations are scattered rather than
+// consecutive. If the (server, name) pair already holds an allocation it is
+// returned unchanged.
 // A min/max of 0 falls back to the Kubernetes default range.
 func (s *Store) AllocateNodePort(serverID uint, name string, min, max int32) (int32, error) {
 	if min <= 0 {
@@ -460,6 +462,29 @@ func (s *Store) AllocateNodePort(serverID uint, name string, min, max int32) (in
 // the SFTP port when SFTP is disabled). A no-op if it isn't held.
 func (s *Store) ReleaseNodePort(serverID uint, name string) error {
 	return s.db.Where("server_id = ? AND port_name = ?", serverID, name).Delete(&models.PortAllocation{}).Error
+}
+
+// RenameNodePort moves a server's allocation from one key to another, keeping
+// the reserved port. Used to adopt an entry held under an older key so the
+// published port survives a change in how keys are derived. A no-op when the
+// old key isn't held or the new one already is.
+func (s *Store) RenameNodePort(serverID uint, from, to string) error {
+	if from == "" || to == "" || from == to {
+		return nil
+	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var existing int64
+		if err := tx.Model(&models.PortAllocation{}).
+			Where("server_id = ? AND port_name = ?", serverID, to).Count(&existing).Error; err != nil {
+			return err
+		}
+		if existing > 0 {
+			return nil // the destination already holds a port; nothing to adopt
+		}
+		return tx.Model(&models.PortAllocation{}).
+			Where("server_id = ? AND port_name = ?", serverID, from).
+			Update("port_name", to).Error
+	})
 }
 
 // ReleaseServerPorts frees every node port held by a server.

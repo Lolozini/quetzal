@@ -351,6 +351,16 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, perr.Error())
 			return
 		}
+	} else if len(ports) > 0 {
+		// Template-declared ports get the same treatment as user-supplied ones:
+		// they end up in a Service, where a blank or duplicated port name is fatal
+		// and would leave the server reconciling forever with no networking.
+		var perr error
+		ports, perr = sanitizePorts(ports)
+		if perr != nil {
+			writeError(w, http.StatusBadRequest, "template declares invalid ports: "+perr.Error())
+			return
+		}
 	}
 
 	if err := validateExpose(req.Expose, len(ports) > 0); err != nil {
@@ -864,11 +874,11 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		if portsChanged {
 			keep := map[string]bool{}
 			for _, p := range newPorts {
-				keep[portAllocName(p)] = true
+				keep[portAllocKey(p)] = true
 			}
 			for _, p := range srv.Ports {
-				if !keep[portAllocName(p)] {
-					_ = s.Store.ReleaseNodePort(srv.ID, portAllocName(p))
+				if !keep[portAllocKey(p)] {
+					_ = s.Store.ReleaseNodePort(srv.ID, portAllocKey(p))
 				}
 			}
 		}
@@ -881,7 +891,7 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// Not NodePort: release every game port's pool allocation (leaving SFTP).
 		for _, p := range srv.Ports {
-			_ = s.Store.ReleaseNodePort(srv.ID, portAllocName(p))
+			_ = s.Store.ReleaseNodePort(srv.ID, portAllocKey(p))
 		}
 		ports = clearNodePorts(newPorts)
 	}
@@ -929,12 +939,21 @@ func (s *Server) handleReinstallServer(w http.ResponseWriter, r *http.Request) {
 }
 
 // allocateNodePorts reserves a stable pool node port for each of a server's
-// ports, returning the port list with NodePort fields set.
+// ports, returning the port list with NodePort fields set. Ports sharing a
+// number (TCP + UDP) resolve to the same pool entry, so they publish the same
+// external port — which is the point of exposing both protocols on one number.
 func (s *Server) allocateNodePorts(serverID uint, ports []models.PortSpec) ([]models.PortSpec, error) {
 	out := make([]models.PortSpec, len(ports))
 	copy(out, ports)
 	for i := range out {
-		np, err := s.Store.AllocateNodePort(serverID, portAllocName(out[i]), s.NodePortMin, s.NodePortMax)
+		key := portAllocKey(out[i])
+		// Adopt an allocation still held under a legacy, name-based key so an
+		// upgrade (or a template that names its ports) keeps the published port
+		// instead of drawing a new one.
+		if name := out[i].Name; name != "" && name != key {
+			_ = s.Store.RenameNodePort(serverID, name, key)
+		}
+		np, err := s.Store.AllocateNodePort(serverID, key, s.NodePortMin, s.NodePortMax)
 		if err != nil {
 			return nil, err
 		}
@@ -943,13 +962,13 @@ func (s *Server) allocateNodePorts(serverID uint, ports []models.PortSpec) ([]mo
 	return out, nil
 }
 
-// portAllocName is a port's key in the node-port pool: its explicit name, or a
-// stable name derived from the port number when unnamed. Must match between
-// allocation and release so a port frees the same key it reserved.
-func portAllocName(p models.PortSpec) string {
-	if p.Name != "" {
-		return p.Name
-	}
+// portAllocKey is a port's key in the node-port pool. It is derived from the
+// port *number* alone, never the name, which buys two things: a number exposed
+// on both TCP and UDP shares one pool entry (and therefore one node port, as
+// Kubernetes allows for a TCP/UDP pair), and adding or removing a protocol
+// never renames the entry, so the address players use stays put. Must match
+// between allocation and release so a port frees the key it reserved.
+func portAllocKey(p models.PortSpec) string {
 	return fmt.Sprintf("p%d", p.Port)
 }
 
