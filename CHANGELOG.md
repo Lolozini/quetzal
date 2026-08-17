@@ -9,6 +9,31 @@ releases may include breaking changes).
 
 ### Added
 
+- **Public hostname for server endpoints.** Admin → Network takes a DNS name that
+  is published to players instead of the raw node IP, for both a server's game
+  endpoints and its SFTP connection string; the page shows the detected node
+  address as a hint for the record to create. A cluster can override it from
+  Admin → Clusters → Hostname, since each cluster fronts its own nodes and one
+  global name would advertise the wrong address for servers elsewhere. Blank
+  falls back to the node address, so existing installs are unaffected.
+  `GET`/`PUT /api/network-settings`, and `endpointHost` on a cluster.
+- **TCP and UDP on the same port number.** A port can now serve both protocols on
+  one number (Minecraft Java's game + query on 25565, a Source game + RCON on
+  27015): pick **TCP / UDP** in the ports editor and both are created, sharing a
+  single external node port. Previously this was silently broken — both ports
+  received the same generated name, which Kubernetes rejects, leaving the server
+  with no networking.
+- **Crashes, OOM kills and restarts are recorded.** A server that keeps dying and
+  coming back — classically an out-of-memory loop — used to churn with no trace
+  in the panel. The controller now reads each container's last termination and
+  emits `server.oomkilled` (or `server.restarted`, carrying the exit code) on
+  every newly observed restart. These show in the activity log and can fan out to
+  notification channels like the existing crash event.
+- **The server activity log now shows controller events too.** It reads the event
+  feed rather than the audit log, so crashes, OOM kills, restarts and readiness
+  appear on the same timeline as user actions (controller entries are attributed
+  to `system`). The admin-wide activity log gained a **Server** column, so an
+  action like `server.power start` finally says which server it hit.
 - **Restart hint on the server page**: while a section has an unsaved edit that
   will bounce the server (Variables, Resource limits, Ports), a small `↻`
   "restarts the server" marker appears next to its heading — so you know before
@@ -44,6 +69,30 @@ releases may include breaking changes).
 
 ### Changed
 
+- **Node ports are allocated at random within the pool.** Allocation used to take
+  the lowest free port, so a server's ports followed its neighbours' and were
+  trivially guessable from the outside. The range is now scanned from a random
+  start. Ports are also keyed by port *number* rather than by name, which is what
+  lets a TCP/UDP pair share one external port and means adding or removing a
+  protocol no longer moves the address players connect to. Existing allocations
+  are kept (and adopted if they were held under an older key).
+- **Notifications carry the server's real name.** Discord messages are now embeds
+  with the same fields as the activity log (event, server, user, time, plus a
+  colour keyed to severity); webhooks gained `serverName`/`serverSlug` alongside
+  `serverId`; email gained a structured Server/Event/User/Time block and the
+  server name in the subject. The name shown is the display name, not the slug.
+- **The current page survives a reload.** The view is encoded in the URL fragment
+  (`#/servers/<id>`, `#/admin`, …), so refreshing a server or admin page stays
+  put instead of dropping back to the server list, and the browser's back and
+  forward buttons work.
+- **The console reconnects on its own.** Starting a stopped server used to leave
+  the console dead until the page was reloaded; it now re-establishes as soon as
+  the server is live again, backing off between attempts so a crash-looping
+  server doesn't hammer the API. The SFTP panel likewise polls for its port until
+  it is provisioned, replacing the manual Refresh button.
+- **The Resources panel is quiet when a server is stopped.** It no longer polls
+  (or prints `no pod found …`) for a server with no pod, showing a neutral
+  placeholder instead; crash detail belongs to the activity log.
 - **Deleting a server now always removes its data volume.** The keep-or-destroy
   prompt is gone: deleting a server tears down its namespace, cascading the PVC
   and the underlying volume/data, so nothing is left orphaned. **Breaking:** data
@@ -65,7 +114,7 @@ releases may include breaking changes).
 - **Long sections collapse to keep pages short.** The activity log (admin and
   per-server) and the admin **Eggs / templates** section are now collapsible and
   start collapsed, showing a count in the header — so a busy audit trail or a
-  large egg catalog no longer stretches the page. Click the header to expand.
+  large template list no longer stretches the page. Click the header to expand.
 - **Storage is now always a PVC.** Removed the user-selectable `hostPath` storage
   type: it let a tenant mount arbitrary node paths (a host-escape vector for the
   untrusted code game pods run, and disallowed by the baseline/restricted Pod
@@ -86,6 +135,10 @@ releases may include breaking changes).
 
 ### Removed
 
+- **The egg catalog is gone.** The catalog manifest URL, its browse/install list
+  and the two endpoints behind it never earned their keep next to pasting an egg
+  or importing it by URL, both of which remain. `GET`/`PUT /api/egg-catalog` and
+  the stored catalog setting were removed with it.
 - **Built-in templates are no longer seeded into the database.** Fresh instances
   start with an empty template list; add templates by importing Pterodactyl/Pelican
   eggs (the intended workflow). The former built-ins (Paper, CurseForge, Valheim,
@@ -94,6 +147,37 @@ releases may include breaking changes).
   deleted from Admin → Templates and will not come back on restart.
 
 ### Fixed
+
+- **A lost file write could replace your file with an empty one.** Uploads
+  streamed into `cat > file` in the pod, so a stream that delivered nothing —
+  which happens against a container that has only just started — left the file
+  truncated to zero while the API still answered success. Writes now spool beside
+  the target and move into place only once the whole payload has arrived,
+  verified against `Content-Length`; a lost or short write fails loudly and
+  leaves the existing file untouched, and small bodies are retried once.
+- **Mail headers could be injected through a server name.** A display name
+  containing a line break was interpolated straight into the notification email's
+  Subject, letting it add headers (`Bcc:`) or author the message body. Header
+  values are now stripped of line breaks, and the subject is RFC 2047 encoded —
+  which also fixes accented names and the em dash producing a raw 8-bit header
+  that strict mail servers reject.
+- **The graceful stop command could be silently dropped**, leaving a server to be
+  SIGKILLed with its world unsaved. Console attach and file exec now share one
+  streaming transport (WebSocket, falling back to SPDY), instead of attach
+  keeping the racier path.
+- **Egg import gave no feedback.** The eggs panel scrolls internally, so a
+  rejection rendered at the bottom of the card was off-screen and importing
+  looked like a no-op. The result now appears next to the import controls, a
+  GitHub/GitLab file-page link is rewritten to its raw form before fetching, and
+  a payload that is really a web page says so instead of reporting
+  `invalid character '<'`.
+- **Re-enabling SFTP showed the previous, already-freed port.** Toggling now
+  clears it so the panel picks up the new one.
+- Ports declared by a **template** are validated like user-supplied ones; a blank
+  or duplicated port name used to reach the Service, which Kubernetes rejects
+  outright, leaving the server reconciling forever with no networking.
+- CPU is reported in **cores** rather than millicores, and CPU and memory show
+  usage against their limit with a percentage.
 
 - The per-server **Disk** metric now reports usage of the server's **data volume**
   against the **PVC's declared size**, instead of the node filesystem. It's read

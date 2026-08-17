@@ -72,11 +72,16 @@ network policy, and a multi-cluster API.
   pool), or via a **LoadBalancer** — TCP **and** UDP.
 - `externalTrafficPolicy: Local` by default so the game sees the real player IP;
   provider-neutral Service annotations (external-dns, MetalLB, …).
+- Publish a **hostname instead of a node IP** (panel-wide, or per cluster) so
+  players and SFTP clients get a stable, memorable address.
+- A port can serve **TCP and UDP on the same number** (a Minecraft query, a
+  Source RCON), sharing one external port.
 
 **Data & backups**
 - **Backups & restore** to any S3-compatible target via **restic** (dedup,
   encryption, retention) — one-shot Jobs, credentials encrypted at rest.
-- Choose to **keep or destroy** a server's data on deletion.
+- Deleting a server **destroys its data volume** along with it, so nothing is
+  left orphaned — take a backup first if you need to keep a world.
 - **Per-server databases**: provision a MySQL/MariaDB database + scoped user from
   the panel, against a registered **external** host *or* a **managed MariaDB**
   Quetzal deploys and owns in-cluster.
