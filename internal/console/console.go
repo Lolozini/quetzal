@@ -285,7 +285,7 @@ func attachStdin(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config,
 			TTY:       false,
 		}, scheme.ParameterCodec)
 
-	exec, err := remotecommand.NewSPDYExecutor(cfg, "POST", req.URL())
+	exec, err := streamExecutor(cfg, req.URL())
 	if err != nil {
 		return err
 	}
@@ -315,7 +315,7 @@ func Exec(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, ns, po
 			TTY:       false,
 		}, scheme.ParameterCodec)
 
-	executor, err := execExecutor(cfg, req.URL())
+	executor, err := streamExecutor(cfg, req.URL())
 	if err != nil {
 		return err
 	}
@@ -334,12 +334,14 @@ func Exec(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, ns, po
 	return nil
 }
 
-// execExecutor builds a remote-exec executor that prefers the WebSocket
-// transport and falls back to SPDY when the apiserver doesn't support the
-// websocket upgrade. WebSocket streams exec stdin far more reliably than SPDY,
-// whose stdin channel can race and deliver nothing under load — e.g. a file
-// upload occasionally landing as an empty file despite a success response.
-func execExecutor(cfg *rest.Config, u *url.URL) (remotecommand.Executor, error) {
+// streamExecutor builds a remote streaming executor (exec or attach) that
+// prefers the WebSocket transport and falls back to SPDY when the apiserver
+// doesn't support the websocket upgrade. WebSocket streams stdin far more
+// reliably than SPDY, whose stdin channel can race and deliver nothing under
+// load — an upload landing as an empty file despite a success response, or a
+// graceful-stop command never reaching the game so the pod is SIGKILLed with
+// its world unsaved. Both paths go through here so neither can regress alone.
+func streamExecutor(cfg *rest.Config, u *url.URL) (remotecommand.Executor, error) {
 	spdyExec, err := remotecommand.NewSPDYExecutor(cfg, "POST", u)
 	if err != nil {
 		return nil, err

@@ -1,14 +1,17 @@
 package notify
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
+	"net/mail"
 	"strings"
 	"sync"
 	"testing"
@@ -292,5 +295,72 @@ func TestSplitList(t *testing.T) {
 	got := splitList(" a@x , b@x; c@x\n")
 	if len(got) != 3 || got[0] != "a@x" || got[2] != "c@x" {
 		t.Errorf("splitList = %v", got)
+	}
+}
+
+// parseMail parses a built message the way an MTA would, so assertions are made
+// on real header structure rather than on substrings.
+func parseMail(t *testing.T, raw []byte) (*mail.Message, string) {
+	t.Helper()
+	m, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatalf("message does not parse: %v\n%q", err, raw)
+	}
+	body, err := io.ReadAll(m.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	return m, string(body)
+}
+
+func TestBuildMessageRejectsHeaderInjection(t *testing.T) {
+	// A server display name is a free label, so it can carry CRLF. It must not be
+	// able to add a header or open the body.
+	evil := "Survival\r\nBcc: attacker@evil.test\r\n\r\nowned"
+	m, body := parseMail(t, buildMessage("a@x.test", []string{"b@y.test"}, "[Quetzal] "+evil+" — server.crashed", "Body"))
+
+	if got := m.Header.Get("Bcc"); got != "" {
+		t.Errorf("injected Bcc header materialised: %q", got)
+	}
+	if strings.TrimSpace(body) != "Body" {
+		t.Errorf("body = %q, want just the real body", body)
+	}
+	if len(m.Header["Subject"]) != 1 {
+		t.Errorf("want exactly 1 Subject header, got %d", len(m.Header["Subject"]))
+	}
+	// The hostile text survives harmlessly as subject *text* (line breaks folded
+	// to spaces), which is what neutralising it means.
+	subject, err := new(mime.WordDecoder).DecodeHeader(m.Header.Get("Subject"))
+	if err != nil {
+		t.Fatalf("decode subject: %v", err)
+	}
+	if strings.ContainsAny(subject, "\r\n") {
+		t.Errorf("subject still contains a line break: %q", subject)
+	}
+	if !strings.Contains(subject, "attacker@evil.test") {
+		t.Errorf("subject lost the (now inert) text: %q", subject)
+	}
+}
+
+func TestBuildMessageEncodesNonASCIISubject(t *testing.T) {
+	m, _ := parseMail(t, buildMessage("a@x.test", []string{"b@y.test"}, "[Quetzal] Serveur Créatif — server.running", "Body"))
+	raw := m.Header.Get("Subject")
+	// net/smtp never negotiates SMTPUTF8, so the wire header must stay 7-bit.
+	for i := 0; i < len(raw); i++ {
+		if raw[i] > 127 {
+			t.Fatalf("subject has raw 8-bit bytes: %q", raw)
+		}
+	}
+	decoded, err := new(mime.WordDecoder).DecodeHeader(raw)
+	if err != nil {
+		t.Fatalf("decode subject: %v", err)
+	}
+	if decoded != "[Quetzal] Serveur Créatif — server.running" {
+		t.Errorf("subject round-trip = %q", decoded)
+	}
+	// A pure-ASCII subject stays readable (no needless encoding).
+	plain, _ := parseMail(t, buildMessage("a@x.test", []string{"b@y.test"}, "[Quetzal] server.running", "Body"))
+	if got := plain.Header.Get("Subject"); got != "[Quetzal] server.running" {
+		t.Errorf("ASCII subject = %q, want it verbatim", got)
 	}
 }

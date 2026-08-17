@@ -509,3 +509,54 @@ func TestClusterKubeconfigEncrypted(t *testing.T) {
 		t.Errorf("round-trip mismatch: %q != %q", back, kubeconfig)
 	}
 }
+
+func TestNodePortSharedByNumberAndRenameable(t *testing.T) {
+	s := newTestStore(t)
+	// A port number exposed on TCP and UDP resolves to one pool entry, so both
+	// protocols publish the same external port (what Kubernetes allows for a
+	// TCP/UDP pair, and what the same-port feature promises).
+	tcp, err := s.AllocateNodePort(1, "p25565", 30000, 30010)
+	if err != nil {
+		t.Fatalf("alloc tcp: %v", err)
+	}
+	udp, err := s.AllocateNodePort(1, "p25565", 30000, 30010)
+	if err != nil {
+		t.Fatalf("alloc udp: %v", err)
+	}
+	if tcp != udp {
+		t.Fatalf("same key must yield the same node port: %d != %d", tcp, udp)
+	}
+
+	// RenameNodePort adopts a legacy, name-keyed entry without changing the port.
+	legacy, err := s.AllocateNodePort(2, "game", 30000, 30010)
+	if err != nil {
+		t.Fatalf("alloc legacy: %v", err)
+	}
+	if err := s.RenameNodePort(2, "game", "p27015"); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	got, err := s.AllocateNodePort(2, "p27015", 30000, 30010)
+	if err != nil {
+		t.Fatalf("alloc after rename: %v", err)
+	}
+	if got != legacy {
+		t.Errorf("adopted port = %d, want the original %d", got, legacy)
+	}
+	// The old key is gone, so it no longer pins a second port.
+	if err := s.RenameNodePort(2, "game", "p27015"); err != nil {
+		t.Errorf("repeat rename should be a no-op: %v", err)
+	}
+
+	// Renaming onto a key that already holds a port leaves both untouched.
+	a, _ := s.AllocateNodePort(3, "p1000", 30000, 30010)
+	b, _ := s.AllocateNodePort(3, "p2000", 30000, 30010)
+	if err := s.RenameNodePort(3, "p1000", "p2000"); err != nil {
+		t.Fatalf("conflicting rename: %v", err)
+	}
+	if got, _ := s.AllocateNodePort(3, "p1000", 30000, 30010); got != a {
+		t.Errorf("source moved despite conflict: %d != %d", got, a)
+	}
+	if got, _ := s.AllocateNodePort(3, "p2000", 30000, 30010); got != b {
+		t.Errorf("destination changed: %d != %d", got, b)
+	}
+}

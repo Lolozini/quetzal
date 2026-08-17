@@ -573,8 +573,14 @@ function SFTPCard({ id, initialEnabled, username }: { id: number; initialEnabled
     setBusy(true);
     setError("");
     try {
-      await api.setSFTP(id, !enabled);
-      setEnabled(!enabled);
+      const next = !enabled;
+      await api.setSFTP(id, next);
+      setEnabled(next);
+      // The controller frees the node port on disable and draws a fresh one on
+      // enable, so the port we are showing is stale either way: clear it and let
+      // the poll above pick up whatever the new service ends up with.
+      setPort(0);
+      setHost("");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
