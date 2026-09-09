@@ -92,6 +92,14 @@ func main() {
 		nodePortMin: envInt32("QUETZAL_NODEPORT_MIN", 0),
 		nodePortMax: envInt32("QUETZAL_NODEPORT_MAX", 0),
 	}
+	// Resolve (and, on a fresh database, create) this control plane's instance
+	// id up front. Namespaces are stamped with it so orphan collection can tell
+	// this instance's servers from those of another sharing the cluster; without
+	// it collection is skipped, which would silently stop tearing down deleted
+	// servers. Fail loudly rather than run half-blind.
+	if _, err := st.InstanceID(); err != nil {
+		log.Fatalf("resolve instance id: %v", err)
+	}
 
 	sched := scheduler.New(st, &executor{st: st, reg: reg})
 	bmgr := backup.NewManager(st, reg)

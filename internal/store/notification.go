@@ -1,6 +1,8 @@
 package store
 
 import (
+	crand "crypto/rand"
+	"encoding/hex"
 	"errors"
 	"strings"
 
@@ -166,6 +168,43 @@ func EndpointHostFor(s *Store, clusterID uint) string {
 // used for NodePort game endpoints and the SFTP connection string; when blank
 // the detected node address is used.
 const SettingEndpointHost = "endpoint_host"
+
+// SettingInstanceID identifies this control plane among any others that share a
+// cluster. It is generated once and never changes.
+const SettingInstanceID = "instance_id"
+
+// InstanceID returns this control plane's stable identifier, creating it on
+// first call. The identity that matters is the database's: "orphan" means "no
+// server row in *my* database", so two control planes pointed at one cluster
+// each consider the other's namespaces orphaned. Namespaces are labelled with
+// this id so an instance only ever reclaims what it owns.
+//
+// Generation is transactional: a concurrent caller re-reads the row rather than
+// racing to overwrite it, so the id can never differ between callers.
+func (s *Store) InstanceID() (string, error) {
+	var id string
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var v models.Setting
+		err := tx.First(&v, "key = ?", SettingInstanceID).Error
+		if err == nil && strings.TrimSpace(v.Value) != "" {
+			id = strings.TrimSpace(v.Value)
+			return nil
+		}
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		buf := make([]byte, 8)
+		if _, err := crand.Read(buf); err != nil {
+			return err
+		}
+		id = hex.EncodeToString(buf)
+		return tx.Save(&models.Setting{Key: SettingInstanceID, Value: id}).Error
+	})
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
 
 // GetSetting returns a setting value, or "" if absent.
 func (s *Store) GetSetting(key string) (string, error) {

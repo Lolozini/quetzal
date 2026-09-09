@@ -34,6 +34,11 @@ const (
 	managedByValue = "quetzal"
 	// ServerLabel marks objects belonging to a given server (value = slug).
 	ServerLabel = "quetzal.dev/server"
+	// InstanceLabel records which control plane owns a server namespace (value =
+	// the instance id from its database). Orphan collection means "no server row
+	// in *my* database", so without this a second control plane sharing the
+	// cluster would delete the first one's namespaces, and vice versa.
+	InstanceLabel = "quetzal.dev/instance"
 	// ActivatorLabel marks a server's wake-on-connect activator pods (value =
 	// slug). It is deliberately distinct from ServerLabel so the real workload's
 	// Deployment never adopts activator pods; the Service selector flips between

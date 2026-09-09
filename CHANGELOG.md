@@ -185,6 +185,18 @@ releases may include breaking changes).
   the controller had not yet read was treated as vanished; its retention is now
   long enough for a restarted or non-leader controller to see the real outcome.
   A retried Job also no longer reports the wrong attempt's size or error.
+- **Two control planes on one cluster deleted each other's servers.** Orphan
+  collection means "no server row in *my* database", and it selected namespaces
+  by a fixed `managed-by: quetzal` label with no notion of which instance owned
+  them — so a second Quetzal pointed at the same cluster (a staging panel beside
+  production, say) tore down the other's servers within one resync, in both
+  directions. The same held for managed-database namespaces, where it destroys
+  the data rather than a recreatable server. Each control plane now has a stable
+  instance id derived from its database, stamps it on the namespaces it creates
+  (`quetzal.dev/instance`), and only ever reclaims namespaces that are its own
+  or unlabelled; with no id resolvable, collection does nothing rather than
+  guess. Existing namespaces are adopted on the next reconcile, so nothing
+  changes for a single-instance install.
 - **Deleting a user did not revoke their SFTP access.** Their sessions, API keys
   and server grants were removed, but their SSH keys were not — and a server's
   `authorized_keys` is built from its owner id, which outlives the account. A

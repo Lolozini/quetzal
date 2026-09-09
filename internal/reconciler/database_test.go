@@ -25,7 +25,7 @@ func TestManagedDBServiceHost(t *testing.T) {
 
 func TestBuildManagedDB(t *testing.T) {
 	h := &models.DatabaseHost{ID: 3, Kind: models.DBHostManaged, Namespace: "quetzal-db-3", Image: "mariadb:11.4", StorageSize: "2Gi"}
-	objs := buildManagedDB(h, "rootpw123")
+	objs := buildManagedDB(h, "rootpw123", "inst-test")
 	if len(objs) != 5 {
 		t.Fatalf("got %d objects, want 5 (ns, secret, pvc, deploy, svc)", len(objs))
 	}

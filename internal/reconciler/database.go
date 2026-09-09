@@ -82,7 +82,7 @@ func (r *Reconciler) ReconcileDatabaseHosts(ctx context.Context) error {
 			log.Printf("db host %d: read root password: %v", h.ID, err)
 			continue
 		}
-		for _, obj := range buildManagedDB(h, rootPw) {
+		for _, obj := range buildManagedDB(h, rootPw, r.InstanceID) {
 			if err := r.apply(ctx, obj); err != nil {
 				log.Printf("db host %d: apply %T: %v", h.ID, obj, err)
 			}
@@ -92,8 +92,13 @@ func (r *Reconciler) ReconcileDatabaseHosts(ctx context.Context) error {
 }
 
 // gcManagedDBNamespaces deletes managed-database namespaces whose host row is
-// gone (mirrors GCOrphanNamespaces for servers).
+// gone (mirrors GCOrphanNamespaces for servers, including its ownership rule:
+// another control plane's database namespace looks orphaned here while being
+// live there, and dropping it would destroy that data).
 func (r *Reconciler) gcManagedDBNamespaces(ctx context.Context, valid map[string]bool) error {
+	if r.InstanceID == "" {
+		return nil
+	}
 	var list corev1.NamespaceList
 	if err := r.Client.List(ctx, &list, client.MatchingLabels{dbComponentLabel: dbComponentValue}); err != nil {
 		return err
@@ -103,6 +108,9 @@ func (r *Reconciler) gcManagedDBNamespaces(ctx context.Context, valid map[string
 		if valid[ns.Name] || ns.DeletionTimestamp != nil {
 			continue
 		}
+		if owner := ns.Labels[InstanceLabel]; owner != "" && owner != r.InstanceID {
+			continue // belongs to another control plane
+		}
 		if err := r.Client.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
@@ -110,10 +118,17 @@ func (r *Reconciler) gcManagedDBNamespaces(ctx context.Context, valid map[string
 	return nil
 }
 
-// buildManagedDB returns the objects backing a managed MariaDB host.
-func buildManagedDB(h *models.DatabaseHost, rootPassword string) []client.Object {
+// buildManagedDB returns the objects backing a managed MariaDB host. instanceID
+// stamps the namespace with the owning control plane so orphan collection never
+// reclaims (and destroys) another instance's databases; "" leaves it unstamped,
+// which collection then adopts.
+func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) []client.Object {
 	ns := ManagedDBNamespace(h)
 	labels := managedDBLabels(h)
+	nsLabels := managedDBLabels(h)
+	if instanceID != "" {
+		nsLabels[InstanceLabel] = instanceID
+	}
 	image := h.Image
 	if image == "" {
 		image = DefaultMariaDBImage
@@ -128,7 +143,7 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword string) []client.Object
 
 	namespace := &corev1.Namespace{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
-		ObjectMeta: metav1.ObjectMeta{Name: ns, Labels: labels},
+		ObjectMeta: metav1.ObjectMeta{Name: ns, Labels: nsLabels},
 	}
 	secret := &corev1.Secret{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
