@@ -246,6 +246,15 @@ export const fr: Record<string, string> = {
     "Choisissez TCP / UDP pour un port qui a besoin des deux (ex. un port de jeu qui sert aussi une requête UDP).",
   "Save ports": "Enregistrer les ports",
   "restarts the server": "redémarre le serveur",
+  "Start requested — the server is spinning up.": "Démarrage demandé — le serveur monte.",
+  "Stop requested — the server is shutting down gracefully.":
+    "Arrêt demandé — le serveur s'éteint proprement.",
+  "Restart requested — the pod is being recreated; it will come back shortly.":
+    "Redémarrage demandé — le pod est recréé, il revient dans un instant.",
+  "Kill requested — forcing the pod to stop immediately.":
+    "Arrêt forcé demandé — le pod est stoppé immédiatement.",
+  "Transfer this server to {name}?\n\nIt will be stopped, its data backed up and restored on the destination, then the source removed. This can take a while.":
+    "Transférer ce serveur vers {name} ?\n\nIl sera arrêté, ses données sauvegardées puis restaurées sur la destination, et la source supprimée. Cela peut prendre du temps.",
   "Delete this server? Its pod, service, config and data volume are permanently removed. This cannot be undone.":
     "Supprimer ce serveur ? Son pod, son service, sa config et son volume de données sont supprimés définitivement. Action irréversible.",
   "Edit this server's configuration. A ↻ marker appears on a pending change that will restart the server.":

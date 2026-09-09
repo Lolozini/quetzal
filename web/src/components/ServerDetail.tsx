@@ -273,7 +273,15 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
 
   async function transfer(targetCluster: number) {
     const name = clusters.find((c) => c.id === targetCluster)?.name || `cluster ${targetCluster}`;
-    if (!window.confirm(`Transfer this server to ${name}?\n\nIt will be stopped, its data backed up and restored on the destination, then the source removed. This can take a while.`)) return;
+    if (
+      !window.confirm(
+        t(
+          "Transfer this server to {name}?\n\nIt will be stopped, its data backed up and restored on the destination, then the source removed. This can take a while.",
+          { name },
+        ),
+      )
+    )
+      return;
     setError("");
     try {
       await api.transferServer(id, targetCluster);
@@ -303,7 +311,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
     try {
       await api.power(id, action);
       setSrv(await api.server(id));
-      setNotice(powerNotice[action]);
+      setNotice(t(powerNotice[action]));
       window.setTimeout(() => setNotice(""), 6000);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));

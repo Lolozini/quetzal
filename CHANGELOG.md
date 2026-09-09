@@ -185,6 +185,10 @@ releases may include breaking changes).
   the controller had not yet read was treated as vanished; its retention is now
   long enough for a restarted or non-leader controller to see the real outcome.
   A retried Job also no longer reports the wrong attempt's size or error.
+- **Power and transfer messages were always in English.** The notice shown after
+  every start/stop/restart/kill, and the transfer confirmation, bypassed the
+  translation layer. `server.stopped` and `server.transfer` can also be picked
+  as notification events now — the list offered "came up" without "went down".
 - **The web client failed on successful empty responses.** Only `204` was treated
   as bodyless, so any other success without a body (a `202` acknowledgement) blew
   up parsing JSON and surfaced a completed action as an error.
