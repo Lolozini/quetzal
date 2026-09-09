@@ -380,7 +380,11 @@ export const fr: Record<string, string> = {
   Restore: "Restaurer",
   "Restore this backup into the server's volume? Current data will be overwritten by the snapshot.\n\nThe server must be stopped first (a live restore would corrupt the data).":
     "Restaurer cette sauvegarde dans le volume du serveur ? Les données actuelles seront écrasées par le snapshot.\n\nLe serveur doit d'abord être arrêté (une restauration à chaud corromprait les données).",
-  "Delete this backup record?": "Supprimer cet enregistrement de sauvegarde ?",
+  "Delete this backup? Its snapshot is removed from the repository and the data cannot be recovered.":
+    "Supprimer cette sauvegarde ? Son snapshot est retiré du dépôt et les données seront irrécupérables.",
+  "Delete this record?": "Supprimer cet enregistrement ?",
+  "Deleting…": "Suppression…",
+  "Wait for this operation to finish.": "Attendez la fin de cette opération.",
   "S3 endpoint (host:port)": "Endpoint S3 (hôte:port)",
   Bucket: "Bucket",
   "Prefix (optional)": "Préfixe (optionnel)",
@@ -398,6 +402,7 @@ export const fr: Record<string, string> = {
   Succeeded: "Réussi",
   Failed: "Échoué",
   Pending: "En attente",
+  Deleting: "Suppression",
 
   // Databases
   Databases: "Bases de données",

@@ -339,6 +339,22 @@ func (s *Store) Wake(id uint, when time.Time) error {
 		Updates(map[string]any{"hibernated": false, "last_active_at": when}).Error
 }
 
+// StartServer powers a server on: it sets the desired state to Running and, in
+// the same write, clears hibernation and rearms the idle timer. Both belong
+// together — Replicas() stays 0 while Hibernated is set, so a caller that only
+// set the desired state would silently fail to start a hibernated server, and a
+// stale LastActiveAt would let the very next hibernation tick put it straight
+// back to sleep. Every start path (API power action, scheduled task) goes
+// through here so they cannot drift apart again.
+func (s *Store) StartServer(id uint, when time.Time) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Updates(map[string]any{
+			"desired_state":  string(models.StateRunning),
+			"hibernated":     false,
+			"last_active_at": when,
+		}).Error
+}
+
 // UpdateServerHibernation persists a server's hibernation policy.
 func (s *Store) UpdateServerHibernation(id uint, h models.Hibernation) error {
 	return s.db.Model(&models.Server{}).Where("id = ?", id).
@@ -662,6 +678,14 @@ func (s *Store) UpdateBackup(b *models.Backup) error {
 // DeleteBackup removes a backup record.
 func (s *Store) DeleteBackup(id uint) error {
 	return s.db.Delete(&models.Backup{}, id).Error
+}
+
+// MarkBackupDeleting moves a succeeded backup into the Deleting phase, where the
+// controller forgets its restic snapshot before the row is finally removed. The
+// job name is cleared so the delete gets a fresh Job of its own.
+func (s *Store) MarkBackupDeleting(id uint) error {
+	return s.db.Model(&models.Backup{}).Where("id = ?", id).
+		Updates(map[string]any{"phase": string(models.BackupDeleting), "job_name": "", "message": ""}).Error
 }
 
 // DeleteBackupsForServer removes a server's backup records (used on teardown).

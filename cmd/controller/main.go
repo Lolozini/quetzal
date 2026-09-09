@@ -172,7 +172,7 @@ type executor struct {
 }
 
 func (e *executor) Start(_ context.Context, srv *models.Server) error {
-	return e.st.SetDesiredState(srv.ID, models.StateRunning)
+	return e.st.StartServer(srv.ID, time.Now())
 }
 
 func (e *executor) Stop(_ context.Context, srv *models.Server) error {

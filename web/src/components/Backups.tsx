@@ -51,7 +51,14 @@ export function Backups({ id }: { id: number }) {
   }
 
   async function remove(b: Backup) {
-    if (!window.confirm(t("Delete this backup record?"))) return;
+    // A succeeded backup owns a snapshot in the repository, and deleting it now
+    // really removes that data — say so rather than calling it a "record".
+    const msg =
+      b.direction === "backup" && b.phase === "Succeeded"
+        ? t("Delete this backup? Its snapshot is removed from the repository and the data cannot be recovered.")
+        : t("Delete this record?");
+    if (!window.confirm(msg)) return;
+    setError("");
     try {
       await api.deleteBackup(id, b.id);
       await load();
@@ -89,14 +96,30 @@ export function Backups({ id }: { id: number }) {
               <tr key={b.id}>
                 <td>{b.id}</td>
                 <td>{b.direction}{b.direction === "restore" && b.sourceId ? ` ←#${b.sourceId}` : ""}</td>
-                <td title={b.message}><span className={`badge ${phaseClass(b.phase)}`}>{t(b.phase)}</span></td>
+                <td title={b.message}>
+                  <span className={`badge ${phaseClass(b.phase)}`}>{t(b.phase)}</span>
+                  {b.message && (
+                    <div className={b.phase === "Failed" || b.message.startsWith("delete failed") ? "error" : "muted"} style={{ fontSize: 11, marginTop: 2, maxWidth: 260 }}>
+                      {b.message}
+                    </div>
+                  )}
+                </td>
                 <td>{b.sizeBytes ? fmtBytes(b.sizeBytes) : "—"}</td>
                 <td>{new Date(b.createdAt).toLocaleString()}</td>
                 <td style={{ whiteSpace: "nowrap" }}>
                   {b.direction === "backup" && b.phase === "Succeeded" && (
                     <button onClick={() => restore(b)}>{t("Restore")}</button>
                   )}{" "}
-                  <button className="danger" onClick={() => remove(b)}>{t("Delete")}</button>
+                  {/* An operation in flight owns a Job (and, for a restore, the
+                      exclusive write mount); the API refuses to drop it. */}
+                  <button
+                    className="danger"
+                    disabled={IN_FLIGHT.includes(b.phase)}
+                    title={IN_FLIGHT.includes(b.phase) ? t("Wait for this operation to finish.") : ""}
+                    onClick={() => remove(b)}
+                  >
+                    {b.phase === "Deleting" ? t("Deleting…") : t("Delete")}
+                  </button>
                 </td>
               </tr>
             ))}
@@ -175,6 +198,9 @@ function BackupConfigForm({ cfg, onSaved }: { cfg: BackupConfig | null; onSaved:
     </form>
   );
 }
+
+// Phases that own a live Job: nothing may be deleted while one is in flight.
+const IN_FLIGHT = ["Pending", "Running", "Deleting"];
 
 function phaseClass(p: string): string {
   if (p === "Succeeded") return "Running";

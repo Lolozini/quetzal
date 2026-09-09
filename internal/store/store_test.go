@@ -597,3 +597,41 @@ func TestEndpointHostForPrefersCluster(t *testing.T) {
 		t.Errorf("cluster B host = %q, want the global one", h)
 	}
 }
+
+// A start must clear hibernation and rearm the idle timer in one write:
+// Replicas() stays 0 while Hibernated is set, so setting only the desired state
+// would leave a hibernated server scaled to zero (the scheduled-start bug).
+func TestStartServerWakesHibernated(t *testing.T) {
+	st := newTestStore(t)
+	srv := &models.Server{Slug: "mc", DesiredState: models.StateStopped}
+	if err := st.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+	stale := time.Now().Add(-24 * time.Hour)
+	if err := st.SetHibernated(srv.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateLastActive(srv.ID, stale); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := st.StartServer(srv.ID, now); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetServer(srv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DesiredState != models.StateRunning {
+		t.Errorf("desired state = %q, want Running", got.DesiredState)
+	}
+	if got.Hibernated {
+		t.Error("still hibernated after start")
+	}
+	if got.Replicas() != 1 {
+		t.Errorf("replicas = %d, want 1 (server would not come up)", got.Replicas())
+	}
+	if got.LastActiveAt == nil || got.LastActiveAt.Before(now.Add(-time.Minute)) {
+		t.Errorf("idle timer not rearmed: %v", got.LastActiveAt)
+	}
+}

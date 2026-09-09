@@ -1124,12 +1124,11 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 	}
 	switch req.Action {
 	case "start":
-		if err := s.Store.SetDesiredState(srv.ID, models.StateRunning); err != nil {
+		// StartServer also wakes a hibernated server and rearms its idle timer.
+		if err := s.Store.StartServer(srv.ID, time.Now()); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		// Starting also wakes a hibernated server and resets its idle timer.
-		_ = s.Store.Wake(srv.ID, time.Now())
 	case "stop":
 		if err := s.Store.SetDesiredState(srv.ID, models.StateStopped); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())

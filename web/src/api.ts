@@ -338,7 +338,9 @@ export interface BackupConfigInput {
 }
 
 export type BackupDirection = "backup" | "restore";
-export type BackupPhase = "Pending" | "Running" | "Succeeded" | "Failed";
+// "Deleting" means the record is on its way out while its restic snapshot is
+// being removed from the repository; it disappears once that succeeds.
+export type BackupPhase = "Pending" | "Running" | "Succeeded" | "Failed" | "Deleting";
 
 export interface Backup {
   id: number;
@@ -463,8 +465,14 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     }
     throw new ApiError(res.status, msg);
   }
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  // Any success may legitimately carry no body — 204 on a delete, 202 when the
+  // work was only accepted — so parse only what is actually there. Calling
+  // res.json() on an empty body throws, which would surface a completed action
+  // as a failure.
+  if (res.status === 204 || res.status === 205) return undefined as T;
+  const text = await res.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 export class ApiError extends Error {

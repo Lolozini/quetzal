@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -248,17 +249,69 @@ func rootedHandlers(base string) sftp.Handlers {
 	return sftp.Handlers{FileGet: r, FilePut: r, FileCmd: r, FileList: r}
 }
 
-// resolve maps a client path to a real path confined under base.
+// resolve maps a client path to a real path confined under base, as text.
 func (r *root) resolve(p string) string {
 	return filepath.Join(r.base, filepath.Clean("/"+p))
 }
 
+// safe is resolve plus symlink confinement. Textual confinement is not enough on
+// its own: a symlink inside the volume points wherever it likes, and one can
+// appear there without going through SFTP at all (an archive extracted from the
+// panel, or the game process itself). Without this check such a link would hand
+// a client the container's filesystem — including the server's SFTP host key —
+// through a path that looks perfectly well-behaved.
+//
+// The deepest existing ancestor is resolved and must land inside the root. When
+// deref is set the operation would follow the final component, so a symlink
+// there is refused outright; when it is not (delete, rename) the link itself is
+// the subject and is allowed, so a planted link can still be cleaned up.
+func (r *root) safe(p string, deref bool) (string, error) {
+	full := r.resolve(p)
+	realRoot, err := filepath.EvalSymlinks(r.base)
+	if err != nil {
+		return "", err
+	}
+	probe := full
+	if fi, lerr := os.Lstat(full); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		if deref {
+			return "", os.ErrPermission
+		}
+		probe = filepath.Dir(full)
+	}
+	// The leaf may not exist yet (a create); walk up to something that does.
+	for {
+		if _, err := os.Lstat(probe); err == nil {
+			break
+		}
+		parent := filepath.Dir(probe)
+		if parent == probe {
+			break
+		}
+		probe = parent
+	}
+	real, err := filepath.EvalSymlinks(probe)
+	if err != nil {
+		return "", err
+	}
+	if real != realRoot && !strings.HasPrefix(real, realRoot+string(filepath.Separator)) {
+		return "", os.ErrPermission
+	}
+	return full, nil
+}
+
 func (r *root) Fileread(req *sftp.Request) (io.ReaderAt, error) {
-	return os.OpenFile(r.resolve(req.Filepath), os.O_RDONLY, 0)
+	p, err := r.safe(req.Filepath, true)
+	if err != nil {
+		return nil, err
+	}
+	return os.OpenFile(p, os.O_RDONLY, 0)
 }
 
 func (r *root) Filewrite(req *sftp.Request) (io.WriterAt, error) {
-	p := r.resolve(req.Filepath)
+	p, err := r.safe(req.Filepath, true)
+	if err != nil {
+		return nil, err
+	}
 	flags := os.O_RDWR | os.O_CREATE
 	pf := req.Pflags()
 	if pf.Trunc {
@@ -273,18 +326,29 @@ func (r *root) Filewrite(req *sftp.Request) (io.WriterAt, error) {
 }
 
 func (r *root) Filecmd(req *sftp.Request) error {
-	p := r.resolve(req.Filepath)
+	// Rename and Remove act on the entry itself and never follow it; the others
+	// would dereference a symlink leaf, so they refuse one.
+	deref := req.Method != "Rename" && req.Method != "Rmdir" && req.Method != "Remove"
+	p, err := r.safe(req.Filepath, deref)
+	if err != nil {
+		return err
+	}
 	switch req.Method {
 	case "Setstat":
 		return r.setstat(p, req)
 	case "Rename":
-		return os.Rename(p, r.resolve(req.Target))
+		to, err := r.safe(req.Target, false)
+		if err != nil {
+			return err
+		}
+		return os.Rename(p, to)
 	case "Rmdir", "Remove":
 		return os.Remove(p)
 	case "Mkdir":
 		return os.MkdirAll(p, 0o755)
 	case "Symlink":
-		// Link target stays within the root.
+		// The link target is confined to the root, and safe() has already checked
+		// that the link itself is being created inside it.
 		return os.Symlink(r.resolve(req.Target), p)
 	default:
 		return sftp.ErrSSHFxOpUnsupported
@@ -307,7 +371,12 @@ func (r *root) setstat(p string, req *sftp.Request) error {
 }
 
 func (r *root) Filelist(req *sftp.Request) (sftp.ListerAt, error) {
-	p := r.resolve(req.Filepath)
+	// A Stat on a symlink is how a client discovers what it points at, and
+	// listing one means descending into it: both dereference.
+	p, err := r.safe(req.Filepath, true)
+	if err != nil {
+		return nil, err
+	}
 	switch req.Method {
 	case "List":
 		entries, err := os.ReadDir(p)

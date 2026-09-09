@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"errors"
 	"log"
 	"strings"
 	"time"
@@ -35,6 +36,27 @@ func NewManager(st *store.Store, reg *cluster.Registry) *Manager {
 func (m *Manager) Process(ctx context.Context) {
 	m.processPending(ctx)
 	m.processRunning(ctx)
+	m.processDeleting(ctx)
+}
+
+// busyServers is the set of servers with an operation already holding their
+// restic repository lock: a Running backup/restore, or a snapshot deletion whose
+// Job is live. Nothing else for that server may start until it clears.
+func (m *Manager) busyServers() map[uint]bool {
+	busy := map[uint]bool{}
+	if run, _ := m.Store.ListBackupsByPhase(models.BackupRunning); run != nil {
+		for i := range run {
+			busy[run[i].ServerID] = true
+		}
+	}
+	if del, _ := m.Store.ListBackupsByPhase(models.BackupDeleting); del != nil {
+		for i := range del {
+			if del[i].JobName != "" {
+				busy[del[i].ServerID] = true
+			}
+		}
+	}
+	return busy
 }
 
 func (m *Manager) now() time.Time {
@@ -65,12 +87,7 @@ func (m *Manager) processPending(ctx context.Context) {
 	}
 	// Serialize per server: never run two operations for the same server at once
 	// (they would contend on that server's restic repository lock).
-	busy := map[uint]bool{}
-	if run, _ := m.Store.ListBackupsByPhase(models.BackupRunning); run != nil {
-		for i := range run {
-			busy[run[i].ServerID] = true
-		}
-	}
+	busy := m.busyServers()
 	for i := range pend {
 		b := &pend[i]
 		if busy[b.ServerID] {
@@ -176,6 +193,113 @@ func (m *Manager) processRunning(ctx context.Context) {
 	}
 }
 
+// processDeleting drives snapshot deletions. A row in the Deleting phase has
+// been dropped by the user but still owns a restic snapshot, so the record is
+// kept until the forget Job confirms the data is gone from the repository — a
+// failure must surface rather than leave the bucket holding data the user
+// believes deleted. On success the row goes for good; on failure it returns to
+// Succeeded carrying the reason, so the user can retry.
+func (m *Manager) processDeleting(ctx context.Context) {
+	del, err := m.Store.ListBackupsByPhase(models.BackupDeleting)
+	if err != nil || len(del) == 0 {
+		return
+	}
+	cfg, err := m.Store.GetBackupConfig()
+	if err != nil {
+		// No target configured any more: the snapshot is unreachable, so keeping
+		// the record would strand it. Drop the row and say so in the log.
+		for i := range del {
+			log.Printf("backup: dropping record %d without forgetting its snapshot (backups are not configured)", del[i].ID)
+			_ = m.Store.DeleteBackup(del[i].ID)
+		}
+		return
+	}
+	access, secret, pass, err := m.Store.BackupSecrets(cfg)
+	if err != nil {
+		log.Printf("backup: delete: decrypt credentials: %v", err)
+		return
+	}
+	busy := m.busyServers()
+	for i := range del {
+		b := &del[i]
+		srv, err := m.Store.GetServer(b.ServerID)
+		if errors.Is(err, store.ErrNotFound) {
+			// The server is gone; its namespace (and any Job we could run) went
+			// with it, so there is nothing left to drive the delete.
+			_ = m.Store.DeleteBackup(b.ID)
+			continue
+		}
+		if err != nil {
+			continue // transient store error; retry next tick rather than drop the row
+		}
+		clients, err := m.Reg.For(srv.ClusterID)
+		if err != nil {
+			continue // cluster unreachable; retry next tick
+		}
+		cs := clients.Clientset
+		p := Params{
+			Image: Image(cfg), Namespace: srv.Namespace, Slug: srv.Slug,
+			BackupID: b.ID, Direction: b.Direction, Forget: true,
+			Repository: Repository(cfg, srv.Slug), Region: cfg.Region,
+			AccessKey: access, SecretKey: secret, RepoPassword: pass,
+		}
+		if b.JobName == "" {
+			if busy[b.ServerID] {
+				continue // another operation holds the repository lock
+			}
+			if err := ensureSecret(ctx, cs, BuildSecret(p)); err != nil {
+				log.Printf("backup: delete %d: creds secret: %v", b.ID, err)
+				continue
+			}
+			job := BuildJob(p)
+			if _, err := cs.BatchV1().Jobs(p.Namespace).Create(ctx, job, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+				m.failDelete(b, "create job: "+err.Error())
+				continue
+			}
+			b.JobName = JobName(p)
+			if err := m.Store.UpdateBackup(b); err != nil {
+				log.Printf("backup: delete %d: update: %v", b.ID, err)
+			}
+			busy[b.ServerID] = true
+			continue
+		}
+		job, err := cs.BatchV1().Jobs(srv.Namespace).Get(ctx, b.JobName, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			m.failDelete(b, "the snapshot deletion job disappeared")
+			continue
+		}
+		if err != nil {
+			continue // transient; retry next tick
+		}
+		switch {
+		case job.Status.Succeeded > 0:
+			cleanup(ctx, cs, srv.Namespace, b.JobName)
+			if err := m.Store.DeleteBackup(b.ID); err != nil {
+				log.Printf("backup: delete %d: %v", b.ID, err)
+			}
+		case job.Status.Failed > 0:
+			msg := lastLogLine(podLogs(ctx, cs, srv.Namespace, b.JobName))
+			if msg == "" {
+				msg = "the snapshot could not be removed"
+			}
+			cleanup(ctx, cs, srv.Namespace, b.JobName)
+			m.failDelete(b, msg)
+		}
+	}
+}
+
+// failDelete returns a record to Succeeded so it reappears in the list with the
+// reason its snapshot could not be removed, rather than vanishing from the UI
+// while the data stays in the bucket.
+func (m *Manager) failDelete(b *models.Backup, msg string) {
+	b.Phase = models.BackupSucceeded
+	b.JobName = ""
+	b.Message = "delete failed: " + msg
+	if err := m.Store.UpdateBackup(b); err != nil {
+		log.Printf("backup: delete %d: revert: %v", b.ID, err)
+	}
+}
+
 // serverHasPods reports whether any pod that mounts the data volume still exists
 // for a server — i.e. whether its data volume may still be mounted. That is the
 // game pod (ServerLabel) or the data-manager pod (DataLabel); the activator never
@@ -224,7 +348,16 @@ func podLogs(ctx context.Context, cs kubernetes.Interface, ns, jobName string) s
 	if err != nil || len(pods.Items) == 0 {
 		return ""
 	}
-	data, err := cs.CoreV1().Pods(ns).GetLogs(pods.Items[0].Name, &corev1.PodLogOptions{}).DoRaw(ctx)
+	// A Job may retry (BackoffLimit), leaving several pods in no particular
+	// order. The outcome the manager is reporting belongs to the last attempt, so
+	// read that one — the first pod listed could be an earlier, failed try.
+	latest := &pods.Items[0]
+	for i := range pods.Items {
+		if pods.Items[i].CreationTimestamp.After(latest.CreationTimestamp.Time) {
+			latest = &pods.Items[i]
+		}
+	}
+	data, err := cs.CoreV1().Pods(ns).GetLogs(latest.Name, &corev1.PodLogOptions{}).DoRaw(ctx)
 	if err != nil {
 		return ""
 	}

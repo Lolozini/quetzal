@@ -45,9 +45,51 @@ func (s *Server) dataRoot(srv *models.Server) string {
 // jail resolves a client-supplied relative path strictly under root. Any "..":
 // path.Clean against "/" first drops leading parent refs, so the join can never
 // escape root.
+//
+// jail confines the path *as text*. A symlink inside the volume still points
+// wherever it likes, and nothing stops one appearing there — an extracted
+// archive or the game itself can create one. Confinement is therefore enforced
+// again inside the container by guardScript, at the moment the path is used.
 func jail(root, rel string) string {
 	return path.Join(root, path.Clean("/"+rel))
 }
+
+// guardScript refuses paths that leave the data directory once symlinks are
+// taken into account, so a link planted in the volume (by an extracted archive,
+// or by the game process) cannot be used to read or write outside it. It runs in
+// the container, right before the operation, and is written in plain POSIX shell
+// with no external tools: `cd` + `pwd -P` resolves symlinked parent directories
+// on every image, where readlink -f is not guaranteed to exist.
+//
+// Called as: qz_guard <deref|link> <root> <path>...
+//   - deref: the operation follows the final component (read, write, list,
+//     mkdir, extract), so a symlink there is refused outright.
+//   - link:  the operation acts on the link itself and never dereferences it
+//     (delete, rename, archive), so a symlink leaf is allowed — otherwise a
+//     planted link could never be cleaned up through the panel.
+//
+// Either way the parent chain must resolve inside the root.
+const guardScript = `qz_guard() {
+  __mode=$1; __root=$2; shift 2
+  __r=$(cd "$__root" 2>/dev/null && pwd -P) || return 0
+  for __p in "$@"; do
+    if [ "$__mode" = deref ] && [ -L "$__p" ]; then
+      echo "refusing to follow the symbolic link $__p" >&2; exit 4
+    fi
+    __d=$__p
+    while [ ! -d "$__d" ]; do
+      __n=$(dirname "$__d")
+      [ "$__n" = "$__d" ] && break
+      __d=$__n
+    done
+    __real=$(cd "$__d" 2>/dev/null && pwd -P) || __real=$__d
+    case "$__real" in
+      "$__r"|"$__r"/*) ;;
+      *) echo "path escapes the data directory" >&2; exit 4 ;;
+    esac
+  done
+}
+`
 
 // defaultDataReadyTimeout bounds how long file access waits for the data-manager
 // pod to become running (it may need scheduling and an image pull). Overridable
@@ -134,8 +176,14 @@ func (s *Server) execFile(ctx context.Context, cs kubernetes.Interface, cfg *res
 	return console.Exec(ctx, cs, cfg, ns, pod, cmd, stdin, stdout)
 }
 
+// guarded prefixes a file-operation script with the symlink guard and passes the
+// data root as $0, so each script keeps its own positional numbering ($1, $2…)
+// and simply calls qz_guard on the arguments that are paths.
+func guarded(body string) string { return guardScript + body }
+
 // listScript prints "<type>\t<size>\t<name>" per entry of the directory in $1.
-const listScript = `cd "$1" 2>/dev/null || { echo "no such directory" >&2; exit 2; }
+const listScript = `qz_guard deref "$0" "$1"
+cd "$1" 2>/dev/null || { echo "no such directory" >&2; exit 2; }
 for e in * .*; do
   [ "$e" = "." ] && continue
   [ "$e" = ".." ] && continue
@@ -151,7 +199,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	dir := jail(root, r.URL.Query().Get("path"))
 	var out strings.Builder
-	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", listScript, "_", dir}, nil, &out); err != nil {
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", guarded(listScript), root, dir}, nil, &out); err != nil {
 		writeError(w, http.StatusBadGateway, "list failed: "+err.Error())
 		return
 	}
@@ -183,7 +231,9 @@ func (s *Server) handleReadFile(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	}
 	// Stream cat's stdout straight to the response (no buffering of large files).
-	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"cat", "--", full}, nil, w); err != nil {
+	cmd := []string{"sh", "-c", guarded(`qz_guard deref "$0" "$1"
+exec cat -- "$1"`), root, full}
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, cmd, nil, w); err != nil {
 		// Headers may already be sent; best-effort error only if nothing written.
 		writeError(w, http.StatusBadGateway, "read failed: "+err.Error())
 		return
@@ -206,7 +256,9 @@ func (s *Server) handleArchiveFile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeFilename(name)+`.tar.gz"`)
 	// tar from the parent so the archive contains the entry by its bare name.
-	cmd := []string{"sh", "-c", `cd "$1" && exec tar -czf - -- "$2"`, "_", parent, base}
+	cmd := []string{"sh", "-c", guarded(`qz_guard deref "$0" "$1"
+qz_guard link "$0" "$1/$2"
+cd "$1" && exec tar -czf - -- "$2"`), root, parent, base}
 	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, cmd, nil, w); err != nil {
 		writeError(w, http.StatusBadGateway, "archive failed: "+err.Error())
 	}
@@ -219,7 +271,8 @@ const extractTimeout = 15 * time.Minute
 // the tool from $2 ("zip" or "tar"). It spools to a temp file first because both
 // tools need a seekable file to auto-detect the format: tar sniffs gz/bz2/xz
 // from the file (it can't from a pipe), and unzip requires a real file.
-const extractScript = `dir="$1"; fmt="$2"
+const extractScript = `qz_guard deref "$0" "$1"
+dir="$1"; fmt="$2"
 mkdir -p "$dir" || exit 1
 tmp="$dir/.quetzal-upload.$$"
 cat > "$tmp" || { rm -f "$tmp"; exit 1; }
@@ -247,7 +300,7 @@ func (s *Server) handleExtractArchive(w http.ResponseWriter, r *http.Request) {
 	body := http.MaxBytesReader(w, r.Body, 2<<30) // 2 GiB cap
 	ctx, cancel := context.WithTimeout(r.Context(), extractTimeout)
 	defer cancel()
-	cmd := []string{"sh", "-c", extractScript, "_", dir, format}
+	cmd := []string{"sh", "-c", guarded(extractScript), root, dir, format}
 	if err := console.Exec(ctx, cs, cfg, srv.Namespace, pod, cmd, body, io.Discard); err != nil {
 		writeError(w, http.StatusBadGateway, "extract failed (the image needs tar, or unzip for .zip): "+err.Error())
 		return
@@ -262,7 +315,8 @@ func (s *Server) handleExtractArchive(w http.ResponseWriter, r *http.Request) {
 // channel can come up empty against a container that has only just started)
 // leaves the existing file untouched instead of truncating it to nothing. $2, if
 // set, is the byte count expected; a mismatch fails the write.
-const writeScript = `dst="$1"; want="$2"
+const writeScript = `qz_guard deref "$0" "$1"
+dst="$1"; want="$2"
 tmp="$dst.quetzal-part.$$"
 cat > "$tmp" || { rm -f "$tmp"; exit 1; }
 if [ -n "$want" ]; then
@@ -308,7 +362,7 @@ func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {
 
 	write := func(in io.Reader) error {
 		return s.execFile(r.Context(), cs, cfg, srv.Namespace, pod,
-			[]string{"sh", "-c", writeScript, "_", full, expected}, in, io.Discard)
+			[]string{"sh", "-c", guarded(writeScript), root, full, expected}, in, io.Discard)
 	}
 	err := write(src)
 	if err != nil && retry != nil {
@@ -328,7 +382,8 @@ func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	full := jail(root, r.URL.Query().Get("path"))
-	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"mkdir", "-p", "--", full}, nil, io.Discard); err != nil {
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", guarded(`qz_guard deref "$0" "$1"
+exec mkdir -p -- "$1"`), root, full}, nil, io.Discard); err != nil {
 		writeError(w, http.StatusBadGateway, "mkdir failed: "+err.Error())
 		return
 	}
@@ -347,7 +402,8 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	full := jail(root, rel)
-	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"rm", "-rf", "--", full}, nil, io.Discard); err != nil {
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", guarded(`qz_guard link "$0" "$1"
+exec rm -rf -- "$1"`), root, full}, nil, io.Discard); err != nil {
 		writeError(w, http.StatusBadGateway, "delete failed: "+err.Error())
 		return
 	}
@@ -367,7 +423,8 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	to := jail(root, toRel)
-	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"mv", "--", from, to}, nil, io.Discard); err != nil {
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", guarded(`qz_guard link "$0" "$1" "$2"
+exec mv -- "$1" "$2"`), root, from, to}, nil, io.Discard); err != nil {
 		writeError(w, http.StatusBadGateway, "rename failed: "+err.Error())
 		return
 	}

@@ -81,7 +81,11 @@ network policy, and a multi-cluster API.
 - **Backups & restore** to any S3-compatible target via **restic** (dedup,
   encryption, retention) — one-shot Jobs, credentials encrypted at rest.
 - Deleting a server **destroys its data volume** along with it, so nothing is
-  left orphaned — take a backup first if you need to keep a world.
+  left orphaned — take a backup first if you need to keep a world. Its snapshots
+  in the backup bucket are kept (the namespace that could prune them is gone by
+  then); drop that server's repository prefix by hand to reclaim the space.
+- Deleting a single backup **removes its snapshot from the repository**, not just
+  the row in the panel, so the data really goes.
 - **Per-server databases**: provision a MySQL/MariaDB database + scoped user from
   the panel, against a registered **external** host *or* a **managed MariaDB**
   Quetzal deploys and owns in-cluster.

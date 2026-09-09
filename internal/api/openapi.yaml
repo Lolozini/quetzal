@@ -1079,8 +1079,17 @@ paths:
     delete:
       tags: [Backups]
       summary: Delete a backup
+      description: >-
+        A succeeded backup owns a restic snapshot, so it is not simply dropped
+        from the database: the record enters the Deleting phase and the
+        controller forgets the snapshot from the repository first. Records with
+        nothing to forget (a failed operation, a restore) are removed at once.
+        An operation still in flight cannot be deleted — it owns a running Job,
+        and a restore also owns the exclusive write mount on the data volume.
       responses:
+        "202": { description: Snapshot deletion started; the record is now Deleting }
         "204": { description: Deleted }
+        "409": { description: The operation is still running }
 
   /api/servers/{id}/suspend:
     parameters:
@@ -2003,7 +2012,13 @@ components:
         id: { type: integer }
         serverId: { type: integer }
         direction: { type: string, enum: [backup, restore] }
-        phase: { type: string, enum: [Pending, Running, Succeeded, Failed] }
+        phase:
+          type: string
+          enum: [Pending, Running, Succeeded, Failed, Deleting]
+          description: >-
+            Deleting means the record is on its way out while its restic snapshot
+            is being removed from the repository; it disappears once that
+            succeeds, or returns to Succeeded carrying the reason it could not.
         sourceId: { type: integer }
         sizeBytes: { type: integer, format: int64 }
         message: { type: string }
