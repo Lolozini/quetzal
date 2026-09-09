@@ -71,7 +71,9 @@ func jail(root, rel string) string {
 // Either way the parent chain must resolve inside the root.
 const guardScript = `qz_guard() {
   __mode=$1; __root=$2; shift 2
-  __r=$(cd "$__root" 2>/dev/null && pwd -P) || return 0
+  __r=$(cd "$__root" 2>/dev/null && pwd -P) || {
+    echo "the data directory is not available" >&2; exit 4
+  }
   for __p in "$@"; do
     if [ "$__mode" = deref ] && [ -L "$__p" ]; then
       echo "refusing to follow the symbolic link $__p" >&2; exit 4
@@ -256,8 +258,11 @@ func (s *Server) handleArchiveFile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeFilename(name)+`.tar.gz"`)
 	// tar from the parent so the archive contains the entry by its bare name.
-	cmd := []string{"sh", "-c", guarded(`qz_guard deref "$0" "$1"
-qz_guard link "$0" "$1/$2"
+	// Guard the entry being archived ($1/$2), not the directory tar runs from:
+	// archiving the whole volume runs from the data root's *parent*, which is
+	// legitimately outside the jail. tar stores a symlink as a link rather than
+	// following it, so a link leaf is harmless here.
+	cmd := []string{"sh", "-c", guarded(`qz_guard link "$0" "$1/$2"
 cd "$1" && exec tar -czf - -- "$2"`), root, parent, base}
 	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, cmd, nil, w); err != nil {
 		writeError(w, http.StatusBadGateway, "archive failed: "+err.Error())
