@@ -121,6 +121,16 @@ func TestE2EFiles(t *testing.T) {
 		t.Errorf("archive is not a gzip stream (len=%d)", len(ab))
 	}
 
+	// Archiving the whole volume runs tar from the data root's *parent*, which is
+	// legitimately outside the jail: the confinement check must look at the entry
+	// being archived, not at the directory tar runs from.
+	whole := doFile(t, hc, http.MethodGet, base+"/archive?path=", "")
+	mustStatus(t, whole, http.StatusOK)
+	wb := readBody(t, whole)
+	if len(wb) < 2 || wb[0] != 0x1f || wb[1] != 0x8b {
+		t.Errorf("whole-volume archive is not a gzip stream (len=%d)", len(wb))
+	}
+
 	// Path traversal must be confined to the data root: reading ../../etc/passwd
 	// resolves under /data (nonexistent) and must NOT return the real file.
 	tr := doFile(t, hc, http.MethodGet, base+"/content?path=../../../../etc/passwd", "")
