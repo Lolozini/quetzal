@@ -163,15 +163,43 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, b)
 }
 
+// handleDeleteBackup removes a backup. A succeeded backup owns a restic snapshot,
+// so it is not simply dropped from the database: it enters the Deleting phase and
+// the controller forgets the snapshot from the repository first, otherwise the
+// data would live on in the bucket after the user asked for it to be gone.
 func (s *Server) handleDeleteBackup(w http.ResponseWriter, r *http.Request) {
 	b, ok := s.lookupBackup(w, r, models.PermBackups)
 	if !ok {
+		return
+	}
+	// An operation in flight owns a running Job — and, for a restore, the
+	// exclusive write mount on the data volume (the reconciler keeps the data
+	// manager scaled down while a restore row is Pending/Running). Dropping the
+	// row would lift that guard mid-restore and orphan the Job, so refuse.
+	switch b.Phase {
+	case models.BackupPending, models.BackupRunning:
+		writeError(w, http.StatusConflict, "this operation is still running; wait for it to finish before deleting it")
+		return
+	case models.BackupDeleting:
+		w.WriteHeader(http.StatusNoContent) // already on its way out
+		return
+	}
+	// Only a succeeded backup has a snapshot to forget; failed operations and
+	// restore records are just history and can go straight away.
+	if b.Direction == models.DirBackup && b.Phase == models.BackupSucceeded {
+		if err := s.Store.MarkBackupDeleting(b.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.audit(r, b.ServerID, "backup.delete", "#"+strconv.FormatUint(uint64(b.ID), 10))
+		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 	if err := s.Store.DeleteBackup(b.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit(r, b.ServerID, "backup.delete", "#"+strconv.FormatUint(uint64(b.ID), 10))
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -176,3 +176,37 @@ func TestParseBackupSize(t *testing.T) {
 		t.Errorf("size = %d, want 0", got)
 	}
 }
+
+// A forget only rewrites the repository: it must mount nothing (so it never
+// contends for the ReadWriteOnce data volume), carry no node placement, target
+// exactly the snapshot being deleted, and get a Job name of its own.
+func TestBuildJobForget(t *testing.T) {
+	p := Params{
+		Slug: "s1", BackupID: 7, Direction: models.DirBackup, Forget: true,
+		NodeSelector: map[string]string{"disktype": "ssd"},
+	}
+	j := BuildJob(p)
+	ps := j.Spec.Template.Spec
+	if len(ps.Volumes) != 0 {
+		t.Errorf("forget Job mounts %d volume(s), want none", len(ps.Volumes))
+	}
+	if len(ps.Containers[0].VolumeMounts) != 0 {
+		t.Errorf("forget container has mounts: %+v", ps.Containers[0].VolumeMounts)
+	}
+	if ps.Affinity != nil {
+		t.Errorf("forget Job should have no podAffinity, got %+v", ps.Affinity)
+	}
+	if ps.NodeSelector != nil {
+		t.Errorf("forget Job should not be pinned to a node, got %v", ps.NodeSelector)
+	}
+	script := ps.Containers[0].Command[2]
+	if !strings.Contains(script, `--tag "bid-7"`) || !strings.Contains(script, "forget") || !strings.Contains(script, "--prune") {
+		t.Errorf("forget script does not remove the tagged snapshot:\n%s", script)
+	}
+	if strings.Contains(script, "restic backup") || strings.Contains(script, "restic restore") {
+		t.Errorf("forget script should not back up or restore:\n%s", script)
+	}
+	if got, want := JobName(p), "quetzal-forget-7"; got != want {
+		t.Errorf("JobName = %q, want %q (must not collide with the backup Job)", got, want)
+	}
+}

@@ -148,6 +148,46 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A scheduled `start` never woke a hibernated server.** The schedule reported
+  success while the server stayed scaled to zero: the task set the desired state
+  to Running but left the hibernation flag set, and a server counts zero replicas
+  while it is hibernated. Starting also rearms the idle timer now, so a server
+  brought up by a cron is no longer put straight back to sleep on the next
+  hibernation tick because its last-activity timestamp was hours old. Both start
+  paths (power action and scheduled task) share one store operation, so they
+  cannot drift apart again.
+- **Deleting a backup left the data in the bucket.** Only the database row was
+  removed; the restic snapshot stayed in S3 for good, so storage kept growing and
+  "deleted" data survived. A succeeded backup now enters a **Deleting** phase
+  while the controller forgets its snapshot from the repository, and the record
+  disappears only once that succeeds — a failure puts the row back with the
+  reason instead of quietly stranding the data. Snapshots belonging to a *deleted
+  server* are still retained: its namespace, and with it any Job that could prune
+  them, is gone by then; remove that server's repository prefix from the bucket
+  by hand if you need the space.
+- **Deleting an in-flight backup or restore could corrupt the data volume.**
+  Nothing stopped the record from being dropped mid-operation, and the
+  reconciler keeps the data manager scaled down only *while a restore row
+  exists* — so deleting one brought the data manager back up to write to the
+  same ReadWriteOnce volume the restic Job was restoring into, and orphaned the
+  Job (cleanup is driven from the row). An operation that is Pending or Running
+  now refuses deletion with `409`, and the UI disables the button.
+- **Symlinks could reach outside a server's data directory.** Paths were confined
+  as text, which stops `..` but not a symbolic link — and one can appear in the
+  volume without going through the panel at all, since archive extraction
+  recreates the links an archive contains. A subuser holding only the *files*
+  permission could plant one and then read the container's filesystem, including
+  the server's SFTP host key. Both the file API and the SFTP server now resolve
+  the path before using it and refuse anything landing outside the data
+  directory; a link is still deletable and renameable, so a planted one can be
+  cleaned up.
+- **A backup that succeeded could be reported as failed.** A finished Job that
+  the controller had not yet read was treated as vanished; its retention is now
+  long enough for a restarted or non-leader controller to see the real outcome.
+  A retried Job also no longer reports the wrong attempt's size or error.
+- **The web client failed on successful empty responses.** Only `204` was treated
+  as bodyless, so any other success without a body (a `202` acknowledgement) blew
+  up parsing JSON and surfaced a completed action as an error.
 - **A lost file write could replace your file with an empty one.** Uploads
   streamed into `cat > file` in the pod, so a stream that delivered nothing —
   which happens against a container that has only just started — left the file

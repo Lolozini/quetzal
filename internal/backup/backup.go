@@ -44,6 +44,11 @@ type Params struct {
 	// NodeSelector co-locates the Job with the server's pods (it mounts the same
 	// ReadWriteOnce data PVC), mirroring the game/data-manager placement.
 	NodeSelector map[string]string
+	// Forget turns the operation into a snapshot deletion: restic drops the
+	// snapshot tagged with BackupID from the repository. It touches only the
+	// repository, so unlike a backup or restore it mounts no data volume and
+	// needs no node placement.
+	Forget bool
 }
 
 // Repository builds a restic S3 repository URL for a server. Each server gets
@@ -72,8 +77,12 @@ func Image(cfg *models.BackupConfig) string {
 	return defaultImage
 }
 
-// JobName is the deterministic Job name for an operation.
+// JobName is the deterministic Job name for an operation. A forget gets its own
+// name so it never collides with the backup Job that created the snapshot.
 func JobName(p Params) string {
+	if p.Forget {
+		return fmt.Sprintf("quetzal-forget-%d", p.BackupID)
+	}
 	return fmt.Sprintf("quetzal-%s-%d", p.Direction, p.BackupID)
 }
 
@@ -104,8 +113,16 @@ func BuildSecret(p Params) *corev1.Secret {
 func BuildJob(p Params) *batchv1.Job {
 	tag := fmt.Sprintf("bid-%d", p.BackupID)
 	var script string
-	switch p.Direction {
-	case models.DirRestore:
+	switch {
+	case p.Forget:
+		// Drop this one snapshot and reclaim its space. --prune is what actually
+		// removes the data from the bucket; forgetting alone only unlinks it.
+		// An already-absent snapshot is not an error: restic forget on a tag that
+		// matches nothing succeeds, which keeps the delete idempotent on retry.
+		script = fmt.Sprintf(`set -e
+restic forget --host %q --tag %q --prune
+`, p.Slug, tag)
+	case p.Direction == models.DirRestore:
 		srcTag := fmt.Sprintf("bid-%d", p.SourceID)
 		// Restore the snapshot tagged with the source backup into the PVC. restic
 		// stores absolute paths, so target "/" recreates /data.
@@ -125,24 +142,42 @@ restic forget --host %q --keep-last %d --prune
 	}
 
 	backoff := int32(1)
-	ttl := int32(1800) // safety net; the controller deletes finished Jobs itself
+	// Safety net only: the controller deletes finished Jobs itself. It is kept
+	// long because a Job that vanishes before the controller has read its result
+	// is reported as a failure — a day gives an offline or non-leader controller
+	// ample room to come back and see that the operation actually succeeded.
+	ttl := int32(86400)
 	ro := p.Direction == models.DirBackup
 
-	// Mount the same data the server uses: its PVC.
-	dataVolume := corev1.Volume{Name: "data"}
-	dataVolume.VolumeSource = corev1.VolumeSource{
-		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-			ClaimName: reconciler.DataVolume,
-			ReadOnly:  ro,
-		},
+	// Mount the same data the server uses: its PVC. A forget only rewrites the
+	// repository, so it takes no volume at all — which also keeps it off the
+	// ReadWriteOnce mount and lets it run while the server is up.
+	var volumes []corev1.Volume
+	var mounts []corev1.VolumeMount
+	if !p.Forget {
+		volumes = []corev1.Volume{{
+			Name: "data",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: reconciler.DataVolume,
+					ReadOnly:  ro,
+				},
+			},
+		}}
+		mounts = []corev1.VolumeMount{{Name: "data", MountPath: mountPath, ReadOnly: ro}}
 	}
 
 	// A backup mounts the volume read-only while the data-manager still holds the
 	// ReadWriteOnce mount, so the Job must land on the same node. A restore runs
 	// only after every data-mounting pod is gone (the manager defers it), so the
 	// volume is free and node placement is left to the volume/NodeSelector.
+	// A forget mounts nothing, so it must not inherit the volume's node pinning.
+	nodeSelector := p.NodeSelector
+	if p.Forget {
+		nodeSelector = nil
+	}
 	var affinity *corev1.Affinity
-	if p.Direction == models.DirBackup {
+	if p.Direction == models.DirBackup && !p.Forget {
 		affinity = &corev1.Affinity{PodAffinity: &corev1.PodAffinity{
 			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
 				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{reconciler.DataLabel: p.Slug}},
@@ -161,7 +196,7 @@ restic forget --host %q --keep-last %d --prune
 				ObjectMeta: metav1.ObjectMeta{Labels: labels(p)},
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
-					NodeSelector:  p.NodeSelector,
+					NodeSelector:  nodeSelector,
 					Affinity:      affinity,
 					Containers: []corev1.Container{{
 						Name:    "restic",
@@ -172,9 +207,9 @@ restic forget --host %q --keep-last %d --prune
 								LocalObjectReference: corev1.LocalObjectReference{Name: CredsSecretName},
 							},
 						}},
-						VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: mountPath, ReadOnly: ro}},
+						VolumeMounts: mounts,
 					}},
-					Volumes: []corev1.Volume{dataVolume},
+					Volumes: volumes,
 				},
 			},
 		},

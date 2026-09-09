@@ -43,6 +43,11 @@ const (
 	BackupRunning   BackupPhase = "Running"
 	BackupSucceeded BackupPhase = "Succeeded"
 	BackupFailed    BackupPhase = "Failed"
+	// BackupDeleting means the record is on its way out and its restic snapshot
+	// is being forgotten from the repository. The row survives until the forget
+	// Job succeeds, so a failure surfaces instead of silently leaving the data in
+	// the bucket; on success the row is removed.
+	BackupDeleting BackupPhase = "Deleting"
 )
 
 // Backup records one backup or restore operation for a server. It maps to a

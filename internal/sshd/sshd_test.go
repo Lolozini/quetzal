@@ -221,3 +221,56 @@ func TestSFTPRejectsUnauthorizedKey(t *testing.T) {
 		t.Fatal("expected authentication to fail for an unauthorized key")
 	}
 }
+
+// A symlink planted in the volume (an extracted archive, or the game process)
+// must not become a way out of the jail: textual confinement alone would let
+// "/link.txt" resolve inside the root and still hand back a file outside it.
+func TestSFTPSymlinkConfinement(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(filepath.Dir(root), "secret.txt")
+	if err := os.WriteFile(outside, []byte("TOPSECRET"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A link to a file outside, and a link to the directory outside.
+	if err := os.Symlink(outside, filepath.Join(root, "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Dir(root), filepath.Join(root, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ok.txt"), []byte("fine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	signer, pub := newKeyPair(t)
+	sc, _, err := startServer(t, root, []ssh.PublicKey{pub}, signer)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer sc.Close()
+
+	for _, p := range []string{"/link.txt", "/escape/secret.txt"} {
+		if f, err := sc.Open(p); err == nil {
+			b, _ := io.ReadAll(f)
+			f.Close()
+			t.Errorf("symlink %q leaked: %q", p, b)
+		}
+	}
+	// Writing through a symlink would clobber a file outside the volume.
+	if f, err := sc.OpenFile("/link.txt", os.O_WRONLY); err == nil {
+		f.Close()
+		t.Error("opened a symlink for writing")
+	}
+	if got, _ := os.ReadFile(outside); string(got) != "TOPSECRET" {
+		t.Errorf("file outside the root was modified: %q", got)
+	}
+	// Ordinary files must keep working, and the link itself must stay removable
+	// so a planted one can be cleaned up through SFTP.
+	f, err := sc.Open("/ok.txt")
+	if err != nil {
+		t.Fatalf("open ok.txt: %v", err)
+	}
+	f.Close()
+	if err := sc.Remove("/link.txt"); err != nil {
+		t.Errorf("could not remove the symlink: %v", err)
+	}
+}
