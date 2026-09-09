@@ -185,6 +185,11 @@ releases may include breaking changes).
   the controller had not yet read was treated as vanished; its retention is now
   long enough for a restarted or non-leader controller to see the real outcome.
   A retried Job also no longer reports the wrong attempt's size or error.
+- **An unreadable config file was silently replaced.** The config renderer runs
+  on every start and rewrites each managed file from what it read; a read error
+  was reported as "empty", so a config it merely could not open came back holding
+  nothing but the managed keys. It now fails the render and leaves the file
+  alone — only a genuinely absent file is created from scratch.
 - **Power and transfer messages were always in English.** The notice shown after
   every start/stop/restart/kill, and the transfer confirmation, bypassed the
   translation layer. `server.stopped` and `server.transfer` can also be picked

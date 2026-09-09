@@ -12,6 +12,7 @@ package configfile
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -79,12 +80,20 @@ func safeJoin(root, p string) string {
 	return filepath.Join(root, filepath.Clean("/"+p))
 }
 
-func readFileOrEmpty(path string) []byte {
+// readExisting returns a config file's current contents, or nil when it does
+// not exist yet (the create case). Any other read error is returned rather than
+// reported as an empty file: every parser here rewrites the whole file from what
+// it read, so swallowing the error would replace a config that merely could not
+// be read with one holding nothing but the managed keys — on every start.
+func readExisting(path string) ([]byte, error) {
 	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
 	}
-	return b
+	if err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 func writeFile(path string, data []byte) error {
@@ -96,7 +105,11 @@ func writeFile(path string, data []byte) error {
 // applyLineKV patches a line-oriented "key<sep>value" file, preserving existing
 // lines/comments/order and appending any keys not already present.
 func applyLineKV(path string, vals map[string]string, sep byte, spaced bool) error {
-	lines := splitLines(string(readFileOrEmpty(path)))
+	cur, err := readExisting(path)
+	if err != nil {
+		return err
+	}
+	lines := splitLines(string(cur))
 	applied := make(map[string]bool, len(vals))
 	for i, line := range lines {
 		t := strings.TrimSpace(line)
@@ -129,7 +142,11 @@ func formatKV(k, v string, sep byte, spaced bool) string {
 // ---- INI (sections; keys may be "section.key" or top-level "key") ----
 
 func applyINI(path string, vals map[string]string) error {
-	lines := splitLines(string(readFileOrEmpty(path)))
+	cur, err := readExisting(path)
+	if err != nil {
+		return err
+	}
+	lines := splitLines(string(cur))
 	applied := make(map[string]bool, len(vals))
 	current := "" // section name, "" = top-level
 
@@ -196,8 +213,12 @@ type (
 )
 
 func applyStructured(path string, vals map[string]string, marshal marshalFn, unmarshal unmarshalFn) error {
+	cur, err := readExisting(path)
+	if err != nil {
+		return err
+	}
 	doc := map[string]any{}
-	if b := bytes.TrimSpace(readFileOrEmpty(path)); len(b) > 0 {
+	if b := bytes.TrimSpace(cur); len(b) > 0 {
 		_ = unmarshal(b, &doc) // tolerate an unparsable existing file: start fresh
 		if doc == nil {
 			doc = map[string]any{}
@@ -269,7 +290,11 @@ func unmarshalYAML(b []byte, m *map[string]any) error { return yaml.Unmarshal(b,
 // that key's value; keys not found are appended. Approximates Pterodactyl's
 // "file" parser for simple line-based configs.
 func applyFile(path string, vals map[string]string) error {
-	lines := splitLines(string(readFileOrEmpty(path)))
+	cur, err := readExisting(path)
+	if err != nil {
+		return err
+	}
+	lines := splitLines(string(cur))
 	applied := make(map[string]bool, len(vals))
 	for i, line := range lines {
 		t := strings.TrimSpace(line)
