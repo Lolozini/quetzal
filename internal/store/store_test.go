@@ -635,3 +635,39 @@ func TestStartServerWakesHibernated(t *testing.T) {
 		t.Errorf("idle timer not rearmed: %v", got.LastActiveAt)
 	}
 }
+
+// Deleting a user must revoke the SSH access that user had. Their keys are
+// emitted into a server's authorized_keys by owner id, so leaving them behind
+// keeps a deleted account able to log in over SFTP to the servers it owned.
+func TestDeleteUserRevokesSSHAccess(t *testing.T) {
+	st := newTestStore(t)
+	owner := &models.User{Username: "owner", PasswordHash: "x"}
+	if err := st.CreateUser(owner); err != nil {
+		t.Fatal(err)
+	}
+	srv := &models.Server{Slug: "mc", OwnerID: owner.ID}
+	if err := st.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+	key := &models.SSHKey{UserID: owner.ID, Name: "laptop", PublicKey: "ssh-ed25519 AAAAC3Nz owner@host", Fingerprint: "fp1"}
+	if err := st.AddSSHKey(key); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := st.ListAuthorizedSSHKeys(srv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("owner key should be authorized before deletion, got %d", len(keys))
+	}
+	if err := st.DeleteUser(owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	keys, err = st.ListAuthorizedSSHKeys(srv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 0 {
+		t.Errorf("deleted user still has SFTP access: %d key(s) authorized", len(keys))
+	}
+}
