@@ -50,11 +50,25 @@ type Reconciler struct {
 	// panel-wide name would advertise one cluster's address for another's
 	// servers. 0 = the control plane's own cluster.
 	ClusterID uint
+
+	// InstanceID identifies this control plane (see InstanceLabel). Namespaces
+	// are stamped with it, and orphan collection only reclaims namespaces that
+	// are unowned or owned by this instance — two control planes sharing a
+	// cluster would otherwise delete each other's servers. Collection is a no-op
+	// while this is empty.
+	InstanceID string
 }
 
-// New returns a Reconciler.
+// New returns a Reconciler. It resolves the control plane's instance id from the
+// store so ownership stamping and orphan collection are correct by construction;
+// if that read fails, InstanceID stays empty and collection is skipped rather
+// than risking another instance's namespaces.
 func New(c client.Client, s *store.Store) *Reconciler {
-	return &Reconciler{Client: c, Store: s}
+	r := &Reconciler{Client: c, Store: s}
+	if id, err := s.InstanceID(); err == nil {
+		r.InstanceID = id
+	}
+	return r
 }
 
 // ReconcileServer ensures the cluster matches the DB for one server, then
@@ -159,7 +173,18 @@ func (r *Reconciler) DeleteServer(ctx context.Context, srv *models.Server) error
 // GCOrphanNamespaces deletes Quetzal-managed namespaces whose server slug is no
 // longer present in the DB (i.e. the server row was removed). This provides
 // teardown for deleted servers in the Phase 0 resync model.
+//
+// "Orphan" is relative to *this* control plane's database, so a namespace owned
+// by another instance sharing the cluster is never touched — it looks orphaned
+// here while being perfectly alive there. Ownership is read from InstanceLabel;
+// an unlabelled namespace predates the label and is adopted, which keeps
+// cleanup working for the ordinary single-instance install. Collection is
+// skipped entirely when this reconciler has no instance id, since nothing could
+// then be distinguished from another instance's namespaces.
 func (r *Reconciler) GCOrphanNamespaces(ctx context.Context, validSlugs map[string]bool) error {
+	if r.InstanceID == "" {
+		return nil
+	}
 	var list corev1.NamespaceList
 	if err := r.Client.List(ctx, &list, client.MatchingLabels{managedByLabel: managedByValue}); err != nil {
 		return err
@@ -169,6 +194,9 @@ func (r *Reconciler) GCOrphanNamespaces(ctx context.Context, validSlugs map[stri
 		slug := ns.Labels[serverLabel]
 		if slug == "" || validSlugs[slug] {
 			continue
+		}
+		if owner := ns.Labels[InstanceLabel]; owner != "" && owner != r.InstanceID {
+			continue // belongs to another control plane
 		}
 		if ns.DeletionTimestamp != nil {
 			continue // already terminating
@@ -184,6 +212,12 @@ func (r *Reconciler) ensureNamespace(ctx context.Context, s *models.Server) erro
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: s.Namespace}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, ns, func() error {
 		ns.Labels = mergeLabels(ns.Labels, labelsFor(s))
+		// Stamp ownership so orphan collection can tell this control plane's
+		// namespaces from another's (see InstanceLabel). Also adopts namespaces
+		// created before the label existed.
+		if r.InstanceID != "" {
+			ns.Labels[InstanceLabel] = r.InstanceID
+		}
 		return nil
 	})
 	return err

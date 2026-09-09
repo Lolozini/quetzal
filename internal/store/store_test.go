@@ -671,3 +671,33 @@ func TestDeleteUserRevokesSSHAccess(t *testing.T) {
 		t.Errorf("deleted user still has SFTP access: %d key(s) authorized", len(keys))
 	}
 }
+
+// The instance id identifies this database among control planes sharing a
+// cluster, and namespaces are labelled with it — so it must be created once and
+// never change, or an instance would stop recognising its own servers.
+func TestInstanceIDIsStable(t *testing.T) {
+	st := newTestStore(t)
+	first, err := st.InstanceID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == "" {
+		t.Fatal("instance id is empty")
+	}
+	second, err := st.InstanceID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != first {
+		t.Errorf("instance id changed: %q then %q", first, second)
+	}
+	// A different database must get a different identity, otherwise two control
+	// planes would claim each other's namespaces.
+	other, err := newTestStore(t).InstanceID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other == first {
+		t.Errorf("two databases share the instance id %q", first)
+	}
+}
