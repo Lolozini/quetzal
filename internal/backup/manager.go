@@ -205,14 +205,18 @@ func (m *Manager) processDeleting(ctx context.Context) {
 		return
 	}
 	cfg, err := m.Store.GetBackupConfig()
-	if err != nil {
-		// No target configured any more: the snapshot is unreachable, so keeping
-		// the record would strand it. Drop the row and say so in the log.
+	if errors.Is(err, store.ErrNotFound) {
+		// No target configured any more: nothing can reach the snapshot, so the
+		// record would sit in Deleting for good. Drop it and say so in the log.
 		for i := range del {
 			log.Printf("backup: dropping record %d without forgetting its snapshot (backups are not configured)", del[i].ID)
 			_ = m.Store.DeleteBackup(del[i].ID)
 		}
 		return
+	}
+	if err != nil {
+		log.Printf("backup: delete: read config: %v", err)
+		return // transient; retry next tick rather than drop the rows
 	}
 	access, secret, pass, err := m.Store.BackupSecrets(cfg)
 	if err != nil {
