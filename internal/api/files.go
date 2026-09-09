@@ -79,6 +79,9 @@ const guardScript = `qz_guard() {
       echo "refusing to follow the symbolic link $__p" >&2; exit 4
     fi
     __d=$__p
+    # A symlink leaf only gets here in link mode, where the link itself is the
+    # subject: probe its parent, since -d and cd would follow it to the target.
+    [ -L "$__p" ] && __d=$(dirname "$__p")
     while [ ! -d "$__d" ]; do
       __n=$(dirname "$__d")
       [ "$__n" = "$__d" ] && break
