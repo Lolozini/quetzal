@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -126,6 +128,25 @@ func TestE2EFiles(t *testing.T) {
 	if strings.Contains(body, "root:") {
 		t.Fatalf("path traversal escaped the data root: %q", body)
 	}
+
+	// A symlink planted in the volume must not become a way out either. Textual
+	// confinement does not catch one, and a link gets there without SFTP or the
+	// editor: tar recreates whatever an uploaded archive contains, exactly as a
+	// malicious modpack would. Reading through it must be refused.
+	var tarball bytes.Buffer
+	tw := tar.NewWriter(&tarball)
+	if err := tw.WriteHeader(&tar.Header{Name: "escape", Typeflag: tar.TypeSymlink, Linkname: "/", Mode: 0o777}); err != nil {
+		t.Fatalf("build tar: %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close tar: %v", err)
+	}
+	mustStatus(t, doFile(t, hc, http.MethodPost, base+"/extract?path=&format=tar", tarball.String()), http.StatusNoContent)
+	if body := readBody(t, doFile(t, hc, http.MethodGet, base+"/content?path=escape/etc/passwd", "")); strings.Contains(body, "root:") {
+		t.Fatalf("symlink escaped the data root: %q", body)
+	}
+	// The link itself stays removable, so a planted one can be cleaned up.
+	mustStatus(t, doFile(t, hc, http.MethodDelete, base+"?path=escape", ""), http.StatusNoContent)
 
 	// Delete the directory.
 	mustStatus(t, doFile(t, hc, http.MethodDelete, base+"?path=sub", ""), http.StatusNoContent)
