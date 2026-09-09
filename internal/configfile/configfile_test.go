@@ -196,3 +196,36 @@ func TestRenderConfinesPath(t *testing.T) {
 		t.Error("path traversal escaped the root")
 	}
 }
+
+// An existing config that cannot be read must abort the render, not be treated
+// as empty: every parser rewrites the whole file from what it read, so an
+// unreadable file would come back holding only the managed keys.
+func TestRenderRefusesToClobberUnreadableFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: an unreadable file cannot be simulated")
+	}
+	root := t.TempDir()
+	path := filepath.Join(root, "server.properties")
+	const original = "motd=my server\nmax-players=40\n"
+	if err := os.WriteFile(path, []byte(original), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	err := Render(root, []Spec{{
+		Path: "server.properties", Parser: "properties",
+		Find: map[string]string{"server-port": "25565"},
+	}}, func(string) string { return "" })
+	if err == nil {
+		t.Fatal("render reported success on an unreadable config")
+	}
+	// The file must be untouched (read it back with the mode restored).
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, rerr := os.ReadFile(path)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if string(got) != original {
+		t.Errorf("config was overwritten:\n got %q\nwant %q", got, original)
+	}
+}
