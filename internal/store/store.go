@@ -867,6 +867,15 @@ func (s *Store) DeleteUser(id uint) error {
 		if err := tx.Where("user_id = ?", id).Delete(&models.Session{}).Error; err != nil {
 			return err
 		}
+		// SSH keys are credentials too: a server's authorized_keys is built from
+		// its owner and file-permitted users, so a leftover key would keep a
+		// deleted account able to log in over SFTP to the servers it owned.
+		if err := tx.Where("user_id = ?", id).Delete(&models.SSHKey{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&models.PasswordReset{}).Error; err != nil {
+			return err
+		}
 		return tx.Delete(&models.User{}, id).Error
 	})
 }

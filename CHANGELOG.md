@@ -185,6 +185,12 @@ releases may include breaking changes).
   the controller had not yet read was treated as vanished; its retention is now
   long enough for a restarted or non-leader controller to see the real outcome.
   A retried Job also no longer reports the wrong attempt's size or error.
+- **Deleting a user did not revoke their SFTP access.** Their sessions, API keys
+  and server grants were removed, but their SSH keys were not — and a server's
+  `authorized_keys` is built from its owner id, which outlives the account. A
+  deleted user therefore kept SFTP access to every server they owned. Keys (and
+  any pending password-reset token) are now removed with the account, and the
+  authorized-keys query ignores keys belonging to accounts that no longer exist.
 - **An unreadable config file was silently replaced.** The config renderer runs
   on every start and rewrites each managed file from what it read; a read error
   was reported as "empty", so a config it merely could not open came back holding

@@ -69,8 +69,12 @@ func (s *Store) ListAuthorizedSSHKeys(serverID uint) ([]models.SSHKey, error) {
 	for id := range userIDs {
 		ids = append(ids, id)
 	}
+	// Restrict to accounts that still exist. The owner id is taken from the
+	// server row, which outlives the account it points at, so a key belonging to
+	// a deleted user must not find its way back into authorized_keys.
 	var keys []models.SSHKey
-	if err := s.db.Where("user_id IN ?", ids).Find(&keys).Error; err != nil {
+	if err := s.db.Where("user_id IN ? AND user_id IN (?)", ids,
+		s.db.Model(&models.User{}).Select("id")).Find(&keys).Error; err != nil {
 		return nil, err
 	}
 	return keys, nil
