@@ -425,6 +425,7 @@ export interface EventEntry {
 // Event types offered as filter checkboxes; an empty selection means "all".
 export const EVENT_TYPES = [
   "server.running",
+  "server.stopped",
   "server.crashed",
   "server.oomkilled",
   "server.restarted",
@@ -435,6 +436,7 @@ export const EVENT_TYPES = [
   "backup.create",
   "backup.restore",
   "schedule.create",
+  "server.transfer",
 ] as const;
 
 export type PowerAction = "start" | "stop" | "restart" | "kill";
