@@ -101,6 +101,15 @@ spec:
               value: {{ include "quetzal.image" . | quote }}
             - name: QUETZAL_APISERVER_URL
               value: "http://{{ include "quetzal.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}"
+            {{- with .Values.egressAllow }}
+            # Private ranges every game server may reach, on top of the public
+            # internet. Their policy denies private address space so the cluster
+            # network is out of reach; managed databases are allowed
+            # automatically, so this is only for what Quetzal cannot infer — an
+            # external database named by DNS, a license server on the LAN.
+            - name: QUETZAL_EGRESS_ALLOW
+              value: {{ join "," . | quote }}
+            {{- end }}
           ports:
             - name: metrics
               containerPort: 9090

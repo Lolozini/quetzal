@@ -51,6 +51,16 @@ trustProxy: false
 leaderElection: true
 resync: "15s"
 
+# Private address ranges every game server may reach, on top of the public
+# internet. A server's NetworkPolicy denies private space by default, so it
+# cannot reach the cluster network, the node, other tenants or your LAN.
+# Managed databases are allowed automatically. Use this only for what Quetzal
+# cannot work out on its own — an external database reached by hostname (a
+# NetworkPolicy has no notion of DNS, so it needs its address here), or another
+# service on your network that your servers legitimately talk to.
+#   egressAllow: ["192.168.10.20/32"]
+egressAllow: []
+
 resources: {}
 nodeSelector: {}
 tolerations: []

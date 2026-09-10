@@ -1,10 +1,12 @@
 package reconciler
 
 import (
+	"net"
 	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 
 	"github.com/lolozini/quetzal/internal/models"
 )
@@ -282,7 +284,7 @@ func TestBuildServiceLoadBalancerAnnotationsAndOptOut(t *testing.T) {
 
 func TestBuildNetworkPolicyBlocksMetadata(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
-	np := BuildNetworkPolicy(s, tmpl)
+	np := BuildNetworkPolicy(s, tmpl, nil)
 
 	// Selects the restricted (untrusted) workload pods by the netpol label.
 	if np.Spec.PodSelector.MatchLabels[netpolLabel] != netpolRestricted {
@@ -302,21 +304,80 @@ func TestBuildNetworkPolicyBlocksMetadata(t *testing.T) {
 	if len(np.Spec.Ingress) != 1 || len(np.Spec.Ingress[0].Ports) != 1 {
 		t.Fatalf("ingress = %+v", np.Spec.Ingress)
 	}
-	// Last egress rule should allow internet except the metadata IP.
-	found := false
+	// Egress reaches the public internet and nothing else: the cluster network,
+	// the node and the operator's LAN all live in private space, and so does the
+	// metadata endpoint. Cilium happens to refuse cluster-internal traffic for a
+	// CIDR rule whatever it says, but a CNI that reads 0.0.0.0/0 literally does
+	// not, so the exclusions have to be in the policy.
+	var internet *networkingv1.IPBlock
 	for _, rule := range np.Spec.Egress {
 		for _, peer := range rule.To {
-			if peer.IPBlock != nil {
-				for _, ex := range peer.IPBlock.Except {
-					if ex == metadataIP {
-						found = true
-					}
-				}
+			if peer.IPBlock != nil && peer.IPBlock.CIDR == "0.0.0.0/0" {
+				internet = peer.IPBlock
 			}
 		}
 	}
-	if !found {
-		t.Errorf("egress should exclude node metadata IP %s", metadataIP)
+	if internet == nil {
+		t.Fatalf("no internet egress rule: %+v", np.Spec.Egress)
+	}
+	blocked := func(addr string) bool {
+		ip := net.ParseIP(addr)
+		for _, ex := range internet.Except {
+			if _, n, err := net.ParseCIDR(ex); err == nil && n.Contains(ip) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, addr := range []string{
+		"169.254.169.254", // cloud metadata
+		"10.96.0.1",       // in-cluster API server / Services
+		"10.0.0.5",        // another tenant's pod
+		"192.168.1.13",    // the node, and the operator's LAN
+		"172.20.4.4",      // pod CIDR on other distributions
+		"100.64.1.1",      // CGNAT range some distributions use
+		"127.0.0.1",
+	} {
+		if !blocked(addr) {
+			t.Errorf("egress reaches %s; except = %v", addr, internet.Except)
+		}
+	}
+	if blocked("1.1.1.1") || blocked("140.82.121.4") {
+		t.Errorf("egress no longer reaches the public internet; except = %v", internet.Except)
+	}
+}
+
+// A server given a managed database has to reach it, and it lives in the very
+// address space the rule above denies. Matching its namespace covers the
+// Service in front of it: a ClusterIP is translated to the backing pod before
+// policy is evaluated.
+func TestBuildNetworkPolicyAllowsGrantedPeers(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	np := BuildNetworkPolicy(s, tmpl, []EgressPeer{
+		{Namespace: "quetzal-db-2"},
+		{CIDR: "10.1.2.3/32"},
+	})
+	var gotNS, gotCIDR bool
+	for _, rule := range np.Spec.Egress {
+		for _, peer := range rule.To {
+			if peer.NamespaceSelector != nil &&
+				peer.NamespaceSelector.MatchLabels[corev1.LabelMetadataName] == "quetzal-db-2" {
+				gotNS = true
+			}
+			if peer.IPBlock != nil && peer.IPBlock.CIDR == "10.1.2.3/32" {
+				gotCIDR = true
+			}
+		}
+	}
+	if !gotNS {
+		t.Error("a granted managed-database namespace is not reachable")
+	}
+	if !gotCIDR {
+		t.Error("a granted private CIDR is not reachable")
+	}
+	// Granting one peer must not reopen the rest of the private space.
+	if len(BuildNetworkPolicy(s, tmpl, nil).Spec.Egress) != 2 {
+		t.Error("the default policy should carry exactly DNS + internet")
 	}
 }
 
@@ -363,7 +424,7 @@ func TestBuildNetworkPolicyPortlessDeniesIngress(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
 	s.Ports = nil
 	tmpl.Ports = nil
-	np := BuildNetworkPolicy(s, tmpl)
+	np := BuildNetworkPolicy(s, tmpl, nil)
 	if len(np.Spec.Ingress) != 0 {
 		t.Errorf("portless server should have no ingress rules (deny-all), got %+v", np.Spec.Ingress)
 	}
@@ -374,7 +435,7 @@ func TestBuildNetworkPolicyAllowsSFTPPort(t *testing.T) {
 	s.Ports = nil
 	tmpl.Ports = nil // no game ports, so any ingress port is the SFTP one
 	s.SFTP = models.SFTPConfig{Enabled: true}
-	np := BuildNetworkPolicy(s, tmpl)
+	np := BuildNetworkPolicy(s, tmpl, nil)
 	var sawSFTP bool
 	for _, rule := range np.Spec.Ingress {
 		for _, p := range rule.Ports {

@@ -7,10 +7,12 @@ import (
 	"bytes"
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -100,6 +102,11 @@ func main() {
 	if _, err := st.InstanceID(); err != nil {
 		log.Fatalf("resolve instance id: %v", err)
 	}
+	// Private ranges every server may reach on top of the public internet. The
+	// per-server policy denies private address space so the cluster network is
+	// out of reach; this is the operator's way to allow what their servers
+	// genuinely need there.
+	egressAllow := parseCIDRList(env("QUETZAL_EGRESS_ALLOW", ""))
 
 	sched := scheduler.New(st, &executor{st: st, reg: reg})
 	bmgr := backup.NewManager(st, reg)
@@ -116,7 +123,7 @@ func main() {
 		ticker := time.NewTicker(resync)
 		defer ticker.Stop()
 		tick := func() {
-			reconcileAll(ctx, reg, st, actCfg)
+			reconcileAll(ctx, reg, st, actCfg, egressAllow)
 			sched.Tick(ctx)
 			// Transfers advance after reconcile (which creates the destination
 			// namespace/volume post cluster-flip) and before the backup manager
@@ -289,7 +296,7 @@ func apiCallbackURL(base, kind string) string {
 	return base + "/api/internal/" + kind
 }
 
-func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, actCfg activatorConfig) {
+func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, actCfg activatorConfig, egressAllow []string) {
 	servers, err := st.ListServers()
 	if err != nil {
 		log.Printf("list servers: %v", err)
@@ -332,6 +339,7 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 		rec.WakeKey = actCfg.key
 		rec.NodePortMin = actCfg.nodePortMin
 		rec.NodePortMax = actCfg.nodePortMax
+		rec.ExtraEgressCIDRs = egressAllow
 		rec.ClusterID = c.ID
 		for _, s := range byCluster[c.ID] {
 			if err := rec.ReconcileServer(ctx, s.ID); err != nil {
@@ -428,4 +436,23 @@ func envDuration(key string, def time.Duration) time.Duration {
 		}
 	}
 	return def
+}
+
+// parseCIDRList reads a comma-separated list of CIDRs, dropping anything that
+// is not one — a typo must not silently widen the policy, and it is reported so
+// it can be fixed.
+func parseCIDRList(v string) []string {
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(p); err != nil {
+			log.Printf("QUETZAL_EGRESS_ALLOW: ignoring %q (not a CIDR): %v", p, err)
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
