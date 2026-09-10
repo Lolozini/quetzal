@@ -1,12 +1,16 @@
 package api
 
 import (
+	"context"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/objectstore"
 	"github.com/lolozini/quetzal/internal/store"
 )
 
@@ -87,11 +91,65 @@ func (s *Server) handleSetBackupConfig(w http.ResponseWriter, r *http.Request) {
 		Endpoint: req.Endpoint, Bucket: req.Bucket, Prefix: req.Prefix, Region: req.Region,
 		UseSSL: req.UseSSL, KeepLast: req.KeepLast, RunnerImage: req.RunnerImage,
 	}
+	if err := s.checkBackupTarget(r.Context(), cfg, existing, req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := s.Store.SaveBackupConfig(cfg, req.AccessKey, req.SecretKey, req.RepoPassword); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// checkBackupTarget confirms the bucket is there and answers to the credentials,
+// before they are stored.
+//
+// restic creates a bucket that does not exist, so a typo in the name never
+// fails: it starts a second bucket and sends the backups there, and the mistake
+// looks exactly like success until someone goes looking for the data. It also
+// means a wrong key is only discovered by the first backup Job, hours later, in
+// a log. Both are worth one request at the moment the target is configured.
+//
+// Being unable to reach the object store is not a rejection. The panel failing
+// to connect does not mean the backup Jobs will, and refusing the configuration
+// over a transient fault would leave the operator unable to set backups up at
+// all — so an indeterminate result is logged and allowed through.
+func (s *Server) checkBackupTarget(ctx context.Context, cfg *models.BackupConfig, existing *models.BackupConfig, req backupConfigRequest) error {
+	access, secret := req.AccessKey, req.SecretKey
+	if (access == "" || secret == "") && existing != nil {
+		// An update that leaves the credentials blank keeps the stored ones.
+		a, sec, _, err := s.Store.BackupSecrets(existing)
+		if err != nil {
+			return nil // cannot check without credentials; the save itself still works
+		}
+		if access == "" {
+			access = a
+		}
+		if secret == "" {
+			secret = sec
+		}
+	}
+	if access == "" || secret == "" {
+		return nil
+	}
+	if s.CheckBucket == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	err := s.CheckBucket(ctx, objectstore.Target{
+		Endpoint: cfg.Endpoint, Region: cfg.Region, Bucket: cfg.Bucket,
+		UseSSL: cfg.UseSSL, Access: access, Secret: secret,
+	})
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, objectstore.ErrIndeterminate) {
+		log.Printf("backup target %s/%s saved without being verified: %v", cfg.Endpoint, cfg.Bucket, err)
+		return nil
+	}
+	return err
 }
 
 // ---- per-server backups ----

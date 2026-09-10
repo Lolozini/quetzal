@@ -91,6 +91,11 @@ Point Quetzal at its own prefix rather than sharing one with other backups: it
 creates a separate repository per server underneath, and retention deletes
 inside it.
 
+The bucket has to exist already. Quetzal checks it when you save the target and
+refuses one it cannot find, because restic would otherwise create it: a typo in
+the name would not fail, it would quietly start a second bucket and send the
+backups there.
+
 Deleting a server purges its snapshots along with its volume. Nothing in the
 panel could reach them afterwards — no row references them — so leaving them
 would mean paying to store data that can no longer be listed or restored. Take a

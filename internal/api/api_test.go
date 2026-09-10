@@ -47,8 +47,11 @@ func newTestServerStore(t *testing.T) (*httptest.Server, *http.Client, *store.St
 	if err := templates.Seed(st); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	h := api.New(st, fake.NewSimpleClientset(), &rest.Config{}).Handler()
-	ts := httptest.NewServer(h)
+	apiSrv := api.New(st, fake.NewSimpleClientset(), &rest.Config{})
+	// Tests configure fictional backup targets; they must not go looking for them
+	// on the network.
+	apiSrv.CheckBucket = nil
+	ts := httptest.NewServer(apiSrv.Handler())
 	t.Cleanup(ts.Close)
 	jar, _ := cookiejar.New(nil)
 	return ts, &http.Client{Jar: jar}, st
@@ -82,6 +85,7 @@ func newTestServerFull(t *testing.T) (*httptest.Server, *http.Client, *store.Sto
 		return false, nil, nil // fall through to the default tracker
 	})
 	apiSrv := api.New(st, cs, &rest.Config{})
+	apiSrv.CheckBucket = nil // see newTestServerStore
 	ts := httptest.NewServer(apiSrv.Handler())
 	t.Cleanup(ts.Close)
 	jar, _ := cookiejar.New(nil)
