@@ -132,12 +132,26 @@ control plane lives. A test keeps the two from drifting apart.
 
 Worth knowing before you hand accounts to other people.
 
-**The control plane is a privileged workload.** It creates namespaces and runs
-workloads inside them, so its service account holds broad access to the cluster
-— that is what a control plane of this shape is. Treat the namespace it runs in
-as you would kube-system: whoever reaches it reaches the cluster. If you host
-for others and want a hard boundary, register a second cluster and put the game
-servers there; the panel keeps running where it is.
+**The control plane is scoped to the namespaces it creates.** It holds
+cluster-wide access only to what is genuinely cluster-scoped — namespaces,
+nodes, volumes, storage classes. Everything a server needs is a role it grants
+itself inside each namespace it makes, so it cannot read a Secret in
+kube-system, exec into a pod that is not a game server, or run a workload in
+somebody else's namespace.
+
+Handing that role out requires creating RoleBindings, and RBAC can only grant
+that cluster-wide — which on its own would let the account bind its own role
+anywhere and read everything after all. `admissionPolicy.enabled` closes that:
+an admission policy confines those bindings, and namespace deletions, to
+namespaces Quetzal owns. It needs 1.30; turn it off below that and the scoping
+still stands, but the escalation becomes possible again — noisily, since
+creating a RoleBinding in kube-system is an audited write where reading a Secret
+is not.
+
+Still treat the namespace it runs in with care: it holds the database, the
+encryption key and every stored credential. If you host for others and want a
+hard boundary, register a second cluster and put the game servers there; the
+panel keeps running where it is.
 
 **Game servers themselves are confined.** Their pods mount no service account
 token, run with every capability dropped and no privilege escalation, and their
