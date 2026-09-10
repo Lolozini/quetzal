@@ -14,10 +14,13 @@ metadata:
   labels:
     {{- include "quetzal.labels" . | nindent 4 }}
 rules:
-  # Per-server namespaces and the workloads inside them.
+  # Per-server namespaces and the workloads inside them. update/patch are needed
+  # to keep an existing namespace's labels current (ownership stamping, and any
+  # label a later release adds) and to create the namespace a managed database
+  # host lives in, which is applied rather than created outright.
   - apiGroups: [""]
     resources: ["namespaces"]
-    verbs: ["get", "list", "watch", "create", "delete"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]
     resources: ["services", "persistentvolumeclaims", "secrets", "configmaps", "resourcequotas", "limitranges"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
