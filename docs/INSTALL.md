@@ -174,11 +174,12 @@ not the node, not your LAN. A managed database is reachable because it is
 granted explicitly; anything else on a private address needs `egressAllow`.
 
 **The `templates` admin permission is the powerful one.** An install script runs
-as root with the image's default capabilities, because that is what Pterodactyl
-egg scripts expect (they run `apt` and `apk`), and Wings does the same. That
-container has no API credentials and no cluster network, so it is root in its
-own container and nowhere else — but grant the permission accordingly, and do
-not import eggs you have no reason to trust.
+as root, because that is what Pterodactyl egg scripts expect (they run `apt` and
+`apk`), and Wings does the same. It keeps the capabilities package managers need
+and drops the ones they never use — `NET_RAW` above all, so a compromised script
+cannot spoof or sniff on the node's network — and it has no API credentials and
+no cluster network. It is root in its own container and nowhere else, but grant
+the permission accordingly, and do not import eggs you have no reason to trust.
 
 **Delegated admin roles stop short of the privilege system.** A scoped admin
 never reaches an account that outranks it: granting admin status, assigning

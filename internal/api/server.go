@@ -72,6 +72,10 @@ type Server struct {
 	AuthIPLimiter   *ratelimit.Limiter
 	InternalLimiter *ratelimit.Limiter
 	ForgotLimiter   *ratelimit.Limiter
+	// DevOrigin accepts WebSocket upgrades from localhost on top of same-origin,
+	// for a web dev server running against this API. Off by default: a deployed
+	// panel has no reason to take them.
+	DevOrigin bool
 	// Mailer sends outbound system email (password reset). Defaults to
 	// notify.SendMail; overridable in tests.
 	Mailer MailSender
@@ -464,7 +468,14 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-// checkOrigin permits same-origin and localhost (dev) WebSocket upgrades.
+// checkOrigin permits same-origin WebSocket upgrades, and localhost ones only
+// when DevOrigin says so.
+//
+// A cross-site upgrade cannot carry the session cookie anyway (SameSite=Lax, and
+// a browser will not let a page set headers on a WebSocket), so the localhost
+// exception was never a way in. It was a permanent hole in a check that exists
+// to be strict, kept for a dev server that a production install never runs --
+// so it is off unless asked for.
 func (s *Server) checkOrigin(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
@@ -476,6 +487,9 @@ func (s *Server) checkOrigin(r *http.Request) bool {
 	}
 	if u.Host == r.Host {
 		return true
+	}
+	if !s.DevOrigin {
+		return false
 	}
 	host := u.Hostname()
 	return host == "localhost" || host == "127.0.0.1"

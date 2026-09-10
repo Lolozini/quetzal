@@ -1233,12 +1233,21 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 		VolumeMounts:    []corev1.VolumeMount{{Name: dataVolume, MountPath: installMountPath}},
 		// Run as root even though the pod defaults to non-root: the container-level
 		// settings override the pod's runAsNonRoot so apt/apk and writes to
-		// root-owned paths in the installer image succeed. Caps are left at the
-		// image default (dpkg postinst needs CHOWN/DAC_OVERRIDE/SETUID).
+		// root-owned paths in the installer image succeed.
+		//
+		// The package managers need most of the runtime's default capabilities --
+		// dpkg postinst wants CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETUID/SETGID,
+		// and SETFCAP for the packages that put capabilities on a binary (ping).
+		// These four it never needs, and they are the ones worth taking away from
+		// a script an egg author wrote: raw sockets (spoofing and sniffing the
+		// node's network), device nodes, chroot, and writing the audit log.
 		SecurityContext: &corev1.SecurityContext{
 			RunAsUser:                &rootUID,
 			RunAsNonRoot:             &no,
 			AllowPrivilegeEscalation: &yes,
+			Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{
+				"NET_RAW", "MKNOD", "SYS_CHROOT", "AUDIT_WRITE",
+			}},
 		},
 	}}
 }

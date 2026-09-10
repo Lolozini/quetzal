@@ -41,6 +41,29 @@ func HashPassword(password string) (string, error) {
 	), nil
 }
 
+// decoyHash is a valid argon2id hash of a value nobody can supply, used to spend
+// the same work on a username that does not exist as on one that does.
+//
+// Without it, login answers in a millisecond for an unknown account and in fifty
+// for a known one, because only the second reaches argon2. One request then
+// tells an attacker whether a username exists -- the per-account throttle is no
+// help, since a single probe is all it takes.
+var decoyHash = func() string {
+	h, err := HashPassword("decoy: no password produces this hash")
+	if err != nil {
+		// Only a failing RNG gets here, and then nothing else works either.
+		panic("auth: cannot build the decoy hash: " + err.Error())
+	}
+	return h
+}()
+
+// SpendVerifyBudget performs the same work VerifyPassword does, and reports
+// nothing. Call it on the paths that have no hash to check -- an unknown
+// username -- so they take as long as the paths that do.
+func SpendVerifyBudget(password string) {
+	_, _ = VerifyPassword(decoyHash, password)
+}
+
 // VerifyPassword reports whether password matches the encoded argon2id hash.
 func VerifyPassword(encoded, password string) (bool, error) {
 	parts := strings.Split(encoded, "$")
