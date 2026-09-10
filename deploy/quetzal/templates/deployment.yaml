@@ -59,14 +59,6 @@ spec:
             # so it's only safe behind a proxy that appends the real client IP.
             - name: QUETZAL_TRUST_PROXY
               value: {{ or .Values.trustProxy .Values.ingress.enabled | quote }}
-            {{- with .Values.nodePort.min }}
-            - name: QUETZAL_NODEPORT_MIN
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.nodePort.max }}
-            - name: QUETZAL_NODEPORT_MAX
-              value: {{ . | quote }}
-            {{- end }}
           ports:
             - name: http
               containerPort: 8080
@@ -160,6 +152,18 @@ spec:
   valueFrom:
     fieldRef:
       fieldPath: metadata.name
+{{- with .Values.nodePort.min }}
+# Both processes allocate from this pool and neither can see the other's view of
+# it: the apiserver hands out the game ports, the controller the SFTP one. Tell
+# only one and the other quietly falls back to the cluster's whole range, which
+# on a narrowed pool means ports nobody opened on the firewall.
+- name: QUETZAL_NODEPORT_MIN
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.nodePort.max }}
+- name: QUETZAL_NODEPORT_MAX
+  value: {{ . | quote }}
+{{- end }}
 - name: QUETZAL_SECRET_KEY
   valueFrom:
     secretKeyRef:
