@@ -66,6 +66,12 @@ func main() {
 	}
 
 	apiSrv := api.New(st, cs, cfg)
+	// Brute-force counters go to the database: they then survive a restart (an
+	// upgrade would otherwise hand out a fresh budget) and are shared, so the
+	// configured limit stays the limit however many replicas run.
+	apiSrv.LoginLimiter.Share(st, "login:")
+	apiSrv.AuthIPLimiter.Share(st, "ip:")
+	apiSrv.ForgotLimiter.Share(st, "forgot:")
 	apiSrv.Secure = env("QUETZAL_SECURE_COOKIES", "") == "true"
 	apiSrv.NodePortMin = envInt32("QUETZAL_NODEPORT_MIN", 0)
 	apiSrv.NodePortMax = envInt32("QUETZAL_NODEPORT_MAX", 0)
