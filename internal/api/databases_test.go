@@ -34,3 +34,34 @@ func TestManagedDatabaseHostCannotClaimAForeignNamespace(t *testing.T) {
 		}
 	}
 }
+
+// A template's image list is the operator's curation, and the panel presents it
+// as a choice among those. Taking whatever the request names let any account
+// with a quota run any container instead — confined by the pod's own limits,
+// but not what the operator put on the menu.
+func TestServerImageMustBeOneTheTemplateOffers(t *testing.T) {
+	srv, admin := newTestServer(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+	createUser(t, admin, srv.URL, map[string]any{"username": "player", "password": "playerpw12"})
+	player := loginAs(t, srv.URL, "player", "playerpw12")
+
+	create := func(c *http.Client, image string) int {
+		t.Helper()
+		body := map[string]any{"name": "s", "template": "generic-process"}
+		if image != "" {
+			body["image"] = image
+		}
+		return post(t, c, srv.URL+"/api/servers", body).StatusCode
+	}
+	if code := create(player, "docker.io/evil/miner:latest"); code != http.StatusBadRequest {
+		t.Errorf("an image outside the template was accepted: %d", code)
+	}
+	if code := create(player, ""); code != http.StatusCreated {
+		t.Errorf("the template's default image was refused: %d", code)
+	}
+	// An admin may still pin something else — that is how a new tag gets tried
+	// before it goes on the menu.
+	if code := create(admin, "docker.io/library/alpine:3.20"); code != http.StatusCreated {
+		t.Errorf("an admin could not pin an image: %d", code)
+	}
+}
