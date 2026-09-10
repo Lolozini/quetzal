@@ -354,6 +354,13 @@ export interface Backup {
   completedAt?: string;
 }
 
+export interface ClusterSetup {
+  manifest: string;
+  kubeconfigScript: string;
+  namespace: string;
+  serviceAccount: string;
+}
+
 export interface Cluster {
   id: number;
   slug: string;
@@ -634,6 +641,7 @@ export const api = {
 
   // Multi-cluster.
   clusters: () => req<Cluster[]>("GET", "/api/clusters"),
+  clusterSetupManifest: () => req<ClusterSetup>("GET", "/api/clusters/setup-manifest"),
   createCluster: (name: string, kubeconfig: string) =>
     req<Cluster>("POST", "/api/clusters", { name, kubeconfig }),
   updateCluster: (
