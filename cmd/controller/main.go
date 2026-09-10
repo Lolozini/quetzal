@@ -109,6 +109,11 @@ func main() {
 	// out of reach; this is the operator's way to allow what their servers
 	// genuinely need there.
 	egressAllow := parseCIDRList(env("QUETZAL_EGRESS_ALLOW", ""))
+	// The ClusterRole to bind to ourselves in each namespace we create, rather
+	// than holding that access across the whole cluster. Empty on an install
+	// that predates the split, and on a cluster registered with an
+	// administrator's kubeconfig, where there is no role of ours to bind.
+	namespacedRole := env("QUETZAL_NAMESPACED_ROLE", "")
 
 	sched := scheduler.New(st, &executor{st: st, reg: reg})
 	bmgr := backup.NewManager(st, reg)
@@ -129,7 +134,7 @@ func main() {
 			// controller: a panic anywhere below would end the process, which
 			// Kubernetes restarts straight back into the row that caused it.
 			_ = guarded("reconcile", func() error {
-				reconcileAll(ctx, reg, st, actCfg, egressAllow)
+				reconcileAll(ctx, reg, st, actCfg, egressAllow, namespacedRole)
 				return nil
 			})
 			_ = guarded("schedules", func() error { sched.Tick(ctx); return nil })
@@ -304,7 +309,7 @@ func apiCallbackURL(base, kind string) string {
 	return base + "/api/internal/" + kind
 }
 
-func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, actCfg activatorConfig, egressAllow []string) {
+func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, actCfg activatorConfig, egressAllow []string, namespacedRole string) {
 	servers, err := st.ListServers()
 	if err != nil {
 		log.Printf("list servers: %v", err)
@@ -348,6 +353,7 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 		rec.NodePortMin = actCfg.nodePortMin
 		rec.NodePortMax = actCfg.nodePortMax
 		rec.ExtraEgressCIDRs = egressAllow
+		rec.NamespacedRole = namespacedRole
 		rec.ClusterID = c.ID
 		for _, s := range byCluster[c.ID] {
 			if err := guarded("reconcile server "+s.Slug, func() error { return rec.ReconcileServer(ctx, s.ID) }); err != nil {

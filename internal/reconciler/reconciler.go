@@ -12,6 +12,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -27,9 +28,21 @@ type Reconciler struct {
 	Client client.Client
 	Store  *store.Store
 
+	// NamespacedRole is the ClusterRole the control plane binds to itself in each
+	// namespace it creates, instead of holding that access cluster-wide. Empty
+	// disables the binding, which is what an install predating the split, or a
+	// cluster registered with an administrator's kubeconfig, looks like.
+	NamespacedRole string
+
 	// warned de-duplicates warnings that would otherwise repeat every resync.
 	warnMu sync.Mutex
 	warned map[string]bool
+
+	// identity* cache who this control plane authenticates as on this cluster.
+	identityMu      sync.Mutex
+	identityDone    bool
+	identityOK      bool
+	identitySubject rbacv1.Subject
 
 	// OnStop, if set, is called just before a running server is scaled to zero
 	// so a graceful stop command can be delivered to the container (via the
@@ -108,6 +121,9 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 	if err := r.ensureNamespace(ctx, srv); err != nil {
 		return fmt.Errorf("namespace: %w", err)
 	}
+	// Before anything else in there: every step below needs the access this
+	// grants, and on an upgrade the namespace already exists without it.
+	r.ensureRoleBinding(ctx, srv.Namespace)
 	if err := r.ensureResourceQuota(ctx, srv); err != nil {
 		return fmt.Errorf("resourcequota: %w", err)
 	}
