@@ -1143,19 +1143,41 @@ func (s *Server) purgeServerBackups(ctx context.Context, srv *models.Server) {
 		Repository: backup.Repository(cfg, srv.Slug), Region: cfg.Region,
 		AccessKey: access, SecretKey: secret, RepoPassword: pass,
 	}
+	// The Secret goes in first: a Job whose pod starts before its credentials
+	// exist burns its retry budget on CreateContainerConfigError.
+	secrets := s.Clientset.CoreV1().Secrets(p.Namespace)
 	sec := backup.BuildSecret(p)
-	if _, err := s.Clientset.CoreV1().Secrets(p.Namespace).Create(ctx, sec, metav1.CreateOptions{}); err != nil {
+	if _, err := secrets.Create(ctx, sec, metav1.CreateOptions{}); err != nil {
 		if !apierrors.IsAlreadyExists(err) {
 			log.Printf("purge backups for %s: creds secret: %v", srv.Slug, err)
 			return
 		}
-		if _, err := s.Clientset.CoreV1().Secrets(p.Namespace).Update(ctx, sec, metav1.UpdateOptions{}); err != nil {
+		if _, err := secrets.Update(ctx, sec, metav1.UpdateOptions{}); err != nil {
 			log.Printf("purge backups for %s: creds secret: %v", srv.Slug, err)
 			return
 		}
 	}
-	if _, err := s.Clientset.BatchV1().Jobs(p.Namespace).Create(ctx, backup.BuildJob(p), metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+	job, err := s.Clientset.BatchV1().Jobs(p.Namespace).Create(ctx, backup.BuildJob(p), metav1.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
 		log.Printf("purge backups for %s: create job: %v; its snapshots stay in the bucket", srv.Slug, err)
+		// Don't leave the credentials behind for a Job that will never read them.
+		if delErr := secrets.Delete(ctx, sec.Name, metav1.DeleteOptions{}); delErr != nil && !apierrors.IsNotFound(delErr) {
+			log.Printf("purge backups for %s: remove unused creds secret: %v", srv.Slug, delErr)
+		}
+		return
+	}
+	// Hand the Secret to the Job so it is collected with it. Everywhere else
+	// these Secrets live in the server's own namespace and go when it is deleted;
+	// this one sits in the control plane's, which nothing tears down, so without
+	// an owner every deleted server would leave its object-store credentials
+	// behind for good.
+	if job != nil && job.UID != "" {
+		sec.OwnerReferences = []metav1.OwnerReference{{
+			APIVersion: "batch/v1", Kind: "Job", Name: job.Name, UID: job.UID,
+		}}
+		if _, err := secrets.Update(ctx, sec, metav1.UpdateOptions{}); err != nil {
+			log.Printf("purge backups for %s: could not tie the creds secret to its job (it will need removing by hand): %v", srv.Slug, err)
+		}
 	}
 }
 

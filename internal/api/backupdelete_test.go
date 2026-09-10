@@ -152,10 +152,24 @@ func TestDeleteServerPurgesItsSnapshots(t *testing.T) {
 	if got := purgeJobs(); len(got) != 1 || got[0] != want {
 		t.Fatalf("purge jobs = %v, want [%s]", got, want)
 	}
-	// The credentials it needs must be there too, under a name of its own.
-	if _, err := cs.CoreV1().Secrets("quetzal").Get(context.Background(),
-		"quetzal-backup-creds-"+slug, metav1.GetOptions{}); err != nil {
-		t.Errorf("purge Job has no credentials: %v", err)
+	// The credentials it needs must be there too, under a name of its own, and
+	// owned by the Job. These Secrets normally live in the server's namespace and
+	// go when it is deleted; this one is in the control plane's, which nothing
+	// tears down, so without an owner every deleted server would leave its
+	// object-store credentials behind for good.
+	sec, err := cs.CoreV1().Secrets("quetzal").Get(context.Background(),
+		"quetzal-backup-creds-"+slug, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("purge Job has no credentials: %v", err)
+	}
+	owned := false
+	for _, o := range sec.OwnerReferences {
+		if o.Kind == "Job" && o.Name == want {
+			owned = true
+		}
+	}
+	if !owned {
+		t.Errorf("creds secret is not owned by its Job, so nothing collects it: %+v", sec.OwnerReferences)
 	}
 
 	// A server that never completed one has no repository, so nothing to purge.
