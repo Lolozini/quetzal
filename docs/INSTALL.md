@@ -67,6 +67,30 @@ Open the panel and complete the first-run admin setup (create the initial admin
 account). From there you can register clusters, import templates/eggs, and create
 servers.
 
+## Backup target (S3)
+
+Backups run `restic` against an S3-compatible bucket, configured in the panel
+under the backup settings. Restic is not an upload-only client: it reads its own
+index and lock files on every run, and prunes old data when a snapshot is
+forgotten. The key you give Quetzal therefore needs full object access to the
+prefix, not just write access:
+
+| Operation | Needed for |
+|---|---|
+| `s3:ListBucket` (on the bucket, limited to the prefix) | finding the repository and its snapshots |
+| `s3:GetObject` | reading the index, config and lock files |
+| `s3:PutObject` | writing snapshots |
+| `s3:DeleteObject` | retention (`--keep-last`) and deleting a snapshot |
+
+A write-only key — the sane choice for a one-way backup cronjob, and a common
+thing to have lying around — fails on the very first run with
+`create key in repository … failed: Stat: Access Denied`. If you see that, the
+credentials are the thing to check, not the endpoint or the bucket name.
+
+Point Quetzal at its own prefix rather than sharing one with other backups: it
+creates a separate repository per server underneath, and retention deletes
+inside it.
+
 ## Verify
 
 ```sh
