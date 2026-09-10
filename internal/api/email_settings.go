@@ -43,10 +43,17 @@ type emailSettingsRequest struct {
 	PublicURL string `json:"publicUrl"`
 }
 
-// handleSetEmailSettings updates the SMTP settings + public URL (admin only).
-// An empty host clears the SMTP config (disables system email).
+// handleSetEmailSettings updates the SMTP settings + public URL. An empty host
+// clears the SMTP config (disables system email).
+//
+// Superadmin, not the settings permission that guards the rest of this file:
+// whoever chooses the relay reads every mail the panel sends, and one of those
+// is a password reset link. A scoped admin who could repoint it -- or repoint
+// only the public URL the link is built from -- could ask for the superadmin's
+// reset and take the account. Reading these settings stays delegated; they come
+// back with the password redacted.
 func (s *Server) handleSetEmailSettings(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdminPerm(w, r, models.AdminPermSettings) {
+	if !s.requireAdmin(w, r) {
 		return
 	}
 	var req emailSettingsRequest

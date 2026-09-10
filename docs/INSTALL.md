@@ -180,6 +180,18 @@ container has no API credentials and no cluster network, so it is root in its
 own container and nowhere else — but grant the permission accordingly, and do
 not import eggs you have no reason to trust.
 
+**Delegated admin roles stop short of the privilege system.** A scoped admin
+never reaches an account that outranks it: granting admin status, assigning
+roles, and resetting, deleting or clearing the two-factor of any account with
+admin standing are all superadmin-only. So is changing the SMTP settings and the
+public URL, which the `settings` permission can read but not write -- whoever
+picks the mail relay reads every password reset link the panel sends, which
+would otherwise be a way to take the superadmin's account.
+
+**An API key carries everything its owner can do.** There is no per-key scope
+today, so a key minted by an admin is an admin key. Treat one as the account
+itself and delete keys you no longer use.
+
 **Registering another cluster**: use the manifest the cluster form offers rather
 than an admin kubeconfig. See above.
 
