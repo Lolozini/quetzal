@@ -124,6 +124,12 @@ func (s *Server) handleCreateDatabaseHost(w http.ResponseWriter, r *http.Request
 		if h.StorageSize == "" {
 			h.StorageSize = "1Gi"
 		}
+		// Lands in the same resource.MustParse as a server's volume, in the same
+		// reconcile loop; see validateStorageSize.
+		if err := validateStorageSize(h.StorageSize); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		h.AdminUser = "root"
 		h.Port = 3306
 		adminPassword = dbprovision.GeneratePassword()

@@ -349,6 +349,10 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	if storage.Size == "" {
 		storage.Size = "10Gi"
 	}
+	if err := validateStorageSize(storage.Size); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	// Ports: imported eggs declare none (Pterodactyl allocates per server), so the
 	// request may supply them; otherwise use the template's.
@@ -372,6 +376,10 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := authorizeExposeAnnotations(userFrom(r.Context()), &req.Expose, nil); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if err := validateExpose(req.Expose, len(ports) > 0); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -710,6 +718,23 @@ func (s *Server) updateServerResources(r *http.Request, srv *models.Server, rsc 
 // it up front with a hint instead.
 const minMemoryBytes = 4 * 1024 * 1024 // 4Mi
 
+// validateStorageSize rejects a size the builders cannot use. It reaches
+// resource.MustParse when the volume is built, which panics on anything it
+// cannot read — inside the controller's reconcile loop, which has no recover.
+// The row outlives the crash, so the controller reads it again on restart and
+// dies again, and reconciliation stops for every server until someone edits the
+// database. "10 GB" instead of "10Gi" is enough to do it.
+func validateStorageSize(size string) error {
+	q, err := resource.ParseQuantity(strings.TrimSpace(size))
+	if err != nil {
+		return fmt.Errorf("invalid storage size %q — use a Kubernetes quantity such as 10Gi or 500Mi", size)
+	}
+	if q.Sign() <= 0 {
+		return fmt.Errorf("storage size %q must be greater than zero", size)
+	}
+	return nil
+}
+
 func validateResources(rsc models.Resources) error {
 	if strings.TrimSpace(rsc.Memory) != "" {
 		q, err := resource.ParseQuantity(rsc.Memory)
@@ -869,6 +894,10 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	if req.Expose != nil {
 		expose = *req.Expose
 	}
+	if err := authorizeExposeAnnotations(userFrom(r.Context()), &expose, srv.Expose.Annotations); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if err := validateExpose(expose, len(newPorts) > 0); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -988,6 +1017,39 @@ func clearNodePorts(ports []models.PortSpec) []models.PortSpec {
 		out[i].NodePort = 0
 	}
 	return out
+}
+
+// authorizeExposeAnnotations settles who may put annotations on a server's
+// Service. They are copied onto it verbatim, and other controllers act on them:
+// external-dns creates the record a hostname annotation names, MetalLB hands out
+// the address one asks for, a cloud provider bills for the load balancer. That
+// is the operator's business, and the panel does not offer it — but the endpoint
+// did, to anyone who could create a server, which on a shared install means a
+// player claiming a record in the operator's DNS zone.
+//
+// prev is what is already stored, so a non-admin editing anything else about the
+// exposure keeps annotations an admin set rather than silently dropping them.
+func authorizeExposeAnnotations(u *models.User, e *models.Expose, prev map[string]string) error {
+	if u != nil && u.HasAdminPerm(models.AdminPermServers) {
+		return nil
+	}
+	if len(e.Annotations) > 0 && !sameAnnotations(e.Annotations, prev) {
+		return errors.New("only an administrator can set service annotations")
+	}
+	e.Annotations = prev
+	return nil
+}
+
+func sameAnnotations(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 func validateExpose(e models.Expose, hasPorts bool) error {
