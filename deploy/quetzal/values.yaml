@@ -16,6 +16,10 @@ persistence:
   enabled: true
   size: 1Gi
   storageClass: ""
+  # Mount a claim you made yourself instead of the one this chart creates: a
+  # pre-provisioned volume, or a dataset you are migrating an existing install
+  # onto. The chart then creates no claim, and size/storageClass are ignored.
+  existingClaim: ""
 
 service:
   type: ClusterIP
@@ -73,6 +77,25 @@ admissionPolicy:
   # The prefix of the namespaces Quetzal owns. Change it only if you have also
   # changed the naming in the control plane, which is not configurable today.
   namespacePrefix: quetzal
+
+# The key Quetzal encrypts stored credentials with: S3 keys, SFTP passwords, 2FA
+# secrets. The chart generates one on first install and reuses it on upgrade.
+# Point this at a Secret of your own to manage it yourself, with SOPS or an
+# external secret operator.
+#
+# On an install that already holds data, migrate the existing key rather than
+# issuing a new one: everything encrypted under the old key stops being readable.
+secretKey:
+  existingSecret: ""
+  existingSecretKey: secret-key
+
+# Extra environment for the apiserver, the controller and the migration step, in
+# the usual Kubernetes form. TZ is the one most installs want: schedules are
+# evaluated in the process's local time, which is UTC unless you say otherwise.
+#   extraEnv:
+#     - name: TZ
+#       value: Europe/Paris
+extraEnv: []
 
 resources: {}
 nodeSelector: {}

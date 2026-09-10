@@ -32,6 +32,33 @@ jobs:
       - uses: azure/setup-helm@v5
       - name: helm lint
         run: helm lint deploy/quetzal
+      # The escape hatches an existing install needs: bring your own claim, your
+      # own encryption key, your own environment. Rendering is not enough --
+      # a typo'd `if` renders fine and quietly ignores the value -- so assert
+      # what each one is supposed to change.
+      - name: helm template (bring-your-own resources)
+        run: |
+          out="$(helm template quetzal deploy/quetzal \
+            --set persistence.existingClaim=my-claim \
+            --set secretKey.existingSecret=my-secret \
+            --set secretKey.existingSecretKey=my-key \
+            --set extraEnv[0].name=TZ --set extraEnv[0].value=Europe/Paris)"
+          fail() { echo "chart ignored a value: $1"; exit 1; }
+          echo "$out" | grep -q 'claimName: my-claim'      || fail existingClaim
+          echo "$out" | grep -q 'name: "my-secret"'        || fail existingSecret
+          echo "$out" | grep -q 'key: "my-key"'            || fail existingSecretKey
+          ! echo "$out" | grep -q 'kind: PersistentVolumeClaim' || fail "claim created anyway"
+          ! echo "$out" | grep -q 'quetzal-secretkey'            || fail "key generated anyway"
+          # apiserver, controller and the migration step all need it.
+          [ "$(echo "$out" | grep -c 'Europe/Paris')" = 3 ] || fail extraEnv
+          # The apiserver allocates game ports and the controller the SFTP one,
+          # from the same pool. Telling only one leaves the other on the
+          # cluster's full range -- ports nobody opened on the firewall.
+          ports="$(helm template quetzal deploy/quetzal \
+            --set nodePort.min=30000 --set nodePort.max=30030 \
+            | grep -c 'QUETZAL_NODEPORT_MIN' || true)"
+          [ "$ports" = 3 ] || fail "nodePort pool reached $ports of 3 containers"
+          echo "ok"
 
   web:
     runs-on: ubuntu-latest
