@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -26,6 +27,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
+	utilexec "k8s.io/client-go/util/exec"
 
 	"github.com/lolozini/quetzal/internal/reconciler"
 )
@@ -326,12 +328,37 @@ func Exec(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, ns, po
 		Stderr: &stderr,
 	})
 	if err != nil {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return fmt.Errorf("%w: %s", err, msg)
-		}
-		return err
+		return &ExitError{Err: err, Stderr: strings.TrimSpace(stderr.String())}
 	}
 	return nil
+}
+
+// ExitError is a command that ran and failed. It keeps the exit code and stderr
+// apart from the message so a caller can tell *why* it failed without parsing
+// text -- a script refusing what it was asked is not the same as the exec
+// itself going wrong, and the two deserve different answers.
+type ExitError struct {
+	Err    error
+	Stderr string
+}
+
+func (e *ExitError) Error() string {
+	if e.Stderr != "" {
+		return e.Err.Error() + ": " + e.Stderr
+	}
+	return e.Err.Error()
+}
+
+func (e *ExitError) Unwrap() error { return e.Err }
+
+// Code returns the command's exit status, or -1 when it did not run far enough
+// to have one (a transport error, a timeout).
+func (e *ExitError) Code() int {
+	var ce utilexec.ExitError
+	if errors.As(e.Err, &ce) {
+		return ce.ExitStatus()
+	}
+	return -1
 }
 
 // streamExecutor builds a remote streaming executor (exec or attach) that

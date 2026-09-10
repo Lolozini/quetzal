@@ -11,6 +11,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"errors"
+	"github.com/lolozini/quetzal/internal/console"
+	utilexec "k8s.io/client-go/util/exec"
+	"net/http"
+	"net/http/httptest"
 )
 
 func makeTarGz(t *testing.T, name, content string) []byte {
@@ -172,5 +178,70 @@ func TestWriteScriptIsAtomicAndVerified(t *testing.T) {
 	// No temp files are left behind on any path.
 	if n := leftovers(); n != 0 {
 		t.Errorf("%d temp file(s) left behind", n)
+	}
+}
+
+// The guard has two reasons to stop, and they belong to different people: a
+// path leaving the data directory is the caller's, an unreachable data
+// directory is ours. It signals which by exit code, so the API can answer 400
+// instead of calling a traversal attempt a bad gateway.
+func TestGuardExitCodesTellRefusalFromFailure(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Symlink("/etc", filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	run := func(mode, r, p string) int {
+		cmd := exec.Command("sh", "-c", guardScript+`qz_guard "$1" "$0" "$2"`, r, mode, p)
+		if err := cmd.Run(); err != nil {
+			var ee *exec.ExitError
+			if errors.As(err, &ee) {
+				return ee.ExitCode()
+			}
+			t.Fatalf("run: %v", err)
+		}
+		return 0
+	}
+	if got := run("deref", root, filepath.Join(root, "ok")); got != 0 {
+		t.Errorf("a path inside the root exited %d, want 0", got)
+	}
+	if got := run("deref", root, filepath.Join(root, "link")); got != guardRefusedPath {
+		t.Errorf("following a symlink exited %d, want %d", got, guardRefusedPath)
+	}
+	if got := run("deref", root, "/etc/passwd"); got != guardRefusedPath {
+		t.Errorf("a path outside the root exited %d, want %d", got, guardRefusedPath)
+	}
+	if got := run("deref", filepath.Join(root, "gone"), "/x"); got != guardNoDataRoot {
+		t.Errorf("a missing data root exited %d, want %d", got, guardNoDataRoot)
+	}
+}
+
+func TestRefusedPathIsNotABadGateway(t *testing.T) {
+	refused := &console.ExitError{
+		Err:    utilexec.CodeExitError{Err: errors.New("command terminated"), Code: guardRefusedPath},
+		Stderr: "path escapes the data directory",
+	}
+	w := httptest.NewRecorder()
+	writeFileOpError(w, "list failed", refused)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("refused path answered %d, want 400: a traversal attempt is not an outage", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "path escapes the data directory") {
+		t.Errorf("the reason was lost: %s", w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "command terminated") {
+		t.Errorf("the exec plumbing leaked into the answer: %s", w.Body.String())
+	}
+
+	// Anything else is still ours to own.
+	for _, err := range []error{
+		&console.ExitError{Err: utilexec.CodeExitError{Err: errors.New("x"), Code: guardNoDataRoot}, Stderr: "the data directory is not available"},
+		&console.ExitError{Err: utilexec.CodeExitError{Err: errors.New("x"), Code: 2}, Stderr: "tar: not an archive"},
+		errors.New("connection reset"),
+	} {
+		w := httptest.NewRecorder()
+		writeFileOpError(w, "extract failed", err)
+		if w.Code != http.StatusBadGateway {
+			t.Errorf("%v answered %d, want 502", err, w.Code)
+		}
 	}
 }
