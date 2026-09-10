@@ -705,3 +705,54 @@ func TestInstanceIDIsStable(t *testing.T) {
 		t.Errorf("two databases share the instance id %q", first)
 	}
 }
+
+// Reassigning a deleted user's servers drops the new owner's now-redundant
+// subuser grant on them — and nothing else. A grant they hold on someone else's
+// server has to survive: the cleanup is scoped by a subquery, and a subquery
+// that matched too much would quietly strip their access everywhere.
+func TestDeleteUserReassignsWithoutStrippingOtherGrants(t *testing.T) {
+	st := newTestStore(t)
+	mk := func(name string, admin bool) *models.User {
+		u := &models.User{Username: name, PasswordHash: "x", IsAdmin: admin}
+		if err := st.CreateUser(u); err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	alice, carol, admin := mk("alice", false), mk("carol", false), mk("admin", true)
+
+	aliceSrv := &models.Server{Slug: "alice-srv", OwnerID: alice.ID}
+	carolSrv := &models.Server{Slug: "carol-srv", OwnerID: carol.ID}
+	for _, s := range []*models.Server{aliceSrv, carolSrv} {
+		if err := st.CreateServer(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The admin is a subuser on both: one they are about to inherit, one not.
+	for _, s := range []*models.Server{aliceSrv, carolSrv} {
+		if err := st.GrantAccess(s.ID, admin.ID, []string{models.PermView}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := st.DeleteUser(alice.ID, admin.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetServer(aliceSrv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OwnerID != admin.ID {
+		t.Errorf("owner = %d, want the admin %d", got.OwnerID, admin.ID)
+	}
+	if _, err := st.GetServerAccess(aliceSrv.ID, admin.ID); err == nil {
+		t.Error("the new owner should not also be listed as a subuser of their own server")
+	}
+	if _, err := st.GetServerAccess(carolSrv.ID, admin.ID); err != nil {
+		t.Errorf("grant on a server they did not inherit was removed: %v", err)
+	}
+	// Carol's own server is untouched.
+	if got, err := st.GetServer(carolSrv.ID); err != nil || got.OwnerID != carol.ID {
+		t.Errorf("carol's server changed hands: %v %+v", err, got)
+	}
+}
