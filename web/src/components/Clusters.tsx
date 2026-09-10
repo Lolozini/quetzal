@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, Cluster, ClusterNode, StorageClassInfo } from "../api";
+import { api, ApiError, Cluster, ClusterNode, ClusterSetup, StorageClassInfo } from "../api";
 import { useT } from "../i18n";
 
 export function Clusters() {
@@ -8,6 +8,7 @@ export function Clusters() {
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [kubeconfig, setKubeconfig] = useState("");
+  const [setup, setSetup] = useState<ClusterSetup | null>(null);
   const [busy, setBusy] = useState(false);
   const [nodesFor, setNodesFor] = useState<number | null>(null);
   const [nodes, setNodes] = useState<ClusterNode[]>([]);
@@ -27,6 +28,17 @@ export function Clusters() {
   useEffect(() => {
     load();
   }, []);
+
+  // Fetched when the section is first opened rather than on every page load:
+  // most visits to this page are not registering a cluster.
+  async function loadSetup(e: { currentTarget: HTMLDetailsElement }) {
+    if (!e.currentTarget.open || setup) return;
+    try {
+      setSetup(await api.clusterSetupManifest());
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    }
+  }
 
   async function add(e: FormEvent) {
     e.preventDefault();
@@ -247,6 +259,36 @@ export function Clusters() {
         <h3>{t("Register a remote cluster")}</h3>
         <label>{t("Name")}</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="edge-1" required />
+        <details style={{ margin: "10px 0" }} onToggle={loadSetup}>
+          <summary style={{ cursor: "pointer" }}>
+            {t("Prepare the remote cluster first (recommended)")}
+          </summary>
+          <p className="muted">
+            {t("An admin kubeconfig would give Quetzal — and anyone who reaches it — everything on that cluster. Run this there instead: it creates a service account with only the access Quetzal needs, then prints the kubeconfig to paste below.")}
+          </p>
+          {setup ? (
+            <>
+              <label>{t("1. Apply on the remote cluster")}</label>
+              <textarea
+                readOnly
+                value={setup.manifest}
+                rows={10}
+                style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <label>{t("2. Print the kubeconfig")}</label>
+              <textarea
+                readOnly
+                value={setup.kubeconfigScript}
+                rows={8}
+                style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+                onFocus={(e) => e.currentTarget.select()}
+              />
+            </>
+          ) : (
+            <p className="muted">{t("Loading…")}</p>
+          )}
+        </details>
         <label>{t("Kubeconfig (YAML)")}</label>
         <textarea
           value={kubeconfig}

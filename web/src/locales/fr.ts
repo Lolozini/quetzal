@@ -546,4 +546,12 @@ export const fr: Record<string, string> = {
     "Les ports exposés par ce serveur ; désignez le principal (celui auquel les joueurs se connectent).",
   "Must start with \"quetzal-db-\". Quetzal creates this namespace and deletes it with the host, so it will not take over one it did not create. Leave blank to name it after the host.":
     "Doit commencer par « quetzal-db- ». Quetzal crée ce namespace et le supprime avec l’hôte : il ne reprendra donc pas un namespace qu’il n’a pas créé. Laissez vide pour le nommer d’après l’hôte.",
+
+  // Préparation d'un cluster distant.
+  "1. Apply on the remote cluster": "1. À appliquer sur le cluster distant",
+  "2. Print the kubeconfig": "2. Afficher le kubeconfig",
+  "Prepare the remote cluster first (recommended)":
+    "Préparer d’abord le cluster distant (recommandé)",
+  "An admin kubeconfig would give Quetzal — and anyone who reaches it — everything on that cluster. Run this there instead: it creates a service account with only the access Quetzal needs, then prints the kubeconfig to paste below.":
+    "Un kubeconfig admin donnerait à Quetzal — et à quiconque l’atteint — tous les droits sur ce cluster. Exécutez plutôt ceci là-bas : cela crée un compte de service limité à ce dont Quetzal a besoin, puis affiche le kubeconfig à coller ci-dessous.",
 };

@@ -101,6 +101,22 @@ panel could reach them afterwards — no row references them — so leaving them
 would mean paying to store data that can no longer be listed or restored. Take a
 copy first if you want to keep a deleted server's history.
 
+## Registering another cluster
+
+Quetzal reaches a remote cluster with a kubeconfig you paste into the panel
+(stored encrypted). The easiest kubeconfig to hand over is your admin one, and
+that is the thing to avoid: it gives the control plane — and anyone who reaches
+it — everything on that cluster.
+
+The cluster form carries the alternative. Open **Prepare the remote cluster**
+before registering: it shows a manifest to apply there, creating a service
+account with the access Quetzal actually needs and nothing else, followed by the
+script that prints a kubeconfig for it. Paste that one instead.
+
+The permissions in that manifest are the same set the chart grants on the
+cluster Quetzal runs on, less leader election, which only happens where the
+control plane lives. A test keeps the two from drifting apart.
+
 ## Verify
 
 ```sh

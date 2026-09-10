@@ -50,6 +50,26 @@ type clusterRequest struct {
 	EndpointHost *string `json:"endpointHost"`
 }
 
+// handleClusterSetupManifest returns what an operator has to run on a cluster
+// before registering it: a manifest creating a service account with exactly the
+// access Quetzal needs, and the script that turns it into a kubeconfig.
+//
+// Without this the path of least resistance is to paste an admin kubeconfig,
+// which hands the control plane — and anyone who reaches it — the whole cluster.
+// It is served next to the form that asks for the kubeconfig, because that is
+// the moment the choice is made.
+func (s *Server) handleClusterSetupManifest(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPerm(w, r, models.AdminPermClusters) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"manifest":         cluster.RemoteManifest(),
+		"kubeconfigScript": cluster.RemoteKubeconfigScript(),
+		"namespace":        cluster.RemoteNamespace,
+		"serviceAccount":   cluster.RemoteServiceAccount,
+	})
+}
+
 func (s *Server) handleCreateCluster(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPerm(w, r, models.AdminPermClusters) {
 		return
