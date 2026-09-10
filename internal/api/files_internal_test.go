@@ -185,7 +185,7 @@ func TestWriteScriptIsAtomicAndVerified(t *testing.T) {
 // path leaving the data directory is the caller's, an unreachable data
 // directory is ours. It signals which by exit code, so the API can answer 400
 // instead of calling a traversal attempt a bad gateway.
-func TestGuardExitCodesTellRefusalFromFailure(t *testing.T) {
+func TestScriptExitCodesTellWhoseFaultItIs(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Symlink("/etc", filepath.Join(root, "link")); err != nil {
 		t.Fatal(err)
@@ -204,20 +204,65 @@ func TestGuardExitCodesTellRefusalFromFailure(t *testing.T) {
 	if got := run("deref", root, filepath.Join(root, "ok")); got != 0 {
 		t.Errorf("a path inside the root exited %d, want 0", got)
 	}
-	if got := run("deref", root, filepath.Join(root, "link")); got != guardRefusedPath {
-		t.Errorf("following a symlink exited %d, want %d", got, guardRefusedPath)
+	if got := run("deref", root, filepath.Join(root, "link")); got != fileOpBadRequest {
+		t.Errorf("following a symlink exited %d, want %d", got, fileOpBadRequest)
 	}
-	if got := run("deref", root, "/etc/passwd"); got != guardRefusedPath {
-		t.Errorf("a path outside the root exited %d, want %d", got, guardRefusedPath)
+	if got := run("deref", root, "/etc/passwd"); got != fileOpBadRequest {
+		t.Errorf("a path outside the root exited %d, want %d", got, fileOpBadRequest)
 	}
-	if got := run("deref", filepath.Join(root, "gone"), "/x"); got != guardNoDataRoot {
-		t.Errorf("a missing data root exited %d, want %d", got, guardNoDataRoot)
+	if got := run("deref", filepath.Join(root, "gone"), "/x"); got != fileOpNoDataRoot {
+		t.Errorf("a missing data root exited %d, want %d", got, fileOpNoDataRoot)
+	}
+}
+
+// A path the caller simply got wrong is not an outage either: asking for a file
+// that is not there used to answer 502, so a typo read as a broken data manager.
+func TestMissingPathIsANotFound(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Symlink("/nowhere-at-all", filepath.Join(root, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "real"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code := func(p string) int {
+		cmd := exec.Command("sh", "-c", guardScript+`qz_exists "$1"`, "_", p)
+		if err := cmd.Run(); err != nil {
+			var ee *exec.ExitError
+			if errors.As(err, &ee) {
+				return ee.ExitCode()
+			}
+			t.Fatalf("run: %v", err)
+		}
+		return 0
+	}
+	if got := code(filepath.Join(root, "real")); got != 0 {
+		t.Errorf("an existing file exited %d, want 0", got)
+	}
+	if got := code(filepath.Join(root, "gone")); got != fileOpNotFound {
+		t.Errorf("a missing path exited %d, want %d", got, fileOpNotFound)
+	}
+	// A broken link is still something the panel must be able to see and remove.
+	if got := code(filepath.Join(root, "dangling")); got != 0 {
+		t.Errorf("a dangling symlink exited %d, want 0 (it must stay listable and deletable)", got)
+	}
+
+	w := httptest.NewRecorder()
+	writeFileOpError(w, "read failed", &console.ExitError{
+		Err:    utilexec.CodeExitError{Err: errors.New("command terminated"), Code: fileOpNotFound},
+		Stderr: "no such file or directory",
+	})
+	if w.Code != http.StatusNotFound {
+		t.Errorf("a missing path answered %d, want 404", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "no such file or directory") {
+		t.Errorf("the reason was lost: %s", w.Body.String())
 	}
 }
 
 func TestRefusedPathIsNotABadGateway(t *testing.T) {
 	refused := &console.ExitError{
-		Err:    utilexec.CodeExitError{Err: errors.New("command terminated"), Code: guardRefusedPath},
+		Err:    utilexec.CodeExitError{Err: errors.New("command terminated"), Code: fileOpBadRequest},
 		Stderr: "path escapes the data directory",
 	}
 	w := httptest.NewRecorder()
@@ -234,7 +279,7 @@ func TestRefusedPathIsNotABadGateway(t *testing.T) {
 
 	// Anything else is still ours to own.
 	for _, err := range []error{
-		&console.ExitError{Err: utilexec.CodeExitError{Err: errors.New("x"), Code: guardNoDataRoot}, Stderr: "the data directory is not available"},
+		&console.ExitError{Err: utilexec.CodeExitError{Err: errors.New("x"), Code: fileOpNoDataRoot}, Stderr: "the data directory is not available"},
 		&console.ExitError{Err: utilexec.CodeExitError{Err: errors.New("x"), Code: 2}, Stderr: "tar: not an archive"},
 		errors.New("connection reset"),
 	} {
@@ -243,5 +288,52 @@ func TestRefusedPathIsNotABadGateway(t *testing.T) {
 		if w.Code != http.StatusBadGateway {
 			t.Errorf("%v answered %d, want 502", err, w.Code)
 		}
+	}
+}
+
+// The checks were inserted into scripts that already worked; run them against a
+// real directory to be sure they still do the job they were written for.
+func TestFileScriptsStillWorkOnPathsThatAreThere(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(script string, args ...string) (string, int) {
+		cmd := exec.Command("sh", append([]string{"-c", guardScript + script, root}, args...)...)
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		if err := cmd.Run(); err != nil {
+			var ee *exec.ExitError
+			if errors.As(err, &ee) {
+				return out.String(), ee.ExitCode()
+			}
+			t.Fatalf("run: %v", err)
+		}
+		return out.String(), 0
+	}
+	if out, code := run(listScript, root); code != 0 || !strings.Contains(out, "a.txt") || !strings.Contains(out, "sub") {
+		t.Errorf("listing a real directory: code=%d out=%q", code, out)
+	}
+	if _, code := run(listScript, filepath.Join(root, "a.txt")); code != fileOpBadRequest {
+		t.Errorf("listing a file exited %d, want %d (not a directory)", code, fileOpBadRequest)
+	}
+	if _, code := run(listScript, filepath.Join(root, "gone")); code != fileOpNotFound {
+		t.Errorf("listing a missing directory exited %d, want %d", code, fileOpNotFound)
+	}
+	readScript := `qz_guard deref "$0" "$1"
+qz_exists "$1"
+[ -d "$1" ] && { echo "is a directory" >&2; exit 4; }
+exec cat -- "$1"`
+	if out, code := run(readScript, filepath.Join(root, "a.txt")); code != 0 || out != "hello" {
+		t.Errorf("reading a real file: code=%d out=%q", code, out)
+	}
+	if _, code := run(readScript, filepath.Join(root, "sub")); code != fileOpBadRequest {
+		t.Errorf("reading a directory exited %d, want %d", code, fileOpBadRequest)
+	}
+	if _, code := run(readScript, filepath.Join(root, "gone")); code != fileOpNotFound {
+		t.Errorf("reading a missing file exited %d, want %d", code, fileOpNotFound)
 	}
 }

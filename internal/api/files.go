@@ -95,6 +95,13 @@ const guardScript = `qz_guard() {
     esac
   done
 }
+qz_exists() {
+  # -L as well as -e: a dangling symlink still exists as far as the panel is
+  # concerned, and has to remain listable, archivable and deletable.
+  [ -e "$1" ] || [ -L "$1" ] || {
+    echo "no such file or directory" >&2; exit 6
+  }
+}
 `
 
 // defaultDataReadyTimeout bounds how long file access waits for the data-manager
@@ -187,18 +194,25 @@ func (s *Server) execFile(ctx context.Context, cs kubernetes.Interface, cfg *res
 // is ours. Both used to come back as 502, which said the data manager was
 // broken and made a traversal attempt look like an outage in the logs.
 const (
-	guardRefusedPath = 4
-	guardNoDataRoot  = 5
+	fileOpBadRequest = 4 // the caller asked for something the jail refuses
+	fileOpNoDataRoot = 5 // the data directory itself is unreachable
+	fileOpNotFound   = 6 // the path is not there
 )
 
 // writeFileOpError answers a failed file operation with the status that matches
 // its cause: the caller's when the guard refused the path, ours otherwise.
 func writeFileOpError(w http.ResponseWriter, what string, err error) {
 	var ex *console.ExitError
-	if errors.As(err, &ex) && ex.Code() == guardRefusedPath {
-		// The guard's own words, without the exec plumbing around them.
-		writeError(w, http.StatusBadRequest, ex.Stderr)
-		return
+	if errors.As(err, &ex) {
+		// The script's own words, without the exec plumbing around them.
+		switch ex.Code() {
+		case fileOpBadRequest:
+			writeError(w, http.StatusBadRequest, ex.Stderr)
+			return
+		case fileOpNotFound:
+			writeError(w, http.StatusNotFound, ex.Stderr)
+			return
+		}
 	}
 	writeError(w, http.StatusBadGateway, what+": "+err.Error())
 }
@@ -210,7 +224,8 @@ func guarded(body string) string { return guardScript + body }
 
 // listScript prints "<type>\t<size>\t<name>" per entry of the directory in $1.
 const listScript = `qz_guard deref "$0" "$1"
-cd "$1" 2>/dev/null || { echo "no such directory" >&2; exit 2; }
+qz_exists "$1"
+cd "$1" 2>/dev/null || { echo "not a directory" >&2; exit 4; }
 for e in * .*; do
   [ "$e" = "." ] && continue
   [ "$e" = ".." ] && continue
@@ -259,6 +274,8 @@ func (s *Server) handleReadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	// Stream cat's stdout straight to the response (no buffering of large files).
 	cmd := []string{"sh", "-c", guarded(`qz_guard deref "$0" "$1"
+qz_exists "$1"
+[ -d "$1" ] && { echo "is a directory" >&2; exit 4; }
 exec cat -- "$1"`), root, full}
 	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, cmd, nil, w); err != nil {
 		// Headers may already be sent; best-effort error only if nothing written.
@@ -288,6 +305,7 @@ func (s *Server) handleArchiveFile(w http.ResponseWriter, r *http.Request) {
 	// legitimately outside the jail. tar stores a symlink as a link rather than
 	// following it, so a link leaf is harmless here.
 	cmd := []string{"sh", "-c", guarded(`qz_guard link "$0" "$1/$2"
+qz_exists "$1/$2"
 cd "$1" && exec tar -czf - -- "$2"`), root, parent, base}
 	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, cmd, nil, w); err != nil {
 		writeFileOpError(w, "archive failed", err)
@@ -347,6 +365,7 @@ func (s *Server) handleExtractArchive(w http.ResponseWriter, r *http.Request) {
 // set, is the byte count expected; a mismatch fails the write.
 const writeScript = `qz_guard deref "$0" "$1"
 dst="$1"; want="$2"
+qz_exists "$(dirname "$dst")"
 tmp="$dst.quetzal-part.$$"
 cat > "$tmp" || { rm -f "$tmp"; exit 1; }
 if [ -n "$want" ]; then
@@ -454,6 +473,7 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 	}
 	to := jail(root, toRel)
 	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", guarded(`qz_guard link "$0" "$1" "$2"
+qz_exists "$1"
 exec mv -- "$1" "$2"`), root, from, to}, nil, io.Discard); err != nil {
 		writeFileOpError(w, "rename failed", err)
 		return
