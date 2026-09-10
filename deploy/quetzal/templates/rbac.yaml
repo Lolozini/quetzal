@@ -88,10 +88,13 @@ rules:
     resources: ["pods/attach", "pods/exec"]
     verbs: ["create", "get"]
 ---
+# Named after the role it binds, not after the release: a ClusterRoleBinding's
+# roleRef is immutable, so an upgrade that repoints an existing binding is
+# refused outright. Renaming lets the new one be created and the old one pruned.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "quetzal.fullname" . }}
+  name: {{ include "quetzal.fullname" . }}-cluster
   labels:
     {{- include "quetzal.labels" . | nindent 4 }}
 roleRef:
