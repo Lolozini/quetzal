@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"sync"
 
@@ -43,6 +44,13 @@ type Reconciler struct {
 	WakeURL        string
 	ActiveURL      string
 	WakeKey        []byte
+
+	// ExtraEgressCIDRs are private ranges every server may reach, on top of the
+	// public internet. The default policy denies private address space so the
+	// cluster network is out of reach; an operator whose servers need something
+	// there — an external database named by DNS, a license server on the LAN —
+	// names its range here. Injected by the controller from QUETZAL_EGRESS_ALLOW.
+	ExtraEgressCIDRs []string
 
 	// NodePortMin/NodePortMax bound the node-port pool the SFTP Service draws
 	// from (0 = the store's defaults). Same pool as the game ports, so SFTP and
@@ -424,7 +432,70 @@ func (r *Reconciler) ensureInternalService(ctx context.Context, s *models.Server
 }
 
 func (r *Reconciler) ensureNetworkPolicy(ctx context.Context, s *models.Server, t *models.Template) error {
-	return r.apply(ctx, BuildNetworkPolicy(s, t))
+	return r.apply(ctx, BuildNetworkPolicy(s, t, r.egressPeersFor(s)))
+}
+
+// egressPeersFor lists what this server may reach inside the private address
+// space the default policy denies: the managed databases it has been given, plus
+// whatever the operator allowed cluster-wide.
+//
+// An external database named by DNS cannot be expressed here — a NetworkPolicy
+// has no notion of hostnames — so one on a private address needs its range in
+// ExtraEgressCIDRs. A public one is already covered by the internet rule.
+func (r *Reconciler) egressPeersFor(s *models.Server) []EgressPeer {
+	peers := make([]EgressPeer, 0, len(r.ExtraEgressCIDRs))
+	for _, c := range r.ExtraEgressCIDRs {
+		peers = append(peers, EgressPeer{CIDR: c})
+	}
+	if r.Store == nil {
+		return peers
+	}
+	dbs, err := r.Store.ListServerDatabases(s.ID)
+	if err != nil {
+		// Failing open would hand the server the cluster network; failing closed
+		// costs it a database it can reconnect to on the next resync.
+		log.Printf("network policy for %s: list databases (its database egress is denied until this clears): %v", s.Slug, err)
+		return peers
+	}
+	seen := map[string]bool{}
+	for i := range dbs {
+		h, err := r.Store.GetDatabaseHost(dbs[i].HostID)
+		if err != nil {
+			continue
+		}
+		switch {
+		case h.Kind == models.DBHostManaged:
+			if ns := ManagedDBNamespace(h); ns != "" && !seen[ns] {
+				seen[ns] = true
+				peers = append(peers, EgressPeer{Namespace: ns})
+			}
+		default:
+			if c := hostCIDR(h.ConnectHost, h.Host); c != "" && !seen[c] {
+				seen[c] = true
+				peers = append(peers, EgressPeer{CIDR: c})
+			}
+		}
+	}
+	return peers
+}
+
+// hostCIDR turns an external host into a single-address CIDR when it is written
+// as a literal IP. A hostname yields "": it cannot go in a NetworkPolicy, and
+// guessing by resolving it here would bake in an answer that changes.
+func hostCIDR(candidates ...string) string {
+	for _, c := range candidates {
+		h := strings.TrimSpace(c)
+		if h == "" {
+			continue
+		}
+		if ip := net.ParseIP(h); ip != nil {
+			if ip.To4() != nil {
+				return ip.String() + "/32"
+			}
+			return ip.String() + "/128"
+		}
+	}
+	return ""
 }
 
 // ensureSecret creates/updates the per-server Secret, skipping the write when

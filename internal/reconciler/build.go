@@ -71,7 +71,6 @@ const (
 	workloadName  = WorkloadName
 	dataVolume    = DataVolume
 	envSecretName = "server-env" // per-server Secret holding sensitive env
-	metadataIP    = "169.254.169.254/32"
 )
 
 // distrolessNonrootUID is the uid of the "nonroot" user in the Quetzal distroless
@@ -570,11 +569,43 @@ func serviceType(e models.ExposeType) corev1.ServiceType {
 	}
 }
 
+// EgressPeer is a destination a server's pods may reach on top of DNS and the
+// public internet, which the default policy otherwise denies.
+type EgressPeer struct {
+	// Namespace allows every pod in that namespace. Managed databases get one of
+	// their own, and matching the namespace covers a Service in front of it: a
+	// ClusterIP is translated to the backing pod before policy is evaluated.
+	Namespace string
+	// CIDR allows a literal address range. A hostname cannot be expressed in a
+	// NetworkPolicy, so an external service named by DNS needs its address here.
+	CIDR string
+}
+
+// privateRanges are the address blocks a game server has no business reaching:
+// the cluster's own pod and Service networks live in them, as does the node,
+// the control plane, other tenants' servers and the operator's LAN. Link-local
+// covers the cloud metadata endpoint.
+//
+// Excluding them from the egress rule is what makes the policy hold on any CNI.
+// Cilium already refuses cluster-internal traffic for a CIDR rule, because its
+// ipBlock does not match in-cluster identities — but that is Cilium's semantics,
+// not the policy's, and a CNI that reads 0.0.0.0/0 literally (Calico does) let a
+// compromised server reach the API server, the panel and every other namespace.
+var privateRanges = []string{
+	"10.0.0.0/8",
+	"172.16.0.0/12",
+	"192.168.0.0/16",
+	"100.64.0.0/10", // CGNAT, used as a pod CIDR by some distributions
+	"169.254.0.0/16",
+	"127.0.0.0/8",
+}
+
 // BuildNetworkPolicy returns a secure-by-default policy: ingress only to the
-// declared game ports; egress to DNS and the internet but NOT the node metadata
-// endpoint. NOTE: blocking the in-cluster API server and pod/service CIDRs is
-// handled in a later phase (needs cluster-specific config).
-func BuildNetworkPolicy(s *models.Server, t *models.Template) *networkingv1.NetworkPolicy {
+// declared game ports; egress to DNS and the public internet only — no cluster
+// network, no node metadata, no private address space. extra carries the
+// destinations a particular server legitimately needs on top of that, such as
+// the managed database it has been given.
+func BuildNetworkPolicy(s *models.Server, t *models.Template, extra []EgressPeer) *networkingv1.NetworkPolicy {
 	var ingressPorts []networkingv1.NetworkPolicyPort
 	for _, p := range serverPorts(s, t) {
 		proto := protocol(p.Protocol)
@@ -618,24 +649,50 @@ func BuildNetworkPolicy(s *models.Server, t *models.Template) *networkingv1.Netw
 			// Ingress only on declared game ports; when a server exposes no
 			// ports, leaving this empty denies all ingress (secure default).
 			Ingress: ingressRules(ingressPorts),
-			Egress: []networkingv1.NetworkPolicyEgressRule{
-				{ // DNS
-					Ports: []networkingv1.NetworkPolicyPort{
-						{Protocol: &dnsUDP, Port: &dnsPort},
-						{Protocol: &dnsTCP, Port: &dnsPort},
-					},
-				},
-				{ // internet, minus node metadata
-					To: []networkingv1.NetworkPolicyPeer{{
-						IPBlock: &networkingv1.IPBlock{
-							CIDR:   "0.0.0.0/0",
-							Except: []string{metadataIP},
-						},
-					}},
-				},
-			},
+			Egress:  egressRules(dnsUDP, dnsTCP, dnsPort, extra),
 		},
 	}
+}
+
+// egressRules builds the egress side: DNS, the public internet, and whatever
+// else this server was explicitly given.
+func egressRules(dnsUDP, dnsTCP corev1.Protocol, dnsPort intstr.IntOrString, extra []EgressPeer) []networkingv1.NetworkPolicyEgressRule {
+	rules := []networkingv1.NetworkPolicyEgressRule{
+		{ // DNS. The resolver lives in the cluster, which the rule below denies,
+			// so it needs one of its own — ports only, no peer restriction.
+			Ports: []networkingv1.NetworkPolicyPort{
+				{Protocol: &dnsUDP, Port: &dnsPort},
+				{Protocol: &dnsTCP, Port: &dnsPort},
+			},
+		},
+		{ // The public internet, and nothing that is not.
+			To: []networkingv1.NetworkPolicyPeer{{
+				IPBlock: &networkingv1.IPBlock{
+					CIDR:   "0.0.0.0/0",
+					Except: append([]string(nil), privateRanges...),
+				},
+			}},
+		},
+	}
+	for _, p := range extra {
+		switch {
+		case p.Namespace != "":
+			rules = append(rules, networkingv1.NetworkPolicyEgressRule{
+				To: []networkingv1.NetworkPolicyPeer{{
+					NamespaceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{corev1.LabelMetadataName: p.Namespace},
+					},
+				}},
+			})
+		case p.CIDR != "":
+			rules = append(rules, networkingv1.NetworkPolicyEgressRule{
+				To: []networkingv1.NetworkPolicyPeer{{
+					IPBlock: &networkingv1.IPBlock{CIDR: p.CIDR},
+				}},
+			})
+		}
+	}
+	return rules
 }
 
 // BuildResourceQuota caps how many objects a server's namespace may hold, to
