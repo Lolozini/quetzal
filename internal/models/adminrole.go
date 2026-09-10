@@ -14,8 +14,11 @@ const (
 	AdminPermClusters      = "clusters"       // manage the cluster registry
 	AdminPermDatabaseHosts = "database-hosts" // manage database hosts
 	AdminPermNotifications = "notifications"  // manage global notification channels
-	AdminPermSettings      = "settings"       // email/SMTP + backup configuration
-	AdminPermAudit         = "audit"          // view the global activity log
+	// Backup + network configuration, and reading the email settings. Changing
+	// them is superadmin-only: the relay and the public URL together decide who
+	// receives a password reset link.
+	AdminPermSettings = "settings" // backup + network config, read-only on email
+	AdminPermAudit    = "audit"    // view the global activity log
 )
 
 // AllAdminPermissions is the full catalog a role can be granted.

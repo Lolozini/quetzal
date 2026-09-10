@@ -130,6 +130,14 @@ func (s *Server) handleAdminDisable2FA(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
+	// Same boundary the update and delete paths draw: a scoped users-admin
+	// manages regular users and must not reach an account with admin standing.
+	// Stripping its second factor leaves that account defended by a password
+	// alone, and the owner only finds out at their next login.
+	if caller := userFrom(r.Context()); !caller.IsAdmin && (target.IsAdmin || target.AdminRoleID != nil) {
+		writeError(w, http.StatusForbidden, "only a superadmin can modify an admin account")
+		return
+	}
 	if err := s.Store.DisableUserTOTP(target.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not reset two-factor")
 		return
