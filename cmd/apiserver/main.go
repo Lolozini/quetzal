@@ -97,8 +97,10 @@ func main() {
 	root.Handle("/", webui.Handler())
 
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           root,
+		Addr: addr,
+		// Wrap everything, not just /api: the SPA and the file bytes it links to
+		// share this origin with the session cookie.
+		Handler:           apiSrv.SecurityHeaders(root),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

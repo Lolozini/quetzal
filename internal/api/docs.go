@@ -31,8 +31,23 @@ func (s *Server) handleOpenAPISpec(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(openapiSpec)
 }
 
+// docsCSP relaxes the panel policy for this one page: Redoc comes from a CDN and
+// styles itself at runtime. It stays framing- and object-free, and grants nothing
+// to the rest of the panel.
+const docsCSP = "default-src 'self'; " +
+	"script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: https:; " +
+	"font-src 'self' data: https:; " +
+	"worker-src 'self' blob:; " +
+	"connect-src 'self'; " +
+	"frame-ancestors 'none'; " +
+	"base-uri 'none'; " +
+	"object-src 'none'"
+
 // handleDocs serves human-readable API docs rendered from the spec.
 func (s *Server) handleDocs(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy", docsCSP)
 	_, _ = w.Write([]byte(redocHTML))
 }

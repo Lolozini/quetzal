@@ -366,6 +366,17 @@ releases may include breaking changes).
   **users** only gets `409` when the account owns servers — reassigning them is
   a servers-level decision. A server that is already ownerless refuses resource
   changes from non-admins until an administrator reassigns it.
+- **Security headers on every response.** The panel sent none: no
+  `X-Content-Type-Options`, no framing protection, no CSP — while serving
+  tenant-controlled file bytes from the same origin as the session cookie. All
+  responses now carry `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy:
+  no-referrer`, `Cross-Origin-Opener-Policy: same-origin` and a strict
+  `Content-Security-Policy` (`default-src 'self'`, no inline or `eval` script,
+  `frame-ancestors 'none'`). `Strict-Transport-Security` is sent only when
+  `QUETZAL_SECURE_COOKIES=true`, so an http-only install is not pinned to a
+  scheme it does not serve. `/api/docs` relaxes the policy for itself alone, to
+  load the Redoc viewer from its CDN.
+
 ## [0.1.0] - 2026-06-25
 
 Initial public release — a Kubernetes-native control plane and web UI for hosting
