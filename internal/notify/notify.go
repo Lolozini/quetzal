@@ -17,8 +17,11 @@ import (
 	"github.com/lolozini/quetzal/internal/safefetch"
 )
 
-// cursorKey names the Setting row holding the last-delivered event ID.
-const cursorKey = "notify.cursor"
+// CursorSetting names the Setting row holding the last-delivered event ID.
+// CursorSetting is the settings key holding the dispatcher's position in the
+// event outbox. Exported so a test can tell whether Run has seeded it: an event
+// created before that seeding is skipped for good, not delivered late.
+const CursorSetting = "notify.cursor"
 
 // Store is the subset of the data store the dispatcher needs.
 type Store interface {
@@ -80,9 +83,9 @@ func (d *Dispatcher) Notify() {
 // Run drains the outbox until ctx is cancelled. It seeds the cursor to the
 // current latest event on first start so historical events are not replayed.
 func (d *Dispatcher) Run(ctx context.Context) {
-	if cur, _ := d.Store.GetSetting(cursorKey); cur == "" {
+	if cur, _ := d.Store.GetSetting(CursorSetting); cur == "" {
 		if id, err := d.Store.LatestEventID(); err == nil {
-			_ = d.Store.SetSetting(cursorKey, strconv.FormatUint(uint64(id), 10))
+			_ = d.Store.SetSetting(CursorSetting, strconv.FormatUint(uint64(id), 10))
 		}
 	}
 	t := time.NewTicker(d.Interval)
@@ -117,12 +120,12 @@ func (d *Dispatcher) drain(ctx context.Context) {
 			return
 		}
 		d.dispatch(ctx, e, channels)
-		_ = d.Store.SetSetting(cursorKey, strconv.FormatUint(uint64(e.ID), 10))
+		_ = d.Store.SetSetting(CursorSetting, strconv.FormatUint(uint64(e.ID), 10))
 	}
 }
 
 func (d *Dispatcher) cursor() uint {
-	v, _ := d.Store.GetSetting(cursorKey)
+	v, _ := d.Store.GetSetting(CursorSetting)
 	n, _ := strconv.ParseUint(v, 10, 64)
 	return uint(n)
 }

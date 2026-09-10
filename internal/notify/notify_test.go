@@ -106,7 +106,7 @@ func TestDispatcherMatchesAndAdvances(t *testing.T) {
 			// Disabled -> never fires.
 			{ID: 2, Type: models.ChannelDiscord, Enabled: false, ConfigEnc: srv.URL},
 		},
-		settings: map[string]string{cursorKey: "0"}, // explicit cursor: no seeding skip
+		settings: map[string]string{CursorSetting: "0"}, // explicit cursor: no seeding skip
 	}
 	d := New(st)
 	d.Client = srv.Client() // permissive: this test targets a loopback receiver
@@ -120,7 +120,7 @@ func TestDispatcherMatchesAndAdvances(t *testing.T) {
 	if !strings.Contains(got[0], "boom") {
 		t.Errorf("payload missing message: %s", got[0])
 	}
-	if cur := st.settings[cursorKey]; cur != "3" {
+	if cur := st.settings[CursorSetting]; cur != "3" {
 		t.Errorf("cursor = %q, want 3 (advances past all events)", cur)
 	}
 }
@@ -137,14 +137,14 @@ func TestDispatcherSeedsCursorOnFirstRun(t *testing.T) {
 	// Give Run a moment to seed, then stop.
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if v, _ := st.GetSetting(cursorKey); v != "" {
+		if v, _ := st.GetSetting(CursorSetting); v != "" {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	cancel()
 	<-done
-	if v, _ := st.GetSetting(cursorKey); v != "5" {
+	if v, _ := st.GetSetting(CursorSetting); v != "5" {
 		t.Errorf("first-run cursor = %q, want 5 (no replay of history)", v)
 	}
 }
@@ -401,7 +401,7 @@ func TestDispatchResolvesServerOncePerEvent(t *testing.T) {
 			{ID: 2, Type: models.ChannelWebhook, Enabled: true, ServerID: 7, ConfigEnc: srv.URL},
 			{ID: 3, Type: models.ChannelDiscord, Enabled: true, ServerID: 7, ConfigEnc: srv.URL},
 		},
-		settings: map[string]string{cursorKey: "0"},
+		settings: map[string]string{CursorSetting: "0"},
 		servers:  map[uint][2]string{7: {"Prod Box", "prod-box"}},
 	}}
 	d := New(st)
