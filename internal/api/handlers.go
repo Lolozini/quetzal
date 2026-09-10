@@ -299,6 +299,14 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	image := req.Image
 	if image == "" {
 		image = defaultImage(tmpl)
+	} else if u := userFrom(r.Context()); u == nil || (!u.HasAdminPerm(models.AdminPermServers) && !templateOffersImage(tmpl, image)) {
+		// A template's image list is the operator's curation, and the UI presents
+		// it as a choice among those. Taking whatever the request names would let
+		// any account with a quota run any container instead — confined, but not
+		// what the operator put on the menu. An admin may still pin something
+		// else, which is how a new tag gets tried before it is added.
+		writeError(w, http.StatusBadRequest, "image is not one of the template's")
+		return
 	}
 
 	env, err := resolveEnv(tmpl, req.Env)
@@ -1533,6 +1541,16 @@ func (s *Server) lookupServer(w http.ResponseWriter, r *http.Request) (*models.S
 		return nil, false
 	}
 	return srv, true
+}
+
+// templateOffersImage reports whether an image is one the template declares.
+func templateOffersImage(t *models.Template, ref string) bool {
+	for _, img := range t.Images {
+		if img.Ref == ref {
+			return true
+		}
+	}
+	return false
 }
 
 func defaultImage(t *models.Template) string {
