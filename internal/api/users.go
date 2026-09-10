@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -142,6 +143,11 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		// An admin resetting a password is locking someone out; leaving that
+		// account's live sessions running would defeat the point. Passing the
+		// caller's own session hash only matters when an admin resets their own
+		// password — it spares nothing on any other account.
+		_ = s.Store.DeleteSessionsForUserExcept(target.ID, sessionHash(r))
 	}
 	if req.Email != nil {
 		email := strings.TrimSpace(*req.Email)
@@ -184,11 +190,30 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.Store.DeleteUser(target.ID); err != nil {
+	// Servers outlive their owner, so the account's are handed to the admin doing
+	// the deleting. That only works when they already administer every server:
+	// otherwise deleting a user would be a way for a scoped users-admin to
+	// inherit servers — console, files and all — they had no rights on.
+	owned, err := s.Store.CountServersOwnedBy(target.ID)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit(r, 0, "user.delete", target.Username)
+	if owned > 0 && !me.HasAdminPerm(models.AdminPermServers) {
+		writeError(w, http.StatusConflict, fmt.Sprintf(
+			"%s owns %d server(s); deleting the account would hand them over, which needs the %q admin permission",
+			target.Username, owned, models.AdminPermServers))
+		return
+	}
+	if err := s.Store.DeleteUser(target.ID, me.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	detail := target.Username
+	if owned > 0 {
+		detail = fmt.Sprintf("%s (%d server(s) reassigned to %s)", target.Username, owned, me.Username)
+	}
+	s.audit(r, 0, "user.delete", detail)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -220,6 +245,10 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Changing a password is what someone does when they think a session was
+	// stolen, so every other login ends here. The caller's own session is kept
+	// so they aren't signed out of the page they just used.
+	_ = s.Store.DeleteSessionsForUserExcept(u.ID, sessionHash(r))
 	w.WriteHeader(http.StatusNoContent)
 }
 

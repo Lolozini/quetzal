@@ -78,7 +78,19 @@ func (s *Store) DeleteExpiredPasswordResets() (int64, error) {
 // DeleteSessionsForUser invalidates every session of a user (used after a
 // password reset so existing logins can't continue).
 func (s *Store) DeleteSessionsForUser(userID uint) error {
-	return s.db.Where("user_id = ?", userID).Delete(&models.Session{}).Error
+	return s.DeleteSessionsForUserExcept(userID, "")
+}
+
+// DeleteSessionsForUserExcept invalidates a user's sessions but keeps the one
+// whose token hash is keepHash (empty keeps none). Changing a password is what
+// someone does when they think a session has been stolen, so every other login
+// has to end — while the client asking for the change stays signed in.
+func (s *Store) DeleteSessionsForUserExcept(userID uint, keepHash string) error {
+	q := s.db.Where("user_id = ?", userID)
+	if keepHash != "" {
+		q = q.Where("token <> ?", keepHash)
+	}
+	return q.Delete(&models.Session{}).Error
 }
 
 // ---- system SMTP settings ----

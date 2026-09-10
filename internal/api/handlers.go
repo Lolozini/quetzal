@@ -701,10 +701,18 @@ func (s *Server) updateServerResources(r *http.Request, srv *models.Server, rsc 
 		return &httpErr{http.StatusBadRequest, err.Error()}
 	}
 	if editor := userFrom(r.Context()); !editor.HasAdminPerm(models.AdminPermServers) {
-		if owner, err := s.Store.GetUser(srv.OwnerID); err == nil {
-			if err := s.checkResourceQuotaForUpdate(owner, srv.ID, rsc.Memory, rsc.CPU); err != nil {
-				return &httpErr{http.StatusForbidden, err.Error()}
-			}
+		// The quota belongs to the owner, not the editor, so it has to be loaded.
+		// Failing to load it used to skip the check entirely, which turned a
+		// server whose owner had been deleted into one with no limit at all.
+		owner, err := s.Store.GetUser(srv.OwnerID)
+		if errors.Is(err, store.ErrNotFound) {
+			return &httpErr{http.StatusConflict, "this server has no owner; an administrator must reassign it before its resources can change"}
+		}
+		if err != nil {
+			return &httpErr{http.StatusInternalServerError, "could not load the server's owner"}
+		}
+		if err := s.checkResourceQuotaForUpdate(owner, srv.ID, rsc.Memory, rsc.CPU); err != nil {
+			return &httpErr{http.StatusForbidden, err.Error()}
 		}
 	}
 	if err := s.Store.UpdateServerResources(srv.ID, rsc); err != nil {

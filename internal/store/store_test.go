@@ -645,6 +645,10 @@ func TestDeleteUserRevokesSSHAccess(t *testing.T) {
 	if err := st.CreateUser(owner); err != nil {
 		t.Fatal(err)
 	}
+	admin := &models.User{Username: "admin", PasswordHash: "x", IsAdmin: true}
+	if err := st.CreateUser(admin); err != nil {
+		t.Fatal(err)
+	}
 	srv := &models.Server{Slug: "mc", OwnerID: owner.ID}
 	if err := st.CreateServer(srv); err != nil {
 		t.Fatal(err)
@@ -660,7 +664,7 @@ func TestDeleteUserRevokesSSHAccess(t *testing.T) {
 	if len(keys) != 1 {
 		t.Fatalf("owner key should be authorized before deletion, got %d", len(keys))
 	}
-	if err := st.DeleteUser(owner.ID); err != nil {
+	if err := st.DeleteUser(owner.ID, admin.ID); err != nil {
 		t.Fatal(err)
 	}
 	keys, err = st.ListAuthorizedSSHKeys(srv.ID)
