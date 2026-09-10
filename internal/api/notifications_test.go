@@ -147,6 +147,24 @@ func TestNotificationDeliveryEndToEnd(t *testing.T) {
 	defer cancel()
 	go d.Run(ctx)
 
+	// Wait for the dispatcher to seed its cursor before doing anything worth
+	// delivering. Run() sets the cursor to the latest event id on first start so
+	// it never replays history, which means an event created before that seeding
+	// is skipped for good — not delivered late. Racing the goroutine here made
+	// the test fail with "never received", three seconds later, on a loaded CI
+	// runner and nowhere else.
+	seeded := false
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		if cur, _ := st.GetSetting(notify.CursorSetting); cur != "" {
+			seeded = true
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !seeded {
+		t.Fatal("dispatcher never seeded its event cursor")
+	}
+
 	// An audited action -> event -> delivery.
 	if r := post(t, c, ts.URL+"/api/apikeys", map[string]string{"name": "k"}); r.StatusCode != http.StatusCreated {
 		t.Fatalf("create apikey = %d", r.StatusCode)
