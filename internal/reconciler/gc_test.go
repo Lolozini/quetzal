@@ -2,15 +2,18 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/lolozini/quetzal/internal/models"
 )
@@ -176,5 +179,58 @@ func TestGCManagedDBNamespacesRespectsOwnership(t *testing.T) {
 	}
 	if exists(ctx, t, cl, legacy.Name) {
 		t.Error("an unlabelled (pre-upgrade) database orphan was not adopted and collected")
+	}
+}
+
+// A role without update on namespaces must not freeze a server. ensureNamespace
+// is the first step of the reconcile, so returning the error aborted everything
+// after it — Deployment, Service, SFTP keys — while the panel still reported the
+// server as Running. Adding any new label (the ownership stamp did exactly this)
+// turns a create-only reconcile into an update on every pre-existing namespace,
+// so the whole fleet freezes on upgrade.
+func TestEnsureNamespaceToleratesForbiddenLabelUpdate(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("scheme: %v", err)
+	}
+	existing := nsWithLabels("quetzal-srv-old", map[string]string{
+		managedByLabel: managedByValue, serverLabel: "old",
+	})
+	forbid := func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.UpdateOption) error {
+		return apierrors.NewForbidden(
+			schema.GroupResource{Resource: "namespaces"}, obj.GetName(),
+			errors.New("cannot update resource \"namespaces\""))
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).
+		WithInterceptorFuncs(interceptor.Funcs{Update: forbid}).Build()
+	r := &Reconciler{Client: cl, InstanceID: "inst-1"}
+	ctx := context.Background()
+
+	if err := r.ensureNamespace(ctx, &models.Server{Slug: "old", Namespace: "quetzal-srv-old"}); err != nil {
+		t.Fatalf("a namespace that exists but cannot be relabelled must not fail the reconcile: %v", err)
+	}
+	// The label is simply not stamped; GC already treats an unstamped namespace
+	// as legacy rather than as another instance's.
+	var got corev1.Namespace
+	if err := cl.Get(ctx, types.NamespacedName{Name: "quetzal-srv-old"}, &got); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if _, stamped := got.Labels[InstanceLabel]; stamped {
+		t.Error("label was stamped despite the update being forbidden")
+	}
+
+	// A namespace that cannot be created at all is still a hard failure: nothing
+	// downstream can exist without it.
+	strict := fake.NewClientBuilder().WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.CreateOption) error {
+				return apierrors.NewForbidden(
+					schema.GroupResource{Resource: "namespaces"}, obj.GetName(),
+					errors.New("cannot create resource \"namespaces\""))
+			},
+		}).Build()
+	strictR := &Reconciler{Client: strict, InstanceID: "inst-1"}
+	if err := strictR.ensureNamespace(ctx, &models.Server{Slug: "gone", Namespace: "quetzal-srv-gone"}); err == nil {
+		t.Fatal("a namespace that cannot be created must fail the reconcile")
 	}
 }
