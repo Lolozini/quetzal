@@ -53,6 +53,9 @@ Common ones:
 | `image.tag` | Image version to run (pin a release). |
 | `ingress.enabled` / `ingress.host` | Expose the panel over an Ingress. |
 | `persistence.*` | PVC for the SQLite database (the source of truth). |
+| `persistence.existingClaim` | Mount a claim you made yourself instead (a pre-provisioned volume, or an existing install you are moving onto this chart). |
+| `secretKey.existingSecret` | Take the encryption key from your own Secret rather than one the chart generates. |
+| `extraEnv` | Extra environment for every container. `TZ` is the usual one: schedules run in the process's local time. |
 | `nodePort.min` / `nodePort.max` | Control-plane pool for NodePort game ports. |
 | `systemImage` (`QUETZAL_IMAGE`) | Quetzal image used for config-render / SFTP / activator helpers. Set it to enable those features. |
 
@@ -60,8 +63,19 @@ Common ones:
 
 Quetzal encrypts application secrets (S3 creds, SMTP, server secret env) at rest
 with a key from `QUETZAL_SECRET_KEY`. The chart generates one on first install
-and reuses it across upgrades. If you manage it yourself, keep it stable — losing
-it makes existing encrypted values unreadable.
+and reuses it across upgrades.
+
+To hold the key yourself — in SOPS, or an external secret operator — point the
+chart at your own Secret and it will generate nothing:
+
+```sh
+--set secretKey.existingSecret=my-quetzal-key \
+--set secretKey.existingSecretKey=QUETZAL_SECRET_KEY
+```
+
+Whichever way you manage it, keep the value stable. Everything already encrypted
+becomes unreadable under a new key, so an install that holds data wants the old
+key migrated across, not a fresh one issued.
 
 ### Database
 

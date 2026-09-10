@@ -123,7 +123,7 @@ spec:
         - name: data
         {{- if .Values.persistence.enabled }}
           persistentVolumeClaim:
-            claimName: {{ include "quetzal.fullname" . }}-data
+            claimName: {{ .Values.persistence.existingClaim | default (printf "%s-data" (include "quetzal.fullname" .)) }}
         {{- else }}
           emptyDir: {}
         {{- end }}
@@ -167,6 +167,14 @@ spec:
 - name: QUETZAL_SECRET_KEY
   valueFrom:
     secretKeyRef:
+    {{- with .Values.secretKey.existingSecret }}
+      name: {{ . | quote }}
+      key: {{ $.Values.secretKey.existingSecretKey | quote }}
+    {{- else }}
       name: {{ include "quetzal.fullname" . }}-secretkey
       key: secret-key
+    {{- end }}
+{{- with .Values.extraEnv }}
+{{ toYaml . }}
+{{- end }}
 {{- end -}}
