@@ -151,6 +151,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	u, err := s.Store.GetUserByUsername(req.Username)
 	if err != nil {
+		// Spend the same argon2 work an existing account would, so the answer
+		// does not say whether the username exists.
+		auth.SpendVerifyBudget(req.Password)
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}

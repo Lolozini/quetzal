@@ -831,3 +831,41 @@ func TestBuildSFTPServiceAndAuthKeys(t *testing.T) {
 		t.Errorf("authorized_keys = %q", got)
 	}
 }
+
+// The install container runs as root because egg scripts do apt/apk, and that is
+// a deliberate, documented posture. It is not a reason to hand the script every
+// capability the runtime happens to offer: these four are ones no package
+// manager uses, and the first of them is what lets a compromised install script
+// spoof and sniff on the node's network.
+func TestInstallDropsTheCapabilitiesPackageManagersNeverUse(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	tmpl.Install = &models.InstallScript{Image: "debian:slim", Script: "apt-get update"}
+	ic := BuildDeployment(s, tmpl, "", nil).Spec.Template.Spec.InitContainers[0]
+
+	sc := ic.SecurityContext
+	if sc == nil || sc.Capabilities == nil {
+		t.Fatal("install container declares no capabilities at all: it keeps the image default")
+	}
+	dropped := map[corev1.Capability]bool{}
+	for _, c := range sc.Capabilities.Drop {
+		dropped[c] = true
+	}
+	for _, want := range []corev1.Capability{"NET_RAW", "MKNOD", "SYS_CHROOT", "AUDIT_WRITE"} {
+		if !dropped[want] {
+			t.Errorf("install container keeps %s", want)
+		}
+	}
+	// And it still keeps what dpkg needs, or every Debian-based egg breaks.
+	for _, keep := range []corev1.Capability{"CHOWN", "DAC_OVERRIDE", "SETUID", "SETGID", "FOWNER", "SETFCAP"} {
+		if dropped[keep] {
+			t.Errorf("install container drops %s, which package managers need", keep)
+		}
+	}
+	if len(sc.Capabilities.Add) != 0 {
+		t.Errorf("install container adds capabilities: %v", sc.Capabilities.Add)
+	}
+	// Still root: dropping caps must not have quietly changed the posture.
+	if sc.RunAsUser == nil || *sc.RunAsUser != 0 {
+		t.Error("install container no longer runs as root")
+	}
+}
