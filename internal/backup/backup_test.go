@@ -203,6 +203,13 @@ func TestBuildJobForget(t *testing.T) {
 	if !strings.Contains(script, `--tag "bid-7"`) || !strings.Contains(script, "forget") || !strings.Contains(script, "--prune") {
 		t.Errorf("forget script does not remove the tagged snapshot:\n%s", script)
 	}
+	// restic rejects a forget with no retention policy, whatever the filters
+	// select: "no policy was specified, no snapshots will be removed", exit 1.
+	// Asserting the tag and --prune are present is not enough — that is what the
+	// first version of this test did, and the command never worked once.
+	if !strings.Contains(script, "--unsafe-allow-remove-all") {
+		t.Errorf("forget script has no policy and no --unsafe-allow-remove-all, so restic will refuse it:\n%s", script)
+	}
 	if strings.Contains(script, "restic backup") || strings.Contains(script, "restic restore") {
 		t.Errorf("forget script should not back up or restore:\n%s", script)
 	}

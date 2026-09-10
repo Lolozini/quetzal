@@ -117,10 +117,18 @@ func BuildJob(p Params) *batchv1.Job {
 	case p.Forget:
 		// Drop this one snapshot and reclaim its space. --prune is what actually
 		// removes the data from the bucket; forgetting alone only unlinks it.
-		// An already-absent snapshot is not an error: restic forget on a tag that
-		// matches nothing succeeds, which keeps the delete idempotent on retry.
+		//
+		// --unsafe-allow-remove-all is required, not optional: restic refuses a
+		// forget that carries no retention policy ("no policy was specified, no
+		// snapshots will be removed") even when the filters select a single
+		// snapshot, and exits non-zero. The filters are what make it safe here —
+		// the tag is the backup's primary key, so it names exactly one snapshot,
+		// and --host scopes it to this server's.
+		//
+		// An already-absent snapshot is not an error: a tag that matches nothing
+		// still exits 0, which keeps the delete idempotent on retry.
 		script = fmt.Sprintf(`set -e
-restic forget --host %q --tag %q --prune
+restic forget --host %q --tag %q --unsafe-allow-remove-all --prune
 `, p.Slug, tag)
 	case p.Direction == models.DirRestore:
 		srcTag := fmt.Sprintf("bid-%d", p.SourceID)
