@@ -1,9 +1,12 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/lolozini/quetzal/internal/models"
 )
@@ -78,5 +81,92 @@ func TestDeleteBackupRespectsInFlightAndSnapshots(t *testing.T) {
 	}
 	if _, err := st.GetBackup(failed.ID); err == nil {
 		t.Error("failed backup record still present")
+	}
+}
+
+// Deleting a server has to take its snapshots with it. The backup rows are
+// dropped a moment later, so anything left in the bucket is unreachable from the
+// panel from then on — invisible, unrestorable, and still billed. The purge Job
+// therefore has to be created before the rows go, and in the control plane's
+// namespace, because the server's is about to be torn down.
+func TestDeleteServerPurgesItsSnapshots(t *testing.T) {
+	srv, admin, st, apiSrv, cs := newTestServerFull(t)
+	apiSrv.Namespace = "quetzal"
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+
+	if r := put(t, admin, srv.URL+"/api/backup-config", map[string]any{
+		"endpoint": "s3.example", "bucket": "b", "prefix": "p", "region": "r", "useSSL": true,
+		"keepLast": 3, "accessKey": "ak", "secretKey": "sk", "repoPassword": "rp",
+	}); r.StatusCode != http.StatusNoContent && r.StatusCode != http.StatusOK {
+		t.Fatalf("configure backups = %d", r.StatusCode)
+	}
+
+	newServer := func(name string) (uint, string) {
+		t.Helper()
+		var created struct {
+			ID   uint
+			Slug string
+		}
+		r := post(t, admin, srv.URL+"/api/servers", map[string]any{"name": name, "template": "generic-process"})
+		if r.StatusCode != http.StatusCreated {
+			t.Fatalf("create server = %d", r.StatusCode)
+		}
+		json.NewDecoder(r.Body).Decode(&created)
+		r.Body.Close()
+		return created.ID, created.Slug
+	}
+	deleteServer := func(id uint) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodDelete, srv.URL+"/api/servers/"+itoa(id), nil)
+		resp, err := admin.Do(req)
+		if err != nil {
+			t.Fatalf("delete server: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("delete server = %d, want 204", resp.StatusCode)
+		}
+	}
+	purgeJobs := func() []string {
+		t.Helper()
+		jobs, err := cs.BatchV1().Jobs("quetzal").List(context.Background(), metav1.ListOptions{})
+		if err != nil {
+			t.Fatalf("list jobs: %v", err)
+		}
+		var names []string
+		for _, j := range jobs.Items {
+			names = append(names, j.Name)
+		}
+		return names
+	}
+
+	// A server that completed a backup owns a snapshot: deleting it must purge.
+	withSnapshot, slug := newServer("has-backup")
+	if err := st.CreateBackup(&models.Backup{
+		ServerID: withSnapshot, Direction: models.DirBackup, Phase: models.BackupSucceeded,
+	}); err != nil {
+		t.Fatalf("seed backup: %v", err)
+	}
+	deleteServer(withSnapshot)
+	want := "quetzal-purge-" + slug
+	if got := purgeJobs(); len(got) != 1 || got[0] != want {
+		t.Fatalf("purge jobs = %v, want [%s]", got, want)
+	}
+	// The credentials it needs must be there too, under a name of its own.
+	if _, err := cs.CoreV1().Secrets("quetzal").Get(context.Background(),
+		"quetzal-backup-creds-"+slug, metav1.GetOptions{}); err != nil {
+		t.Errorf("purge Job has no credentials: %v", err)
+	}
+
+	// A server that never completed one has no repository, so nothing to purge.
+	noSnapshot, _ := newServer("no-backup")
+	if err := st.CreateBackup(&models.Backup{
+		ServerID: noSnapshot, Direction: models.DirBackup, Phase: models.BackupFailed,
+	}); err != nil {
+		t.Fatalf("seed backup: %v", err)
+	}
+	deleteServer(noSnapshot)
+	if got := purgeJobs(); len(got) != 1 {
+		t.Errorf("a server with no completed backup was purged anyway: %v", got)
 	}
 }

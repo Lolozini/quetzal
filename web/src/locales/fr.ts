@@ -255,8 +255,8 @@ export const fr: Record<string, string> = {
     "Arrêt forcé demandé — le pod est stoppé immédiatement.",
   "Transfer this server to {name}?\n\nIt will be stopped, its data backed up and restored on the destination, then the source removed. This can take a while.":
     "Transférer ce serveur vers {name} ?\n\nIl sera arrêté, ses données sauvegardées puis restaurées sur la destination, et la source supprimée. Cela peut prendre du temps.",
-  "Delete this server? Its pod, service, config and data volume are permanently removed. This cannot be undone.":
-    "Supprimer ce serveur ? Son pod, son service, sa config et son volume de données sont supprimés définitivement. Action irréversible.",
+  "Delete this server? Its pod, service, config, data volume and every backup snapshot it owns are permanently removed. This cannot be undone.":
+    "Supprimer ce serveur ? Son pod, son service, sa config, son volume de données et tous ses instantanés de sauvegarde sont supprimés définitivement. Action irréversible.",
   "Edit this server's configuration. A ↻ marker appears on a pending change that will restart the server.":
     "Modifiez la configuration de ce serveur. Un marqueur ↻ apparaît sur une modification non enregistrée qui redémarrera le serveur.",
   "Ports saved; the server restarts to apply.": "Ports enregistrés ; le serveur redémarre pour appliquer.",

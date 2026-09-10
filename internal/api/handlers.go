@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/lolozini/quetzal/internal/auth"
+	"github.com/lolozini/quetzal/internal/backup"
 	"github.com/lolozini/quetzal/internal/console"
 	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/egg"
@@ -1065,6 +1066,11 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "target cluster unavailable: "+err.Error())
 		return
 	}
+	// Purge the server's snapshots before its rows go: afterwards nothing
+	// references the repository, so it would sit in the bucket for good, costing
+	// storage and unreachable from the panel. Best-effort and asynchronous — the
+	// Job outlives this request — but a failure is logged rather than silent.
+	s.purgeServerBackups(r.Context(), srv)
 	// Remove the DB rows BEFORE the namespace. Once the server row is gone the
 	// reconciler won't recreate the workload, closing the window where a
 	// concurrent reconcile could re-materialize the namespace between teardown
@@ -1087,6 +1093,70 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 		log.Printf("delete server %s: namespace teardown deferred to GC: %v", srv.Slug, err)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// purgeServerBackups drops every snapshot a server owns, as its own Job.
+//
+// It runs in the control plane's namespace, not the server's: the server's
+// namespace is about to be torn down and would take the Job with it. That is
+// safe because a purge only talks to the object store — no data volume, no node
+// placement — so it has no affinity to the cluster the server lived on either.
+//
+// Nothing tracks the outcome, because by design there is nothing left to track
+// it against: the backup rows are deleted a moment later, and keeping them
+// around would show a deleted server's backups in the panel. A failure
+// therefore leaves the snapshots behind, which is what happened unconditionally
+// before this ran at all — so it is logged loudly enough to act on.
+func (s *Server) purgeServerBackups(ctx context.Context, srv *models.Server) {
+	cfg, err := s.Store.GetBackupConfig()
+	if err != nil || strings.TrimSpace(cfg.Bucket) == "" {
+		return // no target configured: there is nothing in a bucket to purge
+	}
+	// Skip servers that never completed a backup: their repository was never
+	// initialised, so a Job would have nothing to do.
+	backups, err := s.Store.ListBackupsForServer(srv.ID)
+	if err != nil {
+		log.Printf("purge backups for %s: list: %v", srv.Slug, err)
+		return
+	}
+	any := false
+	for i := range backups {
+		if backups[i].Direction == models.DirBackup && backups[i].Phase == models.BackupSucceeded {
+			any = true
+			break
+		}
+	}
+	if !any {
+		return
+	}
+	if s.Namespace == "" {
+		log.Printf("purge backups for %s: control-plane namespace unknown; %d snapshot(s) left in the bucket", srv.Slug, len(backups))
+		return
+	}
+	access, secret, pass, err := s.Store.BackupSecrets(cfg)
+	if err != nil {
+		log.Printf("purge backups for %s: decrypt credentials: %v", srv.Slug, err)
+		return
+	}
+	p := backup.Params{
+		Image: backup.Image(cfg), Namespace: s.Namespace, Slug: srv.Slug, Purge: true,
+		Repository: backup.Repository(cfg, srv.Slug), Region: cfg.Region,
+		AccessKey: access, SecretKey: secret, RepoPassword: pass,
+	}
+	sec := backup.BuildSecret(p)
+	if _, err := s.Clientset.CoreV1().Secrets(p.Namespace).Create(ctx, sec, metav1.CreateOptions{}); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			log.Printf("purge backups for %s: creds secret: %v", srv.Slug, err)
+			return
+		}
+		if _, err := s.Clientset.CoreV1().Secrets(p.Namespace).Update(ctx, sec, metav1.UpdateOptions{}); err != nil {
+			log.Printf("purge backups for %s: creds secret: %v", srv.Slug, err)
+			return
+		}
+	}
+	if _, err := s.Clientset.BatchV1().Jobs(p.Namespace).Create(ctx, backup.BuildJob(p), metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		log.Printf("purge backups for %s: create job: %v; its snapshots stay in the bucket", srv.Slug, err)
+	}
 }
 
 // deleteNamespace removes a server's namespace (cascading its objects), treating

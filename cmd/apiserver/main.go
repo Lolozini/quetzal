@@ -71,6 +71,8 @@ func main() {
 	apiSrv.NodePortMax = envInt32("QUETZAL_NODEPORT_MAX", 0)
 	apiSrv.WakeKey = crypto.KeyFromEnv("QUETZAL_SECRET_KEY")
 	apiSrv.TrustProxy = env("QUETZAL_TRUST_PROXY", "") == "true"
+	// Where to run Jobs that must outlive the namespace they act on.
+	apiSrv.Namespace = env("POD_NAMESPACE", "")
 
 	// The notification dispatcher drains the event outbox to configured channels.
 	dispatcher := notify.New(st)

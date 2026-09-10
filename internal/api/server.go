@@ -37,6 +37,11 @@ type Server struct {
 	Store      *store.Store
 	Clientset  kubernetes.Interface
 	RestConfig *rest.Config
+	// Namespace is the control plane's own namespace, for the few Jobs that must
+	// outlive the namespace they act on (purging a deleted server's snapshots).
+	// Empty when it could not be determined, in which case those Jobs are
+	// skipped and logged rather than created somewhere arbitrary.
+	Namespace string
 	// Registry resolves per-cluster k8s clients (the passed-in clientset is the
 	// local cluster). Server-scoped handlers route to the server's own cluster.
 	Registry *cluster.Registry

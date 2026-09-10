@@ -261,3 +261,69 @@ func TestContainerFailureExplainsAPodThatNeverRan(t *testing.T) {
 		t.Errorf("completed container = %q, want empty", got)
 	}
 }
+
+// A restore has to leave the volume matching the snapshot. Without --delete a
+// file created after the snapshot survives, so rolling a server back after a bad
+// mod install kept the mod's files — defeating the point of the restore, and
+// contradicting what the panel tells the user is about to happen.
+//
+// The include filter is not cosmetic: restic refuses "--target / --delete"
+// without one, because the snapshot's root holds only the data directory and an
+// unfiltered delete would take that directory's siblings at / with it.
+func TestBuildJobRestoreMatchesTheSnapshot(t *testing.T) {
+	j := BuildJob(Params{Slug: "s1", BackupID: 9, SourceID: 4, Direction: models.DirRestore})
+	script := j.Spec.Template.Spec.Containers[0].Command[2]
+	if !strings.Contains(script, "restic restore") || !strings.Contains(script, `--tag "bid-4"`) {
+		t.Fatalf("not a restore of the source snapshot:\n%s", script)
+	}
+	if !strings.Contains(script, "--delete") {
+		t.Errorf("restore merges into the volume instead of matching the snapshot:\n%s", script)
+	}
+	if !strings.Contains(script, "--include "+mountPath) {
+		t.Errorf("restore deletes without scoping to the data path, which restic refuses:\n%s", script)
+	}
+	if !strings.Contains(script, "--target /") {
+		t.Errorf("restore does not target / (restic stores absolute paths):\n%s", script)
+	}
+}
+
+// Deleting a server used to drop its backup rows and leave every snapshot in the
+// bucket: unreachable from the panel, and billed for ever. The purge Job runs in
+// the control plane's namespace because the server's is being torn down, which it
+// can only do by touching nothing but the repository.
+func TestBuildJobPurge(t *testing.T) {
+	p := Params{
+		Slug: "s1", Namespace: "quetzal", Purge: true,
+		NodeSelector: map[string]string{"disktype": "ssd"},
+	}
+	j := BuildJob(p)
+	if j.Name != "quetzal-purge-s1" {
+		t.Errorf("job name = %q, want it named after the server (its backup rows are gone)", j.Name)
+	}
+	if j.Namespace != "quetzal" {
+		t.Errorf("job namespace = %q, want the control plane's", j.Namespace)
+	}
+	ps := j.Spec.Template.Spec
+	if len(ps.Volumes) != 0 || len(ps.Containers[0].VolumeMounts) != 0 {
+		t.Errorf("purge Job touches the data volume, so it cannot outlive the namespace: %+v", ps.Volumes)
+	}
+	if ps.NodeSelector != nil || ps.Affinity != nil {
+		t.Errorf("purge Job is pinned to the server's placement: %v %+v", ps.NodeSelector, ps.Affinity)
+	}
+	if got := SecretName(p); got != CredsSecretName+"-s1" {
+		t.Errorf("purge creds secret = %q, want a per-server name (purges share one namespace)", got)
+	}
+	script := ps.Containers[0].Command[2]
+	if !strings.Contains(script, `--host "s1"`) || !strings.Contains(script, "--unsafe-allow-remove-all") ||
+		!strings.Contains(script, "--prune") {
+		t.Errorf("purge does not drop every snapshot for the server:\n%s", script)
+	}
+	if strings.Contains(script, "--tag") {
+		t.Errorf("purge filters by tag, so it would leave the other snapshots behind:\n%s", script)
+	}
+	// A server deleted before its first backup has no repository at all; that is
+	// not a failure to report.
+	if !strings.Contains(script, "restic snapshots >/dev/null 2>&1 || exit 0") {
+		t.Errorf("purge fails on a repository that was never initialised:\n%s", script)
+	}
+}
