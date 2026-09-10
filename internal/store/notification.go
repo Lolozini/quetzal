@@ -26,22 +26,28 @@ func (s *Store) CreateChannel(c *models.NotificationChannel, config map[string]s
 // UpdateChannel persists a channel's metadata and, when config is non-nil,
 // re-encrypts and replaces its settings. A nil config leaves credentials intact.
 func (s *Store) UpdateChannel(c *models.NotificationChannel, config map[string]string) error {
-	fields := map[string]any{
-		"name":      c.Name,
-		"type":      c.Type,
-		"enabled":   c.Enabled,
-		"server_id": c.ServerID,
-		"events":    c.Events,
+	// The update is struct-shaped, with the columns named explicitly so zero
+	// values (Enabled=false, an emptied event list) are still written. A
+	// map-shaped Updates() would be simpler but bypasses the Events column's
+	// encoding, storing a raw Go slice the next read cannot decode.
+	cols := []string{"name", "type", "enabled", "server_id", "events"}
+	upd := models.NotificationChannel{
+		Name:     c.Name,
+		Type:     c.Type,
+		Enabled:  c.Enabled,
+		ServerID: c.ServerID,
+		Events:   c.Events,
 	}
 	if config != nil {
 		enc, err := s.SealSecrets(config)
 		if err != nil {
 			return err
 		}
-		fields["config_enc"] = enc
+		upd.ConfigEnc = enc
+		cols = append(cols, "config_enc")
 	}
 	return s.db.Model(&models.NotificationChannel{}).Where("id = ?", c.ID).
-		Updates(fields).Error
+		Select(cols).Updates(upd).Error
 }
 
 // GetChannel returns a channel by ID.

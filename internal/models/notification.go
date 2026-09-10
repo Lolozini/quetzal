@@ -1,6 +1,11 @@
 package models
 
-import "time"
+import (
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 // ChannelType identifies a notification sink implementation.
 type ChannelType string
@@ -56,11 +61,61 @@ type NotificationChannel struct {
 	ServerID uint `gorm:"index" json:"serverId"`
 
 	// Events is the allow-list of event types this channel receives. Empty = all.
-	Events []string `gorm:"serializer:json" json:"events"`
+	Events EventList `json:"events"`
 
 	// ConfigEnc is the encrypted JSON of the type-specific settings map. Never
 	// serialized; the API exposes a masked view instead.
 	ConfigEnc string `json:"-"`
+}
+
+// EventList is a channel's event allow-list, stored as a JSON array. It carries
+// its own Scanner/Valuer rather than relying on GORM's `serializer:json` tag,
+// because that tag is only honoured on struct-shaped writes: a map-based
+// Updates() call slips the raw Go slice past it and leaves a column no read can
+// decode, which used to make one bad row fail every channel query — bricking
+// notifications panel-wide and leaving the row undeletable through the API.
+type EventList []string
+
+// Value encodes the list as a JSON array; a nil list stores "[]" rather than
+// NULL so the column always holds decodable JSON.
+func (e EventList) Value() (driver.Value, error) {
+	if e == nil {
+		return "[]", nil
+	}
+	b, err := json.Marshal([]string(e))
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
+}
+
+// Scan decodes the stored JSON array. A value that isn't decodable — written by
+// an older build through the map-update path — degrades to the empty list,
+// which the Matches contract already defines as "no filter". Losing a filter is
+// recoverable (the channel shows up in the UI and can be re-saved); failing the
+// scan is not, because it takes every other channel down with it.
+func (e *EventList) Scan(v any) error {
+	*e = nil
+	var raw []byte
+	switch t := v.(type) {
+	case nil:
+		return nil
+	case []byte:
+		raw = t
+	case string:
+		raw = []byte(t)
+	default:
+		return fmt.Errorf("events: cannot scan %T", v)
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	var out []string
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil // salvage the row; treat as "no filter"
+	}
+	*e = out
+	return nil
 }
 
 // Config keys per channel type (stored encrypted in ConfigEnc):
