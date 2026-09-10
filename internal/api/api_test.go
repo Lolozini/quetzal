@@ -13,10 +13,14 @@ import (
 	"strings"
 	"testing"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/lolozini/quetzal/internal/api"
 	"github.com/lolozini/quetzal/internal/store"
@@ -65,6 +69,18 @@ func newTestServerFull(t *testing.T) (*httptest.Server, *http.Client, *store.Sto
 		t.Fatalf("seed: %v", err)
 	}
 	cs := fake.NewSimpleClientset()
+	// The fake clientset does not assign UIDs, but the real API server always
+	// does, and code that builds owner references depends on getting one back.
+	cs.PrependReactor("create", "jobs", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		job, ok := a.(k8stesting.CreateAction).GetObject().(*batchv1.Job)
+		if !ok {
+			return false, nil, nil
+		}
+		if job.UID == "" {
+			job.UID = types.UID("uid-" + job.Name)
+		}
+		return false, nil, nil // fall through to the default tracker
+	})
 	apiSrv := api.New(st, cs, &rest.Config{})
 	ts := httptest.NewServer(apiSrv.Handler())
 	t.Cleanup(ts.Close)
