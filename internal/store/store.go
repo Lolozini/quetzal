@@ -857,8 +857,27 @@ func (s *Store) UpdateUserPassword(id uint, hash string) error {
 }
 
 // DeleteUser removes a user and their access grants + API keys.
-func (s *Store) DeleteUser(id uint) error {
+// DeleteUser removes a user and every credential attached to them. Servers they
+// own are handed to reassignTo rather than left behind: a deleted owner used to
+// leave running workloads pointing at an account that no longer exists, with no
+// one to answer for them and the owner-based resource quota silently skipped.
+func (s *Store) DeleteUser(id, reassignTo uint) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
+		if reassignTo == id {
+			return errors.New("store: cannot reassign a deleted user's servers to themselves")
+		}
+		if err := tx.Model(&models.Server{}).Where("owner_id = ?", id).
+			Update("owner_id", reassignTo).Error; err != nil {
+			return err
+		}
+		// The new owner holds every permission by ownership, so a subuser grant
+		// they may already have had on one of those servers is now noise — and it
+		// would list the owner among their own server's subusers.
+		if err := tx.Where("user_id = ? AND server_id IN (?)", reassignTo,
+			tx.Model(&models.Server{}).Select("id").Where("owner_id = ?", reassignTo)).
+			Delete(&models.ServerAccess{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("user_id = ?", id).Delete(&models.ServerAccess{}).Error; err != nil {
 			return err
 		}
@@ -879,6 +898,14 @@ func (s *Store) DeleteUser(id uint) error {
 		}
 		return tx.Delete(&models.User{}, id).Error
 	})
+}
+
+// CountServersOwnedBy returns how many servers a user owns (guards account
+// deletion, which hands them to someone else).
+func (s *Store) CountServersOwnedBy(userID uint) (int64, error) {
+	var n int64
+	err := s.db.Model(&models.Server{}).Where("owner_id = ?", userID).Count(&n).Error
+	return n, err
 }
 
 // CountAdmins returns the number of admin users (to protect the last admin).

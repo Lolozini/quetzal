@@ -336,6 +336,36 @@ releases may include breaking changes).
 - Server creation no longer fails with `variable "TYPE" is not editable` when a
   template has fixed (non-editable) variables.
 
+### Security
+
+- **A scheduled task now needs the permission the action itself needs.** A
+  subuser holding only **schedules** could put a `command` task on a one-minute
+  cron and get the console they were never granted — on a Minecraft server, that
+  is `op`. Power and backup tasks went the same way. Each task in a chain is now
+  checked against the matching permission (`console`, `power`, `backups`) when
+  the schedule is created or edited, and a chain containing one unauthorized task
+  is refused whole. Owners and admins are unaffected. Switching a schedule *off*
+  needs nothing beyond **schedules**, so anyone who can manage them can stop a
+  task that is misbehaving. Note that a schedule keeps running with the
+  permissions it was created under: revoking a subuser's console access does not
+  disable the schedules they already made, so review them when you take a
+  permission away.
+- **Changing a password now ends every other session.** Only the reset-by-email
+  flow revoked sessions; a self-service change and an admin reset both left
+  existing logins working — so the one action anyone takes after a session is
+  stolen did nothing about it. Both now invalidate the account's other sessions
+  while keeping the client that asked for the change signed in. API keys are
+  separate credentials and are untouched: revoke them from **Account → API keys**
+  if they may also be compromised.
+- **Deleting a user no longer strands their servers.** The servers kept running
+  with an owner id pointing at a deleted account: nobody accountable for them,
+  and the owner-based resource quota silently skipped on every later edit (a
+  subuser with **settings** could raise memory and CPU without limit). They are
+  now reassigned to the admin performing the deletion, recorded in the audit
+  entry. Because that hands over console and file access, an admin scoped to
+  **users** only gets `409` when the account owns servers — reassigning them is
+  a servers-level decision. A server that is already ownerless refuses resource
+  changes from non-admins until an administrator reassigns it.
 ## [0.1.0] - 2026-06-25
 
 Initial public release — a Kubernetes-native control plane and web UI for hosting

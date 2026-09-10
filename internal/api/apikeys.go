@@ -25,6 +25,17 @@ func hashToken(tok string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// sessionHash returns the hash of the caller's session token, matching what is
+// stored in the sessions table. It returns "" when the caller authenticated some
+// other way (an API key), so that no session is mistaken for theirs and spared.
+func sessionHash(r *http.Request) string {
+	tok := tokenFromRequest(r)
+	if tok == "" || strings.HasPrefix(tok, apiKeyPrefix) {
+		return ""
+	}
+	return hashToken(tok)
+}
+
 func (s *Server) handleListAPIKeys(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
 	ks, err := s.Store.ListAPIKeysForUser(u.ID)

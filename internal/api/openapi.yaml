@@ -977,6 +977,11 @@ paths:
     post:
       tags: [Schedules]
       summary: Create a schedule
+      description: >
+        Every task is checked against the permission its action needs directly:
+        command needs console, start/stop/restart need power, and backup needs
+        backups. A chain containing one task the caller could not run by hand is
+        refused whole.
       requestBody:
         required: true
         content:
@@ -988,6 +993,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Schedule" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /api/servers/{id}/schedules/{sid}:
     parameters:
       - $ref: "#/components/parameters/ServerId"
@@ -998,6 +1004,9 @@ paths:
     patch:
       tags: [Schedules]
       summary: Update a schedule
+      description: >
+        Fields are optional; only what is sent is changed. A replacement task
+        chain is authorized exactly as on create.
       requestBody:
         required: true
         content:
@@ -1009,6 +1018,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Schedule" }
+        "403": { $ref: "#/components/responses/Forbidden" }
     delete:
       tags: [Schedules]
       summary: Delete a schedule
@@ -1362,8 +1372,18 @@ paths:
     delete:
       tags: [Users]
       summary: Delete a user (admin)
+      description: >
+        Servers the account owns are reassigned to the admin performing the
+        deletion, since a server cannot be left without an owner. That hands over
+        console and file access, so an admin scoped to "users" alone gets 409
+        when the target owns any server.
       responses:
         "204": { description: Deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: >
+            The target owns servers and the caller does not hold the "servers"
+            admin permission, or the target is the last admin.
   /api/users/{uid}/2fa/disable:
     parameters:
       - $ref: "#/components/parameters/UserId"

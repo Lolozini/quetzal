@@ -65,6 +65,10 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := s.authorizeTasks(r, srv, tasks); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	sc := &models.Schedule{
 		ServerID: srv.ID,
 		Name:     req.Name,
@@ -88,7 +92,7 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
-	sc, ok := s.lookupSchedule(w, r, models.PermSchedules)
+	sc, srv, ok := s.lookupSchedule(w, r, models.PermSchedules)
 	if !ok {
 		return
 	}
@@ -126,6 +130,16 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Turning a schedule off, or renaming it, causes nothing to run: a subuser
+	// watching a task misbehave can stop it whether or not they could have
+	// written it. Anything that changes what runs — or that arms it again — is
+	// authorized like a fresh chain.
+	if req.Enabled || !sameChain(sc.TaskChain(), tasks) {
+		if err := s.authorizeTasks(r, srv, tasks); err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+	}
 	sc.Name, sc.Cron, sc.Enabled = req.Name, req.Cron, req.Enabled
 	sc.Tasks = tasks
 	sc.Action, sc.Payload = tasks[0].Action, tasks[0].Payload
@@ -145,7 +159,7 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
-	sc, ok := s.lookupSchedule(w, r, models.PermSchedules)
+	sc, _, ok := s.lookupSchedule(w, r, models.PermSchedules)
 	if !ok {
 		return
 	}
@@ -158,16 +172,17 @@ func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
 }
 
 // lookupSchedule resolves {sid}, checks `perm` on the parent server, and that
-// the schedule belongs to it.
-func (s *Server) lookupSchedule(w http.ResponseWriter, r *http.Request, perm string) (*models.Schedule, bool) {
+// the schedule belongs to it. The server is returned as well, because the task
+// chain has to be authorized against it (see authorizeTasks).
+func (s *Server) lookupSchedule(w http.ResponseWriter, r *http.Request, perm string) (*models.Schedule, *models.Server, bool) {
 	srv, ok := s.requireServer(w, r, perm)
 	if !ok {
-		return nil, false
+		return nil, nil, false
 	}
 	sid, ok := pathID(r, "sid")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid schedule id")
-		return nil, false
+		return nil, nil, false
 	}
 	sc, err := s.Store.GetSchedule(sid)
 	if err != nil {
@@ -176,13 +191,56 @@ func (s *Server) lookupSchedule(w http.ResponseWriter, r *http.Request, perm str
 		} else {
 			writeError(w, http.StatusInternalServerError, err.Error())
 		}
-		return nil, false
+		return nil, nil, false
 	}
 	if sc.ServerID != srv.ID {
 		writeError(w, http.StatusNotFound, "schedule not found")
-		return nil, false
+		return nil, nil, false
 	}
-	return sc, true
+	return sc, srv, true
+}
+
+// taskPermission maps a scheduled action to the permission needed to perform it
+// by hand.
+func taskPermission(a models.ScheduleAction) string {
+	switch a {
+	case models.SchedStart, models.SchedStop, models.SchedRestart:
+		return models.PermPower
+	case models.SchedCommand:
+		return models.PermConsole
+	case models.SchedBackup:
+		return models.PermBackups
+	}
+	return ""
+}
+
+// sameChain reports whether two task chains would run the same thing.
+func sameChain(a, b []models.ScheduleTask) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// authorizeTasks refuses a chain containing an action the caller could not
+// perform directly. Without it "schedules" is the strongest permission there is:
+// a subuser who holds it and nothing else could schedule a console command a
+// minute out and get the console, power and backups it was never granted.
+func (s *Server) authorizeTasks(r *http.Request, srv *models.Server, tasks []models.ScheduleTask) error {
+	u := userFrom(r.Context())
+	for _, t := range tasks {
+		perm := taskPermission(t.Action)
+		if perm == "" || s.can(u, srv, perm) {
+			continue
+		}
+		return fmt.Errorf("scheduling a %q task needs the %q permission on this server", t.Action, perm)
+	}
+	return nil
 }
 
 // validateSchedule checks the request and returns the normalized task chain. A
