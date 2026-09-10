@@ -6,11 +6,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -123,15 +125,21 @@ func main() {
 		ticker := time.NewTicker(resync)
 		defer ticker.Stop()
 		tick := func() {
-			reconcileAll(ctx, reg, st, actCfg, egressAllow)
-			sched.Tick(ctx)
+			// Each step is independent, and none of them is worth the whole
+			// controller: a panic anywhere below would end the process, which
+			// Kubernetes restarts straight back into the row that caused it.
+			_ = guarded("reconcile", func() error {
+				reconcileAll(ctx, reg, st, actCfg, egressAllow)
+				return nil
+			})
+			_ = guarded("schedules", func() error { sched.Tick(ctx); return nil })
 			// Transfers advance after reconcile (which creates the destination
 			// namespace/volume post cluster-flip) and before the backup manager
 			// (so the backup/restore jobs they enqueue run in the same tick).
-			tmgr.Process(ctx)
-			bmgr.Process(ctx)
-			hmgr.Tick(ctx)
-			refreshClusters(ctx, reg, st)
+			_ = guarded("transfers", func() error { tmgr.Process(ctx); return nil })
+			_ = guarded("backups", func() error { bmgr.Process(ctx); return nil })
+			_ = guarded("hibernation", func() error { hmgr.Tick(ctx); return nil })
+			_ = guarded("cluster refresh", func() error { refreshClusters(ctx, reg, st); return nil })
 		}
 		tick()
 		for {
@@ -342,7 +350,7 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 		rec.ExtraEgressCIDRs = egressAllow
 		rec.ClusterID = c.ID
 		for _, s := range byCluster[c.ID] {
-			if err := rec.ReconcileServer(ctx, s.ID); err != nil {
+			if err := guarded("reconcile server "+s.Slug, func() error { return rec.ReconcileServer(ctx, s.ID) }); err != nil {
 				log.Printf("reconcile server %s (cluster %s): %v", s.Slug, c.Slug, err)
 			}
 		}
@@ -455,4 +463,23 @@ func parseCIDRList(v string) []string {
 		out = append(out, p)
 	}
 	return out
+}
+
+// guarded runs fn, turning a panic into an error.
+//
+// The controller reconciles rows it did not write, and a value that reaches
+// something like resource.MustParse takes the process with it. Kubernetes then
+// restarts it straight back into the same row, so a single bad field stops
+// reconciliation for every server until someone edits the database. Containing
+// it costs one failed item instead.
+//
+// The panic is still a bug and is logged as one, with its stack.
+func guarded(what string, fn func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("panic: %v", r)
+			log.Printf("%s panicked (this is a bug, please report it): %v\n%s", what, r, debug.Stack())
+		}
+	}()
+	return fn()
 }
