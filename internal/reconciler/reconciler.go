@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -24,6 +25,10 @@ import (
 type Reconciler struct {
 	Client client.Client
 	Store  *store.Store
+
+	// warned de-duplicates warnings that would otherwise repeat every resync.
+	warnMu sync.Mutex
+	warned map[string]bool
 
 	// OnStop, if set, is called just before a running server is scaled to zero
 	// so a graceful stop command can be delivered to the container (via the
@@ -220,7 +225,36 @@ func (r *Reconciler) ensureNamespace(ctx context.Context, s *models.Server) erro
 		}
 		return nil
 	})
-	return err
+	if err == nil || !apierrors.IsForbidden(err) {
+		return err
+	}
+	// Having the namespace is a hard requirement; re-labelling one that already
+	// exists is not. This is the first step of a server's reconcile, so letting a
+	// label write fail the whole call freezes everything after it — the
+	// Deployment, the Service, the SFTP keys — while the panel still reports the
+	// server as running. A role without update on namespaces is enough to trigger
+	// it: adding any new label (as the ownership stamp did) turns a create-only
+	// reconcile into an update on every pre-existing namespace.
+	if getErr := r.Client.Get(ctx, client.ObjectKey{Name: s.Namespace}, &corev1.Namespace{}); getErr != nil {
+		return err
+	}
+	r.warnOnce("namespace-labels", "cannot update namespace labels (%v); servers keep reconciling, but orphan-collection ownership will not be stamped on existing namespaces", err)
+	return nil
+}
+
+// warnOnce logs a message the first time a given key is seen, so a condition
+// that repeats on every 15s resync is reported without flooding the log.
+func (r *Reconciler) warnOnce(key, format string, args ...any) {
+	r.warnMu.Lock()
+	defer r.warnMu.Unlock()
+	if r.warned == nil {
+		r.warned = map[string]bool{}
+	}
+	if r.warned[key] {
+		return
+	}
+	r.warned[key] = true
+	log.Printf(format, args...)
 }
 
 func (r *Reconciler) ensureResourceQuota(ctx context.Context, s *models.Server) error {
