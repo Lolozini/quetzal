@@ -321,10 +321,19 @@ func TestBuildJobPurge(t *testing.T) {
 	if strings.Contains(script, "--tag") {
 		t.Errorf("purge filters by tag, so it would leave the other snapshots behind:\n%s", script)
 	}
-	// A server deleted before its first backup has no repository at all; that is
-	// not a failure to report.
-	if !strings.Contains(script, "restic snapshots >/dev/null 2>&1 || exit 0") {
-		t.Errorf("purge fails on a repository that was never initialised:\n%s", script)
+	// A server deleted before its first backup has no repository at all, which
+	// restic reports as exit 10 — that alone is not a failure. Every other
+	// non-zero code has to stay one: swallowing them would report a successful
+	// purge while the snapshots are still in the bucket, the exact outcome this
+	// job exists to prevent (wrong credentials, for instance, is exit 1).
+	if !strings.Contains(script, `[ "$rc" = 10 ] && exit 0`) {
+		t.Errorf("purge does not treat a missing repository as nothing to do:\n%s", script)
+	}
+	if !strings.Contains(script, `[ "$rc" = 0 ] || exit "$rc"`) {
+		t.Errorf("purge swallows real failures as success:\n%s", script)
+	}
+	if strings.Contains(script, "2>&1") {
+		t.Errorf("purge hides restic's error from the pod log:\n%s", script)
 	}
 }
 

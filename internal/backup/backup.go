@@ -143,11 +143,20 @@ func BuildJob(p Params) *batchv1.Job {
 	switch {
 	case p.Purge:
 		// Drop every snapshot this server has, for when the server itself is
-		// deleted: its repository is per-server, so nothing else lives in it. A
-		// repository that was never initialised (no backup ever ran) is not an
-		// error — there is simply nothing to purge.
+		// deleted: its repository is per-server, so nothing else lives in it.
+		//
+		// A repository that was never initialised (no backup ever ran) is not an
+		// error, and restic says so specifically: exit 10 means the repository
+		// does not exist. Anything else — wrong credentials is exit 1 — is a real
+		// failure and has to stay one. Treating every non-zero code as "nothing
+		// to purge" would report success while the snapshots are still there,
+		// which is the outcome this whole job exists to prevent. stderr is left
+		// alone so the reason reaches the pod log.
 		script = fmt.Sprintf(`set -e
-restic snapshots >/dev/null 2>&1 || exit 0
+rc=0
+restic snapshots >/dev/null || rc=$?
+[ "$rc" = 10 ] && exit 0
+[ "$rc" = 0 ] || exit "$rc"
 restic forget --host %q --unsafe-allow-remove-all --prune
 `, p.Slug)
 	case p.Forget:
