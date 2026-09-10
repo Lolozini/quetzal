@@ -57,7 +57,7 @@ Common ones:
 | `secretKey.existingSecret` | Take the encryption key from your own Secret rather than one the chart generates. |
 | `extraEnv` | Extra environment for every container. `TZ` is the usual one: schedules run in the process's local time. |
 | `nodePort.min` / `nodePort.max` | Control-plane pool for NodePort game ports. |
-| `systemImage` (`QUETZAL_IMAGE`) | Quetzal image used for config-render / SFTP / activator helpers. Set it to enable those features. |
+| `image.repository` / `image.tag` | Also the image used for the config-render, SFTP and wake-on-connect helpers (`QUETZAL_IMAGE`); the chart derives it, there is nothing to set. |
 
 ### Secret key
 
