@@ -147,7 +147,10 @@ func (m *Manager) processRunning(ctx context.Context) {
 		return
 	}
 	keepLast := 7
-	if cfg, err := m.Store.GetBackupConfig(); err == nil && cfg.KeepLast > 0 {
+	cfg, cfgErr := m.Store.GetBackupConfig()
+	if cfgErr != nil || cfg == nil {
+		cfg = &models.BackupConfig{} // redaction then matches nothing, as before
+	} else if cfg.KeepLast > 0 {
 		keepLast = cfg.KeepLast
 	}
 	for i := range run {
@@ -184,7 +187,8 @@ func (m *Manager) processRunning(ctx context.Context) {
 			}
 			cleanup(ctx, cs, srv.Namespace, b.JobName)
 		case job.Status.Failed > 0:
-			msg := lastLogLine(podLogs(ctx, cs, srv.Namespace, b.JobName))
+			msg := redactRepository(lastLogLine(podLogs(ctx, cs, srv.Namespace, b.JobName)),
+				Repository(cfg, srv.Slug))
 			if msg == "" {
 				msg = "backup job failed"
 			}
@@ -283,7 +287,8 @@ func (m *Manager) processDeleting(ctx context.Context) {
 				log.Printf("backup: delete %d: %v", b.ID, err)
 			}
 		case job.Status.Failed > 0:
-			msg := lastLogLine(podLogs(ctx, cs, srv.Namespace, b.JobName))
+			msg := redactRepository(lastLogLine(podLogs(ctx, cs, srv.Namespace, b.JobName)),
+				Repository(cfg, srv.Slug))
 			if msg == "" {
 				msg = "the snapshot could not be removed"
 			}
@@ -405,6 +410,25 @@ func (m *Manager) finish(b *models.Backup, phase models.BackupPhase, size int64,
 	if err := m.Store.UpdateBackup(b); err != nil {
 		log.Printf("backup: finish %d: %v", b.ID, err)
 	}
+}
+
+// redactRepository removes the restic repository URL from a message destined for
+// the panel. restic names the repository in most of its errors, and a backup's
+// message is readable by anyone with view access to the server — the weakest
+// per-server permission — while the backup target itself is admin-only. On a
+// panel with customers that would hand every one of them the operator's object
+// store endpoint, bucket and prefix layout. What the message is actually for
+// ("Access Denied", "no space left") survives the substitution.
+func redactRepository(msg, repo string) string {
+	if msg == "" || repo == "" {
+		return msg
+	}
+	msg = strings.ReplaceAll(msg, repo, "the backup repository")
+	// restic also prints the URL without its "s3:" scheme prefix in places.
+	if bare := strings.TrimPrefix(repo, "s3:"); bare != repo {
+		msg = strings.ReplaceAll(msg, bare, "the backup repository")
+	}
+	return msg
 }
 
 // lastLogLine returns the last non-empty line of a log blob (best-effort error

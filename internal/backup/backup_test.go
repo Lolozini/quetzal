@@ -327,3 +327,35 @@ func TestBuildJobPurge(t *testing.T) {
 		t.Errorf("purge fails on a repository that was never initialised:\n%s", script)
 	}
 }
+
+// A backup's message is readable by anyone with view access to the server — the
+// weakest per-server permission — while the backup target is admin-only. restic
+// names the repository in most of its errors, so reporting its output verbatim
+// handed every subuser the operator's object store endpoint, bucket and prefix.
+// On a panel with customers that is a disclosure; the part of the message worth
+// reading survives redaction.
+func TestRedactRepositoryKeepsTheErrorAndDropsTheURL(t *testing.T) {
+	repo := "s3:https://s3.example.cloud/ops-backups/prod/customer-srv-a1b2"
+	msg := "Fatal: create key in repository at " + repo + " failed: Stat: Access Denied."
+	got := redactRepository(msg, repo)
+	for _, secret := range []string{"s3.example.cloud", "ops-backups", "customer-srv-a1b2"} {
+		if strings.Contains(got, secret) {
+			t.Errorf("redacted message still leaks %q: %s", secret, got)
+		}
+	}
+	if !strings.Contains(got, "Access Denied") {
+		t.Errorf("redaction ate the actual error: %s", got)
+	}
+	// restic prints the URL without its scheme prefix in some messages.
+	bare := strings.TrimPrefix(repo, "s3:")
+	if got := redactRepository("unable to open config file: "+bare+"/config", repo); strings.Contains(got, "ops-backups") {
+		t.Errorf("bare URL not redacted: %s", got)
+	}
+	// Nothing to match must not mangle the message.
+	if got := redactRepository("no space left on device", repo); got != "no space left on device" {
+		t.Errorf("unrelated message altered: %s", got)
+	}
+	if got := redactRepository("anything", ""); got != "anything" {
+		t.Errorf("empty repository altered the message: %s", got)
+	}
+}
