@@ -12,7 +12,14 @@ import (
 
 const apiKeyPrefix = "qk_"
 
-// hashToken returns the hex SHA-256 of a token (what we store for API keys).
+// hashToken returns the hex SHA-256 of a token (what we store for API keys,
+// sessions and password reset links).
+//
+// SHA-256 and not argon2, deliberately, and scanners flag this: every input is
+// 24 or 32 bytes straight from crypto/rand, never a password. A slow KDF earns
+// its cost against guessable inputs; against 192 bits of randomness there is
+// nothing to guess, and this runs on every authenticated request. Passwords are
+// a different matter and go through auth.HashPassword (argon2id).
 func hashToken(tok string) string {
 	sum := sha256.Sum256([]byte(tok))
 	return hex.EncodeToString(sum[:])
