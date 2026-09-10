@@ -1066,11 +1066,11 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "target cluster unavailable: "+err.Error())
 		return
 	}
-	// Purge the server's snapshots before its rows go: afterwards nothing
-	// references the repository, so it would sit in the bucket for good, costing
-	// storage and unreachable from the panel. Best-effort and asynchronous — the
-	// Job outlives this request — but a failure is logged rather than silent.
-	s.purgeServerBackups(r.Context(), srv)
+	// Work out what purging the server's snapshots would take while its rows are
+	// still there to read — but do not act on it yet. Destroying snapshots is the
+	// one step here that cannot be undone, so it waits until the delete has
+	// actually committed below.
+	purge := s.planBackupPurge(srv)
 	// Remove the DB rows BEFORE the namespace. Once the server row is gone the
 	// reconciler won't recreate the workload, closing the window where a
 	// concurrent reconcile could re-materialize the namespace between teardown
@@ -1085,6 +1085,13 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Past the point of no return: the server is gone, so nothing references its
+	// repository any more and it would sit in the bucket for good — unreachable
+	// from the panel and still billed. Asynchronous (the Job outlives this
+	// request); a failure is logged rather than silent.
+	if purge != nil {
+		s.runBackupPurge(r.Context(), srv.Slug, *purge)
+	}
 	// Delete the namespace, cascading its pod, service, config AND the data PVC —
 	// so the volume and its data are reclaimed and no orphaned resources are left.
 	// Best-effort; if it fails, GCOrphanNamespaces (which deletes managed
@@ -1095,74 +1102,81 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// purgeServerBackups drops every snapshot a server owns, as its own Job.
-//
-// It runs in the control plane's namespace, not the server's: the server's
-// namespace is about to be torn down and would take the Job with it. That is
-// safe because a purge only talks to the object store — no data volume, no node
-// placement — so it has no affinity to the cluster the server lived on either.
-//
-// Nothing tracks the outcome, because by design there is nothing left to track
-// it against: the backup rows are deleted a moment later, and keeping them
-// around would show a deleted server's backups in the panel. A failure
-// therefore leaves the snapshots behind, which is what happened unconditionally
-// before this ran at all — so it is logged loudly enough to act on.
-func (s *Server) purgeServerBackups(ctx context.Context, srv *models.Server) {
+// planBackupPurge works out what it would take to drop every snapshot a server
+// owns, returning nil when there is nothing to purge. It only reads, so it is
+// safe to call before the server is deleted — and it has to be, since it reads
+// rows the delete removes.
+func (s *Server) planBackupPurge(srv *models.Server) *backup.Params {
 	cfg, err := s.Store.GetBackupConfig()
 	if err != nil || strings.TrimSpace(cfg.Bucket) == "" {
-		return // no target configured: there is nothing in a bucket to purge
+		return nil // no target configured: there is nothing in a bucket to purge
 	}
 	// Skip servers that never completed a backup: their repository was never
 	// initialised, so a Job would have nothing to do.
 	backups, err := s.Store.ListBackupsForServer(srv.ID)
 	if err != nil {
 		log.Printf("purge backups for %s: list: %v", srv.Slug, err)
-		return
+		return nil
 	}
-	any := false
+	snapshots := 0
 	for i := range backups {
 		if backups[i].Direction == models.DirBackup && backups[i].Phase == models.BackupSucceeded {
-			any = true
-			break
+			snapshots++
 		}
 	}
-	if !any {
-		return
+	if snapshots == 0 {
+		return nil
 	}
 	if s.Namespace == "" {
-		log.Printf("purge backups for %s: control-plane namespace unknown; %d snapshot(s) left in the bucket", srv.Slug, len(backups))
-		return
+		log.Printf("purge backups for %s: control-plane namespace unknown; %d snapshot(s) left in the bucket", srv.Slug, snapshots)
+		return nil
 	}
 	access, secret, pass, err := s.Store.BackupSecrets(cfg)
 	if err != nil {
 		log.Printf("purge backups for %s: decrypt credentials: %v", srv.Slug, err)
-		return
+		return nil
 	}
-	p := backup.Params{
+	return &backup.Params{
 		Image: backup.Image(cfg), Namespace: s.Namespace, Slug: srv.Slug, Purge: true,
 		Repository: backup.Repository(cfg, srv.Slug), Region: cfg.Region,
 		AccessKey: access, SecretKey: secret, RepoPassword: pass,
 	}
+}
+
+// runBackupPurge starts the Job planned above.
+//
+// It runs in the control plane's namespace, not the server's: the server's
+// namespace is about to be torn down and would take the Job with it. That is
+// only possible because a purge talks to nothing but the object store — no data
+// volume, no node placement — so it has no affinity to the cluster the server
+// lived on either.
+//
+// Nothing tracks the outcome, because by design there is nothing left to track
+// it against: the backup rows are gone by now, and keeping them would show a
+// deleted server's backups in the panel. A failure therefore leaves the
+// snapshots behind — what happened unconditionally before any of this existed —
+// so it is logged with the server it belongs to.
+func (s *Server) runBackupPurge(ctx context.Context, slug string, p backup.Params) {
 	// The Secret goes in first: a Job whose pod starts before its credentials
 	// exist burns its retry budget on CreateContainerConfigError.
 	secrets := s.Clientset.CoreV1().Secrets(p.Namespace)
 	sec := backup.BuildSecret(p)
 	if _, err := secrets.Create(ctx, sec, metav1.CreateOptions{}); err != nil {
 		if !apierrors.IsAlreadyExists(err) {
-			log.Printf("purge backups for %s: creds secret: %v", srv.Slug, err)
+			log.Printf("purge backups for %s: creds secret: %v", slug, err)
 			return
 		}
 		if _, err := secrets.Update(ctx, sec, metav1.UpdateOptions{}); err != nil {
-			log.Printf("purge backups for %s: creds secret: %v", srv.Slug, err)
+			log.Printf("purge backups for %s: creds secret: %v", slug, err)
 			return
 		}
 	}
 	job, err := s.Clientset.BatchV1().Jobs(p.Namespace).Create(ctx, backup.BuildJob(p), metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
-		log.Printf("purge backups for %s: create job: %v; its snapshots stay in the bucket", srv.Slug, err)
+		log.Printf("purge backups for %s: create job: %v; its snapshots stay in the bucket", slug, err)
 		// Don't leave the credentials behind for a Job that will never read them.
 		if delErr := secrets.Delete(ctx, sec.Name, metav1.DeleteOptions{}); delErr != nil && !apierrors.IsNotFound(delErr) {
-			log.Printf("purge backups for %s: remove unused creds secret: %v", srv.Slug, delErr)
+			log.Printf("purge backups for %s: remove unused creds secret: %v", slug, delErr)
 		}
 		return
 	}
@@ -1176,7 +1190,7 @@ func (s *Server) purgeServerBackups(ctx context.Context, srv *models.Server) {
 			APIVersion: "batch/v1", Kind: "Job", Name: job.Name, UID: job.UID,
 		}}
 		if _, err := secrets.Update(ctx, sec, metav1.UpdateOptions{}); err != nil {
-			log.Printf("purge backups for %s: could not tie the creds secret to its job (it will need removing by hand): %v", srv.Slug, err)
+			log.Printf("purge backups for %s: could not tie the creds secret to its job (it will need removing by hand): %v", slug, err)
 		}
 	}
 }

@@ -10,6 +10,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 
 const webRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const srcRoot = join(webRoot, "src");
@@ -23,10 +24,16 @@ function walk(dir, out = []) {
   return out;
 }
 
+// Evaluated in an empty context rather than with eval: this runs during the
+// build, over a file anyone can change in a pull request, and a locale is data,
+// not code. The context has no require, no process and no fetch; dynamic import
+// is refused because no import callback is supplied; and the timeout bounds a
+// literal that tries to loop.
 function localeKeys(file) {
   const src = readFileSync(file, "utf8");
   const body = src.slice(src.indexOf("{"), src.lastIndexOf("}") + 1);
-  return new Set(Object.keys(eval("(" + body + ")")));
+  const dict = runInNewContext("(" + body + ")", Object.create(null), { timeout: 5000 });
+  return new Set(Object.keys(dict));
 }
 
 // A template literal with a ${...} hole is a runtime-built key, not a literal
@@ -38,7 +45,12 @@ for (const file of walk(srcRoot)) {
     const raw = m[1];
     if (raw[0] === "`" && raw.includes("${")) continue;
     let key;
-    try { key = eval(raw); } catch { continue; }
+    try {
+      key = runInNewContext("(" + raw + ")", Object.create(null), { timeout: 1000 });
+    } catch {
+      continue;
+    }
+    if (typeof key !== "string") continue;
     if (!used.has(key)) used.set(key, file.replace(srcRoot + "/", ""));
   }
 }
