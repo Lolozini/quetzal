@@ -22,7 +22,7 @@ rules:
     resources: ["namespaces"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]
-    resources: ["services", "persistentvolumeclaims", "secrets", "configmaps", "resourcequotas", "limitranges"]
+    resources: ["services", "persistentvolumeclaims", "secrets", "configmaps", "resourcequotas"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Cluster-scoped PVs: switch reclaim policy to Retain when a server is deleted
   # with "keep data".
@@ -41,9 +41,12 @@ rules:
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Pods + console (logs/attach), restart/kill (delete), and the ephemeral
   # maintenance pod for offline file management (create).
+  # No create: nothing here runs a bare pod. Workloads are Deployments and Jobs,
+  # and exec/attach are subresources granted separately below — so this is read,
+  # and the deletes that restart a server or clear a finished operation.
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "watch", "create", "delete", "deletecollection"]
+    verbs: ["get", "list", "watch", "delete", "deletecollection"]
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
