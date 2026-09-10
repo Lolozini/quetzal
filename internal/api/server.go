@@ -483,6 +483,20 @@ func (s *Server) checkOrigin(r *http.Request) bool {
 
 // ---- JSON helpers ----
 
+// pathID reads an unsigned id out of a path parameter.
+//
+// The bit size is 0, not 64, and that is the whole point: it makes ParseUint
+// refuse anything that would not survive the conversion to uint. Parsed as 64
+// bits and converted, "4294967297" becomes 1 on a 32-bit build -- the caller
+// then loads, and happily acts on, a different row than the one asked for.
+func pathID(r *http.Request, name string) (uint, bool) {
+	n, err := strconv.ParseUint(strings.TrimSpace(r.PathValue(name)), 10, 0)
+	if err != nil {
+		return 0, false
+	}
+	return uint(n), true
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

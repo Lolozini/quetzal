@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -165,12 +164,12 @@ func (s *Server) lookupSchedule(w http.ResponseWriter, r *http.Request, perm str
 	if !ok {
 		return nil, false
 	}
-	sid, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("sid")), 10, 64)
-	if err != nil {
+	sid, ok := pathID(r, "sid")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid schedule id")
 		return nil, false
 	}
-	sc, err := s.Store.GetSchedule(uint(sid))
+	sc, err := s.Store.GetSchedule(sid)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "schedule not found")

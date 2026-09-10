@@ -182,12 +182,12 @@ func (s *Server) handleListServerChannels(w http.ResponseWriter, r *http.Request
 
 // lookupChannel loads the channel in the path and authorizes by its scope.
 func (s *Server) lookupChannel(w http.ResponseWriter, r *http.Request) (*models.NotificationChannel, bool) {
-	id, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("nid")), 10, 64)
-	if err != nil {
+	id, ok := pathID(r, "nid")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return nil, false
 	}
-	c, err := s.Store.GetChannel(uint(id))
+	c, err := s.Store.GetChannel(id)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "channel not found")
 		return nil, false

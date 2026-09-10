@@ -256,12 +256,12 @@ func looksLikeEmail(s string) bool {
 }
 
 func (s *Server) lookupUser(w http.ResponseWriter, r *http.Request) (*models.User, bool) {
-	id, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("uid")), 10, 64)
-	if err != nil {
+	id, ok := pathID(r, "uid")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid user id")
 		return nil, false
 	}
-	u, err := s.Store.GetUser(uint(id))
+	u, err := s.Store.GetUser(id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "user not found")
@@ -355,16 +355,16 @@ func (s *Server) handleRevokeAccess(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	uid, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("uid")), 10, 64)
-	if err != nil {
+	uid, ok := pathID(r, "uid")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid user id")
 		return
 	}
-	if err := s.Store.RevokeAccess(srv.ID, uint(uid)); err != nil {
+	if err := s.Store.RevokeAccess(srv.ID, uid); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit(r, srv.ID, "access.revoke", strconv.FormatUint(uid, 10))
+	s.audit(r, srv.ID, "access.revoke", strconv.FormatUint(uint64(uid), 10))
 	w.WriteHeader(http.StatusNoContent)
 }
 

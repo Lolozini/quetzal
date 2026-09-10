@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -481,12 +480,12 @@ func (s *Server) databaseView(d *models.ServerDatabase, withConn bool) map[strin
 }
 
 func (s *Server) lookupDatabaseHost(w http.ResponseWriter, r *http.Request) (*models.DatabaseHost, bool) {
-	id, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("hid")), 10, 64)
-	if err != nil {
+	id, ok := pathID(r, "hid")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid host id")
 		return nil, false
 	}
-	h, err := s.Store.GetDatabaseHost(uint(id))
+	h, err := s.Store.GetDatabaseHost(id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "host not found")
@@ -501,12 +500,12 @@ func (s *Server) lookupDatabaseHost(w http.ResponseWriter, r *http.Request) (*mo
 // lookupServerDatabase loads a database by path id and confirms it belongs to
 // the given server (so one server can't touch another's databases).
 func (s *Server) lookupServerDatabase(w http.ResponseWriter, r *http.Request, serverID uint) (*models.ServerDatabase, bool) {
-	id, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("dbid")), 10, 64)
-	if err != nil {
+	id, ok := pathID(r, "dbid")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid database id")
 		return nil, false
 	}
-	d, err := s.Store.GetServerDatabase(uint(id))
+	d, err := s.Store.GetServerDatabase(id)
 	if err != nil || d.ServerID != serverID {
 		writeError(w, http.StatusNotFound, "database not found")
 		return nil, false

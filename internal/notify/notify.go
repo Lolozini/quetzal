@@ -126,7 +126,9 @@ func (d *Dispatcher) drain(ctx context.Context) {
 
 func (d *Dispatcher) cursor() uint {
 	v, _ := d.Store.GetSetting(CursorSetting)
-	n, _ := strconv.ParseUint(v, 10, 64)
+	// bitSize 0, so a value that would not fit a uint is rejected rather than
+	// wrapped: a wrapped cursor points backwards and replays old events.
+	n, _ := strconv.ParseUint(v, 10, 0)
 	return uint(n)
 }
 

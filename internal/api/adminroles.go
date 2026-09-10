@@ -212,12 +212,12 @@ func (s *Server) handleSetUserAdminRole(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) lookupAdminRole(w http.ResponseWriter, r *http.Request) (*models.AdminRole, bool) {
-	id, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("rid")), 10, 64)
-	if err != nil {
+	id, ok := pathID(r, "rid")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid role id")
 		return nil, false
 	}
-	role, err := s.Store.GetAdminRole(uint(id))
+	role, err := s.Store.GetAdminRole(id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "role not found")
