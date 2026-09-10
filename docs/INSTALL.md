@@ -6,7 +6,18 @@ Deployments, a Service, and an optional Ingress.
 
 ## Prerequisites
 
-- A Kubernetes cluster (v1.29+ recommended) and `kubectl` access.
+- A Kubernetes cluster and `kubectl` access. Quetzal is tested on **1.31** (its
+  end-to-end suite runs there on every change) and **1.33**. Nothing it uses is
+  newer than 1.23 — there are no native sidecars, no admission webhooks, no
+  custom resources — so older clusters are likely to work, but "likely" is all
+  anyone can honestly say about a version nobody tests. **1.29 or later** is the
+  version to be on.
+
+  One optional hardening layer wants a newer cluster than the rest: the
+  admission policy that keeps the control plane's account inside its own
+  namespaces needs **1.30+**, where ValidatingAdmissionPolicy went GA. Without
+  it Quetzal runs exactly the same; you lose that one guard, not a feature. See
+  the security notes below.
 - [Helm](https://helm.sh/) v3.
 - A storage class for persistent volumes. Single-node / homelab setups can use a
   local provisioner such as [local-path](https://github.com/rancher/local-path-provisioner).
@@ -116,6 +127,33 @@ script that prints a kubeconfig for it. Paste that one instead.
 The permissions in that manifest are the same set the chart grants on the
 cluster Quetzal runs on, less leader election, which only happens where the
 control plane lives. A test keeps the two from drifting apart.
+
+## Security notes
+
+Worth knowing before you hand accounts to other people.
+
+**The control plane is a privileged workload.** It creates namespaces and runs
+workloads inside them, so its service account holds broad access to the cluster
+— that is what a control plane of this shape is. Treat the namespace it runs in
+as you would kube-system: whoever reaches it reaches the cluster. If you host
+for others and want a hard boundary, register a second cluster and put the game
+servers there; the panel keeps running where it is.
+
+**Game servers themselves are confined.** Their pods mount no service account
+token, run with every capability dropped and no privilege escalation, and their
+NetworkPolicy allows DNS and the public internet only — not the cluster network,
+not the node, not your LAN. A managed database is reachable because it is
+granted explicitly; anything else on a private address needs `egressAllow`.
+
+**The `templates` admin permission is the powerful one.** An install script runs
+as root with the image's default capabilities, because that is what Pterodactyl
+egg scripts expect (they run `apt` and `apk`), and Wings does the same. That
+container has no API credentials and no cluster network, so it is root in its
+own container and nowhere else — but grant the permission accordingly, and do
+not import eggs you have no reason to trust.
+
+**Registering another cluster**: use the manifest the cluster form offers rather
+than an admin kubeconfig. See above.
 
 ## Verify
 
