@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -118,5 +119,73 @@ func TestScheduleUpdateToChain(t *testing.T) {
 	json.NewDecoder(pr.Body).Decode(&updated)
 	if len(updated.Tasks) != 2 || updated.Tasks[1].TimeOffset != 5 {
 		t.Errorf("updated tasks = %+v, want 2 with start@5s", updated.Tasks)
+	}
+}
+
+// TestSchedulePatchIsPartial pins PATCH semantics: a body that touches one field
+// must leave the others alone. Decoding straight into the create request made an
+// omitted "enabled" read as false, so a client renaming a schedule silently
+// stopped it — 200, no warning, backups quietly no longer running.
+func TestSchedulePatchIsPartial(t *testing.T) {
+	_, admin, base := newServerForSchedules(t)
+	r := post(t, admin, base, map[string]any{
+		"name": "nightly", "cron": "0 3 * * *", "enabled": true,
+		"tasks": []map[string]any{{"action": "backup"}},
+	})
+	if r.StatusCode != http.StatusCreated {
+		t.Fatalf("create schedule = %d", r.StatusCode)
+	}
+	var sc struct{ ID uint }
+	json.NewDecoder(r.Body).Decode(&sc)
+	r.Body.Close()
+
+	patch := func(body map[string]any) (int, map[string]any) {
+		t.Helper()
+		b, _ := json.Marshal(body)
+		req, _ := http.NewRequest(http.MethodPatch, base+"/"+itoa(sc.ID), bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := admin.Do(req)
+		if err != nil {
+			t.Fatalf("PATCH: %v", err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out
+	}
+
+	// Renaming must not disable the schedule.
+	code, out := patch(map[string]any{"name": "renamed"})
+	if code != http.StatusOK {
+		t.Fatalf("rename PATCH = %d, want 200", code)
+	}
+	if out["enabled"] != true {
+		t.Errorf("rename silently disabled the schedule: enabled=%v", out["enabled"])
+	}
+	if out["cron"] != "0 3 * * *" {
+		t.Errorf("rename lost the cron: %v", out["cron"])
+	}
+	if tasks, _ := out["tasks"].([]any); len(tasks) != 1 {
+		t.Errorf("rename lost the task chain: %v", out["tasks"])
+	}
+
+	// Disabling on its own works and keeps everything else.
+	code, out = patch(map[string]any{"enabled": false})
+	if code != http.StatusOK {
+		t.Fatalf("disable PATCH = %d, want 200", code)
+	}
+	if out["enabled"] != false {
+		t.Errorf("enabled=%v, want false", out["enabled"])
+	}
+	if out["name"] != "renamed" {
+		t.Errorf("disable lost the name: %v", out["name"])
+	}
+	if out["nextRun"] != nil {
+		t.Errorf("disabled schedule kept nextRun=%v", out["nextRun"])
+	}
+
+	// And re-enabling restores a next fire time.
+	if code, out = patch(map[string]any{"enabled": true}); code != http.StatusOK || out["nextRun"] == nil {
+		t.Errorf("re-enable = %d, nextRun=%v", code, out["nextRun"])
 	}
 }
