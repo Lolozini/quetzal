@@ -60,6 +60,20 @@ type channelRequest struct {
 	Config map[string]string `json:"config"`
 }
 
+// channelPatch is the update body: every field optional, so a PATCH that touches
+// one setting leaves the others as stored. Decoding into channelRequest instead
+// made an omitted "enabled" false, silently muting the channel.
+type channelPatch struct {
+	Name    *string           `json:"name"`
+	Enabled *bool             `json:"enabled"`
+	Events  *[]string         `json:"events"`
+	Config  map[string]string `json:"config"`
+	// Accepted and ignored: the scope and type of an existing channel are
+	// immutable, but clients round-tripping a full object still send them.
+	Type     *models.ChannelType `json:"type"`
+	ServerID *uint               `json:"serverId"`
+}
+
 // authorizeChannelScope gates access by the channel's scope: global channels are
 // admin-only; server-scoped ones require PermSettings on that server.
 func (s *Server) authorizeChannelScope(w http.ResponseWriter, r *http.Request, serverID uint) bool {
@@ -197,15 +211,24 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var req channelRequest
-	if err := decodeJSON(r, &req); err != nil {
+	var patch channelPatch
+	if err := decodeJSON(r, &patch); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	// Scope (serverId) and type are immutable; recreate to change them.
-	c.Name = strings.TrimSpace(req.Name)
-	c.Enabled = req.Enabled
-	c.Events = cleanEvents(req.Events)
+	// Scope (serverId) and type are immutable; recreate to change them. Only the
+	// fields the caller sent are applied — an omitted "enabled" must not read as
+	// false and silently mute the channel.
+	req := channelRequest{Config: patch.Config}
+	if patch.Name != nil {
+		c.Name = strings.TrimSpace(*patch.Name)
+	}
+	if patch.Enabled != nil {
+		c.Enabled = *patch.Enabled
+	}
+	if patch.Events != nil {
+		c.Events = cleanEvents(*patch.Events)
+	}
 
 	// Merge config: keep stored secrets unless a new non-empty value is supplied;
 	// non-secret keys are taken from the request when provided.
@@ -240,8 +263,13 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, c.ServerID, "notification.update", c.Name)
-	updated, _ := s.Store.GetChannel(c.ID)
-	writeJSON(w, http.StatusOK, s.maskChannel(updated))
+	// Re-read so the response reflects what was actually stored. A failure here
+	// means the write landed but the row can't be read back; answer with the
+	// in-memory copy rather than dereferencing a nil channel.
+	if updated, err := s.Store.GetChannel(c.ID); err == nil {
+		c = updated
+	}
+	writeJSON(w, http.StatusOK, s.maskChannel(c))
 }
 
 func (s *Server) handleDeleteChannel(w http.ResponseWriter, r *http.Request) {

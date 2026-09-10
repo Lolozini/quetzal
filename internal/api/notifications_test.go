@@ -1,8 +1,10 @@
 package api_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -161,4 +163,63 @@ func TestNotificationDeliveryEndToEnd(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("webhook never received apikey.create event")
+}
+
+// TestNotificationChannelUpdateSurvivesReadback covers the update path the CRUD
+// test above never exercised. A PATCH used to write the event list in a shape no
+// read could decode, which made every later channel query fail: the list endpoint
+// returned 500, the row could no longer be fetched (so it could not even be
+// deleted), and re-reading it after the write dereferenced a nil channel and
+// panicked the request.
+func TestNotificationChannelUpdateSurvivesReadback(t *testing.T) {
+	srv, admin := newTestServer(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+
+	r := post(t, admin, srv.URL+"/api/notifications/channels", map[string]any{
+		"name": "alerts", "type": "webhook", "enabled": true,
+		"events": []string{"server.started"},
+		"config": map[string]string{"url": "https://hook.test/x"},
+	})
+	if r.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d", r.StatusCode)
+	}
+	var created struct{ ID uint }
+	json.NewDecoder(r.Body).Decode(&created)
+	r.Body.Close()
+
+	url := fmt.Sprintf("%s/api/notifications/channels/%d", srv.URL, created.ID)
+	body, _ := json.Marshal(map[string]any{
+		"name": "alerts", "type": "webhook", "enabled": true,
+		"events": []string{"server.stopped"},
+	})
+	req, _ := http.NewRequest(http.MethodPatch, url, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := admin.Do(req)
+	if err != nil {
+		t.Fatalf("PATCH: %v", err)
+	}
+	var updated struct {
+		Enabled bool
+		Events  []string
+	}
+	json.NewDecoder(resp.Body).Decode(&updated)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PATCH = %d, want 200", resp.StatusCode)
+	}
+	if len(updated.Events) != 1 || updated.Events[0] != "server.stopped" {
+		t.Errorf("events after update = %#v", updated.Events)
+	}
+
+	// The row must still be readable — individually and in the list.
+	if r, _ := admin.Get(url); r.StatusCode != http.StatusOK {
+		t.Errorf("GET after update = %d, want 200", r.StatusCode)
+	}
+	if r, _ := admin.Get(srv.URL + "/api/notifications/channels"); r.StatusCode != http.StatusOK {
+		t.Errorf("list after update = %d, want 200", r.StatusCode)
+	}
+	req, _ = http.NewRequest(http.MethodDelete, url, nil)
+	if r, _ := admin.Do(req); r.StatusCode != http.StatusNoContent {
+		t.Errorf("DELETE after update = %d, want 204", r.StatusCode)
+	}
 }
