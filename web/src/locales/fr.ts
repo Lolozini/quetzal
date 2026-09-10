@@ -528,4 +528,20 @@ export const fr: Record<string, string> = {
     "Accédez aux fichiers de ce serveur en SFTP avec une clé SSH de votre Compte → Clés SSH. Disponible quand le serveur tourne.",
   "Enable SFTP": "Activer le SFTP",
   "provisioning…": "provisionnement…",
+
+  // Storage class picker, EULA checkbox and the settings hints, which arrived
+  // after the last translation pass.
+  " (default)": " (par défaut)",
+  "(cluster default)": "(par défaut du cluster)",
+  "Default storage class": "Classe de stockage par défaut",
+  "Storage class": "Classe de stockage",
+  "No storage classes found on this cluster.": "Aucune classe de stockage trouvée sur ce cluster.",
+  "New servers on this cluster use this storageClass for their data volume. Leave it as the cluster default unless you have a reason to pin one.":
+    "Les nouveaux serveurs de ce cluster utiliseront cette storageClass pour leur volume de données. Laissez la valeur par défaut du cluster sauf raison particulière d'en imposer une.",
+  "I accept the": "J'accepte le",
+  "Minecraft EULA": "CLUF de Minecraft",
+  "Required for the server to start; applied on the next reconcile.":
+    "Requis pour que le serveur démarre ; appliqué à la prochaine réconciliation.",
+  "The ports this server exposes; pick the primary (the port players connect to).":
+    "Les ports exposés par ce serveur ; désignez le principal (celui auquel les joueurs se connectent).",
 };
