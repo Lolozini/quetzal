@@ -234,3 +234,35 @@ func TestEnsureNamespaceToleratesForbiddenLabelUpdate(t *testing.T) {
 		t.Fatal("a namespace that cannot be created must fail the reconcile")
 	}
 }
+
+// Collection selects on labels Quetzal writes — but writing a label is not the
+// same as having created the namespace, and where it writes them came from a
+// database row. A row aimed at kube-system would have had its namespace
+// labelled and then deleted, taking the cluster with it.
+func TestGCRefusesNamespacesItDidNotName(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("scheme: %v", err)
+	}
+	// Both carry Quetzal's labels and belong to this instance; only one has a
+	// name Quetzal would have given it.
+	hijacked := nsWithLabels("kube-system", map[string]string{
+		managedByLabel: managedByValue, serverLabel: "victim", InstanceLabel: "inst-1",
+	})
+	real := nsWithLabels("quetzal-srv-gone", map[string]string{
+		managedByLabel: managedByValue, serverLabel: "gone", InstanceLabel: "inst-1",
+	})
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(hijacked, real).Build()
+	r := &Reconciler{Client: cl, InstanceID: "inst-1"}
+	ctx := context.Background()
+
+	if err := r.GCOrphanNamespaces(ctx, map[string]bool{}); err != nil {
+		t.Fatalf("gc: %v", err)
+	}
+	if !exists(ctx, t, cl, "kube-system") {
+		t.Fatal("collection deleted kube-system on the strength of a label")
+	}
+	if exists(ctx, t, cl, "quetzal-srv-gone") {
+		t.Error("a genuine orphan was not collected")
+	}
+}

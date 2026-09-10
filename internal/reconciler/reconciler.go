@@ -95,6 +95,15 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 	if err != nil {
 		return fmt.Errorf("server %s: template: %w", srv.Slug, err)
 	}
+	// A server's namespace is derived from its slug at creation and never changes
+	// afterwards, so the two can only disagree if the row was tampered with —
+	// which would aim everything below, up to and including namespace deletion,
+	// at whatever the row said. Refuse rather than derive: if this ever fires it
+	// is either an attack or a schema change, and both want a human.
+	if want := NamespaceFor(srv.Slug); srv.Namespace != want {
+		return fmt.Errorf("server %s: namespace %q does not match its slug (expected %q); refusing to act on it",
+			srv.Slug, srv.Namespace, want)
+	}
 
 	if err := r.ensureNamespace(ctx, srv); err != nil {
 		return fmt.Errorf("namespace: %w", err)
@@ -210,6 +219,13 @@ func (r *Reconciler) GCOrphanNamespaces(ctx context.Context, validSlugs map[stri
 		}
 		if owner := ns.Labels[InstanceLabel]; owner != "" && owner != r.InstanceID {
 			continue // belongs to another control plane
+		}
+		// The labels are Quetzal's own, but a label is not proof it created the
+		// namespace — it writes them wherever a server row points. Deleting on
+		// labels alone would follow a tampered row into someone else's namespace.
+		if ns.Name != NamespaceFor(slug) {
+			log.Printf("refusing to collect namespace %q: labelled for server %q, which belongs in %q", ns.Name, slug, NamespaceFor(slug))
+			continue
 		}
 		if ns.DeletionTimestamp != nil {
 			continue // already terminating

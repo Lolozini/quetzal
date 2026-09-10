@@ -139,7 +139,13 @@ export function DatabaseHosts() {
               <div><label>{t("Image")}</label><input value={form.image} onChange={set("image")} placeholder="mariadb:11.4" /></div>
               <div><label>{t("Storage size")}</label><input value={form.storageSize} onChange={set("storageSize")} placeholder="1Gi" /></div>
             </div>
-            <div><label>{t("Namespace (optional)")}</label><input value={form.namespace} onChange={set("namespace")} placeholder="quetzal-db-<id>" /></div>
+            <div>
+              <label>{t("Namespace (optional)")}</label>
+              <input value={form.namespace} onChange={set("namespace")} placeholder="quetzal-db-<id>" />
+              <p className="muted">
+                {t("Must start with \"quetzal-db-\". Quetzal creates this namespace and deletes it with the host, so it will not take over one it did not create. Leave blank to name it after the host.")}
+              </p>
+            </div>
           </>
         )}
         <div><label>{t("Max databases (0 = ∞)")}</label><input type="number" min={0} value={form.maxDatabases} onChange={set("maxDatabases")} /></div>
