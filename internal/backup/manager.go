@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -353,19 +354,46 @@ func podLogs(ctx context.Context, cs kubernetes.Interface, ns, jobName string) s
 		return ""
 	}
 	// A Job may retry (BackoffLimit), leaving several pods in no particular
-	// order. The outcome the manager is reporting belongs to the last attempt, so
-	// read that one — the first pod listed could be an earlier, failed try.
-	latest := &pods.Items[0]
+	// order. The outcome being reported belongs to the last attempt, so try that
+	// one first — but a retry can fail before its container ever starts (a
+	// missing secret, an unpullable image) and then has no logs at all. Falling
+	// back through the earlier attempts is what surfaces the message that
+	// actually explains the failure, instead of a bare "job failed".
+	order := make([]*corev1.Pod, 0, len(pods.Items))
 	for i := range pods.Items {
-		if pods.Items[i].CreationTimestamp.After(latest.CreationTimestamp.Time) {
-			latest = &pods.Items[i]
+		order = append(order, &pods.Items[i])
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		return order[j].CreationTimestamp.Before(&order[i].CreationTimestamp)
+	})
+	for _, p := range order {
+		data, err := cs.CoreV1().Pods(ns).GetLogs(p.Name, &corev1.PodLogOptions{}).DoRaw(ctx)
+		if err == nil && strings.TrimSpace(string(data)) != "" {
+			return string(data)
 		}
 	}
-	data, err := cs.CoreV1().Pods(ns).GetLogs(latest.Name, &corev1.PodLogOptions{}).DoRaw(ctx)
-	if err != nil {
-		return ""
+	// No attempt produced output. The reason a container never started is held
+	// on the pod itself, and is usually the whole story.
+	if reason := containerFailure(order[0]); reason != "" {
+		return reason
 	}
-	return string(data)
+	return ""
+}
+
+// containerFailure returns why a pod's container did not run, if that is known:
+// the waiting or terminated reason Kubernetes recorded. Empty when the container
+// started normally (the failure is then in the logs, not here).
+func containerFailure(pod *corev1.Pod) string {
+	for _, cs := range pod.Status.ContainerStatuses {
+		st := cs.State
+		switch {
+		case st.Waiting != nil && st.Waiting.Reason != "":
+			return strings.TrimSpace(st.Waiting.Reason + ": " + st.Waiting.Message)
+		case st.Terminated != nil && st.Terminated.Reason != "" && st.Terminated.ExitCode != 0:
+			return strings.TrimSpace(st.Terminated.Reason + ": " + st.Terminated.Message)
+		}
+	}
+	return strings.TrimSpace(pod.Status.Reason + " " + pod.Status.Message)
 }
 
 func (m *Manager) finish(b *models.Backup, phase models.BackupPhase, size int64, msg string) {

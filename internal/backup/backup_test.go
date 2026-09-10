@@ -210,3 +210,47 @@ func TestBuildJobForget(t *testing.T) {
 		t.Errorf("JobName = %q, want %q (must not collide with the backup Job)", got, want)
 	}
 }
+
+// A backup that fails is only actionable if the record says why. When a Job
+// retries, the newest attempt can die before its container starts — a missing
+// secret, an image that will not pull — and produce no logs at all, which used
+// to leave the user with a bare "backup job failed". The reason Kubernetes
+// recorded on the pod is then the whole story.
+func TestContainerFailureExplainsAPodThatNeverRan(t *testing.T) {
+	waiting := &corev1.Pod{Status: corev1.PodStatus{
+		ContainerStatuses: []corev1.ContainerStatus{{
+			State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{
+				Reason:  "CreateContainerConfigError",
+				Message: `secret "quetzal-backup-creds" not found`,
+			}},
+		}},
+	}}
+	got := containerFailure(waiting)
+	if !strings.Contains(got, "quetzal-backup-creds") || !strings.Contains(got, "CreateContainerConfigError") {
+		t.Errorf("waiting reason = %q, want the reason and the message", got)
+	}
+
+	terminated := &corev1.Pod{Status: corev1.PodStatus{
+		ContainerStatuses: []corev1.ContainerStatus{{
+			State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+				Reason: "OOMKilled", ExitCode: 137,
+			}},
+		}},
+	}}
+	if got := containerFailure(terminated); !strings.Contains(got, "OOMKilled") {
+		t.Errorf("terminated reason = %q, want OOMKilled", got)
+	}
+
+	// A container that ran and exited cleanly has nothing to add: whatever
+	// happened is in the logs, and inventing a reason here would mask them.
+	ok := &corev1.Pod{Status: corev1.PodStatus{
+		ContainerStatuses: []corev1.ContainerStatus{{
+			State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+				Reason: "Completed", ExitCode: 0,
+			}},
+		}},
+	}}
+	if got := containerFailure(ok); got != "" {
+		t.Errorf("completed container = %q, want empty", got)
+	}
+}
