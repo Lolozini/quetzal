@@ -49,7 +49,16 @@ type Params struct {
 	// repository, so unlike a backup or restore it mounts no data volume and
 	// needs no node placement.
 	Forget bool
+	// Purge drops every snapshot the server has, for when the server itself is
+	// deleted. Like Forget it only talks to the repository — which also means it
+	// has no affinity to the server's cluster or namespace, so it can run in the
+	// control plane's own namespace and outlive the namespace being torn down.
+	Purge bool
 }
+
+// repoOnly reports whether the operation touches only the restic repository, and
+// so needs no data volume, no node placement and no co-location.
+func (p Params) repoOnly() bool { return p.Forget || p.Purge }
 
 // Repository builds a restic S3 repository URL for a server. Each server gets
 // its own repository (…/<prefix>/<slug>) so concurrent backups of different
@@ -80,6 +89,12 @@ func Image(cfg *models.BackupConfig) string {
 // JobName is the deterministic Job name for an operation. A forget gets its own
 // name so it never collides with the backup Job that created the snapshot.
 func JobName(p Params) string {
+	if p.Purge {
+		// Named after the server, not a backup: the rows are already gone by the
+		// time this runs. Slugs carry a random suffix and are never reused, so it
+		// stays unique in the shared namespace it runs in.
+		return fmt.Sprintf("quetzal-purge-%s", p.Slug)
+	}
 	if p.Forget {
 		return fmt.Sprintf("quetzal-forget-%d", p.BackupID)
 	}
@@ -94,11 +109,23 @@ func labels(p Params) map[string]string {
 	}
 }
 
+// SecretName is the Secret holding an operation's restic credentials. Backups,
+// restores and single-snapshot deletions run in the server's own namespace and
+// can share one name. A purge runs in the control plane's namespace, alongside
+// the purges of other servers, and each carries a different RESTIC_REPOSITORY —
+// so it gets a name of its own rather than fighting over the shared one.
+func SecretName(p Params) string {
+	if p.Purge {
+		return CredsSecretName + "-" + p.Slug
+	}
+	return CredsSecretName
+}
+
 // BuildSecret renders the restic credentials Secret for an operation.
 func BuildSecret(p Params) *corev1.Secret {
 	return &corev1.Secret{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
-		ObjectMeta: metav1.ObjectMeta{Name: CredsSecretName, Namespace: p.Namespace, Labels: labels(p)},
+		ObjectMeta: metav1.ObjectMeta{Name: SecretName(p), Namespace: p.Namespace, Labels: labels(p)},
 		StringData: map[string]string{
 			"RESTIC_REPOSITORY":     p.Repository,
 			"RESTIC_PASSWORD":       p.RepoPassword,
@@ -114,6 +141,15 @@ func BuildJob(p Params) *batchv1.Job {
 	tag := fmt.Sprintf("bid-%d", p.BackupID)
 	var script string
 	switch {
+	case p.Purge:
+		// Drop every snapshot this server has, for when the server itself is
+		// deleted: its repository is per-server, so nothing else lives in it. A
+		// repository that was never initialised (no backup ever ran) is not an
+		// error — there is simply nothing to purge.
+		script = fmt.Sprintf(`set -e
+restic snapshots >/dev/null 2>&1 || exit 0
+restic forget --host %q --unsafe-allow-remove-all --prune
+`, p.Slug)
 	case p.Forget:
 		// Drop this one snapshot and reclaim its space. --prune is what actually
 		// removes the data from the bucket; forgetting alone only unlinks it.
@@ -134,9 +170,22 @@ restic forget --host %q --tag %q --unsafe-allow-remove-all --prune
 		srcTag := fmt.Sprintf("bid-%d", p.SourceID)
 		// Restore the snapshot tagged with the source backup into the PVC. restic
 		// stores absolute paths, so target "/" recreates /data.
+		//
+		// --delete makes the volume match the snapshot instead of merging into it.
+		// Without it a file created after the snapshot survives, so rolling a
+		// server back after a bad mod install left the mod's files in place — the
+		// exact thing the restore was for, and not what the panel promises
+		// ("current data will be overwritten by the snapshot").
+		//
+		// --include is mandatory, not decoration: restic refuses "--target /
+		// --delete" without a filter ("must be combined with an include or exclude
+		// filter"), and rightly so — the snapshot's root holds only the data
+		// directory, so an unfiltered delete would take that directory's siblings
+		// at / with it. Scoping the deletion to the data path keeps it to the
+		// volume.
 		script = fmt.Sprintf(`set -e
-restic restore latest --host %q --tag %q --target /
-`, p.Slug, srcTag)
+restic restore latest --host %q --tag %q --target / --delete --include %s
+`, p.Slug, srcTag, mountPath)
 	default: // backup
 		keep := p.KeepLast
 		if keep <= 0 {
@@ -162,7 +211,7 @@ restic forget --host %q --keep-last %d --prune
 	// ReadWriteOnce mount and lets it run while the server is up.
 	var volumes []corev1.Volume
 	var mounts []corev1.VolumeMount
-	if !p.Forget {
+	if !p.repoOnly() {
 		volumes = []corev1.Volume{{
 			Name: "data",
 			VolumeSource: corev1.VolumeSource{
@@ -181,11 +230,11 @@ restic forget --host %q --keep-last %d --prune
 	// volume is free and node placement is left to the volume/NodeSelector.
 	// A forget mounts nothing, so it must not inherit the volume's node pinning.
 	nodeSelector := p.NodeSelector
-	if p.Forget {
+	if p.repoOnly() {
 		nodeSelector = nil
 	}
 	var affinity *corev1.Affinity
-	if p.Direction == models.DirBackup && !p.Forget {
+	if p.Direction == models.DirBackup && !p.repoOnly() {
 		affinity = &corev1.Affinity{PodAffinity: &corev1.PodAffinity{
 			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
 				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{reconciler.DataLabel: p.Slug}},
@@ -212,7 +261,7 @@ restic forget --host %q --keep-last %d --prune
 						Command: []string{"/bin/sh", "-c", script},
 						EnvFrom: []corev1.EnvFromSource{{
 							SecretRef: &corev1.SecretEnvSource{
-								LocalObjectReference: corev1.LocalObjectReference{Name: CredsSecretName},
+								LocalObjectReference: corev1.LocalObjectReference{Name: SecretName(p)},
 							},
 						}},
 						VolumeMounts: mounts,

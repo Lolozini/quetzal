@@ -91,6 +91,11 @@ Point Quetzal at its own prefix rather than sharing one with other backups: it
 creates a separate repository per server underneath, and retention deletes
 inside it.
 
+Deleting a server purges its snapshots along with its volume. Nothing in the
+panel could reach them afterwards — no row references them — so leaving them
+would mean paying to store data that can no longer be listed or restored. Take a
+copy first if you want to keep a deleted server's history.
+
 ## Verify
 
 ```sh

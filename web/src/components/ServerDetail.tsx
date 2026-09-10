@@ -323,7 +323,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
   async function remove() {
     if (
       !window.confirm(
-        t("Delete this server? Its pod, service, config and data volume are permanently removed. This cannot be undone."),
+        t("Delete this server? Its pod, service, config, data volume and every backup snapshot it owns are permanently removed. This cannot be undone."),
       )
     )
       return;

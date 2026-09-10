@@ -50,6 +50,28 @@ func newTestServerStore(t *testing.T) (*httptest.Server, *http.Client, *store.St
 	return ts, &http.Client{Jar: jar}, st
 }
 
+// newTestServerFull also hands back the api.Server and its fake clientset, for
+// tests that check what the handlers created in the cluster.
+func newTestServerFull(t *testing.T) (*httptest.Server, *http.Client, *store.Store, *api.Server, *fake.Clientset) {
+	t.Helper()
+	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "api.db"), Silent: true})
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	if err := st.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := templates.Seed(st); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cs := fake.NewSimpleClientset()
+	apiSrv := api.New(st, cs, &rest.Config{})
+	ts := httptest.NewServer(apiSrv.Handler())
+	t.Cleanup(ts.Close)
+	jar, _ := cookiejar.New(nil)
+	return ts, &http.Client{Jar: jar}, st, apiSrv, cs
+}
+
 func post(t *testing.T, c *http.Client, url string, body any) *http.Response {
 	t.Helper()
 	var buf bytes.Buffer
