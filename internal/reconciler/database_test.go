@@ -17,9 +17,46 @@ func TestManagedDBServiceHost(t *testing.T) {
 	if host := ManagedDBServiceHost(h); host != "quetzal-db.quetzal-db-5.svc" {
 		t.Errorf("service host = %q", host)
 	}
-	h2 := &models.DatabaseHost{ID: 9, Namespace: "custom-ns"}
-	if host := ManagedDBServiceHost(h2); host != "quetzal-db.custom-ns.svc" {
-		t.Errorf("custom-ns service host = %q", host)
+	// A name of Quetzal's own shape is still the operator's to choose.
+	h2 := &models.DatabaseHost{ID: 9, Namespace: "quetzal-db-analytics"}
+	if host := ManagedDBServiceHost(h2); host != "quetzal-db.quetzal-db-analytics.svc" {
+		t.Errorf("named namespace service host = %q", host)
+	}
+}
+
+// Quetzal creates a managed host's namespace and deletes it when the host goes.
+// Pointed at a namespace it did not create, it would put a workload in someone
+// else's namespace and then collect it — and the namespace came from an API
+// request, reachable by an admin scoped to database hosts alone. So a name it
+// would not have chosen is ignored, and collection refuses it outright.
+func TestManagedDBNamespaceCannotBeAimedElsewhere(t *testing.T) {
+	for _, name := range []string{
+		"kube-system", "default", "quetzal", "quetzal-srv-victim",
+		"../kube-system", "Quetzal-DB-1", "", "quetzal-db",
+	} {
+		h := &models.DatabaseHost{ID: 7, Kind: models.DBHostManaged, Namespace: name}
+		if got := ManagedDBNamespace(h); got != "quetzal-db-7" {
+			t.Errorf("namespace %q was honoured as %q, want the derived quetzal-db-7", name, got)
+		}
+		if IsManagedDBNamespace(name) {
+			t.Errorf("collection would delete %q", name)
+		}
+	}
+	for _, name := range []string{"quetzal-db-7", "quetzal-db-analytics", "quetzal-db-a1"} {
+		if !IsManagedDBNamespace(name) {
+			t.Errorf("%q should be collectable: Quetzal could have chosen it", name)
+		}
+	}
+	// Every object of a host with a hijacked namespace lands in the derived one.
+	for _, o := range buildManagedDB(&models.DatabaseHost{
+		ID: 7, Kind: models.DBHostManaged, Namespace: "kube-system",
+	}, "pw", "inst") {
+		if ns := o.GetNamespace(); ns != "" && ns != "quetzal-db-7" {
+			t.Errorf("%T placed in %q", o, ns)
+		}
+		if o.GetName() == "kube-system" {
+			t.Errorf("%T would be applied over kube-system itself", o)
+		}
 	}
 }
 

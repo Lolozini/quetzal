@@ -103,7 +103,19 @@ func (s *Server) handleCreateDatabaseHost(w http.ResponseWriter, r *http.Request
 		// password is a generated root password. Host/Namespace derive from the ID
 		// (assigned on create), so they're filled in just below.
 		h.ClusterID = req.ClusterID
-		h.Namespace = strings.TrimSpace(req.Namespace)
+		// The namespace is Quetzal's to choose, not the caller's. It creates this
+		// namespace and deletes it when the host goes, so a name pointing at one
+		// that already exists would place a workload in someone else's namespace
+		// and then collect it — kube-system included. An explicit name is accepted
+		// only when it is one Quetzal could have picked itself.
+		if n := strings.TrimSpace(req.Namespace); n != "" {
+			if !reconciler.IsManagedDBNamespace(n) {
+				writeError(w, http.StatusBadRequest,
+					`namespace must be named "quetzal-db-<name>" — Quetzal owns and deletes the namespace of a managed host, so it will not take over one it did not create`)
+				return
+			}
+			h.Namespace = n
+		}
 		h.Image = strings.TrimSpace(req.Image)
 		if h.Image == "" {
 			h.Image = reconciler.DefaultMariaDBImage

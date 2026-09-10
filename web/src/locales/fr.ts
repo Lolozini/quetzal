@@ -544,4 +544,6 @@ export const fr: Record<string, string> = {
     "Requis pour que le serveur démarre ; appliqué à la prochaine réconciliation.",
   "The ports this server exposes; pick the primary (the port players connect to).":
     "Les ports exposés par ce serveur ; désignez le principal (celui auquel les joueurs se connectent).",
+  "Must start with \"quetzal-db-\". Quetzal creates this namespace and deletes it with the host, so it will not take over one it did not create. Leave blank to name it after the host.":
+    "Doit commencer par « quetzal-db- ». Quetzal crée ce namespace et le supprime avec l’hôte : il ne reprendra donc pas un namespace qu’il n’a pas créé. Laissez vide pour le nommer d’après l’hôte.",
 };

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
 	"strconv"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -37,12 +38,31 @@ const (
 	dbRootPassword = "MARIADB_ROOT_PASSWORD"
 )
 
+// managedDBNamespacePattern is the only shape a managed database namespace may
+// take. Quetzal owns these namespaces outright — it creates them and deletes
+// them when their host goes — so it must never be pointed at one it did not
+// make. A stored value that does not match is ignored rather than obeyed.
+var managedDBNamespacePattern = regexp.MustCompile(`^quetzal-db-[a-z0-9][a-z0-9-]{0,48}$`)
+
 // ManagedDBNamespace returns the namespace a managed host's workload lives in.
+// A name stored on the host is honoured only if it is one Quetzal could have
+// chosen itself; anything else falls back to the derived name, so a row that was
+// tampered with cannot place workloads in — or, through collection, destroy —
+// kube-system or another application's namespace.
 func ManagedDBNamespace(h *models.DatabaseHost) string {
-	if h.Namespace != "" {
+	derived := fmt.Sprintf("quetzal-db-%d", h.ID)
+	if h.Namespace != "" && managedDBNamespacePattern.MatchString(h.Namespace) {
 		return h.Namespace
 	}
-	return fmt.Sprintf("quetzal-db-%d", h.ID)
+	return derived
+}
+
+// IsManagedDBNamespace reports whether a name is one Quetzal would have given a
+// managed database. Collection checks this before deleting anything: the label
+// it selects on is written by Quetzal, but Quetzal can be asked to write it on a
+// namespace that already exists.
+func IsManagedDBNamespace(name string) bool {
+	return managedDBNamespacePattern.MatchString(name)
 }
 
 // ManagedDBServiceHost returns the in-cluster DNS name servers use to reach a
@@ -110,6 +130,13 @@ func (r *Reconciler) gcManagedDBNamespaces(ctx context.Context, valid map[string
 		}
 		if owner := ns.Labels[InstanceLabel]; owner != "" && owner != r.InstanceID {
 			continue // belongs to another control plane
+		}
+		// The label is Quetzal's, but it can end up on a namespace Quetzal did not
+		// create — the name came from an API request once. Deleting on the label
+		// alone would take kube-system with it.
+		if !IsManagedDBNamespace(ns.Name) {
+			log.Printf("refusing to collect namespace %q: it carries the managed-database label but is not a name Quetzal would have chosen", ns.Name)
+			continue
 		}
 		if err := r.Client.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
 			return err
