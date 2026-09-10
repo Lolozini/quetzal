@@ -1,0 +1,63 @@
+{{- if .Values.admissionPolicy.enabled }}
+# RBAC gives the control plane the right to hand its namespaced role out, which
+# is the only way to scope that role to the namespaces it creates. But RBAC
+# cannot say where: the right to create a RoleBinding is cluster-wide or nothing,
+# so on its own it lets this account bind that role in kube-system and read
+# everything after all.
+#
+# Admission can say where, so it does. It only sees writes — a read never reaches
+# it — which is exactly the division of labour: RBAC bounds what this account can
+# read, and this bounds the one write that would undo that.
+#
+# Needs Kubernetes 1.30, where ValidatingAdmissionPolicy went GA. Without it
+# Quetzal runs the same; you lose this guard, not a feature.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "quetzal.fullname" . }}-namespace-scope
+  labels:
+    {{- include "quetzal.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["rolebindings"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["DELETE"]
+        resources: ["namespaces"]
+  matchConditions:
+    # Only this account. Everyone else's RoleBindings and namespaces are none of
+    # this policy's business.
+    - name: only-the-control-plane
+      expression: >-
+        request.userInfo.username ==
+        'system:serviceaccount:{{ .Release.Namespace }}:{{ include "quetzal.serviceAccountName" . }}'
+  variables:
+    # A RoleBinding is judged on the namespace it lands in; a namespace deletion
+    # on the namespace itself.
+    - name: target
+      expression: >-
+        request.resource.resource == 'namespaces' ? request.name : request.namespace
+    - name: mine
+      expression: >-
+        variables.target.startsWith('{{ .Values.admissionPolicy.namespacePrefix }}-srv-') ||
+        variables.target.startsWith('{{ .Values.admissionPolicy.namespacePrefix }}-db-')
+  validations:
+    - expression: variables.mine
+      messageExpression: >-
+        'Quetzal may only do this in the namespaces it creates, not ' + variables.target
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "quetzal.fullname" . }}-namespace-scope
+  labels:
+    {{- include "quetzal.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "quetzal.fullname" . }}-namespace-scope
+  validationActions: [Deny]
+{{- end }}

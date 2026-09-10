@@ -61,6 +61,19 @@ resync: "15s"
 #   egressAllow: ["192.168.10.20/32"]
 egressAllow: []
 
+# An admission policy that keeps the control plane's account inside the
+# namespaces it creates. RBAC scopes what it can read; this scopes the one write
+# — handing itself its own role — that would otherwise undo that scoping, and the
+# namespace deletions that go with it.
+#
+# Needs Kubernetes 1.30, where ValidatingAdmissionPolicy went GA. Turn it off on
+# an older cluster: Quetzal runs exactly the same, you lose this guard.
+admissionPolicy:
+  enabled: true
+  # The prefix of the namespaces Quetzal owns. Change it only if you have also
+  # changed the naming in the control plane, which is not configurable today.
+  namespacePrefix: quetzal
+
 resources: {}
 nodeSelector: {}
 tolerations: []

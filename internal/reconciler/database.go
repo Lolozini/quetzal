@@ -102,9 +102,15 @@ func (r *Reconciler) ReconcileDatabaseHosts(ctx context.Context) error {
 			log.Printf("db host %d: read root password: %v", h.ID, err)
 			continue
 		}
-		for _, obj := range buildManagedDB(h, rootPw, r.InstanceID) {
+		objs := buildManagedDB(h, rootPw, r.InstanceID)
+		for i, obj := range objs {
 			if err := r.apply(ctx, obj); err != nil {
 				log.Printf("db host %d: apply %T: %v", h.ID, obj, err)
+			}
+			// The namespace comes first; grant ourselves access in it before
+			// applying what goes inside.
+			if i == 0 {
+				r.ensureRoleBinding(ctx, ns)
 			}
 		}
 	}

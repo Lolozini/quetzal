@@ -7,40 +7,74 @@ metadata:
     {{- include "quetzal.labels" . | nindent 4 }}
 {{- end }}
 ---
+# Two roles, because RBAC cannot say "namespaces beginning with quetzal-".
+#
+# This one is cluster-wide because its resources are: namespaces themselves,
+# nodes, volumes, storage classes. It also carries the right to hand the second
+# role out — but only that role, and see the admission policy below for where.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "quetzal.fullname" . }}
+  name: {{ include "quetzal.fullname" . }}-cluster
   labels:
     {{- include "quetzal.labels" . | nindent 4 }}
 rules:
-  # Per-server namespaces and the workloads inside them. update/patch are needed
-  # to keep an existing namespace's labels current (ownership stamping, and any
-  # label a later release adds) and to create the namespace a managed database
-  # host lives in, which is applied rather than created outright.
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["services", "persistentvolumeclaims", "secrets", "configmaps", "resourcequotas"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Cluster-scoped PVs: switch reclaim policy to Retain when a server is deleted
-  # with "keep data".
+  # Cluster-scoped volumes: switching a reclaim policy to Retain when a server is
+  # deleted with "keep data".
   - apiGroups: [""]
     resources: ["persistentvolumes"]
     verbs: ["get", "list", "patch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  # The cluster form offers the storage classes a cluster actually has.
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  # Granting itself the namespaced role, in each namespace it creates. RBAC
+  # allows this without holding those permissions because of the bind verb
+  # below, which is scoped to that one role by name.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    resourceNames: ["{{ include "quetzal.fullname" . }}-namespaced"]
+    verbs: ["bind"]
+  # Reading its own identity, to know which subject to name in those bindings.
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["selfsubjectreviews"]
+    verbs: ["create"]
+---
+# Everything a server needs, and nothing cluster-wide: this role is deliberately
+# NOT bound across the cluster. The controller binds it in each namespace it
+# creates, so reading a Secret anywhere else — kube-system included — is not
+# something this account can do.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quetzal.fullname" . }}-namespaced
+  labels:
+    {{- include "quetzal.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["services", "persistentvolumeclaims", "secrets", "configmaps", "resourcequotas"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Backup/restore run as one-shot Jobs.
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["get", "list", "watch", "create", "delete"]
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Pods + console (logs/attach), restart/kill (delete), and the ephemeral
-  # maintenance pod for offline file management (create).
   # No create: nothing here runs a bare pod. Workloads are Deployments and Jobs,
   # and exec/attach are subresources granted separately below — so this is read,
   # and the deletes that restart a server or clear a finished operation.
@@ -53,18 +87,6 @@ rules:
   - apiGroups: [""]
     resources: ["pods/attach", "pods/exec"]
     verbs: ["create", "get"]
-  # Node addresses, to report NodePort/LoadBalancer endpoints.
-  - apiGroups: [""]
-    resources: ["nodes"]
-    verbs: ["get", "list", "watch"]
-  # Per-server resource usage graphs (metrics-server).
-  - apiGroups: ["metrics.k8s.io"]
-    resources: ["pods"]
-    verbs: ["get", "list"]
-  # The cluster form offers the storage classes a cluster actually has.
-  - apiGroups: ["storage.k8s.io"]
-    resources: ["storageclasses"]
-    verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -75,7 +97,26 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "quetzal.fullname" . }}
+  name: {{ include "quetzal.fullname" . }}-cluster
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quetzal.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# The control plane's own namespace is one it does not create, so its binding is
+# shipped rather than made at runtime. The purge Job and its credentials live
+# here.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quetzal.fullname" . }}-own-namespace
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quetzal.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quetzal.fullname" . }}-namespaced
 subjects:
   - kind: ServiceAccount
     name: {{ include "quetzal.serviceAccountName" . }}

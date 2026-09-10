@@ -27,49 +27,57 @@ const RemoteServiceAccount = "quetzal-remote"
 // read. It deliberately mirrors rbacv1.PolicyRule without depending on it: this
 // is rendered as text, never applied through the API.
 type PolicyRule struct {
-	APIGroups []string `yaml:"apiGroups"`
-	Resources []string `yaml:"resources"`
-	Verbs     []string `yaml:"verbs"`
+	APIGroups     []string `yaml:"apiGroups"`
+	Resources     []string `yaml:"resources"`
+	ResourceNames []string `yaml:"resourceNames,omitempty"`
+	Verbs         []string `yaml:"verbs"`
 }
 
-// RemoteRules is what Quetzal needs on a cluster it manages remotely. Every rule
-// is here because something calls it; see the chart for the same set on the
-// local cluster.
-var RemoteRules = []PolicyRule{
-	// Per-server namespaces and the workloads inside them. update/patch keep an
-	// existing namespace's labels current; create/delete are the lifecycle.
+// RemoteClusterRules are the permissions that are genuinely cluster-wide,
+// because their resources are: namespaces themselves, nodes, volumes, storage
+// classes. It also carries the right to hand the namespaced role out, scoped by
+// name to that one role.
+var RemoteClusterRules = []PolicyRule{
 	{APIGroups: []string{""}, Resources: []string{"namespaces"},
 		Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
-	{APIGroups: []string{""}, Resources: []string{"services", "persistentvolumeclaims", "secrets", "configmaps", "resourcequotas"},
-		Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
-	// Cluster-scoped volumes: switching a reclaim policy to Retain when a server
-	// is deleted with "keep data".
 	{APIGroups: []string{""}, Resources: []string{"persistentvolumes"},
 		Verbs: []string{"get", "list", "patch"}},
+	{APIGroups: []string{""}, Resources: []string{"nodes"}, Verbs: []string{"get", "list", "watch"}},
+	{APIGroups: []string{"metrics.k8s.io"}, Resources: []string{"pods"}, Verbs: []string{"get", "list"}},
+	{APIGroups: []string{"storage.k8s.io"}, Resources: []string{"storageclasses"}, Verbs: []string{"get", "list", "watch"}},
+	{APIGroups: []string{"rbac.authorization.k8s.io"}, Resources: []string{"rolebindings"},
+		Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
+	{APIGroups: []string{"rbac.authorization.k8s.io"}, Resources: []string{"clusterroles"},
+		ResourceNames: []string{RemoteServiceAccount + "-namespaced"}, Verbs: []string{"bind"}},
+	{APIGroups: []string{"authentication.k8s.io"}, Resources: []string{"selfsubjectreviews"}, Verbs: []string{"create"}},
+}
+
+// RemoteNamespacedRules are everything a server needs, granted only inside the
+// namespaces Quetzal creates — never across the cluster. This is what keeps a
+// compromised control plane away from every other Secret on the cluster.
+var RemoteNamespacedRules = []PolicyRule{
+	{APIGroups: []string{""}, Resources: []string{"services", "persistentvolumeclaims", "secrets", "configmaps", "resourcequotas"},
+		Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
 	{APIGroups: []string{"apps"}, Resources: []string{"deployments"},
 		Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
-	// Backups, restores and snapshot deletion run as one-shot Jobs.
 	{APIGroups: []string{"batch"}, Resources: []string{"jobs"},
 		Verbs: []string{"get", "list", "watch", "create", "delete"}},
 	{APIGroups: []string{"networking.k8s.io"}, Resources: []string{"networkpolicies"},
 		Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
-	// No create: nothing runs a bare pod. The deletes restart a server and clear
-	// a finished operation.
 	{APIGroups: []string{""}, Resources: []string{"pods"},
 		Verbs: []string{"get", "list", "watch", "delete", "deletecollection"}},
 	{APIGroups: []string{""}, Resources: []string{"pods/log"}, Verbs: []string{"get"}},
-	// The console and the file manager.
 	{APIGroups: []string{""}, Resources: []string{"pods/attach", "pods/exec"}, Verbs: []string{"create", "get"}},
-	// Publishing a server's address, and the node picker.
-	{APIGroups: []string{""}, Resources: []string{"nodes"}, Verbs: []string{"get", "list", "watch"}},
-	{APIGroups: []string{"metrics.k8s.io"}, Resources: []string{"pods"}, Verbs: []string{"get", "list"}},
-	{APIGroups: []string{"storage.k8s.io"}, Resources: []string{"storageclasses"}, Verbs: []string{"get", "list", "watch"}},
 }
 
 // RemoteManifest renders the YAML an operator applies on a cluster they want to
-// register: a namespace, a service account bound to the rules above, and a
-// long-lived token for it (Kubernetes stopped minting those automatically in
-// 1.24, so the Secret is explicit).
+// register: a namespace, a service account, the two roles, and a long-lived
+// token (Kubernetes stopped minting those automatically in 1.24, so the Secret
+// is explicit).
+//
+// Only the cluster-scoped role is bound here. The namespaced one is bound by
+// the control plane in each namespace it creates, which is what keeps it away
+// from every other Secret on the cluster.
 func RemoteManifest() string {
 	var b strings.Builder
 	b.WriteString(`# Run this on the cluster you are registering, with an account that can
@@ -87,16 +95,27 @@ metadata:
   name: ` + RemoteServiceAccount + `
   namespace: ` + RemoteNamespace + `
 ---
+# Cluster-wide, because these resources are: namespaces themselves, nodes,
+# volumes, storage classes — plus the right to hand out the role below, scoped
+# by name to that one role.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: ` + RemoteServiceAccount + `
 rules:
 `)
-	for _, r := range RemoteRules {
-		b.WriteString(fmt.Sprintf("  - apiGroups: [%s]\n    resources: [%s]\n    verbs: [%s]\n",
-			quoteList(r.APIGroups), quoteList(r.Resources), quoteList(r.Verbs)))
-	}
+	writeRules(&b, RemoteClusterRules)
+	b.WriteString(`---
+# Everything a server needs, and deliberately NOT bound across the cluster.
+# Quetzal binds it in each namespace it creates, so reading a Secret anywhere
+# else — kube-system included — is not something this account can do.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ` + RemoteServiceAccount + `-namespaced
+rules:
+`)
+	writeRules(&b, RemoteNamespacedRules)
 	b.WriteString(`---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -121,8 +140,59 @@ metadata:
   annotations:
     kubernetes.io/service-account.name: ` + RemoteServiceAccount + `
 type: kubernetes.io/service-account-token
+---
+# The right to hand out the namespaced role is cluster-wide or nothing in RBAC,
+# so on its own it lets this account bind that role in kube-system and read
+# everything after all. Admission can say where, so it does. Delete these two if
+# your cluster is older than 1.30: everything else still works, you lose this
+# guard.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: ` + RemoteServiceAccount + `-namespace-scope
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["rolebindings"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["DELETE"]
+        resources: ["namespaces"]
+  matchConditions:
+    - name: only-the-control-plane
+      expression: request.userInfo.username == 'system:serviceaccount:` + RemoteNamespace + `:` + RemoteServiceAccount + `'
+  variables:
+    - name: target
+      expression: "request.resource.resource == 'namespaces' ? request.name : request.namespace"
+    - name: mine
+      expression: "variables.target.startsWith('quetzal-srv-') || variables.target.startsWith('quetzal-db-')"
+  validations:
+    - expression: variables.mine
+      messageExpression: "'Quetzal may only do this in the namespaces it creates, not ' + variables.target"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: ` + RemoteServiceAccount + `-namespace-scope
+spec:
+  policyName: ` + RemoteServiceAccount + `-namespace-scope
+  validationActions: [Deny]
 `)
 	return b.String()
+}
+
+func writeRules(b *strings.Builder, rules []PolicyRule) {
+	for _, r := range rules {
+		b.WriteString(fmt.Sprintf("  - apiGroups: [%s]\n    resources: [%s]\n", quoteList(r.APIGroups), quoteList(r.Resources)))
+		if len(r.ResourceNames) > 0 {
+			b.WriteString(fmt.Sprintf("    resourceNames: [%s]\n", quoteList(r.ResourceNames)))
+		}
+		b.WriteString(fmt.Sprintf("    verbs: [%s]\n", quoteList(r.Verbs)))
+	}
 }
 
 // RemoteKubeconfigScript prints the kubeconfig to paste back into Quetzal. It
