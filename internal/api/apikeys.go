@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/lolozini/quetzal/internal/models"
@@ -65,12 +64,12 @@ func (s *Server) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
-	kid, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("kid")), 10, 64)
-	if err != nil {
+	kid, ok := pathID(r, "kid")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid key id")
 		return
 	}
-	key, err := s.Store.GetAPIKey(uint(kid))
+	key, err := s.Store.GetAPIKey(kid)
 	if err != nil || key.UserID != u.ID {
 		writeError(w, http.StatusNotFound, "key not found")
 		return

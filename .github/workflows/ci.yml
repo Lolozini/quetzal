@@ -83,6 +83,14 @@ jobs:
         run: go test -race ./...
       - name: build
         run: go build ./...
+      # Where uint is 32 bits, an id parsed as 64 and converted does not fail --
+      # it becomes a different id, and the handler acts on the wrong row. That
+      # cannot happen on this runner, so the guard against it cannot be checked
+      # here either. Build and run the id parsing where it can.
+      - name: 32-bit build and id parsing
+        run: |
+          GOARCH=386 go build ./...
+          GOARCH=386 go test ./internal/api/
 
   e2e:
     runs-on: ubuntu-latest

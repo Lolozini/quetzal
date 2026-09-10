@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/lolozini/quetzal/internal/models"
@@ -121,12 +120,12 @@ func (s *Server) handleAdminDisable2FA(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPerm(w, r, models.AdminPermUsers) {
 		return
 	}
-	uid, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("uid")), 10, 64)
-	if err != nil {
+	uid, ok := pathID(r, "uid")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	target, err := s.Store.GetUser(uint(uid))
+	target, err := s.Store.GetUser(uid)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return

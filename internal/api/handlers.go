@@ -1613,12 +1613,12 @@ func (s *Server) setDiskUsage(id uint, used int64) {
 // ---- helpers ----
 
 func (s *Server) lookupServer(w http.ResponseWriter, r *http.Request) (*models.Server, bool) {
-	id, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("id")), 10, 64)
-	if err != nil {
+	id, ok := pathID(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid server id")
 		return nil, false
 	}
-	srv, err := s.Store.GetServer(uint(id))
+	srv, err := s.Store.GetServer(id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "server not found")

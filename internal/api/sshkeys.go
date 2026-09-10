@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
@@ -61,12 +60,12 @@ func (s *Server) handleAddSSHKey(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteSSHKey(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
-	id, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("kid")), 10, 64)
-	if err != nil {
+	id, ok := pathID(r, "kid")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	key, err := s.Store.GetSSHKey(uint(id))
+	key, err := s.Store.GetSSHKey(id)
 	if err != nil || key.UserID != u.ID {
 		writeError(w, http.StatusNotFound, "key not found")
 		return

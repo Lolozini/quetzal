@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -322,12 +321,12 @@ func (s *Server) handleClusterStorageClasses(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) lookupCluster(w http.ResponseWriter, r *http.Request) (*models.Cluster, bool) {
-	id, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("cid")), 10, 64)
-	if err != nil {
+	id, ok := pathID(r, "cid")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid cluster id")
 		return nil, false
 	}
-	c, err := s.Store.GetCluster(uint(id))
+	c, err := s.Store.GetCluster(id)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "cluster not found")

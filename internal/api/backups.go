@@ -268,12 +268,12 @@ func (s *Server) lookupBackup(w http.ResponseWriter, r *http.Request, perm strin
 	if !ok {
 		return nil, false
 	}
-	bid, err := strconv.ParseUint(strings.TrimSpace(r.PathValue("bid")), 10, 64)
-	if err != nil {
+	bid, ok := pathID(r, "bid")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid backup id")
 		return nil, false
 	}
-	b, err := s.Store.GetBackup(uint(bid))
+	b, err := s.Store.GetBackup(bid)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "backup not found")

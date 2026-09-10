@@ -436,7 +436,11 @@ func env(key, def string) string {
 
 func envInt32(key string, def int32) int32 {
 	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
+		// ParseInt with bitSize 32, not Atoi: this reads the node port pool,
+		// which the apiserver reads too. Atoi would wrap an out-of-range value
+		// into a negative floor here while the apiserver fell back to its
+		// default, and the two would allocate from different pools.
+		if n, err := strconv.ParseInt(v, 10, 32); err == nil {
 			return int32(n)
 		}
 	}
