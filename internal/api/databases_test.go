@@ -184,3 +184,37 @@ func TestServiceAnnotationsAreAdminOnly(t *testing.T) {
 		t.Errorf("a player replaced the annotations: %d", code)
 	}
 }
+
+// A port name goes on both the Service and the container port, and Kubernetes
+// refuses what it does not like. Accepting one it will refuse created the server
+// happily and then had its Service rejected on every reconcile for good: no
+// networking, nothing in the panel to say why, the reason only in a log. The
+// container port is the stricter of the two, so that is the bar.
+func TestPortNamesKubernetesWouldRefuseAreRejected(t *testing.T) {
+	srv, admin := newTestServer(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+
+	create := func(name string) int {
+		t.Helper()
+		return post(t, admin, srv.URL+"/api/servers", map[string]any{
+			"name": "s", "template": "generic-process",
+			"ports": []map[string]any{{"name": name, "port": 25565, "protocol": "TCP"}},
+		}).StatusCode
+	}
+	for _, bad := range []string{
+		"My Game Port",           // spaces and capitals
+		"waaaaaaaaaaaaaytoolong", // over 15 characters
+		"12345",                  // no letter
+		"-lead", "trail-",        // dashes at the edges
+		"under_score",
+	} {
+		if code := create(bad); code != http.StatusBadRequest {
+			t.Errorf("port name %q accepted: %d", bad, code)
+		}
+	}
+	for _, good := range []string{"game", "p25565", "rcon-tcp", "a", ""} {
+		if code := create(good); code != http.StatusCreated {
+			t.Errorf("port name %q refused: %d", good, code)
+		}
+	}
+}

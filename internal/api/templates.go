@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/lolozini/quetzal/internal/egg"
@@ -82,6 +83,16 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(t.Name) == "" {
 		writeError(w, http.StatusBadRequest, "template name is required")
 		return
+	}
+	// The data path is where the volume mounts and where the file manager is
+	// confined. A relative one, or the container root, gives a server that cannot
+	// start and a file manager rooted somewhere it should not be.
+	if p := strings.TrimSpace(t.DataPath); p != "" {
+		if !strings.HasPrefix(p, "/") || path.Clean(p) != p || p == "/" {
+			writeError(w, http.StatusBadRequest,
+				`dataPath must be an absolute, already-clean directory other than "/" (e.g. /home/container)`)
+			return
+		}
 	}
 	// Pin identity + creation time to the existing row (Save writes every column,
 	// so a hand-edited body that omits createdAt would otherwise zero it);

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -1069,6 +1070,27 @@ func validateExpose(e models.Expose, hasPorts bool) error {
 // protocol (default TCP), a generated name when blank, and exactly one primary
 // (the first when none is marked). The NodePort field is ignored — it is
 // allocated server-side from the pool.
+// portNameRe is what Kubernetes accepts for a port name. The Service side takes
+// an RFC 1123 label, but the same name goes on the container port, which is
+// stricter, so this is the stricter of the two.
+var portNameRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+
+// validatePortName rejects a name Kubernetes will not take. Without this the
+// server was created happily and its Service was then refused on every reconcile
+// for good: no networking, nothing in the panel to say why, and the reason only
+// in the controller's log.
+func validatePortName(name string) error {
+	switch {
+	case len(name) > 15:
+		return fmt.Errorf("port name %q is too long (15 characters at most)", name)
+	case !portNameRe.MatchString(name):
+		return fmt.Errorf("port name %q must be lowercase letters, digits and dashes, starting and ending with a letter or digit", name)
+	case !strings.ContainsAny(name, "abcdefghijklmnopqrstuvwxyz"):
+		return fmt.Errorf("port name %q must contain at least one letter", name)
+	}
+	return nil
+}
+
 func sanitizePorts(in []models.PortSpec) ([]models.PortSpec, error) {
 	out := make([]models.PortSpec, 0, len(in))
 	primaries := 0
@@ -1107,6 +1129,9 @@ func sanitizePorts(in []models.PortSpec) ([]models.PortSpec, error) {
 			} else {
 				name = fmt.Sprintf("p%d", p.Port)
 			}
+		}
+		if err := validatePortName(name); err != nil {
+			return nil, err
 		}
 		if seenName[name] {
 			return nil, fmt.Errorf("duplicate port name %q", name)
