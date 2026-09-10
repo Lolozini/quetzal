@@ -37,6 +37,20 @@ type scheduleRequest struct {
 	Enabled bool                  `json:"enabled"`
 }
 
+// schedulePatch is the update body. Every field is optional: PATCH edits what
+// the caller sent and leaves the rest alone. Decoding straight into
+// scheduleRequest instead made an omitted "enabled" read as false, silently
+// disabling the schedule — a backup chain would just stop running, with a 200
+// and no warning.
+type schedulePatch struct {
+	Name    *string                `json:"name"`
+	Cron    *string                `json:"cron"`
+	Tasks   *[]models.ScheduleTask `json:"tasks"`
+	Action  *models.ScheduleAction `json:"action"`
+	Payload *string                `json:"payload"`
+	Enabled *bool                  `json:"enabled"`
+}
+
 func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	srv, ok := s.requireServer(w, r, models.PermSchedules)
 	if !ok {
@@ -79,10 +93,34 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var req scheduleRequest
-	if err := decodeJSON(r, &req); err != nil {
+	var patch schedulePatch
+	if err := decodeJSON(r, &patch); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
+	}
+	// Seed the request from what is stored, then overlay only the fields the
+	// caller actually sent, so a partial PATCH edits one thing instead of
+	// resetting the rest to their zero values.
+	req := scheduleRequest{
+		Name: sc.Name, Cron: sc.Cron, Tasks: sc.TaskChain(), Enabled: sc.Enabled,
+	}
+	if patch.Name != nil {
+		req.Name = *patch.Name
+	}
+	if patch.Cron != nil {
+		req.Cron = *patch.Cron
+	}
+	if patch.Tasks != nil {
+		req.Tasks = *patch.Tasks
+	}
+	if patch.Action != nil {
+		req.Action, req.Tasks = *patch.Action, nil
+		if patch.Payload != nil {
+			req.Payload = *patch.Payload
+		}
+	}
+	if patch.Enabled != nil {
+		req.Enabled = *patch.Enabled
 	}
 	tasks, err := validateSchedule(req)
 	if err != nil {
