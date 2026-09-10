@@ -3,12 +3,15 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/objectstore"
 )
 
 // Deleting a backup must respect what the record still owns. An operation in
@@ -182,5 +185,53 @@ func TestDeleteServerPurgesItsSnapshots(t *testing.T) {
 	deleteServer(noSnapshot)
 	if got := purgeJobs(); len(got) != 1 {
 		t.Errorf("a server with no completed backup was purged anyway: %v", got)
+	}
+}
+
+// restic creates a bucket that is not there, so a typo in the name does not
+// fail: it starts a second bucket and sends the backups into it, and the
+// mistake looks like success until someone goes looking for the data. Checking
+// at the moment the target is configured is the only point where the difference
+// is still knowable.
+func TestBackupTargetIsVerifiedBeforeItIsStored(t *testing.T) {
+	srv, admin, _, apiSrv, _ := newTestServerFull(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+
+	var seen objectstore.Target
+	var answer error
+	apiSrv.CheckBucket = func(_ context.Context, tgt objectstore.Target) error {
+		seen = tgt
+		return answer
+	}
+	save := func() int {
+		t.Helper()
+		return put(t, admin, srv.URL+"/api/backup-config", map[string]any{
+			"endpoint": "s3.example", "bucket": "typo-bucket", "region": "fr-par", "useSSL": true,
+			"keepLast": 3, "accessKey": "ak", "secretKey": "sk", "repoPassword": "rp",
+		}).StatusCode
+	}
+
+	answer = errors.New(`bucket "typo-bucket" does not exist`)
+	if code := save(); code != http.StatusBadRequest {
+		t.Fatalf("a missing bucket was accepted: %d", code)
+	}
+	if cfg, err := apiSrv.Store.GetBackupConfig(); err == nil && cfg != nil && cfg.Bucket != "" {
+		t.Errorf("the rejected target was stored anyway: %+v", cfg)
+	}
+	if seen.Bucket != "typo-bucket" || seen.Endpoint != "s3.example" || seen.Access != "ak" {
+		t.Errorf("checked the wrong target: %+v", seen)
+	}
+
+	// Not being able to reach the object store is not the same as the target
+	// being wrong: refusing here would leave an operator unable to configure
+	// backups because the panel briefly could not connect.
+	answer = fmt.Errorf("%w: dial tcp: i/o timeout", objectstore.ErrIndeterminate)
+	if code := save(); code != http.StatusNoContent {
+		t.Errorf("an unreachable object store blocked the configuration: %d", code)
+	}
+
+	answer = nil
+	if code := save(); code != http.StatusNoContent {
+		t.Errorf("a good target was refused: %d", code)
 	}
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/lolozini/quetzal/internal/cluster"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/notify"
+	"github.com/lolozini/quetzal/internal/objectstore"
 	"github.com/lolozini/quetzal/internal/ratelimit"
 	"github.com/lolozini/quetzal/internal/safefetch"
 	"github.com/lolozini/quetzal/internal/store"
@@ -77,6 +78,9 @@ type Server struct {
 	// Fetch performs SSRF-guarded outbound GETs (egg import). Defaults to
 	// safefetch.Get; overridable in tests.
 	Fetch Fetcher
+	// CheckBucket confirms a backup target exists before it is stored. Defaults
+	// to objectstore.CheckBucket; overridable in tests so they need no network.
+	CheckBucket BucketChecker
 	// TrustProxy honors X-Forwarded-For when deriving the client IP (set when
 	// served behind a reverse proxy such as Traefik).
 	TrustProxy bool
@@ -126,6 +130,9 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 		ForgotLimiter: ratelimit.New(3, time.Hour),
 		Mailer:        notify.SendMail,
 		Fetch:         safefetch.Get,
+		CheckBucket: func(ctx context.Context, t objectstore.Target) error {
+			return objectstore.CheckBucket(ctx, t, nil)
+		},
 	}
 	s.upgrader = websocket.Upgrader{CheckOrigin: s.checkOrigin}
 	return s
@@ -136,6 +143,10 @@ type MailSender func(ctx context.Context, cfg map[string]string, to []string, su
 
 // Fetcher performs an SSRF-guarded outbound GET; see safefetch.Get.
 type Fetcher func(ctx context.Context, url string, maxBytes int64) ([]byte, error)
+
+// BucketChecker reports whether a backup target exists and answers to its
+// credentials; see objectstore.CheckBucket.
+type BucketChecker func(ctx context.Context, t objectstore.Target) error
 
 // GCRateLimiters drops expired counters from all limiters; call periodically.
 func (s *Server) GCRateLimiters() {
