@@ -1,7 +1,11 @@
-// Package ratelimit provides a small in-memory fixed-window rate limiter used to
-// slow brute-force attacks on authentication endpoints. It is per-process: with
-// multiple apiserver replicas each holds its own counters, which is acceptable
-// for the homelab single-replica default (a distributed limiter is future work).
+// Package ratelimit provides a fixed-window rate limiter used to slow
+// brute-force attacks on authentication endpoints.
+//
+// Counters live in memory by default, which has two consequences worth knowing:
+// they reset when the process does -- an upgrade hands an attacker a fresh
+// budget -- and each apiserver replica holds its own, so the effective limit is
+// the configured one times the replica count. Give a limiter a Backend and the
+// counters move to shared storage, where neither is true.
 package ratelimit
 
 import (
@@ -17,6 +21,32 @@ type Limiter struct {
 	hits   map[string]*counter
 	limit  int
 	window time.Duration
+
+	backend Backend
+	prefix  string
+}
+
+// Backend is shared storage for counters, so they outlive the process and are
+// seen by every replica. Implemented by store.Store.
+type Backend interface {
+	RateAllow(key string, limit int, window time.Duration, now time.Time) (bool, time.Time, error)
+	RateReset(key string) error
+	RateGC(now time.Time) error
+}
+
+// Share moves this limiter's counting to b. The prefix keeps limiters apart in
+// the shared namespace, so a username and an IP cannot collide on one key.
+//
+// A backend that errors is not a way in: the call falls back to the in-memory
+// counters, which still limit, just per-process as before.
+func (l *Limiter) Share(b Backend, prefix string) *Limiter {
+	if l == nil {
+		return nil
+	}
+	l.mu.Lock()
+	l.backend, l.prefix = b, prefix
+	l.mu.Unlock()
+	return l
 }
 
 type counter struct {
@@ -36,6 +66,17 @@ func (l *Limiter) Allow(key string) bool {
 		return true
 	}
 	now := time.Now()
+	if b, prefix := l.sharing(); b != nil {
+		ok, reset, err := b.RateAllow(prefix+key, l.limit, l.window, now)
+		if err == nil {
+			// Keep the window locally so RetryAfter answers without a query.
+			l.mu.Lock()
+			l.hits[key] = &counter{n: 0, reset: reset}
+			l.mu.Unlock()
+			return ok
+		}
+		// Storage is unreachable; fall through and limit in memory.
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	c := l.hits[key]
@@ -56,9 +97,19 @@ func (l *Limiter) Reset(key string) {
 	if l == nil {
 		return
 	}
+	if b, prefix := l.sharing(); b != nil {
+		_ = b.RateReset(prefix + key)
+	}
 	l.mu.Lock()
 	delete(l.hits, key)
 	l.mu.Unlock()
+}
+
+// sharing returns the backend and prefix, read under the lock.
+func (l *Limiter) sharing() (Backend, string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.backend, l.prefix
 }
 
 // RetryAfter returns the whole seconds until key's window resets (>= 1 when
@@ -86,6 +137,9 @@ func (l *Limiter) GC() {
 		return
 	}
 	now := time.Now()
+	if b, _ := l.sharing(); b != nil {
+		_ = b.RateGC(now)
+	}
 	l.mu.Lock()
 	for k, c := range l.hits {
 		if now.After(c.reset) {

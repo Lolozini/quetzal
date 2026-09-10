@@ -172,6 +172,7 @@ func (s *Store) autoMigrate() error {
 		&models.NotificationChannel{}, &models.Event{}, &models.Setting{},
 		&models.SSHKey{}, &models.PasswordReset{},
 		&models.DatabaseHost{}, &models.ServerDatabase{},
+		&models.RateCounter{},
 	)
 }
 

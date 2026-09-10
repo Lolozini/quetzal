@@ -181,6 +181,11 @@ cannot spoof or sniff on the node's network — and it has no API credentials an
 no cluster network. It is root in its own container and nowhere else, but grant
 the permission accordingly, and do not import eggs you have no reason to trust.
 
+**Brute-force counters live in the database**, so they survive a restart and are
+shared by every replica: the configured limit is the limit, not the limit times
+the number of pods. If the database is unreachable the limiter falls back to
+counting in memory — still limited, just per-process.
+
 **Delegated admin roles stop short of the privilege system.** A scoped admin
 never reaches an account that outranks it: granting admin status, assigning
 roles, and resetting, deleting or clearing the two-factor of any account with
