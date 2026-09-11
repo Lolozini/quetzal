@@ -34,8 +34,12 @@ type User struct {
 	// base32 secret (reversible: needed to compute codes). TOTPEnabled is set
 	// once the user confirms enrollment with a valid code. RecoveryCodes are
 	// SHA-256 hashes of the still-unused single-use codes. None are serialized.
+	// LastTOTPStep is the last 30-second time step accepted for this user. A
+	// code stays valid across a three-step window, so without a high-water mark
+	// the same one works again for up to 90 seconds.
 	TOTPSecretEnc string   `json:"-"`
 	TOTPEnabled   bool     `json:"twoFactorEnabled"`
+	LastTOTPStep  uint64   `json:"-"`
 	RecoveryCodes []string `gorm:"serializer:json" json:"-"`
 }
 

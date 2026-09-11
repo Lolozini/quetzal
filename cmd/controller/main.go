@@ -354,6 +354,11 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 		rec.NodePortMax = actCfg.nodePortMax
 		rec.ExtraEgressCIDRs = egressAllow
 		rec.NamespacedRole = namespacedRole
+		// Read straight from the environment rather than reusing `namespace`,
+		// which carries a default: a managed database's ingress policy has to
+		// name the real namespace, and guessing wrong would lock the control
+		// plane out of the database it provisions. Unset means unset.
+		rec.ControlPlaneNamespace = env("POD_NAMESPACE", "")
 		rec.ClusterID = c.ID
 		for _, s := range byCluster[c.ID] {
 			if err := guarded("reconcile server "+s.Slug, func() error { return rec.ReconcileServer(ctx, s.ID) }); err != nil {

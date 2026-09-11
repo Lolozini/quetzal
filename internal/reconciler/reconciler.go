@@ -65,6 +65,14 @@ type Reconciler struct {
 	// names its range here. Injected by the controller from QUETZAL_EGRESS_ALLOW.
 	ExtraEgressCIDRs []string
 
+	// ControlPlaneNamespace is where the apiserver and controller run. A managed
+	// database's ingress policy has to let it in: it is the one that creates and
+	// drops databases over 3306. Empty means unknown, and the policy is then not
+	// written at all rather than written in a way that would lock provisioning
+	// out — a database nobody can provision is a worse outcome than one reachable
+	// from inside the cluster, which is what it was before.
+	ControlPlaneNamespace string
+
 	// NodePortMin/NodePortMax bound the node-port pool the SFTP Service draws
 	// from (0 = the store's defaults). Same pool as the game ports, so SFTP and
 	// game allocations never collide. Injected by the controller.

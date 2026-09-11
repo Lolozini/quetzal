@@ -377,6 +377,31 @@ releases may include breaking changes).
   scheme it does not serve. `/api/docs` relaxes the policy for itself alone, to
   load the Redoc viewer from its CDN.
 
+- **A two-factor code can only be used once.** A TOTP code is valid across a
+  three-step window — up to 90 seconds — and nothing recorded that one had been
+  used, so a code seen over a shoulder or left in a screenshot still worked
+  alongside the login it came from. Each accepted code now burns its time step,
+  and anything at or below the last one accepted is refused. The check and the
+  write are a single statement, so two requests racing with the same code cannot
+  both be let in. Recovery codes were already single-use. Consequence to know:
+  the code that switches 2FA on is spent by switching it on, so the first login
+  after enrolling needs the next one.
+- **An admin scoped to `servers` can use SFTP.** A server's `authorized_keys`
+  was built from the owner, subusers holding `files`, and superadmins only — so
+  a scoped admin who administers every server could browse and edit files
+  through the panel while SFTP refused their key with no explanation. They are
+  now included, and an admin scoped to something else still is not.
+- **A managed database only accepts its own tenants.** Nothing restricted who
+  could open a connection to a Quetzal-managed MariaDB, so any pod able to route
+  to its namespace could reach 3306 — other tenants' servers, and unrelated
+  workloads sharing the cluster. It now carries an ingress NetworkPolicy naming
+  the namespaces that hold a database on it plus the control plane's, rewritten
+  on each resync as databases come and go. Per-database grants were, and remain,
+  what keeps one tenant out of another's tables; this removes the chance to try.
+  The policy needs `POD_NAMESPACE` to know the control plane's namespace (the
+  chart sets it): without it none is written, and a warning says so, since a
+  policy missing that namespace would block provisioning entirely.
+
 ## [0.1.0] - 2026-06-25
 
 Initial public release — a Kubernetes-native control plane and web UI for hosting

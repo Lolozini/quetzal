@@ -27,6 +27,9 @@ func code(t *testing.T, secret string) string {
 func TestTwoFactorEnrollmentAndLogin(t *testing.T) {
 	ts, admin, _ := newTestServerStore(t)
 	post(t, admin, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+	// Enrolling spends a time step, so the login below has to use another one.
+	// See TestTOTPCodeCannotBeReplayed for why a code is single-use.
+	step := alignToStep(t)
 
 	// Enroll: setup returns a secret, enable confirms with a code.
 	r := post(t, admin, ts.URL+"/api/me/2fa/setup", nil)
@@ -44,7 +47,7 @@ func TestTwoFactorEnrollmentAndLogin(t *testing.T) {
 	if r := post(t, admin, ts.URL+"/api/me/2fa/enable", map[string]string{"code": "000000"}); r.StatusCode != http.StatusBadRequest {
 		t.Errorf("enable with bad code = %d, want 400", r.StatusCode)
 	}
-	r = post(t, admin, ts.URL+"/api/me/2fa/enable", map[string]string{"code": code(t, setup.Secret)})
+	r = post(t, admin, ts.URL+"/api/me/2fa/enable", map[string]string{"code": codeForStep(t, setup.Secret, step)})
 	if r.StatusCode != http.StatusOK {
 		t.Fatalf("enable = %d", r.StatusCode)
 	}
@@ -85,7 +88,7 @@ func TestTwoFactorEnrollmentAndLogin(t *testing.T) {
 	if r := post(t, fresh, ts.URL+"/api/login", map[string]string{"username": "admin", "password": "supersecret", "code": "000000"}); r.StatusCode != http.StatusUnauthorized {
 		t.Errorf("login with bad code = %d, want 401", r.StatusCode)
 	}
-	if r := post(t, fresh, ts.URL+"/api/login", map[string]string{"username": "admin", "password": "supersecret", "code": code(t, setup.Secret)}); r.StatusCode != http.StatusOK {
+	if r := post(t, fresh, ts.URL+"/api/login", map[string]string{"username": "admin", "password": "supersecret", "code": codeForStep(t, setup.Secret, step+1)}); r.StatusCode != http.StatusOK {
 		t.Fatalf("login with TOTP = %d", r.StatusCode)
 	}
 	if r, _ := fresh.Get(ts.URL + "/api/me"); r.StatusCode != http.StatusOK {

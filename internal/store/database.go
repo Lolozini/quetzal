@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"sort"
 	"time"
 
 	"gorm.io/gorm"
@@ -82,6 +83,36 @@ func (s *Store) CountDatabasesOnHost(hostID uint) (int64, error) {
 // ---- per-server databases ----
 
 // ListServerDatabases returns a server's databases.
+// ServerNamespacesUsingHost returns the namespaces of the servers holding a
+// database on a host, deduplicated. It is what the managed database's ingress
+// policy is built from: exactly the tenants that have a reason to reach it.
+func (s *Store) ServerNamespacesUsingHost(hostID uint) ([]string, error) {
+	var serverIDs []uint
+	if err := s.db.Model(&models.ServerDatabase{}).
+		Where("host_id = ?", hostID).Pluck("server_id", &serverIDs).Error; err != nil {
+		return nil, err
+	}
+	if len(serverIDs) == 0 {
+		return nil, nil
+	}
+	var namespaces []string
+	if err := s.db.Model(&models.Server{}).
+		Where("id IN ?", serverIDs).Pluck("namespace", &namespaces).Error; err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(namespaces))
+	for _, ns := range namespaces {
+		if ns == "" || seen[ns] {
+			continue
+		}
+		seen[ns] = true
+		out = append(out, ns)
+	}
+	sort.Strings(out) // stable order, so the policy does not churn between resyncs
+	return out, nil
+}
+
 func (s *Store) ListServerDatabases(serverID uint) ([]models.ServerDatabase, error) {
 	var ds []models.ServerDatabase
 	err := s.db.Where("server_id = ?", serverID).Order("id asc").Find(&ds).Error

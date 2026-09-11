@@ -47,12 +47,16 @@ func (s *Store) ListAuthorizedSSHKeys(serverID uint) ([]models.SSHKey, error) {
 	}
 	userIDs := map[uint]bool{srv.OwnerID: true}
 
-	var admins []models.User
-	if err := s.db.Where("is_admin = ?", true).Find(&admins).Error; err != nil {
+	// Everyone who administers servers, not only superadmins. A scoped admin
+	// holding "servers" browses and edits these files through the panel, so
+	// leaving their key out made SFTP fail for them with no explanation while
+	// the same access over HTTP worked.
+	admins, err := s.UsersWithAdminPerm(models.AdminPermServers)
+	if err != nil {
 		return nil, err
 	}
-	for _, a := range admins {
-		userIDs[a.ID] = true
+	for _, id := range admins {
+		userIDs[id] = true
 	}
 
 	accesses, err := s.ListAccessForServer(serverID)

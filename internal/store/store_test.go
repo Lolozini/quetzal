@@ -4,6 +4,8 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -754,5 +756,158 @@ func TestDeleteUserReassignsWithoutStrippingOtherGrants(t *testing.T) {
 	// Carol's own server is untouched.
 	if got, err := st.GetServer(carolSrv.ID); err != nil || got.OwnerID != carol.ID {
 		t.Errorf("carol's server changed hands: %v %+v", err, got)
+	}
+}
+
+// Two requests arriving with the same TOTP code must not both be accepted. The
+// check and the write are one statement for exactly this reason; a read-then-
+// write would let both see the old high-water mark.
+func TestConsumeTOTPStepIsAtomic(t *testing.T) {
+	st := newTestStore(t)
+	u := &models.User{Username: "tot", PasswordHash: "x"}
+	if err := st.CreateUser(u); err != nil {
+		t.Fatal(err)
+	}
+	const step = uint64(58_000_000)
+
+	var wins int32
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ok, err := st.ConsumeTOTPStep(u.ID, step); err == nil && ok {
+				atomic.AddInt32(&wins, 1)
+			}
+		}()
+	}
+	wg.Wait()
+	if wins != 1 {
+		t.Errorf("%d concurrent uses of one code were accepted, want exactly 1", wins)
+	}
+
+	// An older step stays refused, a newer one is taken.
+	if ok, _ := st.ConsumeTOTPStep(u.ID, step-1); ok {
+		t.Error("an earlier step was accepted after a later one")
+	}
+	if ok, err := st.ConsumeTOTPStep(u.ID, step+1); err != nil || !ok {
+		t.Errorf("a later step should be accepted: ok=%v err=%v", ok, err)
+	}
+}
+
+// A scoped admin holding "servers" reaches every server's files through the
+// panel. Their SSH key has to be in authorized_keys too, or SFTP fails for them
+// with no explanation while the same access over HTTP works. An admin scoped to
+// something else must stay out.
+func TestAuthorizedKeysIncludeScopedServerAdmins(t *testing.T) {
+	st := newTestStore(t)
+	mkUser := func(name string, roleID *uint, admin bool) *models.User {
+		u := &models.User{Username: name, PasswordHash: "x", IsAdmin: admin, AdminRoleID: roleID}
+		if err := st.CreateUser(u); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.AddSSHKey(&models.SSHKey{
+			UserID: u.ID, Name: name, PublicKey: "ssh-ed25519 AAAA " + name, Fingerprint: "fp-" + name,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	mkRole := func(name string, perms []string) uint {
+		r := &models.AdminRole{Name: name, Permissions: perms}
+		if err := st.CreateAdminRole(r); err != nil {
+			t.Fatal(err)
+		}
+		return r.ID
+	}
+
+	serversRole := mkRole("server-admin", []string{models.AdminPermServers})
+	usersRole := mkRole("user-admin", []string{models.AdminPermUsers})
+
+	owner := mkUser("owner", nil, false)
+	mkUser("super", nil, true)
+	mkUser("scoped-servers", &serversRole, false)
+	mkUser("scoped-users", &usersRole, false)
+	mkUser("nobody", nil, false)
+
+	srv := &models.Server{Slug: "mc", OwnerID: owner.ID}
+	if err := st.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := st.ListAuthorizedSSHKeys(srv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, k := range keys {
+		got[k.Name] = true
+	}
+	for _, want := range []string{"owner", "super", "scoped-servers"} {
+		if !got[want] {
+			t.Errorf("%s should be authorized for SFTP", want)
+		}
+	}
+	for _, unwanted := range []string{"scoped-users", "nobody"} {
+		if got[unwanted] {
+			t.Errorf("%s must not be authorized for SFTP", unwanted)
+		}
+	}
+}
+
+// The ingress policy of a managed database is built from this list, so it has to
+// name every tenant with a database there and nobody else. A namespace that
+// appears twice must appear once, or the policy churns between resyncs.
+func TestServerNamespacesUsingHost(t *testing.T) {
+	st := newTestStore(t)
+	host := &models.DatabaseHost{Name: "shared", Kind: models.DBHostManaged}
+	other := &models.DatabaseHost{Name: "elsewhere", Kind: models.DBHostManaged}
+	for _, h := range []*models.DatabaseHost{host, other} {
+		if err := st.CreateDatabaseHost(h, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mkServer := func(slug, ns string) *models.Server {
+		s := &models.Server{Slug: slug, Namespace: ns}
+		if err := st.CreateServer(s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	a := mkServer("a", "quetzal-srv-a")
+	b := mkServer("b", "quetzal-srv-b")
+	c := mkServer("c", "quetzal-srv-c")
+
+	// a has two databases on the same host: its namespace must not be listed twice.
+	for _, d := range []*models.ServerDatabase{
+		{ServerID: a.ID, HostID: host.ID, DatabaseName: "a1", Username: "u1", Remote: "%"},
+		{ServerID: a.ID, HostID: host.ID, DatabaseName: "a2", Username: "u2", Remote: "%"},
+		{ServerID: b.ID, HostID: host.ID, DatabaseName: "b1", Username: "u3", Remote: "%"},
+		{ServerID: c.ID, HostID: other.ID, DatabaseName: "c1", Username: "u4", Remote: "%"},
+	} {
+		if err := st.CreateServerDatabase(d, "pw"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := st.ServerNamespacesUsingHost(host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"quetzal-srv-a", "quetzal-srv-b"}
+	if len(got) != len(want) {
+		t.Fatalf("namespaces = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("namespaces = %v, want %v (sorted)", got, want)
+		}
+	}
+	// A host nobody uses yields nothing, not everything.
+	empty := &models.DatabaseHost{Name: "unused", Kind: models.DBHostManaged}
+	if err := st.CreateDatabaseHost(empty, ""); err != nil {
+		t.Fatal(err)
+	}
+	if ns, err := st.ServerNamespacesUsingHost(empty.ID); err != nil || len(ns) != 0 {
+		t.Errorf("unused host = %v (%v), want none", ns, err)
 	}
 }

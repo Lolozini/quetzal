@@ -869,3 +869,49 @@ func TestInstallDropsTheCapabilitiesPackageManagersNeverUse(t *testing.T) {
 		t.Error("install container no longer runs as root")
 	}
 }
+
+// A managed database must only accept connections from the tenants that hold a
+// database on it, plus the control plane that provisions them. Before this, any
+// pod able to route to the namespace could open 3306 — other tenants' servers
+// and unrelated workloads sharing the cluster alike.
+func TestManagedDBNetworkPolicyNamesOnlyItsTenants(t *testing.T) {
+	h := &models.DatabaseHost{ID: 7, Name: "shared", Kind: models.DBHostManaged}
+	np := BuildManagedDBNetworkPolicy(h, []string{"quetzal-srv-a", "quetzal-srv-b", "quetzal"})
+
+	if np.Namespace != ManagedDBNamespace(h) {
+		t.Errorf("policy namespace = %q, want the database's own", np.Namespace)
+	}
+	if len(np.Spec.Ingress) != 1 {
+		t.Fatalf("want one ingress rule, got %d", len(np.Spec.Ingress))
+	}
+	rule := np.Spec.Ingress[0]
+	// An empty From means "from anywhere" in NetworkPolicy — the one shape this
+	// must never take.
+	if len(rule.From) == 0 {
+		t.Fatal("an ingress rule with no peers allows every source")
+	}
+	got := map[string]bool{}
+	for _, p := range rule.From {
+		if p.NamespaceSelector == nil {
+			t.Errorf("peer %+v is not scoped to a namespace", p)
+			continue
+		}
+		got[p.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"]] = true
+	}
+	for _, want := range []string{"quetzal-srv-a", "quetzal-srv-b", "quetzal"} {
+		if !got[want] {
+			t.Errorf("%s should be allowed to reach the database", want)
+		}
+	}
+	if len(got) != 3 {
+		t.Errorf("peers = %v, want exactly the three named", got)
+	}
+	if len(rule.Ports) != 1 || rule.Ports[0].Port.IntVal != ManagedDBPort {
+		t.Errorf("ports = %+v, want only %d", rule.Ports, ManagedDBPort)
+	}
+	// Ingress only: the database opens no connections of its own, and a broken
+	// egress rule there would be a self-inflicted outage.
+	if len(np.Spec.PolicyTypes) != 1 || np.Spec.PolicyTypes[0] != networkingv1.PolicyTypeIngress {
+		t.Errorf("policy types = %v, want Ingress only", np.Spec.PolicyTypes)
+	}
+}

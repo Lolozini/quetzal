@@ -47,27 +47,35 @@ func Code(secret string, t time.Time) (string, error) {
 }
 
 // Validate reports whether code matches secret at the current time, tolerating
-// ±1 step of clock skew.
-func Validate(secret, code string) bool {
+// ±1 step of clock skew, and returns the time step it matched.
+//
+// The step is not incidental: a code stays valid across the whole three-step
+// window, so up to 90 seconds. Callers MUST record the returned step and refuse
+// anything at or below it, or a code observed once — over a shoulder, in a
+// screenshot, in a log — can be replayed for the rest of that window while it
+// is still the legitimate user's own code. That is why this returns the step
+// rather than a bare bool: there is no way to accept a code without being
+// handed the thing that makes it single-use.
+func Validate(secret, code string) (uint64, bool) {
 	return validateAt(secret, code, time.Now())
 }
 
-func validateAt(secret, code string, now time.Time) bool {
+func validateAt(secret, code string, now time.Time) (uint64, bool) {
 	code = strings.TrimSpace(code)
 	if len(code) != digits {
-		return false
+		return 0, false
 	}
 	key, err := decode(secret)
 	if err != nil {
-		return false
+		return 0, false
 	}
 	counter := uint64(now.Unix()) / period
 	for _, c := range []uint64{counter - 1, counter, counter + 1} {
 		if subtle.ConstantTimeCompare([]byte(hotp(key, c)), []byte(code)) == 1 {
-			return true
+			return c, true
 		}
 	}
-	return false
+	return 0, false
 }
 
 func hotp(key []byte, counter uint64) string {
