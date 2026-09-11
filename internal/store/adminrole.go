@@ -13,6 +13,34 @@ func (s *Store) CreateAdminRole(r *models.AdminRole) error {
 }
 
 // ListAdminRoles returns all admin roles ordered by name.
+// UsersWithAdminPerm returns the ids of every account holding an admin
+// permission: superadmins, who hold all of them, plus the holders of a role
+// that grants it.
+//
+// The roles are filtered in Go rather than in SQL because a role's permissions
+// are a JSON column, and SQLite and Postgres do not query one the same way.
+// There are only ever a handful of roles, so the cost is a single small read.
+func (s *Store) UsersWithAdminPerm(perm string) ([]uint, error) {
+	roles, err := s.ListAdminRoles()
+	if err != nil {
+		return nil, err
+	}
+	var roleIDs []uint
+	for i := range roles {
+		if roles[i].Has(perm) {
+			roleIDs = append(roleIDs, roles[i].ID)
+		}
+	}
+	q := s.db.Model(&models.User{})
+	if len(roleIDs) > 0 {
+		q = q.Where("is_admin = ? OR admin_role_id IN ?", true, roleIDs)
+	} else {
+		q = q.Where("is_admin = ?", true)
+	}
+	var ids []uint
+	return ids, q.Pluck("id", &ids).Error
+}
+
 func (s *Store) ListAdminRoles() ([]models.AdminRole, error) {
 	var rs []models.AdminRole
 	if err := s.db.Order("name asc").Find(&rs).Error; err != nil {

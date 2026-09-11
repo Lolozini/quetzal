@@ -900,6 +900,24 @@ func (s *Store) DeleteUser(id, reassignTo uint) error {
 	})
 }
 
+// ConsumeTOTPStep records step as the last one accepted for a user, and reports
+// whether it was still unused. A TOTP code is valid across its whole window, so
+// accepting one without burning its step lets a code seen once be replayed for
+// the rest of that window.
+//
+// The comparison and the write are a single statement on purpose: two requests
+// arriving with the same code would otherwise both read the old high-water mark
+// and both be let through.
+func (s *Store) ConsumeTOTPStep(userID uint, step uint64) (bool, error) {
+	res := s.db.Model(&models.User{}).
+		Where("id = ? AND (last_totp_step IS NULL OR last_totp_step < ?)", userID, step).
+		Update("last_totp_step", step)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
 // CountServersOwnedBy returns how many servers a user owns (guards account
 // deletion, which hands them to someone else).
 func (s *Store) CountServersOwnedBy(userID uint) (int64, error) {

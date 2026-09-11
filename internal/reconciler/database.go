@@ -9,6 +9,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -113,8 +114,76 @@ func (r *Reconciler) ReconcileDatabaseHosts(ctx context.Context) error {
 				r.ensureRoleBinding(ctx, ns)
 			}
 		}
+		r.ensureManagedDBNetworkPolicy(ctx, h)
 	}
 	return r.gcManagedDBNamespaces(ctx, valid)
+}
+
+// ensureManagedDBNetworkPolicy keeps a managed database's ingress policy in step
+// with the servers that hold a database on it. It is rewritten on every resync,
+// so a database added or dropped between two passes is reflected on the next
+// one — the same convergence the servers' own egress rules rely on.
+func (r *Reconciler) ensureManagedDBNetworkPolicy(ctx context.Context, h *models.DatabaseHost) {
+	if r.ControlPlaneNamespace == "" {
+		r.warnOnce("db-netpol-no-namespace",
+			"managed databases are left reachable from anywhere in the cluster: the control plane's own namespace is unknown (POD_NAMESPACE), and a policy without it would block provisioning")
+		return
+	}
+	namespaces, err := r.Store.ServerNamespacesUsingHost(h.ID)
+	if err != nil {
+		// Rewriting the policy from an incomplete list would cut live servers off
+		// from their database. Leave the last good one in place and retry.
+		log.Printf("db host %d: list server namespaces (its ingress policy is left as it is): %v", h.ID, err)
+		return
+	}
+	if err := r.apply(ctx, BuildManagedDBNetworkPolicy(h, append(namespaces, r.ControlPlaneNamespace))); err != nil {
+		log.Printf("db host %d: apply ingress policy: %v", h.ID, err)
+	}
+}
+
+// BuildManagedDBNetworkPolicy restricts who may open a connection to a managed
+// MariaDB: the servers that have a database on it, and the control plane, which
+// provisions them. Nothing else in the cluster has any business on 3306.
+//
+// Without it the database is reachable by every pod that can route to its
+// namespace — other tenants' servers, and any unrelated workload sharing the
+// cluster. MySQL grants are still what keeps one tenant out of another's tables,
+// and they hold; this removes the chance to try at all, and to reach a MariaDB
+// that is unpatched or misconfigured.
+//
+// Only ingress is constrained. The pod's own egress is left alone: it needs DNS
+// and nothing else, and a policy there would be one more thing to get wrong on a
+// component that initiates no connections.
+func BuildManagedDBNetworkPolicy(h *models.DatabaseHost, allowed []string) *networkingv1.NetworkPolicy {
+	tcp := corev1.ProtocolTCP
+	port := intstr.FromInt32(ManagedDBPort)
+	peers := make([]networkingv1.NetworkPolicyPeer, 0, len(allowed))
+	for _, ns := range allowed {
+		peers = append(peers, networkingv1.NetworkPolicyPeer{
+			// kubernetes.io/metadata.name is set by the API server on every
+			// namespace, so this needs no label of Quetzal's own to be applied
+			// first — and cannot be spoofed by labelling a namespace.
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"kubernetes.io/metadata.name": ns},
+			},
+		})
+	}
+	return &networkingv1.NetworkPolicy{
+		TypeMeta: metav1.TypeMeta{APIVersion: "networking.k8s.io/v1", Kind: "NetworkPolicy"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "quetzal-db-ingress",
+			Namespace: ManagedDBNamespace(h),
+			Labels:    managedDBLabels(h),
+		},
+		Spec: networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{MatchLabels: managedDBLabels(h)},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{{
+				From:  peers,
+				Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: &port}},
+			}},
+		},
+	}
 }
 
 // gcManagedDBNamespaces deletes managed-database namespaces whose host row is

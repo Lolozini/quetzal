@@ -15,12 +15,17 @@ func TestValidateAcceptsCurrentAndSkew(t *testing.T) {
 	counter := uint64(now.Unix()) / period
 	for _, off := range []uint64{counter - 1, counter, counter + 1} {
 		code := hotp(key, off)
-		if !validateAt(secret, code, now) {
+		step, ok := validateAt(secret, code, now)
+		if !ok {
 			t.Errorf("code for counter %d should validate within skew", off)
+		}
+		// The step identifies which code was used, so the caller can burn it.
+		if step != off {
+			t.Errorf("matched step = %d, want %d", step, off)
 		}
 	}
 	// Two steps away must be rejected.
-	if validateAt(secret, hotp(key, counter+2), now) {
+	if _, ok := validateAt(secret, hotp(key, counter+2), now); ok {
 		t.Error("code two steps ahead should be rejected")
 	}
 }
@@ -28,7 +33,7 @@ func TestValidateAcceptsCurrentAndSkew(t *testing.T) {
 func TestValidateRejectsGarbage(t *testing.T) {
 	secret, _ := GenerateSecret()
 	for _, bad := range []string{"", "12345", "1234567", "abcdef", "  "} {
-		if Validate(secret, bad) {
+		if _, ok := Validate(secret, bad); ok {
 			t.Errorf("garbage code %q must not validate", bad)
 		}
 	}

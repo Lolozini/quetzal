@@ -18,8 +18,15 @@ func (s *Server) verifyTwoFactor(u *models.User, code string) bool {
 	if code == "" {
 		return false
 	}
-	if secret, err := s.Store.UserTOTPSecret(u); err == nil && secret != "" && totp.Validate(secret, code) {
-		return true
+	if secret, err := s.Store.UserTOTPSecret(u); err == nil && secret != "" {
+		if step, ok := totp.Validate(secret, code); ok {
+			// The code is right. It is only accepted if its time step has not
+			// been spent: a code is valid for its whole window, so one observed
+			// over a shoulder or left in a screenshot would otherwise still work
+			// alongside the legitimate login that used it.
+			fresh, err := s.Store.ConsumeTOTPStep(u.ID, step)
+			return err == nil && fresh
+		}
 	}
 	ok, _ := s.Store.ConsumeRecoveryCode(u.ID, code)
 	return ok
@@ -69,7 +76,14 @@ func (s *Server) handle2FAEnable(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "start enrollment first")
 		return
 	}
-	if !totp.Validate(secret, req.Code) {
+	step, ok := totp.Validate(secret, req.Code)
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid code")
+		return
+	}
+	// Spend the step here too, so the code that switched 2FA on cannot also be
+	// the code that logs someone in a moment later.
+	if fresh, err := s.Store.ConsumeTOTPStep(u.ID, step); err != nil || !fresh {
 		writeError(w, http.StatusBadRequest, "invalid code")
 		return
 	}

@@ -317,6 +317,15 @@ func (s *Server) handleCreateServerDatabase(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Remote is MySQL's "may connect from" and stays "%" deliberately. Narrowing
+	// it would have to separate one tenant from another by source address, and
+	// there is nothing to separate them by: every pod draws from one cluster-wide
+	// CIDR and its address changes on each restart. A range covering the pod
+	// network would admit exactly the same set while being one more thing to get
+	// wrong. What keeps tenants apart is the grant — each user is granted only
+	// its own database (see internal/dbprovision) — and, for a managed host, the
+	// ingress NetworkPolicy that admits only the namespaces holding a database
+	// there (see reconciler.BuildManagedDBNetworkPolicy).
 	d := &models.ServerDatabase{
 		ServerID:     srv.ID,
 		HostID:       host.ID,
