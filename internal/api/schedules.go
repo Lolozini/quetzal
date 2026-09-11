@@ -201,17 +201,20 @@ func (s *Server) lookupSchedule(w http.ResponseWriter, r *http.Request, perm str
 }
 
 // taskPermission maps a scheduled action to the permission needed to perform it
-// by hand.
-func taskPermission(a models.ScheduleAction) string {
+// by hand. An action it does not know returns false, and authorizeTasks refuses
+// it: validateSchedule already rejects unknown actions, so this only matters the
+// day someone adds one — and then it has to be granted a permission here rather
+// than arriving unguarded.
+func taskPermission(a models.ScheduleAction) (string, bool) {
 	switch a {
 	case models.SchedStart, models.SchedStop, models.SchedRestart:
-		return models.PermPower
+		return models.PermPower, true
 	case models.SchedCommand:
-		return models.PermConsole
+		return models.PermConsole, true
 	case models.SchedBackup:
-		return models.PermBackups
+		return models.PermBackups, true
 	}
-	return ""
+	return "", false
 }
 
 // sameChain reports whether two task chains would run the same thing.
@@ -234,8 +237,11 @@ func sameChain(a, b []models.ScheduleTask) bool {
 func (s *Server) authorizeTasks(r *http.Request, srv *models.Server, tasks []models.ScheduleTask) error {
 	u := userFrom(r.Context())
 	for _, t := range tasks {
-		perm := taskPermission(t.Action)
-		if perm == "" || s.can(u, srv, perm) {
+		perm, known := taskPermission(t.Action)
+		if !known {
+			return fmt.Errorf("unknown task action %q", t.Action)
+		}
+		if s.can(u, srv, perm) {
 			continue
 		}
 		return fmt.Errorf("scheduling a %q task needs the %q permission on this server", t.Action, perm)

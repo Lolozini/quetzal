@@ -121,6 +121,15 @@ func TestScheduleTasksNeedTheMatchingPermission(t *testing.T) {
 		t.Errorf("rewriting a disabled chain = %d, want 403", pr.StatusCode)
 	}
 
+	// An action the permission map does not know is refused rather than waved
+	// through — the one that matters is the action someone adds later.
+	if rr := post(t, alice, url+"/schedules", map[string]any{
+		"name": "unknown", "cron": "* * * * *", "enabled": true,
+		"tasks": []map[string]any{{"action": "rm-rf"}},
+	}); rr.StatusCode != http.StatusBadRequest {
+		t.Errorf("unknown action = %d, want 400", rr.StatusCode)
+	}
+
 	// The owner keeps full run of their own server.
 	if rr := post(t, alice, url+"/schedules", map[string]any{
 		"name": "owner", "cron": "* * * * *", "enabled": true,
