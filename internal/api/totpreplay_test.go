@@ -116,3 +116,30 @@ func TestTOTPEnrollmentCodeIsSpent(t *testing.T) {
 		t.Errorf("login with the enrolling code = %d, want 401", rr.StatusCode)
 	}
 }
+
+// Turning 2FA off and straight back on must work inside the same 30-second
+// window. The spent-step mark belongs to the old secret, and keeping it would
+// refuse the new enrolling code as "invalid" — a message pointing nowhere.
+func TestReEnrollingInTheSameWindowWorks(t *testing.T) {
+	ts, admin, _ := newTestServerStore(t)
+	post(t, admin, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+
+	now := alignToStep(t)
+	secret := enrollTOTP(t, ts.URL, admin, now)
+	if rr := post(t, admin, ts.URL+"/api/me/2fa/disable",
+		map[string]string{"code": codeForStep(t, secret, now+1)}); rr.StatusCode != http.StatusNoContent {
+		t.Fatalf("disable = %d", rr.StatusCode)
+	}
+	// Same window, brand new secret: enrolling again must be accepted.
+	r := post(t, admin, ts.URL+"/api/me/2fa/setup", nil)
+	var again struct{ Secret string }
+	json.NewDecoder(r.Body).Decode(&again)
+	r.Body.Close()
+	if again.Secret == secret {
+		t.Fatal("re-enrollment should mint a new secret")
+	}
+	if rr := post(t, admin, ts.URL+"/api/me/2fa/enable",
+		map[string]string{"code": codeForStep(t, again.Secret, now)}); rr.StatusCode != http.StatusOK {
+		t.Errorf("re-enrolling in the same window = %d, want 200", rr.StatusCode)
+	}
+}

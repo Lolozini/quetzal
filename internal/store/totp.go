@@ -31,9 +31,13 @@ func (s *Store) EnableUserTOTP(id uint, recoveryHashes []string) error {
 
 // DisableUserTOTP clears all two-factor material for a user.
 func (s *Store) DisableUserTOTP(id uint) error {
+	// The spent-step mark goes with it. A re-enrollment gets a new secret, so the
+	// old mark carries no information about it — and keeping it would refuse the
+	// enrolling code of anyone who turns 2FA back on inside the same 30-second
+	// window, reported as "invalid code", which points nowhere.
 	return s.db.Model(&models.User{ID: id}).
-		Select("totp_secret_enc", "totp_enabled", "recovery_codes").
-		Updates(models.User{TOTPSecretEnc: "", TOTPEnabled: false, RecoveryCodes: nil}).Error
+		Select("totp_secret_enc", "totp_enabled", "recovery_codes", "last_totp_step").
+		Updates(models.User{TOTPSecretEnc: "", TOTPEnabled: false, RecoveryCodes: nil, LastTOTPStep: 0}).Error
 }
 
 // ConsumeRecoveryCode atomically checks code against the user's unused recovery
