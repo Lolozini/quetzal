@@ -154,6 +154,13 @@ func (r *Reconciler) ensureManagedDBNetworkPolicy(ctx context.Context, h *models
 // Only ingress is constrained. The pod's own egress is left alone: it needs DNS
 // and nothing else, and a policy there would be one more thing to get wrong on a
 // component that initiates no connections.
+//
+// The readiness probe is a connection from the kubelet, which NetworkPolicy does
+// not govern — verified on Cilium, where the pod goes Ready under a policy that
+// names neither the node nor its namespace, while a pod in an unlisted namespace
+// is refused. Naming it here because the symptom on a CNI that did enforce it
+// would be a database that never becomes ready, which reads like anything but a
+// policy problem.
 func BuildManagedDBNetworkPolicy(h *models.DatabaseHost, allowed []string) *networkingv1.NetworkPolicy {
 	tcp := corev1.ProtocolTCP
 	port := intstr.FromInt32(ManagedDBPort)
