@@ -12,9 +12,11 @@ import (
 func execInstall(t *testing.T, mount, gen, wipe string) {
 	t.Helper()
 	userScript := `echo x >> "` + mount + `/ran.log"`
-	script := buildInstallScript(mount, userScript)
-	cmd := exec.Command("sh", "-c", script)
-	cmd.Env = append(os.Environ(), "QUETZAL_INSTALL_GEN="+gen, "QUETZAL_INSTALL_WIPE="+wipe)
+	cmd := exec.Command("sh", "-c", buildInstallScript(mount))
+	cmd.Env = append(os.Environ(),
+		"QUETZAL_INSTALL_GEN="+gen, "QUETZAL_INSTALL_WIPE="+wipe,
+		"QUETZAL_INSTALL_RESOLVED_SHELL=sh",
+		"QUETZAL_INSTALL_USER_SCRIPT="+userScript)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("install script: %v\n%s", err, out)
 	}
