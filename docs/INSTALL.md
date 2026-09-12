@@ -184,6 +184,14 @@ cannot spoof or sniff on the node's network — and it has no API credentials an
 no cluster network. It is root in its own container and nowhere else, but grant
 the permission accordingly, and do not import eggs you have no reason to trust.
 
+An install also has a deadline: six hours, after which it is stopped and the
+server goes to Error with the reason in its setup log. That is far longer than
+any install should take — a SteamCMD download of a large game legitimately runs
+for hours — and exists so a script that hangs (a download from a host that no
+longer answers) ends somewhere instead of leaving the server in Installing for
+good. A stopped install is not recorded as done, so it runs again on the next
+start.
+
 **Brute-force counters live in the database**, so they survive a restart and are
 shared by every replica: the configured limit is the limit, not the limit times
 the number of pods. If the database is unreachable the limiter falls back to

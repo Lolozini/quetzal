@@ -143,7 +143,7 @@ func TestInstallRunsUnderAShellThatExists(t *testing.T) {
 		t.Error("the egg's script did not reach the container")
 	}
 	// The picker has to try the named shell first, then fall back, and say so.
-	for _, want := range []string{`"$QUETZAL_INSTALL_SHELL" bash ash sh`, "exec", "instead"} {
+	for _, want := range []string{`"$QUETZAL_INSTALL_SHELL" bash ash sh`, `"$_qz_sh" -c "$QUETZAL_INSTALL_SCRIPT"`, "instead"} {
 		if !strings.Contains(installShellPicker, want) {
 			t.Errorf("the picker is missing %q", want)
 		}
