@@ -2057,6 +2057,7 @@ components:
         serverId: { type: integer }
         name: { type: string }
         cron: { type: string }
+        timezone: { type: string }
         tasks:
           type: array
           items: { $ref: "#/components/schemas/ScheduleTask" }
@@ -2085,6 +2086,13 @@ components:
         action: { type: string, enum: [start, stop, restart, command, backup] }
         payload: { type: string }
         enabled: { type: boolean }
+        timezone:
+          type: string
+          description: >
+            IANA zone the cron fields are read in, e.g. "Europe/Paris". Empty
+            means the control plane's own zone, which in a container is UTC — so
+            "0 4 * * *" would fire at 4am UTC rather than 4am where you are.
+          example: Europe/Paris
     Backup:
       type: object
       properties:

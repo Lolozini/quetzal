@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, Schedule, ScheduleAction, ScheduleInput, ScheduleTask } from "../api";
+import { api, ApiError, browserTimeZone, Schedule, ScheduleAction, ScheduleInput, ScheduleTask } from "../api";
 import { useT } from "../i18n";
 
 const ACTIONS: ScheduleAction[] = ["start", "stop", "restart", "command", "backup"];
@@ -22,6 +22,9 @@ export function Schedules({ id }: { id: number }) {
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [cron, setCron] = useState("0 5 * * *");
+  // Prefilled with the reader's zone, so an hour typed here means that hour
+  // where they are rather than wherever the control plane runs.
+  const [timezone, setTimezone] = useState(browserTimeZone());
   const [tasks, setTasks] = useState<ScheduleTask[]>([newTask()]);
   const [busy, setBusy] = useState(false);
 
@@ -59,7 +62,7 @@ export function Schedules({ id }: { id: number }) {
         timeOffset: Number(t.timeOffset) || 0,
         continueOnFailure: t.continueOnFailure || undefined,
       }));
-      const body: ScheduleInput = { name, cron, tasks: clean, enabled: true };
+      const body: ScheduleInput = { name, cron, tasks: clean, enabled: true, timezone };
       await api.createSchedule(id, body);
       setName("");
       setTasks([newTask()]);
@@ -74,7 +77,7 @@ export function Schedules({ id }: { id: number }) {
   async function toggle(s: Schedule) {
     setError("");
     try {
-      await api.updateSchedule(id, s.id, { name: s.name, cron: s.cron, tasks: chainOf(s), enabled: !s.enabled });
+      await api.updateSchedule(id, s.id, { enabled: !s.enabled });
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -102,6 +105,7 @@ export function Schedules({ id }: { id: number }) {
             <tr>
               <th>{t("Name")}</th>
               <th>{t("Cron")}</th>
+              <th>{t("Time zone")}</th>
               <th>{t("Tasks")}</th>
               <th>{t("Next run")}</th>
               <th>{t("Last")}</th>
@@ -113,6 +117,7 @@ export function Schedules({ id }: { id: number }) {
               <tr key={s.id}>
                 <td>{s.name}</td>
                 <td><code>{s.cron}</code></td>
+                <td className="muted">{s.timezone || t("UTC (default)")}</td>
                 <td><TaskChain tasks={chainOf(s)} /></td>
                 <td>{s.enabled ? fmt(s.nextRun) : "—"}</td>
                 <td title={s.lastStatus}>{s.lastRun ? fmt(s.lastRun) : t("never")}</td>
@@ -135,6 +140,11 @@ export function Schedules({ id }: { id: number }) {
           <div>
             <label>{t("Cron (5 fields)")}</label>
             <input value={cron} onChange={(e) => setCron(e.target.value)} required placeholder="0 5 * * *" />
+          </div>
+          <div>
+            <label>{t("Time zone")}</label>
+            <input value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="Europe/Paris" />
+            <p className="muted">{t("IANA name. Leave empty to use the control plane's zone, which is usually UTC.")}</p>
           </div>
         </div>
 

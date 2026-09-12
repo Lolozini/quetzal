@@ -758,10 +758,10 @@ func (s *Store) ListEnabledSchedules() ([]models.Schedule, error) {
 // empty chain) still persist.
 func (s *Store) UpdateSchedule(sc *models.Schedule) error {
 	return s.db.Model(&models.Schedule{}).Where("id = ?", sc.ID).
-		Select("name", "cron", "tasks", "action", "payload", "enabled", "next_run").
+		Select("name", "cron", "timezone", "tasks", "action", "payload", "enabled", "next_run").
 		Updates(models.Schedule{
-			Name: sc.Name, Cron: sc.Cron, Tasks: sc.Tasks, Action: sc.Action,
-			Payload: sc.Payload, Enabled: sc.Enabled, NextRun: sc.NextRun,
+			Name: sc.Name, Cron: sc.Cron, Timezone: sc.Timezone, Tasks: sc.Tasks,
+			Action: sc.Action, Payload: sc.Payload, Enabled: sc.Enabled, NextRun: sc.NextRun,
 		}).Error
 }
 

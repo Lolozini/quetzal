@@ -34,6 +34,9 @@ type scheduleRequest struct {
 	Action  models.ScheduleAction `json:"action"`
 	Payload string                `json:"payload"`
 	Enabled bool                  `json:"enabled"`
+	// Timezone is the IANA zone the cron is read in; empty keeps the control
+	// plane's own, which in a container is UTC.
+	Timezone string `json:"timezone"`
 }
 
 // schedulePatch is the update body. Every field is optional: PATCH edits what
@@ -42,12 +45,13 @@ type scheduleRequest struct {
 // disabling the schedule — a backup chain would just stop running, with a 200
 // and no warning.
 type schedulePatch struct {
-	Name    *string                `json:"name"`
-	Cron    *string                `json:"cron"`
-	Tasks   *[]models.ScheduleTask `json:"tasks"`
-	Action  *models.ScheduleAction `json:"action"`
-	Payload *string                `json:"payload"`
-	Enabled *bool                  `json:"enabled"`
+	Name     *string                `json:"name"`
+	Cron     *string                `json:"cron"`
+	Tasks    *[]models.ScheduleTask `json:"tasks"`
+	Action   *models.ScheduleAction `json:"action"`
+	Payload  *string                `json:"payload"`
+	Enabled  *bool                  `json:"enabled"`
+	Timezone *string                `json:"timezone"`
 }
 
 func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
@@ -73,13 +77,14 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 		ServerID: srv.ID,
 		Name:     req.Name,
 		Cron:     req.Cron,
+		Timezone: strings.TrimSpace(req.Timezone),
 		Tasks:    tasks,
 		Action:   tasks[0].Action, // mirror the first task for legacy display
 		Payload:  tasks[0].Payload,
 		Enabled:  req.Enabled,
 	}
 	if sc.Enabled {
-		if nr, err := scheduler.NextRun(sc.Cron, time.Now()); err == nil {
+		if nr, err := scheduler.NextRunIn(sc.Cron, time.Now(), sc.Timezone); err == nil {
 			sc.NextRun = &nr
 		}
 	}
@@ -106,6 +111,7 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	// resetting the rest to their zero values.
 	req := scheduleRequest{
 		Name: sc.Name, Cron: sc.Cron, Tasks: sc.TaskChain(), Enabled: sc.Enabled,
+		Timezone: sc.Timezone,
 	}
 	if patch.Name != nil {
 		req.Name = *patch.Name
@@ -125,6 +131,9 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 	if patch.Enabled != nil {
 		req.Enabled = *patch.Enabled
 	}
+	if patch.Timezone != nil {
+		req.Timezone = *patch.Timezone
+	}
 	tasks, err := validateSchedule(req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -141,13 +150,14 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sc.Name, sc.Cron, sc.Enabled = req.Name, req.Cron, req.Enabled
+	sc.Timezone = strings.TrimSpace(req.Timezone)
 	sc.Tasks = tasks
 	sc.Action, sc.Payload = tasks[0].Action, tasks[0].Payload
 	// Recompute the next fire time from the (possibly changed) cron; clear it when
 	// disabled so the scheduler won't fire it.
 	sc.NextRun = nil
 	if sc.Enabled {
-		if nr, err := scheduler.NextRun(sc.Cron, time.Now()); err == nil {
+		if nr, err := scheduler.NextRunIn(sc.Cron, time.Now(), sc.Timezone); err == nil {
 			sc.NextRun = &nr
 		}
 	}
@@ -255,7 +265,10 @@ func validateSchedule(req scheduleRequest) ([]models.ScheduleTask, error) {
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, errors.New("name is required")
 	}
-	if _, err := scheduler.NextRun(req.Cron, time.Now()); err != nil {
+	if _, err := scheduler.LoadZone(req.Timezone); err != nil {
+		return nil, err
+	}
+	if _, err := scheduler.NextRunIn(req.Cron, time.Now(), req.Timezone); err != nil {
 		return nil, errors.New("invalid cron expression: " + err.Error())
 	}
 	tasks := req.Tasks

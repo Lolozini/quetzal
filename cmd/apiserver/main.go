@@ -12,6 +12,9 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+	// Embed the IANA zone database: the runtime image is distroless and has
+	// no /usr/share/zoneinfo, so a schedule's named time zone would not load.
+	_ "time/tzdata"
 
 	"k8s.io/client-go/kubernetes"
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"

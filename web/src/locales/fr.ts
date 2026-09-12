@@ -98,6 +98,10 @@ export const fr: Record<string, string> = {
   Hibernated: "En hibernation",
   "Setup log": "Journal d'installation",
   "Load older": "Charger plus ancien",
+  "Time zone": "Fuseau horaire",
+  "UTC (default)": "UTC (défaut)",
+  "IANA name. Leave empty to use the control plane's zone, which is usually UTC.":
+    "Nom IANA. Laissez vide pour le fuseau du control plane, en général UTC.",
   "That is the whole log.": "C'est tout le journal.",
   "Output of the install script and the config render. A server stuck on Installing, or in Error, explains itself here.":
     "Sortie du script d'installation et du rendu de configuration. Un serveur bloqué sur Installation, ou en Erreur, s'explique ici.",

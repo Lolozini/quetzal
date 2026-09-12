@@ -307,6 +307,9 @@ export interface Schedule {
   action?: ScheduleAction; // legacy mirror of the first task
   payload?: string;
   enabled: boolean;
+  // IANA zone the cron is read in; absent means the control plane's own, which
+  // in a container is UTC.
+  timezone?: string;
   nextRun?: string;
   lastRun?: string;
   lastStatus?: string;
@@ -317,6 +320,18 @@ export interface ScheduleInput {
   cron: string;
   tasks: ScheduleTask[];
   enabled: boolean;
+  timezone?: string;
+}
+
+// browserTimeZone is the reader's own IANA zone, used to prefill a new
+// schedule's zone: "4am" then means 4am where they are, without anyone having
+// to know the control plane runs in UTC.
+export function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
 }
 
 export interface BackupConfig {
@@ -590,7 +605,11 @@ export const api = {
   schedules: (id: number) => req<Schedule[]>("GET", `/api/servers/${id}/schedules`),
   createSchedule: (id: number, body: ScheduleInput) =>
     req<Schedule>("POST", `/api/servers/${id}/schedules`, body),
-  updateSchedule: (id: number, sid: number, body: ScheduleInput) =>
+  // PATCH edits what it is sent and leaves the rest alone, so the body is
+  // partial. Sending the whole schedule to flip `enabled` also re-submits its
+  // task chain, which a subuser may not be allowed to write even when they are
+  // allowed to switch it off.
+  updateSchedule: (id: number, sid: number, body: Partial<ScheduleInput>) =>
     req<Schedule>("PATCH", `/api/servers/${id}/schedules/${sid}`, body),
   deleteSchedule: (id: number, sid: number) =>
     req<void>("DELETE", `/api/servers/${id}/schedules/${sid}`),

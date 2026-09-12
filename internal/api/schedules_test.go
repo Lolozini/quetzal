@@ -189,3 +189,52 @@ func TestSchedulePatchIsPartial(t *testing.T) {
 		t.Errorf("re-enable = %d, nextRun=%v", code, out["nextRun"])
 	}
 }
+
+// A schedule's cron was read in the control plane's zone — UTC in a container —
+// so "0 4 * * *" fired at 4am UTC, which is 6am in Paris in summer, with nothing
+// saying so. The zone is now part of the schedule.
+func TestScheduleCarriesATimeZone(t *testing.T) {
+	_, admin, base := newServerForSchedules(t)
+
+	r := post(t, admin, base, map[string]any{
+		"name": "nightly", "cron": "0 4 * * *", "enabled": true, "timezone": "Europe/Paris",
+		"tasks": []map[string]any{{"action": "restart"}},
+	})
+	if r.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d", r.StatusCode)
+	}
+	var sc models.Schedule
+	json.NewDecoder(r.Body).Decode(&sc)
+	if sc.Timezone != "Europe/Paris" {
+		t.Errorf("timezone = %q, want Europe/Paris", sc.Timezone)
+	}
+	if sc.NextRun == nil {
+		t.Fatal("an enabled schedule should have a next run")
+	}
+	// 04:00 in Paris is 02:00 or 03:00 UTC depending on the season — never 04:00.
+	if h := sc.NextRun.UTC().Hour(); h == 4 {
+		t.Errorf("next run is %s: the zone was ignored", sc.NextRun.UTC())
+	}
+
+	// A zone that does not exist is refused rather than silently falling back.
+	if rr := post(t, admin, base, map[string]any{
+		"name": "bad zone", "cron": "0 4 * * *", "enabled": true, "timezone": "Mars/Olympus",
+		"tasks": []map[string]any{{"action": "restart"}},
+	}); rr.StatusCode != http.StatusBadRequest {
+		t.Errorf("unknown zone = %d, want 400", rr.StatusCode)
+	}
+
+	// It survives a partial PATCH that does not mention it, and can be changed.
+	if rr := doPatch(t, admin, base+"/"+itoa(sc.ID), map[string]any{"name": "renamed"}); rr.StatusCode != http.StatusOK {
+		t.Fatalf("rename = %d", rr.StatusCode)
+	}
+	var after models.Schedule
+	rr := doPatch(t, admin, base+"/"+itoa(sc.ID), map[string]any{"timezone": "Asia/Tokyo"})
+	if rr.StatusCode != http.StatusOK {
+		t.Fatalf("change zone = %d", rr.StatusCode)
+	}
+	json.NewDecoder(rr.Body).Decode(&after)
+	if after.Timezone != "Asia/Tokyo" || after.Name != "renamed" {
+		t.Errorf("after patches: zone=%q name=%q", after.Timezone, after.Name)
+	}
+}
