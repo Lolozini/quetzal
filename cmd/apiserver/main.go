@@ -107,7 +107,10 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	go gcSessions(ctx, st)
+	go gcSessions(ctx, st, logRetention{
+		events: envInt("QUETZAL_EVENT_RETENTION_DAYS", 30),
+		audit:  envInt("QUETZAL_AUDIT_RETENTION_DAYS", 0),
+	})
 	go gcRateLimiters(ctx, apiSrv)
 	go dispatcher.Run(ctx)
 
@@ -125,8 +128,9 @@ func main() {
 	_ = srv.Shutdown(shutCtx)
 }
 
-// gcSessions periodically deletes expired sessions and password-reset tokens.
-func gcSessions(ctx context.Context, st *store.Store) {
+// gcSessions periodically deletes expired sessions and password-reset tokens,
+// and prunes the log tables per their retention settings.
+func gcSessions(ctx context.Context, st *store.Store, retention logRetention) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	for {
@@ -138,10 +142,45 @@ func gcSessions(ctx context.Context, st *store.Store) {
 		if _, err := st.DeleteExpiredPasswordResets(); err != nil {
 			log.Printf("reset-token gc: %v", err)
 		}
+		gcLogs(st, retention)
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+		}
+	}
+}
+
+// logRetention is how long the two append-only tables are kept, in days. 0
+// disables pruning for that table.
+type logRetention struct {
+	events int
+	audit  int
+}
+
+// gcLogs prunes the event outbox and, when asked, the audit log. Events are
+// pruned by default: the table is written on every power action, crash and
+// restart, read by the dispatcher through a cursor, and was never emptied. The
+// audit log defaults to keeping everything, because deleting an accountability
+// record is the operator's call, not a default.
+func gcLogs(st *store.Store, r logRetention) {
+	if r.events > 0 {
+		// Never past the dispatcher's cursor: an event that has not gone out yet
+		// would become a notification nobody receives.
+		cursor, err := st.NotifyCursor()
+		if err != nil {
+			log.Printf("event gc: read delivery cursor: %v", err)
+		} else if n, err := st.DeleteEventsBefore(time.Now().AddDate(0, 0, -r.events), cursor); err != nil {
+			log.Printf("event gc: %v", err)
+		} else if n > 0 {
+			log.Printf("event gc: removed %d delivered events older than %d days", n, r.events)
+		}
+	}
+	if r.audit > 0 {
+		if n, err := st.DeleteAuditBefore(time.Now().AddDate(0, 0, -r.audit)); err != nil {
+			log.Printf("audit gc: %v", err)
+		} else if n > 0 {
+			log.Printf("audit gc: removed %d audit entries older than %d days", n, r.audit)
 		}
 	}
 }
@@ -163,6 +202,15 @@ func gcRateLimiters(ctx context.Context, srv *api.Server) {
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return def
+}
+
+func envInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
 	}
 	return def
 }

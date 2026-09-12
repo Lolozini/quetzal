@@ -367,6 +367,29 @@ releases may include breaking changes).
   permission, not view: an install script runs with the server's environment,
   secret variables included.
 
+### Added
+
+- **The logs page back through their history.** The audit log and the event feed
+  answered with their newest entries and nothing else — 200 for the panel-wide
+  log — so an admin looking up what happened last week simply could not. Both now
+  take a `before=<id>` cursor and report the total in `X-Total-Count`, and the
+  activity views grow a **Load older** button that walks to the beginning.
+- **Log retention.** `retention.eventDays` (default 30) prunes the event outbox,
+  which is written on every power action, crash and restart, read by the
+  dispatcher through a cursor, and was never emptied — so it only grew, for the
+  life of the install. Pruning stops dead at the dispatcher's position: an event
+  that has not gone out yet is never dropped, so no notification is lost to it.
+  `retention.auditDays` defaults to **0, keep everything** — an audit log is an
+  accountability record, and deleting one because a default said so is not a
+  decision to make for an operator.
+- **`replicaCount` in the chart.** It was pinned at 1 with no way to change it,
+  while the code had already done the work that makes more than one safe:
+  leader election in the controller, rate-limit counters in the database. The
+  chart refuses `replicaCount > 1` on SQLite, and with a ReadWriteOnce claim
+  still enabled, rather than letting either be discovered in production — two
+  pods cannot share one SQLite file. Above one replica the rollout strategy
+  becomes `RollingUpdate` instead of taking the panel down.
+
 ### Security
 
 - **A scheduled task now needs the permission the action itself needs.** A

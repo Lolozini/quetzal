@@ -1228,9 +1228,14 @@ paths:
   /api/servers/{id}/audit:
     parameters:
       - $ref: "#/components/parameters/ServerId"
+      - $ref: "#/components/parameters/ListBefore"
+      - $ref: "#/components/parameters/Limit"
     get:
       tags: [Access]
-      summary: Recent audit entries for a server
+      summary: A page of a server's audit entries
+      description: >
+        Newest first, paged with the `before` cursor. `X-Total-Count` gives the
+        number of entries behind the page.
       responses:
         "200":
           description: OK
@@ -1240,9 +1245,16 @@ paths:
                 type: array
                 items: { $ref: "#/components/schemas/AuditEntry" }
   /api/audit:
+    parameters:
+      - $ref: "#/components/parameters/ListBefore"
+      - $ref: "#/components/parameters/Limit"
     get:
       tags: [Access]
-      summary: Panel-wide audit log (admin)
+      summary: A page of the panel-wide audit log (admin)
+      description: >
+        Newest first, paged with the `before` cursor — pass the id of the oldest
+        entry already held to walk back through the whole history.
+        `X-Total-Count` gives the total.
       responses:
         "200":
           description: OK
@@ -1269,6 +1281,7 @@ paths:
   /api/servers/{id}/events:
     parameters:
       - $ref: "#/components/parameters/ServerId"
+      - $ref: "#/components/parameters/ListBefore"
       - $ref: "#/components/parameters/Limit"
     get:
       tags: [Notifications]
@@ -1283,6 +1296,7 @@ paths:
                 items: { $ref: "#/components/schemas/Event" }
   /api/events:
     parameters:
+      - $ref: "#/components/parameters/ListBefore"
       - $ref: "#/components/parameters/Limit"
     get:
       tags: [Notifications]
@@ -1715,6 +1729,14 @@ components:
       name: quetzal_session
       description: Session cookie set by POST /api/login (used by the web UI).
   parameters:
+    ListBefore:
+      name: before
+      in: query
+      required: false
+      description: >
+        Cursor for the log endpoints: return entries older than this id (pass the
+        id of the oldest row already held). Omit for the newest page.
+      schema: { type: integer }
     ServerId:
       name: id
       in: path

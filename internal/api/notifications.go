@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -319,7 +318,8 @@ func (s *Server) handleServerEvents(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	es, err := s.Store.ListEventsForServer(srv.ID, eventLimit(r))
+	before, limit := listWindow(r)
+	es, err := s.Store.ListEventsForServer(srv.ID, before, eventPageSize(limit))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not list events")
 		return
@@ -331,7 +331,8 @@ func (s *Server) handleGlobalEvents(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPerm(w, r, models.AdminPermNotifications) {
 		return
 	}
-	es, err := s.Store.ListEvents(eventLimit(r))
+	before, limit := listWindow(r)
+	es, err := s.Store.ListEvents(before, eventPageSize(limit))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not list events")
 		return
@@ -339,11 +340,15 @@ func (s *Server) handleGlobalEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, es)
 }
 
-func eventLimit(r *http.Request) int {
-	if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 && n <= 500 {
-		return n
+// eventPageSize clamps a requested page size to something one request can hold.
+func eventPageSize(limit int) int {
+	switch {
+	case limit <= 0:
+		return 100
+	case limit > 500:
+		return 500
 	}
-	return 100
+	return limit
 }
 
 // cleanEvents trims and drops empty event-type filters.

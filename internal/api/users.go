@@ -404,11 +404,14 @@ func (s *Server) handleServerAudit(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	es, err := s.Store.ListAuditForServer(srv.ID, 100)
+	before, limit := listWindow(r)
+	es, err := s.Store.ListAuditForServer(srv.ID, before, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	total, _ := s.Store.CountAudit(srv.ID)
+	writeCount(w, total)
 	writeJSON(w, http.StatusOK, es)
 }
 
@@ -416,7 +419,8 @@ func (s *Server) handleGlobalAudit(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPerm(w, r, models.AdminPermAudit) {
 		return
 	}
-	es, err := s.Store.ListAudit(200)
+	before, limit := listWindow(r)
+	es, err := s.Store.ListAudit(before, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -434,5 +438,7 @@ func (s *Server) handleGlobalAudit(w http.ResponseWriter, r *http.Request) {
 			es[i].ServerName = names[es[i].ServerID]
 		}
 	}
+	total, _ := s.Store.CountAudit(0)
+	writeCount(w, total)
 	writeJSON(w, http.StatusOK, es)
 }

@@ -1,3 +1,10 @@
+# How many control-plane replicas to run. The apiserver is stateless and the
+# controller elects a leader (see controller.leaderElection), so more than one is
+# safe — but only on Postgres: two pods cannot share one SQLite file, and the
+# chart refuses the combination rather than corrupting a database. Set
+# persistence.enabled=false as well when nothing needs the volume.
+replicaCount: 1
+
 image:
   repository: ghcr.io/lolozini/quetzal
   # tag defaults to the chart appVersion when empty
@@ -20,6 +27,20 @@ persistence:
   # pre-provisioned volume, or a dataset you are migrating an existing install
   # onto. The chart then creates no claim, and size/storageClass are ignored.
   existingClaim: ""
+
+# How long the two append-only tables are kept, in days. 0 keeps everything.
+#
+# Events are the notification outbox and the activity feed: a row per power
+# action, crash and restart, read by the dispatcher through a cursor. They were
+# never deleted, so the table only grew — hence a default. Nothing at or past the
+# dispatcher's position is ever pruned, so no notification is lost to this.
+#
+# The audit log defaults to keeping everything: it is an accountability record,
+# and deleting one because a default said so is not the chart's call. Set a
+# number of days if you would rather bound it.
+retention:
+  eventDays: 30
+  auditDays: 0
 
 service:
   type: ClusterIP

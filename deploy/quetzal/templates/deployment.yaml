@@ -1,3 +1,4 @@
+{{- include "quetzal.validateReplicas" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -5,10 +6,19 @@ metadata:
   labels:
     {{- include "quetzal.labels" . | nindent 4 }}
 spec:
-  replicas: 1
-  # SQLite on a shared PVC: never run two pods at once.
+  replicas: {{ .Values.replicaCount }}
   strategy:
+    {{- if gt (int .Values.replicaCount) 1 }}
+    # More than one replica means Postgres (the check in _helpers.tpl enforces
+    # it), so there is no shared SQLite file to hand over and no reason to take
+    # the panel down to roll it.
+    type: RollingUpdate
+    {{- else }}
+    # One replica on a ReadWriteOnce claim: the old pod has to release the volume
+    # before the new one can mount it, and two pods must never open the same
+    # SQLite file at once.
     type: Recreate
+    {{- end }}
   selector:
     matchLabels:
       {{- include "quetzal.selectorLabels" . | nindent 6 }}
@@ -59,6 +69,10 @@ spec:
             # so it's only safe behind a proxy that appends the real client IP.
             - name: QUETZAL_TRUST_PROXY
               value: {{ or .Values.trustProxy .Values.ingress.enabled | quote }}
+            - name: QUETZAL_EVENT_RETENTION_DAYS
+              value: {{ .Values.retention.eventDays | quote }}
+            - name: QUETZAL_AUDIT_RETENTION_DAYS
+              value: {{ .Values.retention.auditDays | quote }}
           ports:
             - name: http
               containerPort: 8080
