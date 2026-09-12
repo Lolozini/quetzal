@@ -55,8 +55,11 @@ Common ones:
 | `persistence.*` | PVC for the SQLite database (the source of truth). |
 | `persistence.existingClaim` | Mount a claim you made yourself instead (a pre-provisioned volume, or an existing install you are moving onto this chart). |
 | `secretKey.existingSecret` | Take the encryption key from your own Secret rather than one the chart generates. |
-| `extraEnv` | Extra environment for every container. `TZ` is the usual one: schedules run in the process's local time. |
+| `extraEnv` | Extra environment for every container. `TZ` sets the zone shown in logs and used by a schedule that names none of its own — each schedule can carry its own IANA zone instead. |
 | `nodePort.min` / `nodePort.max` | Control-plane pool for NodePort game ports. |
+| `retention.eventDays` | How long delivered events are kept (default 30; 0 keeps everything). The event table is written on every power action, crash and restart. |
+| `retention.auditDays` | How long audit entries are kept. **0 by default — nothing is deleted**; set a number of days if you would rather bound the table. |
+| `replicaCount` | Control-plane replicas. More than one needs `db.driver=postgres` and `persistence.enabled=false`; the chart refuses the other combinations rather than let two pods share one SQLite file. |
 | `image.repository` / `image.tag` | Also the image used for the config-render, SFTP and wake-on-connect helpers (`QUETZAL_IMAGE`); the chart derives it, there is nothing to set. |
 
 ### Secret key
@@ -193,6 +196,29 @@ admin standing are all superadmin-only. So is changing the SMTP settings and the
 public URL, which the `settings` permission can read but not write -- whoever
 picks the mail relay reads every password reset link the panel sends, which
 would otherwise be a way to take the superadmin's account.
+
+**You can require a second factor.** Admin → Two-factor policy sets it to off,
+administrators only, or everyone. Turning it on locks nobody out, including the
+superadmin who turns it on: a covered account still logs in and keeps its
+session, but reaches only its own profile, the enrolment endpoints and logout
+until it has a factor, and the panel shows the enrolment page rather than a wall
+of refusals. Changing the policy is superadmin-only, for the same reason as the
+mail relay — it decides who gets in.
+
+**Changing a password ends the account's other sessions.** Both the self-service
+change and an admin reset, keeping only the client that asked. It is the thing
+people do when they believe a session was stolen, so it has to be the thing that
+works. API keys are separate credentials and survive it: delete them too if they
+may be compromised.
+
+**A subuser's permissions bound what their schedules may do.** A scheduled task
+is checked against the permission the action itself needs — `console` for a
+command, `power` for start/stop/restart, `backups` for a backup — so `schedules`
+is not a way around them. Switching a schedule off needs nothing more than
+`schedules`, so anyone who can manage them can stop one misbehaving. Note that a
+schedule keeps the permissions it was written with: revoking someone's console
+access does not disable the schedules they already made, so review a server's
+schedules when you take a permission away.
 
 **An API key carries everything its owner can do.** There is no per-key scope
 today, so a key minted by an admin is an admin key. Treat one as the account
