@@ -10,7 +10,9 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.23"
+  # Go supports the two most recent majors; 1.23 stopped receiving security
+  # fixes, which is how a pinned toolchain quietly becomes the vulnerability.
+  GO_VERSION: "1.26"
   GOTOOLCHAIN: local
 
 jobs:
@@ -29,6 +31,17 @@ jobs:
           fi
       - name: go vet
         run: go vet ./...
+      # Nobody had ever run this, and it had thirteen reachable findings to
+      # show for it -- ten of them in the SSH library the SFTP server is built
+      # on. It fails the build on purpose: a new advisory in code this project
+      # actually calls is exactly the thing worth interrupting a merge for, and
+      # a report nobody is obliged to read is how the last ones accumulated.
+      - name: govulncheck
+        # Pinned, not @latest: govulncheck declares a minimum Go of its own, so
+        # @latest would one day fail the build on a toolchain mismatch rather
+        # than on a vulnerability -- an alarm that cries the wrong thing. Bump
+        # it together with GO_VERSION.
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
       - uses: azure/setup-helm@v5
       - name: helm lint
         run: helm lint deploy/quetzal
