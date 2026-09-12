@@ -30,4 +30,11 @@ type TransferState struct {
 	PrevState DesiredState `json:"prevState"`
 	StartedAt time.Time    `json:"startedAt"`
 	Message   string       `json:"message,omitempty"`
+	// Cancelled is set by the API and acted on by the controller on its next
+	// tick. A transfer whose Job wedges otherwise pins the server for good --
+	// power, edits, suspension and backups all answer 409 while one is running,
+	// and the only way out was to delete the server. The controller does the
+	// tearing down because it is the side with cluster access, and because
+	// there should be exactly one implementation of "undo a transfer".
+	Cancelled bool `json:"cancelled,omitempty"`
 }

@@ -99,6 +99,8 @@ export const fr: Record<string, string> = {
   "Setup log": "Journal d'installation",
   "Load older": "Charger plus ancien",
   "Time zone": "Fuseau horaire",
+  "Cancel transfer": "Annuler le transfert",
+  "Cancelling…": "Annulation…",
   "Search servers": "Rechercher un serveur",
   "No server matches that search.": "Aucun serveur ne correspond à cette recherche.",
   "Two-factor authentication required": "Authentification à deux facteurs obligatoire",

@@ -9,6 +9,7 @@ package transfer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -31,6 +32,19 @@ type Manager struct {
 	// overridable in tests.
 	ClientsFor func(uint) (cluster.Clients, error)
 	Now        func() time.Time
+	// GetBackup reads a backup record. Injected for the same reason as the
+	// clients: the difference between "this record is gone" and "the database
+	// was busy" decides whether a transfer is torn down, and that is worth a
+	// test rather than a comment.
+	GetBackup func(uint) (*models.Backup, error)
+}
+
+// backup reads a backup record through the injected hook, or the store.
+func (m *Manager) backup(id uint) (*models.Backup, error) {
+	if m.GetBackup != nil {
+		return m.GetBackup(id)
+	}
+	return m.Store.GetBackup(id)
 }
 
 // NewManager returns a transfer Manager backed by the cluster registry.
@@ -48,6 +62,18 @@ func (m *Manager) Process(ctx context.Context) {
 	for i := range srvs {
 		srv := &srvs[i]
 		if srv.Transfer == nil {
+			continue
+		}
+		// A cancellation is honoured before anything else, and how it is honoured
+		// depends on how far the move got: before the cluster flip the server has
+		// not moved and its data is untouched, so the transfer is simply dropped;
+		// after it, the destination has to be torn down and the server put back.
+		if srv.Transfer.Cancelled {
+			if srv.Transfer.Phase == models.TransferBackingUp {
+				m.abort(srv, "cancelled")
+			} else {
+				m.rollback(ctx, srv, "cancelled")
+			}
 			continue
 		}
 		switch srv.Transfer.Phase {
@@ -81,9 +107,16 @@ func (m *Manager) advanceBackingUp(ctx context.Context, srv *models.Server) {
 		_ = m.Store.SetServerTransfer(srv.ID, t)
 		return
 	}
-	b, err := m.Store.GetBackup(t.BackupID)
-	if err != nil {
+	b, err := m.backup(t.BackupID)
+	if errors.Is(err, store.ErrNotFound) {
 		m.abort(srv, "backup record lost")
+		return
+	}
+	if err != nil {
+		// Any other error is the database being momentarily unavailable, not a
+		// verdict on the transfer. Cancelling on one would throw away a move that
+		// was going fine because SQLite was busy for a moment.
+		log.Printf("transfer %s: read backup (retrying next tick): %v", srv.Slug, err)
 		return
 	}
 	switch b.Phase {
@@ -126,9 +159,16 @@ func (m *Manager) advanceRestoring(ctx context.Context, srv *models.Server) {
 		_ = m.Store.SetServerTransfer(srv.ID, t)
 		return
 	}
-	r, err := m.Store.GetBackup(t.RestoreID)
-	if err != nil {
+	r, err := m.backup(t.RestoreID)
+	if errors.Is(err, store.ErrNotFound) {
 		m.rollback(ctx, srv, "restore record lost")
+		return
+	}
+	if err != nil {
+		// Same as above, and it matters more here: rollback deletes the
+		// destination namespace, so treating a transient read as a lost record
+		// would destroy a restore that may well have completed.
+		log.Printf("transfer %s: read restore (retrying next tick): %v", srv.Slug, err)
 		return
 	}
 	switch r.Phase {
