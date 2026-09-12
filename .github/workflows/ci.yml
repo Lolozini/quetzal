@@ -122,15 +122,15 @@ jobs:
       - name: Load image into kind
         run: kind load docker-image quetzal:e2e --name quetzal-e2e
       # The backup test brings up MinIO and runs restic in-cluster. Left to
-      # itself the kind node pulls both from Docker Hub while the test is
-      # already waiting on a readiness deadline, which is how this job fails
-      # with "minio not ready" and nothing to do with the code under test.
-      # Pull on the runner, where a failure is a step failure and not a flake,
-      # and hand them to the node.
+      # itself the kind node pulls both while the test is already waiting on a
+      # readiness deadline, so anything wrong with a pull surfaces as "minio not
+      # ready" and looks like a failure of whatever is in the changeset. Pulling
+      # here makes a bad image a step failure that says so -- which is how the
+      # MinIO move off Docker Hub was identified rather than guessed at.
       - name: Preload the fixture images into kind
         run: |
           set -eux
-          for img in minio/minio:RELEASE.2024-10-13T13-34-11Z restic/restic:0.17.3; do
+          for img in quay.io/minio/minio:RELEASE.2024-10-13T13-34-11Z restic/restic:0.17.3; do
             docker pull "$img"
             kind load docker-image "$img" --name quetzal-e2e
           done

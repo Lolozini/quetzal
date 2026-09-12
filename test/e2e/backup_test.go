@@ -229,8 +229,12 @@ func deployMinIO(ctx context.Context, t *testing.T, cs kubernetes.Interface) {
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{Containers: []corev1.Container{{
-					Name:  "minio",
-					Image: "minio/minio:RELEASE.2024-10-13T13-34-11Z",
+					Name: "minio",
+					// quay.io, not Docker Hub: MinIO stopped serving the community
+					// image there, and a pull of minio/minio now answers "pull
+					// access denied ... repository does not exist", which reads
+					// like a credentials problem rather than a moved image.
+					Image: "quay.io/minio/minio:RELEASE.2024-10-13T13-34-11Z",
 					// Pre-create the bucket as a directory so restic finds it.
 					Command: []string{"sh", "-c", "mkdir -p /data/quetzal && minio server /data --console-address :9001"},
 					Env: []corev1.EnvVar{
