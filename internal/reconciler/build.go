@@ -1210,6 +1210,14 @@ printf '%%s' "$QUETZAL_INSTALL_GEN" > "$marker"
 `, mount, userScript)
 }
 
+// installTimeoutSeconds is how long a single install attempt may run before the
+// watchdog stops it. It is deliberately far longer than any install should take
+// -- a SteamCMD download of a large game (ARK and friends) legitimately runs for
+// hours, and failing one of those would destroy real work to catch a hang. It
+// matches the backup Job's deadline: the point past which something is wrong,
+// not a budget to plan against.
+const installTimeoutSeconds = 6 * 60 * 60
+
 // installShellPicker runs the egg's install script under the interpreter the egg
 // named, falling back to one the image actually has. The order is deliberate:
 // bash before ash before sh, because egg scripts are written for bash or busybox
@@ -1219,13 +1227,48 @@ printf '%%s' "$QUETZAL_INSTALL_GEN" > "$marker"
 // The substitution is reported on stderr so it appears in the install log: a
 // script that then fails on `apk: not found` has told the reader that the egg
 // expects Alpine and its install image is not Alpine, which is the actual fault.
+//
+// It also runs the script under a watchdog rather than exec-ing it, because an
+// install that hangs used to hang forever: an init container has no deadline of
+// its own (ActiveDeadlineSeconds is a pod-level field, and this pod is the game
+// server -- setting it there would kill healthy servers on a timer), so a curl
+// to a blackholed host or an apt against a dead mirror left the server in
+// Installing with nothing to distinguish it from one that was merely slow.
+//
+// Killing the script's shell is enough even though its own children survive the
+// signal: PID 1 of the init container exits, and the kubelet tears the container
+// down with everything in it. The flag file only decides the wording -- a script
+// killed by the watchdog exits non-zero either way, so a /tmp that cannot be
+// written costs the explanation, not the failure.
 const installShellPicker = `for _qz_sh in "$QUETZAL_INSTALL_SHELL" bash ash sh; do
   [ -n "$_qz_sh" ] || continue
   if command -v "$_qz_sh" >/dev/null 2>&1; then
     if [ "$_qz_sh" != "$QUETZAL_INSTALL_SHELL" ]; then
       echo "quetzal: this egg asks for '$QUETZAL_INSTALL_SHELL', which its install image does not have; running with '$_qz_sh' instead" >&2
     fi
-    exec "$_qz_sh" -c "$QUETZAL_INSTALL_SCRIPT"
+    _qz_flag=/tmp/.quetzal-install-timed-out
+    rm -f "$_qz_flag" 2>/dev/null
+    "$_qz_sh" -c "$QUETZAL_INSTALL_SCRIPT" &
+    _qz_pid=$!
+    # The watchdog polls instead of sleeping the whole deadline in one go, so it
+    # leaves on its own once the script is done rather than outliving it; and its
+    # output goes nowhere, so its sleep never holds the container's stdout open
+    # after the install has finished writing to it.
+    ( _qz_left=$QUETZAL_INSTALL_TIMEOUT
+      while [ "$_qz_left" -gt 0 ]; do
+        kill -0 "$_qz_pid" 2>/dev/null || exit 0
+        sleep 5
+        _qz_left=$((_qz_left - 5))
+      done
+      : > "$_qz_flag" 2>/dev/null
+      kill -9 "$_qz_pid" 2>/dev/null ) >/dev/null 2>&1 &
+    wait "$_qz_pid"
+    _qz_rc=$?
+    if [ -f "$_qz_flag" ]; then
+      echo "quetzal: the install script was still running after $QUETZAL_INSTALL_TIMEOUT seconds and was stopped; the server is not marked installed, so it will run again on the next start" >&2
+      [ "$_qz_rc" -eq 0 ] && _qz_rc=124
+    fi
+    exit "$_qz_rc"
   fi
 done
 echo "quetzal: no usable shell in this install image (tried '$QUETZAL_INSTALL_SHELL', bash, ash, sh)" >&2
@@ -1285,6 +1328,7 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 	env = append(env,
 		corev1.EnvVar{Name: "QUETZAL_INSTALL_SHELL", Value: entrypoint},
 		corev1.EnvVar{Name: "QUETZAL_INSTALL_SCRIPT", Value: wrapped},
+		corev1.EnvVar{Name: "QUETZAL_INSTALL_TIMEOUT", Value: strconv.Itoa(installTimeoutSeconds)},
 	)
 	return []corev1.Container{{
 		Name:            InstallContainer,

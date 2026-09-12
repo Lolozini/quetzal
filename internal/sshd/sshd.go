@@ -26,6 +26,25 @@ import (
 // authorized keys so a revoked key is cut off, not just blocked at next connect.
 const defaultRevokeInterval = 30 * time.Second
 
+// defaultHandshakeTimeout bounds a connection that has not authenticated yet.
+// Without one, a client that opens a socket and then says nothing holds a
+// goroutine and a file descriptor for as long as it likes -- and this server is
+// a sidecar in the game server's own pod, sharing its memory limit, published on
+// a NodePort. Enough silent connections and the kubelet OOM-kills the pod: the
+// game goes down, from the internet, with no credentials at all. A real SSH
+// handshake finishes in well under a second.
+const defaultHandshakeTimeout = 15 * time.Second
+
+// defaultMaxPending bounds how many connections may be mid-handshake at once, so
+// the memory that can be tied up before anyone proves who they are is bounded by
+// a constant rather than by the attacker's connection rate.
+//
+// This does mean a flood can fill the slots and keep legitimate clients out. That
+// is the trade deliberately taken: SFTP being unreachable for a while is a far
+// smaller failure than the game server being killed, and the handshake timeout
+// keeps the slots turning over.
+const defaultMaxPending = 256
+
 // pubkeyExt carries the authenticated public key (base64 of its wire form) from
 // the auth callback to the connection handler, so we can re-check it later.
 const pubkeyExt = "quetzal-pubkey"
@@ -42,6 +61,12 @@ type Config struct {
 	// AuthorizedKeys; a session whose key is no longer authorized is closed.
 	// Defaults to defaultRevokeInterval.
 	RevokeCheckInterval time.Duration
+	// HandshakeTimeout is how long a connection may take to authenticate before
+	// it is dropped. Defaults to defaultHandshakeTimeout.
+	HandshakeTimeout time.Duration
+	// MaxPendingHandshakes caps concurrent unauthenticated connections; further
+	// ones are closed immediately. Defaults to defaultMaxPending.
+	MaxPendingHandshakes int
 }
 
 // Server is a key-only SFTP server.
@@ -52,7 +77,10 @@ type Server struct {
 
 	done  chan struct{}
 	ready chan struct{} // closed once Serve has bound (or failed to bind)
-	mu    sync.Mutex
+	// pending is a counting semaphore over connections that have not finished
+	// authenticating; a slot is released as soon as the handshake resolves.
+	pending chan struct{}
+	mu      sync.Mutex
 	// conns maps each live connection to the wire form of the key it
 	// authenticated with, so the revoke loop can drop sessions whose key is
 	// no longer authorized.
@@ -85,12 +113,17 @@ func New(cfg Config) (*Server, error) {
 		},
 	}
 	sc.AddHostKey(signer)
+	maxPending := cfg.MaxPendingHandshakes
+	if maxPending <= 0 {
+		maxPending = defaultMaxPending
+	}
 	return &Server{
 		cfg:     cfg,
 		sshConf: sc,
 		done:    make(chan struct{}),
 		ready:   make(chan struct{}),
 		conns:   make(map[*ssh.ServerConn]string),
+		pending: make(chan struct{}, maxPending),
 	}, nil
 }
 
@@ -112,7 +145,14 @@ func (s *Server) Serve() error {
 		if err != nil {
 			return err // listener closed
 		}
-		go s.handleConn(conn)
+		// Take a handshake slot before spawning anything, so a flood costs an
+		// accept and a close rather than a goroutine apiece.
+		select {
+		case s.pending <- struct{}{}:
+			go s.handleConn(conn)
+		default:
+			_ = conn.Close()
+		}
 	}
 }
 
@@ -184,10 +224,27 @@ func (s *Server) dropRevoked() {
 
 func (s *Server) handleConn(c net.Conn) {
 	defer c.Close()
+	// The slot is held only for the handshake; an authenticated session gives it
+	// back and is bounded by the key it holds instead.
+	freed := false
+	free := func() {
+		if !freed {
+			freed = true
+			<-s.pending
+		}
+	}
+	defer free()
+
+	_ = c.SetDeadline(time.Now().Add(s.handshakeTimeout()))
 	sconn, chans, reqs, err := ssh.NewServerConn(c, s.sshConf)
 	if err != nil {
 		return // failed handshake/auth
 	}
+	// Authenticated: an SFTP session is long-lived and legitimately idle between
+	// operations, so the deadline that made sense for an anonymous connection
+	// would now disconnect a working client mid-transfer.
+	_ = c.SetDeadline(time.Time{})
+	free()
 	defer sconn.Close()
 
 	// Track the connection by the key it authenticated with so the revoke loop
@@ -220,6 +277,14 @@ func (s *Server) handleConn(c net.Conn) {
 		}
 		go s.serveSession(ch, chReqs)
 	}
+}
+
+// handshakeTimeout returns the configured pre-auth deadline, or the default.
+func (s *Server) handshakeTimeout() time.Duration {
+	if s.cfg.HandshakeTimeout > 0 {
+		return s.cfg.HandshakeTimeout
+	}
+	return defaultHandshakeTimeout
 }
 
 func (s *Server) serveSession(ch ssh.Channel, reqs <-chan *ssh.Request) {
