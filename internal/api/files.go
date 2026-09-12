@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"path"
 	"strconv"
@@ -28,6 +29,18 @@ import (
 // interpolated), so neither path traversal nor shell injection is possible.
 
 const fileOpTimeout = 60 * time.Second
+
+// fileStreamTimeout bounds the two operations that stream their output to the
+// client instead of buffering it: reading a file and archiving a directory. The
+// minute that is right for a mkdir is not right for a 4 GB world: it cuts the
+// transfer in the middle, and because the response is already 200 with its
+// headers gone, the caller keeps a truncated file and is told nothing.
+//
+// A client that goes away cancels the request context on its own, so this only
+// has to be longer than any download somebody is genuinely still reading. It
+// matches the backup Job's deadline for the same reason: it is the point past
+// which something is wrong, not a budget anyone should approach.
+const fileStreamTimeout = 6 * time.Hour
 
 type fileEntry struct {
 	Name string `json:"name"`
@@ -217,6 +230,41 @@ func writeFileOpError(w http.ResponseWriter, what string, err error) {
 	writeError(w, http.StatusBadGateway, what+": "+err.Error())
 }
 
+// countingWriter tracks how many bytes have reached the client, which is what
+// decides whether a failure can still be reported or has to abort a response
+// that is already in flight.
+type countingWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	n, err := c.w.Write(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// streamFailed ends a download that failed.
+//
+// Before the first byte, that is an ordinary error response. After it, the
+// status line said 200 and the headers are long gone: writing a JSON error there
+// appends it to the bytes already sent, so the caller stores a truncated file
+// carrying "{"error":...}" at the end and a success code in front of it -- which
+// is how a half-downloaded world passes for a whole one. There is no way to
+// retract a status, so the response is aborted instead. That breaks the
+// transfer, which is the one failure every HTTP client already checks for.
+func streamFailed(w http.ResponseWriter, what string, sent int64, err error) {
+	if sent == 0 {
+		// Nothing was written, so the download headers set in advance still
+		// describe an attachment that will not be sent.
+		w.Header().Del("Content-Disposition")
+		writeFileOpError(w, what, err)
+		return
+	}
+	log.Printf("files: %s after %d bytes streamed: %v", what, sent, err)
+	panic(http.ErrAbortHandler)
+}
+
 // guarded prefixes a file-operation script with the symlink guard and passes the
 // data root as $0, so each script keeps its own positional numbering ($1, $2…)
 // and simply calls qz_guard on the arguments that are paths.
@@ -277,9 +325,11 @@ func (s *Server) handleReadFile(w http.ResponseWriter, r *http.Request) {
 qz_exists "$1"
 [ -d "$1" ] && { echo "is a directory" >&2; exit 4; }
 exec cat -- "$1"`), root, full}
-	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, cmd, nil, w); err != nil {
-		// Headers may already be sent; best-effort error only if nothing written.
-		writeFileOpError(w, "read failed", err)
+	ctx, cancel := context.WithTimeout(r.Context(), fileStreamTimeout)
+	defer cancel()
+	out := &countingWriter{w: w}
+	if err := console.Exec(ctx, cs, cfg, srv.Namespace, pod, cmd, nil, out); err != nil {
+		streamFailed(w, "read failed", out.n, err)
 		return
 	}
 }
@@ -307,8 +357,11 @@ func (s *Server) handleArchiveFile(w http.ResponseWriter, r *http.Request) {
 	cmd := []string{"sh", "-c", guarded(`qz_guard link "$0" "$1/$2"
 qz_exists "$1/$2"
 cd "$1" && exec tar -czf - -- "$2"`), root, parent, base}
-	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, cmd, nil, w); err != nil {
-		writeFileOpError(w, "archive failed", err)
+	ctx, cancel := context.WithTimeout(r.Context(), fileStreamTimeout)
+	defer cancel()
+	out := &countingWriter{w: w}
+	if err := console.Exec(ctx, cs, cfg, srv.Namespace, pod, cmd, nil, out); err != nil {
+		streamFailed(w, "archive failed", out.n, err)
 	}
 }
 
