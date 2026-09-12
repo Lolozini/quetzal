@@ -528,7 +528,11 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
       {canManage && <Access id={id} />}
       {canManage && <Notifications serverId={id} />}
       <ServerActivity id={id} slug={srv?.slug ?? ""} />
-      {canManage && <SetupLog id={id} phase={srv?.status?.phase ?? ""} />}
+      {/* Same permission as the console below, so the same visibility: a subuser
+          granted "console" may read the setup output, and the API refuses anyone
+          else. Gating this on ownership hid it from exactly the people most
+          likely to be told "it won't start". */}
+      <SetupLog id={id} phase={srv?.status?.phase ?? ""} />
       <div className="card">
         <Console id={id} phase={srv?.status?.phase ?? ""} />
       </div>
