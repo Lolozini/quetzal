@@ -269,6 +269,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/servers/{id}/suspend", s.auth(s.handleSuspend))
 	mux.Handle("POST /api/servers/{id}/unsuspend", s.auth(s.handleUnsuspend))
 	mux.Handle("POST /api/servers/{id}/transfer", s.auth(s.handleTransferServer))
+	mux.Handle("DELETE /api/servers/{id}/transfer", s.auth(s.handleCancelTransfer))
 	mux.Handle("GET /api/servers/{id}/access", s.auth(s.handleListAccess))
 	mux.Handle("POST /api/servers/{id}/access", s.auth(s.handleGrantAccess))
 	mux.Handle("DELETE /api/servers/{id}/access/{uid}", s.auth(s.handleRevokeAccess))

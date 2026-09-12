@@ -382,6 +382,17 @@ releases may include breaking changes).
 
 ### Added
 
+- **Go 1.26 and current dependencies.** Go maintains the two most recent majors,
+  so 1.23 had stopped receiving security fixes and the pinned build image was
+  frozen on whatever it shipped with. `govulncheck` found thirteen advisories in
+  code the project actually calls — ten of them in `golang.org/x/crypto/ssh`,
+  which is what the SFTP server is built on: source-address restrictions not
+  enforced for non-public-key auth, certificate restrictions bypassed, deadlocks
+  and an underflow panic. Also an SQL injection in `pgx` (Postgres installs),
+  unbounded memory in `spdystream` (the exec and attach path), a weak PRNG in
+  the WebSocket masking, and an infinite loop in `x/text`. All upgraded; the
+  scan now reports none, and CI runs it on every push so the next one is caught
+  rather than accumulated.
 - **The logs page back through their history.** The audit log and the event feed
   answered with their newest entries and nothing else — 200 for the panel-wide
   log — so an admin looking up what happened last week simply could not. Both now
@@ -424,6 +435,24 @@ releases may include breaking changes).
   still enabled, rather than letting either be discovered in production — two
   pods cannot share one SQLite file. Above one replica the rollout strategy
   becomes `RollingUpdate` instead of taking the panel down.
+
+### Fixed
+
+- **A transfer no longer tears itself down on a momentary database error.**
+  Reading the backup record treated every error as "record lost", so a
+  `database is locked` while SQLite was busy aborted the move — and in the
+  restoring phase it rolled it back, which *deletes the destination namespace*
+  and so destroyed a restore that may have completed. Only a genuinely missing
+  record does that now; anything else is retried on the next tick.
+- **A stalled transfer can be cancelled.** Power, edits, suspension and backups
+  all answer `409` while a transfer is running, so a restic Job that stalled —
+  a bucket that stopped answering, say — pinned the server for good, with no way
+  out but deleting it. `DELETE /api/servers/{id}/transfer`, and a **Cancel
+  transfer** button, record the request; the controller undoes the move on its
+  next tick, dropping it outright before the cluster flip and rolling the
+  destination back after it. The source data is untouched in both cases. The
+  backup and restore Jobs also carry a six-hour deadline now, so one that hangs
+  fails with a reason instead of running forever.
 
 ### Security
 

@@ -1226,7 +1226,8 @@ paths:
         data is backed up on the source and restored onto the destination
         (via the configured S3 backup target), then the source namespace is
         removed. Requires a configured backup target. While in progress,
-        power/edit/reinstall are blocked.
+        power/edit/reinstall are blocked — `DELETE` on this path cancels it if
+        it stalls.
       requestBody:
         required: true
         content:
@@ -1242,6 +1243,24 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { description: A transfer is already in progress }
 
+    delete:
+      tags: [Servers]
+      summary: Cancel an in-progress transfer (server-admin)
+      description: >
+        Records the cancellation; the controller undoes the move on its next
+        tick, since it is the side with cluster access. Before the cluster flip
+        the server has not moved and the transfer is simply dropped; after it,
+        the destination namespace is removed and the server returns to its
+        source cluster. The source data is untouched throughout. Without this a
+        transfer whose job stalls pins the server indefinitely.
+      responses:
+        "202":
+          description: Cancellation recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TransferState" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: No transfer is in progress. }
   /api/servers/{id}/access:
     parameters:
       - $ref: "#/components/parameters/ServerId"
@@ -1995,6 +2014,9 @@ components:
         prevState: { type: string, enum: [Running, Stopped, Suspended] }
         startedAt: { type: string, format: date-time }
         message: { type: string }
+        cancelled:
+          type: boolean
+          description: A cancellation has been asked for; the controller is undoing the move.
     CreateServerRequest:
       type: object
       required: [name, template]
