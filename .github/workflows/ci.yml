@@ -90,27 +90,11 @@ jobs:
           ! echo "$svc" | grep -q 'metrics' || fail "the Service publishes the metrics port"
           # A container port name must be unique across the whole pod, not just
           # within its container: a probe that selects a port by name resolves a
-          # duplicate to whichever container is listed first. Naming the
-          # apiserver's metrics port "metrics" -- which the controller beside it
-          # already used -- silently pointed the controller's liveness probe at
-          # the apiserver, so a wedged controller would never be restarted. The
-          # rendered spec is the only place that is visible.
+          # duplicate to whichever container is listed first. The checker says
+          # why; it lives in hack/ because inline Python cannot be indented
+          # inside a YAML block scalar without breaking one or the other.
           python3 -c 'import yaml' 2>/dev/null || pip3 install --quiet pyyaml
-          helm template quetzal deploy/quetzal | python3 -c '
-import sys, yaml
-bad = 0
-for doc in yaml.safe_load_all(sys.stdin):
-    if not doc or doc.get("kind") != "Deployment":
-        continue
-    seen = {}
-    for c in doc["spec"]["template"]["spec"]["containers"]:
-        for p in c.get("ports", []):
-            seen.setdefault(p.get("name"), []).append(c["name"])
-    for name, owners in seen.items():
-        if len(owners) > 1:
-            print("duplicate container port name %r shared by %s" % (name, owners))
-            bad = 1
-sys.exit(bad)' || fail "duplicate container port name"
+          helm template quetzal deploy/quetzal | python3 hack/check-chart-ports.py || fail "duplicate container port name"
           echo "ok"
 
   web:
