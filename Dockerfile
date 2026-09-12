@@ -9,7 +9,7 @@ COPY web/ ./
 RUN npm run build
 
 # 2) Build the Go binaries (apiserver embeds the UI built above).
-FROM golang:1.23-alpine AS build
+FROM golang:1.26-alpine AS build
 ENV GOTOOLCHAIN=local CGO_ENABLED=0
 # Build metadata stamped into the binaries (see internal/version).
 ARG VERSION=dev
