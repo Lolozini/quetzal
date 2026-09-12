@@ -73,9 +73,16 @@ spec:
               value: {{ .Values.retention.eventDays | quote }}
             - name: QUETZAL_AUDIT_RETENTION_DAYS
               value: {{ .Values.retention.auditDays | quote }}
+            # Metrics on a port of their own: the Ingress publishes the panel's
+            # port at "/" prefix, so anything served there is public. 9090 is the
+            # controller's, in this same pod.
+            - name: QUETZAL_METRICS_ADDR
+              value: ":9091"
           ports:
             - name: http
               containerPort: 8080
+            - name: metrics
+              containerPort: 9091
           livenessProbe:
             httpGet: { path: /healthz, port: http }
             initialDelaySeconds: 5

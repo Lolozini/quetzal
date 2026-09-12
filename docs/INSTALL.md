@@ -232,6 +232,13 @@ schedules when you take a permission away.
 today, so a key minted by an admin is an admin key. Treat one as the account
 itself and delete keys you no longer use.
 
+**Metrics are on a port the Ingress does not publish.** The apiserver serves
+`/metrics` on container port 9091 and the controller on 9090, and the Service
+carries neither — the panel's own port is published at `/` prefix, so anything
+served beside the panel is readable by anyone with the URL. Scrape them
+in-cluster (a PodMonitor, or Prometheus pod annotations). There is no
+authentication on those ports: keep them pod-local.
+
 **SFTP drops a connection that does not authenticate**, within 15 seconds, and
 caps how many may be mid-handshake at once. The SFTP server is a sidecar inside
 the game server's own pod and shares its memory limit, published on a NodePort,
