@@ -438,6 +438,16 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **An install that fails now fails, and runs again.** The generated install
+  script ended with the marker write and a `chown … || true`, so its exit status
+  was always zero — an egg's script could not fail, whatever it did — and the
+  "installed" marker was written either way, so the next start skipped the
+  install entirely and left the server broken with nothing to retry and nothing
+  to read. The status is now taken from the script itself, and a failure leaves
+  before anything is marked. What this does not fix is a script that fails
+  halfway and still exits zero: egg scripts do not `set -e`, and forcing it would
+  break the many that step over a command on purpose. That one shows in the
+  setup log.
 - **A transfer no longer tears itself down on a momentary database error.**
   Reading the backup record treated every error as "record lost", so a
   `database is locked` while SQLite was busy aborted the move — and in the

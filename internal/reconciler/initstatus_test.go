@@ -169,3 +169,49 @@ func TestInstallDefaultsToSh(t *testing.T) {
 		t.Errorf("default install image = %q", cs[0].Image)
 	}
 }
+
+// An install that fails has to look like one. The generated script used to end
+// with the marker write and then a chown that ends in `|| true`, so its exit
+// status was always zero -- the egg's script could not fail -- and the marker
+// was written regardless, so the next start skipped the install entirely and
+// left the server broken with nothing to retry and nothing to read.
+func TestFailedInstallNeitherSucceedsNorMarksItself(t *testing.T) {
+	script := buildInstallScript("/mnt/server", "do_the_install\n")
+
+	// The status is taken from the egg's script, not from whatever runs after it.
+	if !strings.Contains(script, "_qz_rc=$?") {
+		t.Error("the script's own exit status is never captured")
+	}
+	// On failure it leaves before the marker is written.
+	rc := strings.Index(script, "_qz_rc=$?")
+	marker := strings.Index(script, `> "$marker"`)
+	guard := strings.Index(script, `exit "$_qz_rc"`)
+	if rc < 0 || marker < 0 || guard < 0 {
+		t.Fatalf("missing pieces: rc=%d marker=%d guard=%d", rc, marker, guard)
+	}
+	if !(rc < guard && guard < marker) {
+		t.Error("the failure exit must come between taking the status and writing the marker")
+	}
+
+	// And the chown the caller appends must stay after all of that, so it cannot
+	// be what decides the exit status.
+	s, tmpl := testServerAndTemplate()
+	tmpl.Install = &models.InstallScript{Image: "debian:slim", Script: "do_the_install"}
+	full := installScriptFromEnv(installInitContainers(s, tmpl, nil)[0])
+	if strings.Index(full, `exit "$_qz_rc"`) > strings.Index(full, "chown -R") {
+		t.Error("the chown runs before the failure exit, so it decides the status again")
+	}
+	if !strings.Contains(full, "chown -R") {
+		t.Error("the chown went missing")
+	}
+}
+
+// installScriptFromEnv pulls the script out of the container's environment.
+func installScriptFromEnv(c corev1.Container) string {
+	for _, e := range c.Env {
+		if e.Name == "QUETZAL_INSTALL_SCRIPT" {
+			return e.Value
+		}
+	}
+	return ""
+}

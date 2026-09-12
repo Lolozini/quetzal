@@ -1169,6 +1169,22 @@ var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // upgrading never re-runs install on existing servers; on a generation mismatch
 // (reinstall) optionally wipe the volume, run the script, then record the new
 // generation. QUETZAL_INSTALL_GEN / QUETZAL_INSTALL_WIPE are passed as env.
+// buildInstallScript wraps an egg's install script with the marker guard that
+// makes it run once, and with the two things that were missing around it.
+//
+// Its exit status used to be whatever the marker write returned, and then
+// whatever the chown appended after it returned -- which ends in `|| true`. So
+// the script's own status never reached Kubernetes: an install could not fail.
+// Worse, the marker was written either way, so a script that fell over halfway
+// was recorded as installed and skipped on every subsequent start, leaving the
+// server broken with no retry and nothing saying why.
+//
+// Both are fixed by taking the status immediately after the script and refusing
+// to mark anything on a failure. What this cannot fix is a script that fails in
+// the middle and still exits 0: egg scripts do not set -e, and forcing it would
+// break the many that step over a failing command on purpose (an `apk add` that
+// does not apply to the image, say). That one is the egg's to get right, and the
+// install log is where it now shows.
 func buildInstallScript(mount, userScript string) string {
 	// Pterodactyl panel egg exports often carry Windows line endings (CRLF). A
 	// stray \r breaks POSIX shells (`then\r` is not `then`, a bare \r line is a
@@ -1185,6 +1201,11 @@ if [ "$QUETZAL_INSTALL_WIPE" = "1" ]; then
   rm -rf "%[1]s/"* "%[1]s/".[!.]* 2>/dev/null || true
 fi
 %[2]s
+_qz_rc=$?
+if [ "$_qz_rc" -ne 0 ]; then
+  echo "quetzal: the install script exited with status $_qz_rc; the server is not marked installed, so it will run again on the next start" >&2
+  exit "$_qz_rc"
+fi
 printf '%%s' "$QUETZAL_INSTALL_GEN" > "$marker"
 `, mount, userScript)
 }
