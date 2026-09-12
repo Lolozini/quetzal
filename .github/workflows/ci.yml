@@ -121,6 +121,19 @@ jobs:
           node_image: kindest/node:v1.31.0
       - name: Load image into kind
         run: kind load docker-image quetzal:e2e --name quetzal-e2e
+      # The backup test brings up MinIO and runs restic in-cluster. Left to
+      # itself the kind node pulls both from Docker Hub while the test is
+      # already waiting on a readiness deadline, which is how this job fails
+      # with "minio not ready" and nothing to do with the code under test.
+      # Pull on the runner, where a failure is a step failure and not a flake,
+      # and hand them to the node.
+      - name: Preload the fixture images into kind
+        run: |
+          set -eux
+          for img in minio/minio:RELEASE.2024-10-13T13-34-11Z restic/restic:0.17.3; do
+            docker pull "$img"
+            kind load docker-image "$img" --name quetzal-e2e
+          done
       - name: e2e tests (kind)
         # kind-action points the default kubeconfig at the cluster.
         env:

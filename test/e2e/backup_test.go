@@ -5,6 +5,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -27,6 +28,29 @@ import (
 	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/store"
 )
+
+// minioDiagnosis summarizes why the fixture has not come up: each pod's phase
+// and, for every container, the waiting reason and message Kubernetes recorded.
+func minioDiagnosis(ctx context.Context, cs kubernetes.Interface, ns string) string {
+	pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return "could not list minio pods: " + err.Error()
+	}
+	if len(pods.Items) == 0 {
+		return "no minio pod was created at all"
+	}
+	var b bytes.Buffer
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		fmt.Fprintf(&b, "pod %s: %s\n", p.Name, p.Status.Phase)
+		for _, cst := range p.Status.ContainerStatuses {
+			if w := cst.State.Waiting; w != nil {
+				fmt.Fprintf(&b, "  %s waiting: %s %s\n", cst.Name, w.Reason, w.Message)
+			}
+		}
+	}
+	return b.String()
+}
 
 // TestE2EBackupRestore runs a real backup and restore against an in-cluster
 // MinIO via the restic runner Job: write a marker, back it up, delete it,
@@ -240,6 +264,9 @@ func deployMinIO(ctx context.Context, t *testing.T, cs kubernetes.Interface) {
 		return d.Status.ReadyReplicas >= 1, nil
 	})
 	if err != nil {
-		t.Fatalf("minio not ready: %v", err)
+		// "context deadline exceeded" alone says nothing about why. The pod's own
+		// state does — almost always an image still being pulled — so print it
+		// rather than leaving the next person to guess at a flake.
+		t.Fatalf("minio not ready: %v\n%s", err, minioDiagnosis(ctx, cs, ns))
 	}
 }
