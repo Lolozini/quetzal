@@ -224,6 +224,13 @@ schedules when you take a permission away.
 today, so a key minted by an admin is an admin key. Treat one as the account
 itself and delete keys you no longer use.
 
+**SFTP drops a connection that does not authenticate**, within 15 seconds, and
+caps how many may be mid-handshake at once. The SFTP server is a sidecar inside
+the game server's own pod and shares its memory limit, published on a NodePort,
+so silent connections are otherwise a way to have a pod OOM-killed from the
+internet without any credentials. A flood can still make SFTP itself unreachable
+for as long as it lasts; the game server keeps running, which is the trade.
+
 **Registering another cluster**: use the manifest the cluster form offers rather
 than an admin kubeconfig. See above.
 
