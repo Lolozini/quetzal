@@ -269,6 +269,9 @@ export interface TransferState {
   prevState: string;
   message?: string;
   startedAt?: string;
+  // Set once a cancel has been asked for; the controller undoes the move on its
+  // next tick, so the flag outlives the request by a few seconds.
+  cancelled?: boolean;
 }
 
 // InstallLog is the output of a server's setup steps. A template with no install
@@ -691,6 +694,10 @@ export const api = {
 
   transferServer: (id: number, targetCluster: number) =>
     req<{ result: string }>("POST", `/api/servers/${id}/transfer`, { targetCluster }),
+  // The controller undoes it on its next tick, so this returns as soon as the
+  // request is recorded rather than when the move is actually unwound.
+  cancelTransfer: (id: number) =>
+    req<TransferState>("DELETE", `/api/servers/${id}/transfer`),
 
   // Multi-cluster.
   clusters: () => req<Cluster[]>("GET", "/api/clusters"),

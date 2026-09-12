@@ -416,7 +416,28 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
             {t("Transferring to {cluster} ({phase})… power and edits are paused until it finishes.", {
               cluster: clusters.find((c) => c.id === srv.transfer!.targetCluster)?.name || `cluster ${srv.transfer.targetCluster}`,
               phase: srv.transfer.phase,
-            })}
+            })}{" "}
+            {/* A transfer whose job stalls would otherwise pin the server with
+                no way out but deleting it. */}
+            {srv.transfer.cancelled ? (
+              <span className="muted">{t("Cancelling…")}</span>
+            ) : (
+              canManage && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await api.cancelTransfer(id);
+                      setSrv(await api.server(id));
+                    } catch (e) {
+                      setError(e instanceof ApiError ? e.message : String(e));
+                    }
+                  }}
+                >
+                  {t("Cancel transfer")}
+                </button>
+              )
+            )}
           </div>
         )}
         <div className="row" style={{ marginTop: 12 }}>
