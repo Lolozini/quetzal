@@ -117,11 +117,16 @@ func TestBuildDeploymentInstallInitContainer(t *testing.T) {
 	if ic.Image != "debian:slim" {
 		t.Errorf("install image = %q", ic.Image)
 	}
+	// The guard carries the once-per-generation logic; the egg's own script
+	// travels beside it so that its `exit` cannot end the guard.
 	script := installScriptOf(ic)
-	for _, want := range []string{".quetzal-installed", "echo installing > /mnt/server/world.txt", "QUETZAL_INSTALL_GEN"} {
+	for _, want := range []string{".quetzal-installed", "QUETZAL_INSTALL_GEN", "QUETZAL_INSTALL_USER_SCRIPT"} {
 		if !strings.Contains(script, want) {
-			t.Errorf("install script missing %q:\n%s", want, script)
+			t.Errorf("install guard missing %q:\n%s", want, script)
 		}
+	}
+	if egg := eggScriptOf(ic); egg != "echo installing > /mnt/server/world.txt" {
+		t.Errorf("egg script = %q", egg)
 	}
 	// The install generation is passed as env so a bump (reinstall) re-runs it.
 	var hasGen bool
@@ -191,6 +196,17 @@ func TestInstallRunsAsRootAndChowns(t *testing.T) {
 func installScriptOf(c corev1.Container) string {
 	for _, e := range c.Env {
 		if e.Name == "QUETZAL_INSTALL_SCRIPT" {
+			return e.Value
+		}
+	}
+	return ""
+}
+
+// eggScriptOf returns the template's own install script, which travels separately
+// from the guard that runs it.
+func eggScriptOf(c corev1.Container) string {
+	for _, e := range c.Env {
+		if e.Name == "QUETZAL_INSTALL_USER_SCRIPT" {
 			return e.Value
 		}
 	}
@@ -533,10 +549,27 @@ func TestBuildDeploymentWorkingDir(t *testing.T) {
 
 func TestBuildInstallScriptStripsCRLF(t *testing.T) {
 	// A template stored with CRLF (imported before normalization) must still run:
-	// the builder strips \r so POSIX shells don't choke on `then\r`.
-	out := buildInstallScript("/mnt/server", "if [ -n \"$X\" ]; then\r\n echo hi\r\nfi\r\n")
-	if strings.Contains(out, "\r") {
-		t.Errorf("wrapped install script still contains CR: %q", out)
+	// \r is stripped so POSIX shells don't choke on `then\r`. The script now
+	// travels to the container in its own variable, so that is where to look.
+	s, tmpl := testServerAndTemplate()
+	tmpl.Install = &models.InstallScript{
+		Image:  "alpine:3.20",
+		Script: "if [ -n \"$X\" ]; then\r\n echo hi\r\nfi\r\n",
+	}
+	var got string
+	for _, e := range installInitContainers(s, tmpl, nil)[0].Env {
+		if e.Name == "QUETZAL_INSTALL_USER_SCRIPT" {
+			got = e.Value
+		}
+	}
+	if got == "" {
+		t.Fatal("the egg's script never reached the container")
+	}
+	if strings.Contains(got, "\r") {
+		t.Errorf("install script still contains CR: %q", got)
+	}
+	if !strings.Contains(got, "echo hi") {
+		t.Errorf("normalization mangled the script: %q", got)
 	}
 }
 
