@@ -1169,8 +1169,8 @@ var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // upgrading never re-runs install on existing servers; on a generation mismatch
 // (reinstall) optionally wipe the volume, run the script, then record the new
 // generation. QUETZAL_INSTALL_GEN / QUETZAL_INSTALL_WIPE are passed as env.
-// buildInstallScript wraps an egg's install script with the marker guard that
-// makes it run once, and with the two things that were missing around it.
+// buildInstallScript is the guard around an egg's install script: run it once
+// per generation, take its status, and record the install only if it succeeded.
 //
 // Its exit status used to be whatever the marker write returned, and then
 // whatever the chown appended after it returned -- which ends in `|| true`. So
@@ -1179,18 +1179,26 @@ var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // was recorded as installed and skipped on every subsequent start, leaving the
 // server broken with no retry and nothing saying why.
 //
-// Both are fixed by taking the status immediately after the script and refusing
-// to mark anything on a failure. What this cannot fix is a script that fails in
-// the middle and still exits 0: egg scripts do not set -e, and forcing it would
-// break the many that step over a failing command on purpose (an `apk add` that
-// does not apply to the image, say). That one is the egg's to get right, and the
-// install log is where it now shows.
-func buildInstallScript(mount, userScript string) string {
-	// Pterodactyl panel egg exports often carry Windows line endings (CRLF). A
-	// stray \r breaks POSIX shells (`then\r` is not `then`, a bare \r line is a
-	// "not found" command), so normalize before embedding the script.
-	userScript = strings.ReplaceAll(userScript, "\r\n", "\n")
-	userScript = strings.ReplaceAll(userScript, "\r", "\n")
+// The egg's script runs as its own process rather than inlined here, and that is
+// the whole point of the indirection. Inlined, a top-level `exit` in the egg --
+// including a bare `exit`, which yields the status of the previous command and
+// so is usually 0 -- ended this guard too, skipping the marker write and the
+// ownership handover after it. The install then re-ran on every single start
+// (re-downloading everything, for the eggs where that is hours) and the data
+// stayed root-owned. Wings has never had this problem because it never inlines
+// either: it writes the script to /mnt/install/install.sh and runs it as
+// `entrypoint /mnt/install/install.sh`, then reads the container's status.
+//
+// Running it as a child also gets the non-zero paths their explanation back:
+// fifteen of the forty-seven eggs seeded here `exit 1` on an error branch, and
+// every one of them used to jump straight over the message below.
+//
+// What this cannot fix is a script that fails in the middle and still exits 0:
+// egg scripts do not set -e, and forcing it would break the many that step over
+// a failing command on purpose (an `apk add` that does not apply to the image,
+// say). That one is the egg's to get right, and the install log is where it
+// shows.
+func buildInstallScript(mount string) string {
 	return fmt.Sprintf(`marker="%[1]s/.quetzal-installed"
 if [ -f "$marker" ]; then
   cur="$(cat "$marker" 2>/dev/null)"
@@ -1200,14 +1208,23 @@ fi
 if [ "$QUETZAL_INSTALL_WIPE" = "1" ]; then
   rm -rf "%[1]s/"* "%[1]s/".[!.]* 2>/dev/null || true
 fi
-%[2]s
+_qz_egg_sh=${QUETZAL_INSTALL_RESOLVED_SHELL:-sh}
+"$_qz_egg_sh" -c "$QUETZAL_INSTALL_USER_SCRIPT"
 _qz_rc=$?
 if [ "$_qz_rc" -ne 0 ]; then
   echo "quetzal: the install script exited with status $_qz_rc; the server is not marked installed, so it will run again on the next start" >&2
   exit "$_qz_rc"
 fi
 printf '%%s' "$QUETZAL_INSTALL_GEN" > "$marker"
-`, mount, userScript)
+`, mount)
+}
+
+// normalizeScript strips the Windows line endings that Pterodactyl panel egg
+// exports routinely carry. A stray \r breaks POSIX shells (`then\r` is not
+// `then`, a bare \r line is a "not found" command).
+func normalizeScript(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	return strings.ReplaceAll(s, "\r", "\n")
 }
 
 // installTimeoutSeconds is how long a single install attempt may run before the
@@ -1246,6 +1263,11 @@ const installShellPicker = `for _qz_sh in "$QUETZAL_INSTALL_SHELL" bash ash sh; 
     if [ "$_qz_sh" != "$QUETZAL_INSTALL_SHELL" ]; then
       echo "quetzal: this egg asks for '$QUETZAL_INSTALL_SHELL', which its install image does not have; running with '$_qz_sh' instead" >&2
     fi
+    # The wrapper runs the egg's script as its own process, so hand it the
+    # interpreter resolved here -- otherwise it would fall back to sh and a
+    # bash-only egg would break on syntax the picker had already worked around.
+    QUETZAL_INSTALL_RESOLVED_SHELL="$_qz_sh"
+    export QUETZAL_INSTALL_RESOLVED_SHELL
     _qz_flag=/tmp/.quetzal-install-timed-out
     rm -f "$_qz_flag" 2>/dev/null
     "$_qz_sh" -c "$QUETZAL_INSTALL_SCRIPT" &
@@ -1286,7 +1308,7 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 	if entrypoint == "" {
 		entrypoint = "sh"
 	}
-	wrapped := buildInstallScript(installMountPath, t.Install.Script)
+	wrapped := buildInstallScript(installMountPath)
 	// Egg install scripts run as root under Wings: their installer images
 	// (eclipse-temurin, ghcr.io/ptero-eggs/installers) `apt-get`/`apk add` build
 	// dependencies, which non-root can't do. So run install as root, then hand the
@@ -1328,6 +1350,9 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 	env = append(env,
 		corev1.EnvVar{Name: "QUETZAL_INSTALL_SHELL", Value: entrypoint},
 		corev1.EnvVar{Name: "QUETZAL_INSTALL_SCRIPT", Value: wrapped},
+		// The egg's own script, travelling separately so the guard can run it as
+		// a child rather than inlining it. See buildInstallScript.
+		corev1.EnvVar{Name: "QUETZAL_INSTALL_USER_SCRIPT", Value: normalizeScript(t.Install.Script)},
 		corev1.EnvVar{Name: "QUETZAL_INSTALL_TIMEOUT", Value: strconv.Itoa(installTimeoutSeconds)},
 	)
 	return []corev1.Container{{
