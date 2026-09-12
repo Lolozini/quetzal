@@ -58,11 +58,43 @@ func New(st *store.Store, ex Executor) *Scheduler {
 // NextRun parses a standard cron expression and returns the next fire time
 // strictly after `after`.
 func NextRun(expr string, after time.Time) (time.Time, error) {
+	return NextRunIn(expr, after, "")
+}
+
+// NextRunIn is NextRun read in an IANA time zone: the cron fields mean what they
+// say in that zone, so "0 4 * * *" is four in the morning there and not wherever
+// the control plane happens to run. An empty zone keeps the process's own, which
+// in a container is UTC.
+//
+// A daylight-saving jump is handled by the cron library, which walks forward
+// from `after` in the given location: an hour that does not exist that day is
+// skipped rather than fired twice.
+func NextRunIn(expr string, after time.Time, tz string) (time.Time, error) {
+	loc, err := LoadZone(tz)
+	if err != nil {
+		return time.Time{}, err
+	}
 	sched, err := cron.ParseStandard(expr)
 	if err != nil {
 		return time.Time{}, err
 	}
-	return sched.Next(after), nil
+	return sched.Next(after.In(loc)), nil
+}
+
+// LoadZone resolves an IANA zone name, with empty meaning the process's own.
+// The binary embeds the zone database (see the time/tzdata import in the
+// commands): the runtime image is distroless and carries no /usr/share/zoneinfo,
+// so without it every named zone would fail to load.
+func LoadZone(tz string) (*time.Location, error) {
+	tz = strings.TrimSpace(tz)
+	if tz == "" {
+		return time.Local, nil
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		return nil, fmt.Errorf("unknown time zone %q (use an IANA name such as Europe/Paris)", tz)
+	}
+	return loc, nil
 }
 
 // Tick fires every enabled schedule whose NextRun is due. It is meant to be
@@ -80,7 +112,7 @@ func (s *Scheduler) Tick(ctx context.Context) {
 		// A schedule with no computed NextRun (freshly enabled / migrated) gets one
 		// now and fires on a later tick — never retroactively.
 		if sc.NextRun == nil {
-			if nr, err := NextRun(sc.Cron, now); err == nil {
+			if nr, err := NextRunIn(sc.Cron, now, sc.Timezone); err == nil {
 				_ = s.Store.SetScheduleNextRun(sc.ID, &nr)
 			} else {
 				log.Printf("scheduler: bad cron %q on schedule %d: %v", sc.Cron, sc.ID, err)
@@ -94,7 +126,7 @@ func (s *Scheduler) Tick(ctx context.Context) {
 		// re-fire on the next tick. The async result write below only touches
 		// last_run/last_status, never this advanced next_run.
 		var next *time.Time
-		if nr, err := NextRun(sc.Cron, now); err == nil {
+		if nr, err := NextRunIn(sc.Cron, now, sc.Timezone); err == nil {
 			next = &nr
 		}
 		_ = s.Store.SetScheduleNextRun(sc.ID, next)

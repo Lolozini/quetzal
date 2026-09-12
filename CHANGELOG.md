@@ -374,6 +374,16 @@ releases may include breaking changes).
   log — so an admin looking up what happened last week simply could not. Both now
   take a `before=<id>` cursor and report the total in `X-Total-Count`, and the
   activity views grow a **Load older** button that walks to the beginning.
+- **Schedules have a time zone.** A cron was read in whatever zone the control
+  plane runs in — UTC in a container — so "restart at 4am" fired at 6am local in
+  a European summer, and the only lever was a panel-wide `TZ` in `extraEnv`. A
+  schedule now carries an IANA zone (`timezone`, e.g. `Europe/Paris`), validated
+  on save, and the form prefills it from the browser so the common case is right
+  without anyone knowing the panel runs in UTC. Existing schedules keep the old
+  behaviour (an empty zone still means the control plane's own). The binaries
+  embed the zone database: the runtime image is distroless and carries no
+  `/usr/share/zoneinfo`, so a named zone would otherwise fail to load in
+  production while working on every developer machine.
 - **Log retention.** `retention.eventDays` (default 30) prunes the event outbox,
   which is written on every power action, crash and restart, read by the
   dispatcher through a cursor, and was never emptied — so it only grew, for the

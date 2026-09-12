@@ -17,6 +17,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	// Embed the IANA zone database: the runtime image is distroless and has
+	// no /usr/share/zoneinfo, so a schedule's named time zone would not load.
+	_ "time/tzdata"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

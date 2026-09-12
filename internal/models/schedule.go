@@ -54,6 +54,12 @@ type Schedule struct {
 	Payload string         `json:"payload,omitempty"`
 	Enabled bool           `json:"enabled"`
 
+	// Timezone is the IANA zone the cron expression is read in (e.g.
+	// "Europe/Paris"). Empty means the control plane's own zone, which in a
+	// container is UTC — so "restart at 4am" used to fire at 6am local in
+	// summer, with nothing anywhere saying why.
+	Timezone string `gorm:"size:64" json:"timezone,omitempty"`
+
 	// Observed execution state, written by the scheduler.
 	NextRun    *time.Time `json:"nextRun,omitempty"`
 	LastRun    *time.Time `json:"lastRun,omitempty"`
