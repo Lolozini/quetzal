@@ -687,12 +687,31 @@ function SFTPCard({ id, initialEnabled, username }: { id: number; initialEnabled
 function ServerActivity({ id, slug }: { id: number; slug: string }) {
   const { t } = useT();
   const [entries, setEntries] = useState<EventEntry[]>([]);
+  const [older, setOlder] = useState<EventEntry[]>([]);
+  const [end, setEnd] = useState(false);
+  const [busy, setBusy] = useState(false);
+  // The newest page is polled; pages fetched with the cursor are kept aside so a
+  // refresh does not throw away what the reader asked to see.
   useEffect(() => {
     const load = () => api.serverEvents(id).then(setEntries).catch(() => {});
     load();
     const iv = setInterval(load, 5000);
     return () => clearInterval(iv);
   }, [id]);
+  const shown = [...entries, ...older.filter((o) => !entries.some((e) => e.id === o.id))];
+  async function more() {
+    if (busy || end || shown.length === 0) return;
+    setBusy(true);
+    try {
+      const page = await api.serverEvents(id, shown[shown.length - 1].id);
+      setOlder((prev) => [...prev, ...page]);
+      if (page.length === 0) setEnd(true);
+    } catch {
+      // Keep what is on screen; the button stays available.
+    } finally {
+      setBusy(false);
+    }
+  }
   // Event messages are prefixed with the server slug ("slug: …"); drop it in this
   // already server-scoped view.
   // Messages are prefixed with the server slug ("slug: detail"), and an action
@@ -705,14 +724,14 @@ function ServerActivity({ id, slug }: { id: number; slug: string }) {
   };
   return (
     <div className="card">
-      <Collapsible title={t("Activity")} count={entries.length}>
-        {entries.length === 0 ? (
+      <Collapsible title={t("Activity")} count={shown.length}>
+        {shown.length === 0 ? (
           <p className="muted">{t("No activity yet.")}</p>
         ) : (
           <table>
             <thead><tr><th>{t("When")}</th><th>{t("User")}</th><th>{t("Event")}</th><th>{t("Detail")}</th></tr></thead>
             <tbody>
-              {entries.map((e) => (
+              {shown.map((e) => (
                 <tr key={e.id}>
                   <td>{new Date(e.createdAt).toLocaleString()}</td>
                   <td>{e.username || t("system")}</td>
@@ -723,6 +742,12 @@ function ServerActivity({ id, slug }: { id: number; slug: string }) {
             </tbody>
           </table>
         )}
+        {shown.length > 0 && !end && (
+          <button type="button" onClick={more} disabled={busy}>
+            {busy ? t("Loading…") : t("Load older")}
+          </button>
+        )}
+        {end && shown.length > 0 && <p className="muted">{t("That is the whole log.")}</p>}
       </Collapsible>
     </div>
   );

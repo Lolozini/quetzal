@@ -522,6 +522,26 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// writeCount reports how many rows exist behind a paged response, so a client
+// can tell a page from the whole set. Set before the body is written.
+func writeCount(w http.ResponseWriter, total int64) {
+	w.Header().Set("X-Total-Count", strconv.FormatInt(total, 10))
+}
+
+// listWindow reads the cursor and page size shared by the log endpoints:
+// ?before=<id> asks for entries older than that id (the id of the oldest row a
+// client already holds), ?limit=<n> sizes the page. Both absent means the newest
+// page at the default size.
+func listWindow(r *http.Request) (before uint, limit int) {
+	if n, err := strconv.ParseUint(strings.TrimSpace(r.URL.Query().Get("before")), 10, 0); err == nil {
+		before = uint(n)
+	}
+	if n, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("limit"))); err == nil {
+		limit = n
+	}
+	return before, limit
+}
+
 func decodeJSON(r *http.Request, v any) error {
 	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20))
 	dec.DisallowUnknownFields()

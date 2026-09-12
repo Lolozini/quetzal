@@ -97,6 +97,8 @@ export const fr: Record<string, string> = {
   Error: "Erreur",
   Hibernated: "En hibernation",
   "Setup log": "Journal d'installation",
+  "Load older": "Charger plus ancien",
+  "That is the whole log.": "C'est tout le journal.",
   "Output of the install script and the config render. A server stuck on Installing, or in Error, explains itself here.":
     "Sortie du script d'installation et du rendu de configuration. Un serveur bloqué sur Installation, ou en Erreur, s'explique ici.",
   "Nothing written yet — this template may have no install step.":

@@ -58,6 +58,16 @@ jobs:
             --set nodePort.min=30000 --set nodePort.max=30030 \
             | grep -c 'QUETZAL_NODEPORT_MIN' || true)"
           [ "$ports" = 3 ] || fail "nodePort pool reached $ports of 3 containers"
+          # Log retention has to reach the apiserver, which is what prunes.
+          echo "$out" | grep -q 'QUETZAL_EVENT_RETENTION_DAYS' || fail retention
+          # More than one replica is safe on Postgres and destroys a SQLite
+          # database. The chart must refuse the second case rather than let it be
+          # discovered in production.
+          ! helm template quetzal deploy/quetzal --set replicaCount=2 >/dev/null 2>&1             || fail "replicaCount=2 accepted on sqlite"
+          ! helm template quetzal deploy/quetzal --set replicaCount=2 --set db.driver=postgres >/dev/null 2>&1             || fail "replicaCount=2 accepted with a ReadWriteOnce claim"
+          ha="$(helm template quetzal deploy/quetzal --set replicaCount=2             --set db.driver=postgres --set persistence.enabled=false)"
+          echo "$ha" | grep -q 'replicas: 2'      || fail "replicaCount ignored"
+          echo "$ha" | grep -q 'type: RollingUpdate' || fail "two replicas still roll with Recreate"
           echo "ok"
 
   web:

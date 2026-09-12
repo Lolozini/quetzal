@@ -490,9 +490,25 @@ function EmailSettingsCard() {
 function GlobalAudit() {
   const { t } = useT();
   const [entries, setEntries] = useState<AuditEntry[]>([]);
+  // `end` is set once a page comes back short: there is nothing older to fetch.
+  const [end, setEnd] = useState(false);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
-    api.globalAudit().then(setEntries).catch(() => {});
+    api.globalAudit().then((e) => { setEntries(e); setEnd(e.length === 0); }).catch(() => {});
   }, []);
+  async function more() {
+    if (busy || end || entries.length === 0) return;
+    setBusy(true);
+    try {
+      const page = await api.globalAudit(entries[entries.length - 1].id);
+      setEntries((prev) => [...prev, ...page]);
+      if (page.length === 0) setEnd(true);
+    } catch {
+      // Leave what is already shown; the button stays available.
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <div className="card">
       <Collapsible title={t("Activity log")} count={entries.length}>
@@ -514,6 +530,12 @@ function GlobalAudit() {
             </tbody>
           </table>
         )}
+        {entries.length > 0 && !end && (
+          <button type="button" onClick={more} disabled={busy}>
+            {busy ? t("Loading…") : t("Load older")}
+          </button>
+        )}
+        {end && entries.length > 0 && <p className="muted">{t("That is the whole log.")}</p>}
       </Collapsible>
     </div>
   );

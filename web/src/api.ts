@@ -612,8 +612,13 @@ export const api = {
     req<void>("POST", `/api/servers/${id}/access`, { username, permissions }),
   revokeAccess: (id: number, uid: number) =>
     req<void>("DELETE", `/api/servers/${id}/access/${uid}`),
-  serverAudit: (id: number) => req<AuditEntry[]>("GET", `/api/servers/${id}/audit`),
-  globalAudit: () => req<AuditEntry[]>("GET", "/api/audit"),
+  // The log endpoints page with a cursor: `before` is the id of the oldest row
+  // already held. Without it only the newest entries were ever reachable, which
+  // makes an audit log useless for looking up last week.
+  serverAudit: (id: number, before?: number) =>
+    req<AuditEntry[]>("GET", `/api/servers/${id}/audit${before ? `?before=${before}` : ""}`),
+  globalAudit: (before?: number) =>
+    req<AuditEntry[]>("GET", `/api/audit${before ? `?before=${before}` : ""}`),
 
   users: () => req<User[]>("GET", "/api/users"),
   createUser: (body: Record<string, unknown>) => req<User>("POST", "/api/users", body),
@@ -760,7 +765,8 @@ export const api = {
   testChannel: (nid: number) =>
     req<void>("POST", `/api/notifications/channels/${nid}/test`),
   events: () => req<EventEntry[]>("GET", "/api/events"),
-  serverEvents: (id: number) => req<EventEntry[]>("GET", `/api/servers/${id}/events`),
+  serverEvents: (id: number, before?: number) =>
+    req<EventEntry[]>("GET", `/api/servers/${id}/events${before ? `?before=${before}` : ""}`),
 };
 
 export interface CreateServerRequest {

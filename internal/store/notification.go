@@ -4,7 +4,10 @@ import (
 	crand "crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -133,17 +136,59 @@ func (s *Store) LatestEventID() (uint, error) {
 }
 
 // ListEventsForServer returns recent events for a server, newest first.
-func (s *Store) ListEventsForServer(serverID uint, limit int) ([]models.Event, error) {
+func (s *Store) ListEventsForServer(serverID, before uint, limit int) ([]models.Event, error) {
+	q := s.db.Where("server_id = ?", serverID)
+	if before > 0 {
+		q = q.Where("id < ?", before)
+	}
 	var es []models.Event
-	err := s.db.Where("server_id = ?", serverID).Order("id desc").Limit(limit).Find(&es).Error
+	err := q.Order("id desc").Limit(limit).Find(&es).Error
 	return es, err
 }
 
 // ListEvents returns recent panel-wide events, newest first.
-func (s *Store) ListEvents(limit int) ([]models.Event, error) {
+func (s *Store) ListEvents(before uint, limit int) ([]models.Event, error) {
+	q := s.db.Session(&gorm.Session{})
+	if before > 0 {
+		q = q.Where("id < ?", before)
+	}
 	var es []models.Event
-	err := s.db.Order("id desc").Limit(limit).Find(&es).Error
+	err := q.Order("id desc").Limit(limit).Find(&es).Error
 	return es, err
+}
+
+// notifyCursorSetting mirrors notify.CursorSetting. It is duplicated rather than
+// imported because the dispatcher depends on the store, not the other way round.
+const notifyCursorSetting = "notify.cursor"
+
+// NotifyCursor returns the id of the last event the dispatcher delivered, or 0
+// when it has not run yet. Pruning must not go past it.
+func (s *Store) NotifyCursor() (uint, error) {
+	v, err := s.GetSetting(notifyCursorSetting)
+	if err != nil || strings.TrimSpace(v) == "" {
+		return 0, err
+	}
+	n, err := strconv.ParseUint(strings.TrimSpace(v), 10, 0)
+	if err != nil {
+		return 0, fmt.Errorf("delivery cursor %q is not a number: %w", v, err)
+	}
+	return uint(n), nil
+}
+
+// DeleteEventsBefore prunes delivered events older than cutoff. The event table
+// is an outbox the dispatcher reads with a cursor and never emptied, so it only
+// ever grew: a power action, a crash, a restart each add a row, for the life of
+// the install.
+//
+// deliveredThrough is the dispatcher's cursor, and nothing at or past it is
+// touched — pruning an event that has not gone out yet would drop a notification
+// silently, which is worse than the disk it saves.
+func (s *Store) DeleteEventsBefore(cutoff time.Time, deliveredThrough uint) (int64, error) {
+	if deliveredThrough == 0 {
+		return 0, nil // nothing delivered yet; nothing is safe to drop
+	}
+	res := s.db.Where("created_at < ? AND id <= ?", cutoff, deliveredThrough).Delete(&models.Event{})
+	return res.RowsAffected, res.Error
 }
 
 // DeleteEventsForServer removes a server's events (called on server delete).

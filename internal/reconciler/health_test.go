@@ -68,7 +68,7 @@ func TestEmitRestartEvents(t *testing.T) {
 	s := &models.Server{ID: 1, Slug: "srv"}
 
 	countEvents := func() []models.Event {
-		es, err := st.ListEventsForServer(s.ID, 100)
+		es, err := st.ListEventsForServer(s.ID, 0, 100)
 		if err != nil {
 			t.Fatalf("list events: %v", err)
 		}

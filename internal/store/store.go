@@ -1010,24 +1010,64 @@ func (s *Store) AddAudit(e *models.AuditEntry) error {
 	return s.db.Create(e).Error
 }
 
-// ListAuditForServer returns recent audit entries for a server, newest first.
-func (s *Store) ListAuditForServer(serverID uint, limit int) ([]models.AuditEntry, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 100
+// ListAuditForServer returns a page of a server's audit entries, newest first.
+// before is a cursor: pass the id of the oldest entry already seen to get the
+// page after it, or 0 for the newest page. Without it only the most recent
+// entries were ever reachable, which makes an audit log useless for the thing it
+// is for — looking up what happened last week.
+func (s *Store) ListAuditForServer(serverID, before uint, limit int) ([]models.AuditEntry, error) {
+	q := s.db.Where("server_id = ?", serverID)
+	if before > 0 {
+		q = q.Where("id < ?", before)
 	}
 	var es []models.AuditEntry
-	err := s.db.Where("server_id = ?", serverID).Order("id desc").Limit(limit).Find(&es).Error
+	err := q.Order("id desc").Limit(auditPageSize(limit)).Find(&es).Error
 	return es, err
 }
 
-// ListAudit returns recent panel-wide audit entries (admin), newest first.
-func (s *Store) ListAudit(limit int) ([]models.AuditEntry, error) {
-	if limit <= 0 || limit > 500 {
-		limit = 200
+// ListAudit returns a page of panel-wide audit entries (admin), newest first.
+// See ListAuditForServer for the cursor.
+func (s *Store) ListAudit(before uint, limit int) ([]models.AuditEntry, error) {
+	q := s.db.Session(&gorm.Session{})
+	if before > 0 {
+		q = q.Where("id < ?", before)
 	}
 	var es []models.AuditEntry
-	err := s.db.Order("id desc").Limit(limit).Find(&es).Error
+	err := q.Order("id desc").Limit(auditPageSize(limit)).Find(&es).Error
 	return es, err
+}
+
+// auditPageSize clamps a requested page size. The ceiling keeps one request from
+// pulling a whole history into memory.
+func auditPageSize(limit int) int {
+	switch {
+	case limit <= 0:
+		return 100
+	case limit > 500:
+		return 500
+	}
+	return limit
+}
+
+// DeleteAuditBefore prunes audit entries older than cutoff. Unlike events this
+// is opt-in (see the retention setting): an audit trail is an accountability
+// record, and quietly deleting one because a default said so is not a decision
+// to make on an operator's behalf.
+func (s *Store) DeleteAuditBefore(cutoff time.Time) (int64, error) {
+	res := s.db.Where("created_at < ?", cutoff).Delete(&models.AuditEntry{})
+	return res.RowsAffected, res.Error
+}
+
+// CountAudit returns how many audit entries exist, panel-wide or for one server
+// (serverID 0 = panel-wide). The UI shows it so "100 of 4812" reads as a page
+// rather than as the whole log.
+func (s *Store) CountAudit(serverID uint) (int64, error) {
+	q := s.db.Model(&models.AuditEntry{})
+	if serverID > 0 {
+		q = q.Where("server_id = ?", serverID)
+	}
+	var n int64
+	return n, q.Count(&n).Error
 }
 
 // ServerIdentity returns a server's display name and slug (both empty if the
