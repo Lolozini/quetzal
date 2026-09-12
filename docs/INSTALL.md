@@ -184,6 +184,14 @@ cannot spoof or sniff on the node's network — and it has no API credentials an
 no cluster network. It is root in its own container and nowhere else, but grant
 the permission accordingly, and do not import eggs you have no reason to trust.
 
+An egg's install script runs as its own process, the way Wings runs it, and not
+inlined into the logic around it. That matters for a reason worth knowing if you
+write eggs: a top-level `exit` in the script -- including a bare `exit`, which
+takes the status of the line before it and so is usually 0 -- would otherwise end
+that logic too, skipping the record that the install happened and the handover of
+the files to the server's user. The script decides its exit status; Quetzal
+decides what that means.
+
 An install also has a deadline: six hours, after which it is stopped and the
 server goes to Error with the reason in its setup log. That is far longer than
 any install should take — a SteamCMD download of a large game legitimately runs

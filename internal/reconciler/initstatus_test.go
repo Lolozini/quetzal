@@ -139,8 +139,11 @@ func TestInstallRunsUnderAShellThatExists(t *testing.T) {
 	if env["QUETZAL_INSTALL_SHELL"] != "ash" {
 		t.Errorf("QUETZAL_INSTALL_SHELL = %q, want ash", env["QUETZAL_INSTALL_SHELL"])
 	}
-	if !strings.Contains(env["QUETZAL_INSTALL_SCRIPT"], "apk add curl") {
+	if !strings.Contains(env["QUETZAL_INSTALL_USER_SCRIPT"], "apk add curl") {
 		t.Error("the egg's script did not reach the container")
+	}
+	if strings.Contains(env["QUETZAL_INSTALL_SCRIPT"], "apk add curl") {
+		t.Error("the egg's script is inlined into the guard again: its own `exit` would end the guard too")
 	}
 	// The picker has to try the named shell first, then fall back, and say so.
 	for _, want := range []string{`"$QUETZAL_INSTALL_SHELL" bash ash sh`, `"$_qz_sh" -c "$QUETZAL_INSTALL_SCRIPT"`, "instead"} {
@@ -176,7 +179,7 @@ func TestInstallDefaultsToSh(t *testing.T) {
 // was written regardless, so the next start skipped the install entirely and
 // left the server broken with nothing to retry and nothing to read.
 func TestFailedInstallNeitherSucceedsNorMarksItself(t *testing.T) {
-	script := buildInstallScript("/mnt/server", "do_the_install\n")
+	script := buildInstallScript("/mnt/server")
 
 	// The status is taken from the egg's script, not from whatever runs after it.
 	if !strings.Contains(script, "_qz_rc=$?") {
