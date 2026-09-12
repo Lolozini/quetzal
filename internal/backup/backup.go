@@ -213,6 +213,13 @@ restic forget --host %q --keep-last %d --prune
 	// is reported as a failure — a day gives an offline or non-leader controller
 	// ample room to come back and see that the operation actually succeeded.
 	ttl := int32(86400)
+	// A Job with no deadline can stall forever -- a bucket that stopped answering
+	// mid-transfer leaves restic waiting, the operation never finishes, and a
+	// transfer built on it pins its server indefinitely. Six hours is far more
+	// than any real backup or restore needs (a hundred gigabytes at a handful of
+	// megabytes a second) and far less than never, and hitting it fails the
+	// operation with a reason rather than leaving it hanging.
+	deadline := int64(6 * 60 * 60)
 	ro := p.Direction == models.DirBackup
 
 	// Mount the same data the server uses: its PVC. A forget only rewrites the
@@ -258,6 +265,7 @@ restic forget --host %q --keep-last %d --prune
 		Spec: batchv1.JobSpec{
 			BackoffLimit:            &backoff,
 			TTLSecondsAfterFinished: &ttl,
+			ActiveDeadlineSeconds:   &deadline,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels(p)},
 				Spec: corev1.PodSpec{

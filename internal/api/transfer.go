@@ -28,6 +28,42 @@ type transferRequest struct {
 // is backed up on the source, then restored onto the target (see the transfer
 // manager). Requires a configured backup target — that S3 repository is the data
 // bridge between clusters.
+// handleCancelTransfer marks an in-progress transfer for cancellation. The
+// controller undoes it on its next tick — it is the side with cluster access,
+// and keeping one implementation of "undo a transfer" beats a second one here
+// that would have to delete namespaces of its own.
+//
+// This exists because a transfer that wedges — a restic Job stalled on an
+// unreachable bucket, say — used to pin the server permanently: power, edits,
+// suspension and backups all answer 409 while one is running, and the only way
+// out was to delete the server.
+func (s *Server) handleCancelTransfer(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminPerm(w, r, models.AdminPermServers) {
+		return
+	}
+	srv, ok := s.lookupServer(w, r)
+	if !ok {
+		return
+	}
+	if srv.Transfer == nil {
+		writeError(w, http.StatusConflict, "no transfer is in progress")
+		return
+	}
+	if srv.Transfer.Cancelled {
+		writeJSON(w, http.StatusOK, srv.Transfer) // already asked; not an error
+		return
+	}
+	t := *srv.Transfer
+	t.Cancelled = true
+	t.Message = "cancelling"
+	if err := s.Store.SetServerTransfer(srv.ID, &t); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.audit(r, srv.ID, "server.transfer", "cancel requested")
+	writeJSON(w, http.StatusAccepted, t)
+}
+
 func (s *Server) handleTransferServer(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPerm(w, r, models.AdminPermServers) {
 		return

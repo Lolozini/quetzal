@@ -2,6 +2,7 @@ package transfer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -226,5 +227,134 @@ func TestTransferRollsBackOnRestoreFailure(t *testing.T) {
 	// Destination namespace should have been torn down.
 	if _, err := h.dst.CoreV1().Namespaces().Get(context.Background(), ns, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
 		t.Errorf("destination namespace should be deleted on rollback, err=%v", err)
+	}
+}
+
+// A transfer used to be torn down by any error reading its backup record, not
+// just a missing one. The restore phase is where that hurts: rollback deletes
+// the destination namespace, so a moment of database contention would destroy a
+// restore that may well have completed, on a move that was going fine.
+func TestTransientReadDoesNotTearDownATransfer(t *testing.T) {
+	h := newHarness(t, []runtime.Object{namespace()}, []runtime.Object{pvc(), namespace()})
+	h.startTransfer(t, models.StateRunning)
+
+	// Reach the restoring phase: back up, succeed, flip, create the restore.
+	h.process()
+	srv := h.reload(t)
+	b, _ := h.st.GetBackup(srv.Transfer.BackupID)
+	b.Phase = models.BackupSucceeded
+	if err := h.st.UpdateBackup(b); err != nil {
+		t.Fatal(err)
+	}
+	h.process() // -> Restoring
+	h.process() // creates the restore record
+	srv = h.reload(t)
+	if srv.Transfer == nil || srv.Transfer.Phase != models.TransferRestoring || srv.Transfer.RestoreID == 0 {
+		t.Fatalf("precondition: transfer = %+v", srv.Transfer)
+	}
+
+	// Now the database stumbles.
+	h.m.GetBackup = func(uint) (*models.Backup, error) {
+		return nil, errors.New("database is locked")
+	}
+	h.process()
+
+	srv = h.reload(t)
+	if srv.Transfer == nil {
+		t.Fatal("a transient read error tore the transfer down")
+	}
+	if srv.Transfer.Phase != models.TransferRestoring {
+		t.Errorf("phase = %q, want it untouched", srv.Transfer.Phase)
+	}
+	if srv.ClusterID != dstCluster {
+		t.Errorf("the server was moved back to the source on a transient error")
+	}
+	// And the destination namespace, which rollback deletes, is still there.
+	if _, err := h.dst.CoreV1().Namespaces().Get(context.Background(), ns, metav1.GetOptions{}); err != nil {
+		t.Errorf("the destination namespace was deleted: %v", err)
+	}
+
+	// A record that is genuinely gone still rolls back.
+	h.m.GetBackup = func(uint) (*models.Backup, error) { return nil, store.ErrNotFound }
+	h.process()
+	srv = h.reload(t)
+	if srv.Transfer != nil {
+		t.Errorf("a lost record should still roll the transfer back, got %+v", srv.Transfer)
+	}
+	if srv.ClusterID != srcCluster {
+		t.Errorf("rollback should return the server to the source cluster, got %d", srv.ClusterID)
+	}
+}
+
+// A wedged transfer used to pin its server for good: power, edits, suspension
+// and backups all answer 409 while one is running, and nothing could end it
+// short of deleting the server. Cancelling is honoured by the controller, and
+// what it does depends on how far the move got.
+func TestCancelBeforeTheFlipJustDropsTheTransfer(t *testing.T) {
+	h := newHarness(t, []runtime.Object{namespace(), serverPod()}, nil)
+	h.startTransfer(t, models.StateRunning)
+
+	srv := h.reload(t)
+	cancelled := *srv.Transfer
+	cancelled.Cancelled = true
+	if err := h.st.SetServerTransfer(srv.ID, &cancelled); err != nil {
+		t.Fatal(err)
+	}
+	h.process()
+
+	srv = h.reload(t)
+	if srv.Transfer != nil {
+		t.Errorf("transfer should be gone, got %+v", srv.Transfer)
+	}
+	if srv.ClusterID != srcCluster {
+		t.Errorf("the server never left the source: cluster = %d", srv.ClusterID)
+	}
+	if srv.DesiredState != models.StateRunning {
+		t.Errorf("desired state = %q, want the state from before the transfer", srv.DesiredState)
+	}
+	// Nothing was torn down: the source namespace is the live one.
+	if _, err := h.src.CoreV1().Namespaces().Get(context.Background(), ns, metav1.GetOptions{}); err != nil {
+		t.Errorf("the source namespace was deleted on a cancel that had moved nothing: %v", err)
+	}
+}
+
+// After the cluster flip a cancel has to undo the move, not just forget it.
+func TestCancelAfterTheFlipRollsBack(t *testing.T) {
+	h := newHarness(t, []runtime.Object{namespace()}, []runtime.Object{pvc(), namespace()})
+	h.startTransfer(t, models.StateRunning)
+	h.process()
+	srv := h.reload(t)
+	b, _ := h.st.GetBackup(srv.Transfer.BackupID)
+	b.Phase = models.BackupSucceeded
+	if err := h.st.UpdateBackup(b); err != nil {
+		t.Fatal(err)
+	}
+	h.process() // flips to the destination, phase -> Restoring
+	srv = h.reload(t)
+	if srv.ClusterID != dstCluster {
+		t.Fatalf("precondition: the flip did not happen")
+	}
+
+	cancelled := *srv.Transfer
+	cancelled.Cancelled = true
+	if err := h.st.SetServerTransfer(srv.ID, &cancelled); err != nil {
+		t.Fatal(err)
+	}
+	h.process()
+
+	srv = h.reload(t)
+	if srv.Transfer != nil {
+		t.Errorf("transfer should be gone, got %+v", srv.Transfer)
+	}
+	if srv.ClusterID != srcCluster {
+		t.Errorf("cluster = %d, want the server back on the source", srv.ClusterID)
+	}
+	// The half-built destination is cleaned up; the source, which holds the data,
+	// is not.
+	if _, err := h.dst.CoreV1().Namespaces().Get(context.Background(), ns, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Errorf("the destination namespace survived the rollback: %v", err)
+	}
+	if _, err := h.src.CoreV1().Namespaces().Get(context.Background(), ns, metav1.GetOptions{}); err != nil {
+		t.Errorf("the source namespace was deleted: %v", err)
 	}
 }
