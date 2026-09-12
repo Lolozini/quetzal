@@ -592,22 +592,27 @@ paths:
   /api/templates/import:
     post:
       tags: [Servers]
-      summary: Import a Pterodactyl/Pelican egg as a template (admin)
+      summary: Import an egg or an exported template as a template (admin)
       description: >-
-        The request body is the raw egg JSON. Importing an egg whose name
-        slugifies to an existing template updates it (bumping its version).
+        Accepts either a Pterodactyl/Pelican egg or the JSON this panel's own
+        export endpoint produces — the format is detected from the document, so a
+        template can be moved between installs by exporting and importing it. A
+        document whose slug matches an existing template updates it (bumping its
+        version); an id in the body is ignored.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { type: object, description: A Pterodactyl/Pelican egg }
+            schema:
+              type: object
+              description: A Pterodactyl/Pelican egg, or an exported Quetzal template
       responses:
         "201":
           description: Imported
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Template" }
-        "400": { description: Invalid egg JSON }
+        "400": { description: The document parsed as neither an egg nor a template }
         "403": { $ref: "#/components/responses/Forbidden" }
   /api/templates/import-url:
     post:

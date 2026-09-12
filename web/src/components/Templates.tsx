@@ -4,7 +4,8 @@ import { useT } from "../i18n";
 import { Collapsible } from "./Collapsible";
 
 // Templates is the admin egg manager: import Pterodactyl/Pelican eggs (pasted or
-// by URL), browse, edit (as native JSON), export and delete templates.
+// by URL) or a template exported from another install, browse, edit (as native
+// JSON), export and delete templates.
 export function Templates() {
   const { t: tr } = useT();
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -141,7 +142,7 @@ export function Templates() {
       ) : (
         <div style={{ marginTop: 12 }}>
           <h3>{tr("Import an egg")}</h3>
-          <p className="muted">{tr("Paste a Pterodactyl/Pelican egg JSON. Importing one whose name matches an existing template updates it.")}</p>
+          <p className="muted">{tr("Paste a Pterodactyl/Pelican egg, or a template exported from another install. Importing one whose name matches an existing template updates it.")}</p>
           <textarea
             value={importJson}
             onChange={(e) => setImportJson(e.target.value)}

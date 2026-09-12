@@ -86,7 +86,7 @@ func cmdImportEgg(st *store.Store, args []string) {
 	}
 	data, err := os.ReadFile(args[0])
 	must(err)
-	t, err := egg.ToTemplate(data)
+	t, err := egg.Parse(data)
 	must(err)
 	saved, err := st.UpsertTemplate(t)
 	must(err)

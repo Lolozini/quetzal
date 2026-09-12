@@ -44,7 +44,7 @@ func (s *Server) handleImportEgg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "could not read body")
 		return
 	}
-	t, err := egg.ToTemplate(data)
+	t, err := egg.Parse(data)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, eggParseError(data, err))
 		return
