@@ -12,7 +12,8 @@ then open http://localhost:8080/
 
 On first visit you will create the admin account (setup wizard).
 
-Metrics: container port 9090 (/metrics) on the controller, 9091 on the
-apiserver. Neither is published by the Service or the Ingress -- scrape them
+Metrics: container port 9090 (/metrics) on the controller, named "metrics", and
+9091 on the apiserver, named "api-metrics" (a port name has to be unique across
+the pod; probes select by name). Neither is published by the Service or the Ingress -- scrape them
 in-cluster (a PodMonitor, or annotations on the pod). Health: /healthz, on those
 ports and on the panel's own.
