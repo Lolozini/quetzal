@@ -1514,6 +1514,53 @@ func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
 	_ = console.Stream(r.Context(), conn, cs, cfg, srv.Namespace, srv.Slug)
 }
 
+// installLogTail bounds what the endpoint returns. An install script is chatty
+// (apt, curl) and the useful part is always the end.
+const installLogTail = 500
+
+// handleInstallLog returns the output of a server's setup steps: the template's
+// install script and the config render. It is the answer to "why is this server
+// not coming up", which the panel could not give at all — a failing install left
+// the pod in Init:Error while the status said "Starting".
+//
+// Gated on the console permission, not view: an install script runs with the
+// server's environment, secret variables included, and a script that echoes one
+// would put it here. That is the same exposure the live console carries, so it
+// takes the same permission.
+func (s *Server) handleInstallLog(w http.ResponseWriter, r *http.Request) {
+	srv, ok := s.requireServer(w, r, models.PermConsole)
+	if !ok {
+		return
+	}
+	cs, _, err := s.clientsFor(srv)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "target cluster unavailable: "+err.Error())
+		return
+	}
+	pod, err := console.FindRunningPod(r.Context(), cs, srv.Namespace, srv.Slug)
+	if err != nil {
+		writeError(w, http.StatusConflict, "no pod for this server yet — start it to run the install")
+		return
+	}
+	type step struct {
+		Step string `json:"step"`
+		Log  string `json:"log"`
+		Err  string `json:"error,omitempty"`
+	}
+	steps := make([]step, 0, len(console.SetupContainers))
+	for _, name := range console.SetupContainers {
+		log, err := console.ContainerLog(r.Context(), cs, srv.Namespace, pod, name, installLogTail)
+		if err != nil {
+			// A template with no install script, or no config.files, simply has no
+			// such container. Reporting that per step beats one opaque error.
+			steps = append(steps, step{Step: name, Err: err.Error()})
+			continue
+		}
+		steps = append(steps, step{Step: name, Log: log})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"pod": pod, "steps": steps})
+}
+
 // ---- observability ----
 
 func (s *Server) handleServerStats(w http.ResponseWriter, r *http.Request) {

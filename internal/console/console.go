@@ -78,6 +78,31 @@ func FindRunningPod(ctx context.Context, cs kubernetes.Interface, ns, slug strin
 	return "", fmt.Errorf("no pod found for server %q (is it running?)", slug)
 }
 
+// SetupContainers are the init containers, in the order Kubernetes runs them:
+// the config render helpers and the template's install script. ContainerLog
+// reads these when a server never gets past its setup.
+var SetupContainers = []string{
+	reconciler.InstallContainer,
+	reconciler.RenderCopyContainer,
+	reconciler.RenderConfigContainer,
+}
+
+// ContainerLog returns the last tail lines a container wrote. Unlike the console
+// it does not follow, and it works on a container that has already exited —
+// which is the whole point: an install script that failed is gone by the time
+// anyone asks why.
+func ContainerLog(ctx context.Context, cs kubernetes.Interface, ns, pod, container string, tail int64) (string, error) {
+	opts := &corev1.PodLogOptions{Container: container}
+	if tail > 0 {
+		opts.TailLines = &tail
+	}
+	data, err := cs.CoreV1().Pods(ns).GetLogs(pod, opts).DoRaw(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 // RunningPod returns a pod whose main container is currently running, or false.
 // Exposed for callers (e.g. file operations) that require a live container.
 func RunningPod(ctx context.Context, cs kubernetes.Interface, ns, slug string) (string, bool) {

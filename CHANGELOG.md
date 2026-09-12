@@ -336,6 +336,26 @@ releases may include breaking changes).
 - Server creation no longer fails with `variable "TYPE" is not editable` when a
   template has fixed (non-editable) variables.
 
+### Fixed
+
+- **A failed install is no longer silent.** An egg's install script runs as an
+  init container, and nothing read `InitContainerStatuses` — so a script that
+  exited non-zero left the pod in `Init:Error` while the panel reported
+  **Starting**, indefinitely: no message, no activity entry, no notification,
+  with the reason sitting in a container log nobody surfaced. Given that
+  importing Pterodactyl eggs is the point, and their install scripts fail for
+  ordinary reasons (a dead download URL, an apt mirror, a missing API key), this
+  was the worst possible thing to be quiet about. A failing setup step now puts
+  the server in **Error** with the step, its exit code and its message, emits
+  `server.install-failed` so channels are told, and a setup still in progress
+  reports **Installing** instead of looking stuck. The config render is covered
+  the same way.
+- **The setup output is readable.** New `GET /api/servers/{id}/install-log`, and
+  a **Setup log** panel on the server page that opens itself while installing or
+  after a failure and polls while work is in progress. It needs the console
+  permission, not view: an install script runs with the server's environment,
+  secret variables included.
+
 ### Security
 
 - **A scheduled task now needs the permission the action itself needs.** A

@@ -112,6 +112,15 @@ tr.clickable:hover { background: var(--panel-2); cursor: pointer; }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
   white-space: pre-wrap; word-break: break-word;
 }
+/* Setup-log output: the console look, but sized to its content with a ceiling
+   (an apt-heavy install script runs to hundreds of lines). */
+pre.log {
+  background: #0a0c10; border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px; max-height: 320px; overflow: auto; margin: 4px 0 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+  white-space: pre-wrap; word-break: break-word;
+}
+
 .console .sys { color: var(--accent); }
 .console .err { color: var(--danger); }
 .console-input { display: flex; gap: 8px; margin-top: 8px; }
