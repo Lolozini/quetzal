@@ -32,9 +32,9 @@ helm upgrade quetzal ./deploy/quetzal \
 ## Verify
 
 ```sh
-kubectl -n quetzal rollout status deploy/quetzal-apiserver
-kubectl -n quetzal rollout status deploy/quetzal-controller
-curl https://<panel>/api/version    # should report the new version
+# One Deployment, named after the release, holding both containers.
+kubectl -n quetzal rollout status deploy/quetzal
+curl https://<panel>/api/version    # should report the new commit
 ```
 
 Game servers are reconciled from the database, so they are re-applied to match
