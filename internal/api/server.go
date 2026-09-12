@@ -295,6 +295,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/email-settings", s.auth(s.handleSetEmailSettings))
 	mux.Handle("POST /api/email-settings/test", s.auth(s.handleTestEmail))
 
+	mux.Handle("GET /api/security-settings", s.auth(s.handleGetSecuritySettings))
+	mux.Handle("PUT /api/security-settings", s.auth(s.handleSetSecuritySettings))
+
 	mux.Handle("GET /api/network-settings", s.auth(s.handleGetNetworkSettings))
 	mux.Handle("PUT /api/network-settings", s.auth(s.handleSetNetworkSettings))
 
@@ -400,6 +403,14 @@ func (s *Server) auth(next http.HandlerFunc) http.Handler {
 		user, err := s.currentUser(r)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		// A panel that requires a second factor must not be usable without one.
+		// The session stays valid so the account can enrol; everything else is
+		// refused with a code the UI turns into an enrolment prompt.
+		if s.twoFactorMissing(user) && !twoFactorExempt(r.URL.Path) {
+			writeError(w, http.StatusForbidden,
+				"this panel requires two-factor authentication — enable it in Account to continue")
 			return
 		}
 		ctx := context.WithValue(r.Context(), userCtxKey, user)

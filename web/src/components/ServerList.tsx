@@ -12,12 +12,20 @@ export function ServerList({
   const { t } = useT();
   const [servers, setServers] = useState<Server[]>([]);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  // Debounced so typing does not fire a request per keystroke; the list also
+  // polls, so the query has to be part of what the poll sends.
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    const h = setTimeout(() => setSearch(query.trim()), 250);
+    return () => clearTimeout(h);
+  }, [query]);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
       try {
-        const s = await api.servers();
+        const s = await api.servers(search);
         if (active) setServers(s);
       } catch (e) {
         if (active) setError(String(e));
@@ -29,20 +37,28 @@ export function ServerList({
       active = false;
       clearInterval(t);
     };
-  }, []);
+  }, [search]);
 
   return (
     <div className="card">
       <div className="row">
         <h2>{t("Servers")}</h2>
         <div className="spacer" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t("Search servers")}
+          style={{ width: "auto", maxWidth: 220 }}
+        />
         <button className="primary" onClick={onCreate}>
           + {t("New server")}
         </button>
       </div>
       {error && <div className="error">{error}</div>}
       {servers.length === 0 ? (
-        <p className="muted">{t("No servers yet. Create one to get started.")}</p>
+        <p className="muted">
+          {search ? t("No server matches that search.") : t("No servers yet. Create one to get started.")}
+        </p>
       ) : (
         <table>
           <thead>

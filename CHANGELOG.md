@@ -374,6 +374,18 @@ releases may include breaking changes).
   log — so an admin looking up what happened last week simply could not. Both now
   take a `before=<id>` cursor and report the total in `X-Total-Count`, and the
   activity views grow a **Load older** button that walks to the beginning.
+- **Two-factor authentication can be required panel-wide.** Admin → **Two-factor
+  policy** sets it to off, administrators only, or everyone; superadmin-only to
+  change, because it decides who gets in. Turning it on locks nobody out,
+  including the superadmin who turned it on: an account the policy covers keeps
+  its session but reaches only `/api/me`, enrolment and logout until it has a
+  second factor, and the panel shows the enrolment page instead of a wall of
+  refusals. `GET`/`PUT /api/security-settings`.
+- **Search the server list.** The dashboard fetched every server on the panel on
+  every load, with nothing to narrow it. `GET /api/servers?q=` filters on slug
+  and display name in the database, and the list has a search box. A `%` or `_`
+  in the query is literal, so searching for "100%" finds the one server rather
+  than all of them.
 - **Schedules have a time zone.** A cron was read in whatever zone the control
   plane runs in — UTC in a container — so "restart at 4am" fired at 6am local in
   a European summer, and the only lever was a panel-wide `TZ` in `extraEnv`. A

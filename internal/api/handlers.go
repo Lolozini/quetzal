@@ -195,8 +195,19 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// meResponse is the current user plus whether they still owe a second factor.
+// Embedding inlines the user's own fields, so the shape only gains a key.
+type meResponse struct {
+	*models.User
+	// TwoFactorRequired is true when the panel's policy applies to this account
+	// and it has not enrolled: the session reaches only enrolment until it does,
+	// and the UI shows that instead of a wall of 403s.
+	TwoFactorRequired bool `json:"twoFactorRequired"`
+}
+
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, userFrom(r.Context()))
+	u := userFrom(r.Context())
+	writeJSON(w, http.StatusOK, meResponse{User: u, TwoFactorRequired: s.twoFactorMissing(u)})
 }
 
 func (s *Server) startSession(w http.ResponseWriter, u *models.User) error {
@@ -237,12 +248,15 @@ func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListServers(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
+	// ?q= narrows by slug or display name, in the database. A panel with a few
+	// hundred servers was shipping every one of them on every dashboard load.
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	var srvs []models.Server
 	var err error
 	if u.HasAdminPerm(models.AdminPermServers) {
-		srvs, err = s.Store.ListServers()
+		srvs, err = s.Store.SearchServers(q)
 	} else {
-		srvs, err = s.Store.ListAccessibleServers(u.ID)
+		srvs, err = s.Store.SearchAccessibleServers(u.ID, q)
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

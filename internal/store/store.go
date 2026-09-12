@@ -303,11 +303,39 @@ func (s *Store) GetServerBySlug(slug string) (*models.Server, error) {
 
 // ListServers returns all servers.
 func (s *Store) ListServers() ([]models.Server, error) {
+	return s.SearchServers("")
+}
+
+// SearchServers lists every server, optionally narrowed to those whose slug or
+// display name contains q (case-insensitive). An empty q lists all of them.
+//
+// The filter runs in the database rather than the browser: a panel with a few
+// hundred servers was shipping the whole list on every dashboard load, and
+// filtering what has already been transferred does not help.
+func (s *Store) SearchServers(q string) ([]models.Server, error) {
 	var srvs []models.Server
-	if err := s.db.Order("created_at asc").Find(&srvs).Error; err != nil {
-		return nil, err
+	err := serverSearch(s.db, q).Order("created_at asc").Find(&srvs).Error
+	return srvs, err
+}
+
+// serverSearch applies the name filter to a query. LIKE with lowered operands
+// is the portable option: SQLite's LIKE is ASCII-case-insensitive by default and
+// Postgres' is not, so neither is relied on.
+func serverSearch(db *gorm.DB, q string) *gorm.DB {
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return db.Session(&gorm.Session{})
 	}
-	return srvs, nil
+	// The wildcards are ours; the user's own % and _ are escaped so a search for
+	// "100%" does not match everything.
+	pattern := "%" + likeEscape(strings.ToLower(q)) + "%"
+	return db.Where("LOWER(slug) LIKE ? ESCAPE '\\' OR LOWER(display_name) LIKE ? ESCAPE '\\'", pattern, pattern)
+}
+
+// likeEscape neutralizes the LIKE metacharacters in a user's search text.
+func likeEscape(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
+	return r.Replace(s)
 }
 
 // UpdateServer persists the full server record.
@@ -944,8 +972,14 @@ func (s *Store) ListServersByOwner(ownerID uint) ([]models.Server, error) {
 
 // ListAccessibleServers returns servers a user owns or has been granted access to.
 func (s *Store) ListAccessibleServers(userID uint) ([]models.Server, error) {
+	return s.SearchAccessibleServers(userID, "")
+}
+
+// SearchAccessibleServers is ListAccessibleServers narrowed by the same name
+// filter as SearchServers.
+func (s *Store) SearchAccessibleServers(userID uint, q string) ([]models.Server, error) {
 	var srvs []models.Server
-	err := s.db.Where("owner_id = ? OR id IN (?)",
+	err := serverSearch(s.db, q).Where("owner_id = ? OR id IN (?)",
 		userID, s.db.Model(&models.ServerAccess{}).Select("server_id").Where("user_id = ?", userID),
 	).Order("created_at asc").Find(&srvs).Error
 	return srvs, err

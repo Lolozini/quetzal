@@ -49,7 +49,7 @@ tags:
   - name: Email
     description: Self-service password reset and system SMTP settings
   - name: TwoFactor
-    description: Opt-in TOTP two-factor authentication
+    description: TOTP two-factor authentication, opt-in or required panel-wide
   - name: APIKeys
     description: Bearer tokens for the API
   - name: Clusters
@@ -236,6 +236,48 @@ paths:
         "204": { description: Password reset }
         "400": { description: Invalid/expired token or weak password }
         "429": { $ref: "#/components/responses/RateLimited" }
+  /api/security-settings:
+    get:
+      tags: [Servers]
+      summary: Read the panel's authentication policy (admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requireTwoFactor: { type: string, enum: [off, admins, all] }
+                  options: { type: array, items: { type: string } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      tags: [Servers]
+      summary: Set who must hold a second factor (superadmin)
+      description: >
+        Accounts the policy covers keep their session but reach only `/api/me`,
+        the enrolment endpoints and logout until they have a second factor, so
+        turning it on locks nobody out — including the superadmin setting it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requireTwoFactor: { type: string, enum: [off, admins, all] }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requireTwoFactor: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /api/network-settings:
     get:
       tags: [Servers]
@@ -688,6 +730,15 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
 
   /api/servers:
+    parameters:
+      - name: q
+        in: query
+        required: false
+        description: >
+          Narrow the list to servers whose slug or display name contains this
+          text, case-insensitively. Filtering happens in the database; `%` and
+          `_` in the query are literal.
+        schema: { type: string }
     get:
       tags: [Servers]
       summary: List servers you can access
