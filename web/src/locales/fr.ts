@@ -217,8 +217,8 @@ export const fr: Record<string, string> = {
   "Native template JSON. The slug is fixed; changes bump the version and restart affected servers on the next reconcile.":
     "JSON natif du modèle. Le slug est figé ; les changements incrémentent la version et redémarrent les serveurs concernés à la prochaine réconciliation.",
   "Import an egg": "Importer un egg",
-  "Paste a Pterodactyl/Pelican egg JSON. Importing one whose name matches an existing template updates it.":
-    "Collez un JSON d'egg Pterodactyl/Pelican. Importer un egg dont le nom correspond à un modèle existant le met à jour.",
+  "Paste a Pterodactyl/Pelican egg, or a template exported from another install. Importing one whose name matches an existing template updates it.":
+    "Collez un egg Pterodactyl/Pelican, ou un template exporté depuis une autre install. Importer un egg dont le nom correspond à un template existant le met à jour.",
   "Import egg": "Importer l'egg",
   "Importing…": "Import…",
   Import: "Importer",

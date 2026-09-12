@@ -350,6 +350,17 @@ releases may include breaking changes).
   `server.install-failed` so channels are told, and a setup still in progress
   reports **Installing** instead of looking stuck. The config render is covered
   the same way.
+- **An exported template can be imported again.** Export writes Quetzal's own
+  JSON; import only ever read the Pterodactyl egg vocabulary. The two name the
+  same things differently (`env_variable` vs `envVariable`, `docker_images` vs
+  `images`, `scripts.installation` vs `install`), so feeding an export to the
+  import box did not fail — it **succeeded**, with `201 Created`, producing a
+  template with no image, no install script and every variable's env name blank.
+  The first sign came later, on creating a server: `variable "" is required`,
+  naming nothing. Import now detects which of the two formats a document is in,
+  so a template moves between installs by exporting and importing it. An `id` in
+  the body is ignored rather than inserted over whatever row holds it here.
+
 - **The setup output is readable.** New `GET /api/servers/{id}/install-log`, and
   a **Setup log** panel on the server page that opens itself while installing or
   after a failure and polls while work is in progress. It needs the console

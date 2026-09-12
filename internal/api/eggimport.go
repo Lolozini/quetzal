@@ -33,7 +33,7 @@ func (s *Server) handleImportEggURL(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "could not fetch egg: "+err.Error())
 		return
 	}
-	t, err := egg.ToTemplate(data)
+	t, err := egg.Parse(data)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, eggParseError(data, err))
 		return
