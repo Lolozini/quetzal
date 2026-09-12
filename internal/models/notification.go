@@ -19,28 +19,33 @@ const (
 // Event types. These mirror the audited actions plus controller-observed
 // lifecycle transitions, and are the values channels filter on.
 const (
-	EventServerCreate     = "server.create"
-	EventServerDelete     = "server.delete"
-	EventServerPower      = "server.power"
-	EventServerUpdate     = "server.update"
-	EventServerHibernate  = "server.hibernation"
-	EventServerRunning    = "server.running"    // controller: came up
-	EventServerCrashed    = "server.crashed"    // controller: crashloop
-	EventServerRestarted  = "server.restarted"  // controller: container restarted
-	EventServerOOMKilled  = "server.oomkilled"  // controller: killed for OOM
-	EventServerStopped    = "server.stopped"    // controller: went down
-	EventServerHibernated = "server.hibernated" // controller: auto-slept
-	EventServerTransfer   = "server.transfer"   // controller: cross-cluster move
-	EventBackupCreate     = "backup.create"
-	EventBackupRestore    = "backup.restore"
-	EventScheduleCreate   = "schedule.create"
-	EventScheduleDelete   = "schedule.delete"
-	EventUserCreate       = "user.create"
-	EventUserUpdate       = "user.update"
-	EventUserDelete       = "user.delete"
-	EventClusterCreate    = "cluster.create"
-	EventClusterUpdate    = "cluster.update"
-	EventClusterDelete    = "cluster.delete"
+	EventServerCreate    = "server.create"
+	EventServerDelete    = "server.delete"
+	EventServerPower     = "server.power"
+	EventServerUpdate    = "server.update"
+	EventServerHibernate = "server.hibernation"
+	EventServerRunning   = "server.running"   // controller: came up
+	EventServerCrashed   = "server.crashed"   // controller: crashloop
+	EventServerRestarted = "server.restarted" // controller: container restarted
+	EventServerOOMKilled = "server.oomkilled" // controller: killed for OOM
+	// EventServerInstallFailed is the install (or config-render) step exiting
+	// non-zero. It is the failure an egg import produces most often — a dead
+	// download URL, an apt mirror, a missing API key — and the one a user cannot
+	// diagnose without being told.
+	EventServerInstallFailed = "server.install-failed"
+	EventServerStopped       = "server.stopped"    // controller: went down
+	EventServerHibernated    = "server.hibernated" // controller: auto-slept
+	EventServerTransfer      = "server.transfer"   // controller: cross-cluster move
+	EventBackupCreate        = "backup.create"
+	EventBackupRestore       = "backup.restore"
+	EventScheduleCreate      = "schedule.create"
+	EventScheduleDelete      = "schedule.delete"
+	EventUserCreate          = "user.create"
+	EventUserUpdate          = "user.update"
+	EventUserDelete          = "user.delete"
+	EventClusterCreate       = "cluster.create"
+	EventClusterUpdate       = "cluster.update"
+	EventClusterDelete       = "cluster.delete"
 )
 
 // NotificationChannel is a configured outbound sink. Its type-specific settings

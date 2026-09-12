@@ -96,6 +96,11 @@ export const fr: Record<string, string> = {
   Crashed: "Planté",
   Error: "Erreur",
   Hibernated: "En hibernation",
+  "Setup log": "Journal d'installation",
+  "Output of the install script and the config render. A server stuck on Installing, or in Error, explains itself here.":
+    "Sortie du script d'installation et du rendu de configuration. Un serveur bloqué sur Installation, ou en Erreur, s'explique ici.",
+  "Nothing written yet — this template may have no install step.":
+    "Rien pour l'instant — ce template n'a peut-être pas d'étape d'installation.",
   Hibernation: "Hibernation",
   Exposure: "Exposition",
   Message: "Message",

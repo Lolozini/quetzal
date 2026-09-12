@@ -588,11 +588,21 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 		h := r.inspectPods(ctx, s.Namespace, s.Slug)
 		st.CrashCount = h.restarts
 		switch {
+		// The install is checked before readiness: a pod whose init container
+		// keeps failing is never ready, and reporting that as "Starting" is what
+		// hid the failure. Ready still wins over "installing", since a running
+		// pod has by definition finished its init containers.
+		case h.installFailed:
+			st.Phase = models.PhaseError
+			st.Message = installFailureMessage(h)
+		case r.deploymentReady(ctx, s.Namespace):
+			st.Phase = models.PhaseRunning
 		case h.crashloop:
 			st.Phase = models.PhaseCrashed
 			st.Message = h.msg
-		case r.deploymentReady(ctx, s.Namespace):
-			st.Phase = models.PhaseRunning
+		case h.installing:
+			st.Phase = models.PhaseInstalling
+			st.Message = "running " + h.installStep
 		default:
 			st.Phase = models.PhaseStarting
 		}
@@ -615,6 +625,18 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 	return r.Store.UpdateServerStatus(s.ID, st)
 }
 
+// installFailureMessage says which step failed, with what code, and quotes what
+// the step wrote if Kubernetes captured it. The point is that the message alone
+// is enough to act on: "install exited with code 7" sends someone to the egg's
+// script, not to a support forum.
+func installFailureMessage(h podHealth) string {
+	msg := fmt.Sprintf("%s failed (exit code %d)", h.installStep, h.installExit)
+	if h.installMessage != "" {
+		msg += ": " + h.installMessage
+	}
+	return msg + " — see the install log for the output"
+}
+
 // emitTransition records an event when a server crosses into a phase worth
 // notifying about. It only covers transitions the API can't already see
 // (the controller observes crashes, readiness and idle-hibernation); power
@@ -626,6 +648,11 @@ func (r *Reconciler) emitTransition(s *models.Server, old models.Phase, st model
 	switch st.Phase {
 	case models.PhaseRunning:
 		r.emitEvent(s, models.EventServerRunning, "is up and running")
+	case models.PhaseError:
+		// Reaching Error means the install or the config render gave up. Say so
+		// once, on the transition, so a notification channel is told rather than
+		// leaving it to whoever next opens the panel.
+		r.emitEvent(s, models.EventServerInstallFailed, st.Message)
 	case models.PhaseCrashed:
 		msg := "crashed"
 		if st.CrashCount > 0 {
@@ -703,6 +730,17 @@ type podHealth struct {
 	oomKilled  bool
 	termReason string // last termination reason, e.g. "OOMKilled", "Error"
 	exitCode   int32  // last termination exit code (0 when unknown)
+
+	// The init containers — the egg's install step and the config render — are
+	// the part nothing used to look at. A failure there never reaches
+	// ContainerStatuses (the main container has not started), so the server sat
+	// on "Starting" for good: no phase, no message, no event, while the answer
+	// was in the init container's log the whole time.
+	installing     bool
+	installFailed  bool
+	installStep    string // the init container concerned
+	installExit    int32
+	installMessage string
 }
 
 // inspectPods sums container restarts, detects CrashLoopBackOff, and records the
@@ -740,8 +778,39 @@ func (r *Reconciler) inspectPods(ctx context.Context, ns, slug string) podHealth
 			note(cs.LastTerminationState.Terminated)
 			note(cs.State.Terminated)
 		}
+		noteInit(&h, pods.Items[i].Status.InitContainerStatuses)
 	}
 	return h
+}
+
+// noteInit reads the init containers: the install step and the config render.
+// Exit 0 means done, and a pod that has started its main container reports them
+// all that way — so only a non-zero exit, or a back-off after one, is a failure.
+// Anything still pending means the install is in progress, which is worth saying
+// too: a large modpack takes minutes and used to be indistinguishable from a
+// server that simply would not start.
+func noteInit(h *podHealth, statuses []corev1.ContainerStatus) {
+	for _, cs := range statuses {
+		switch {
+		case cs.State.Terminated != nil && cs.State.Terminated.ExitCode != 0:
+			h.installFailed, h.installStep = true, cs.Name
+			h.installExit = cs.State.Terminated.ExitCode
+			h.installMessage = strings.TrimSpace(cs.State.Terminated.Message)
+		case cs.State.Waiting != nil && cs.State.Waiting.Reason == "CrashLoopBackOff":
+			// Kubernetes retries a failed init container in place; while it waits
+			// between attempts the exit code is only on the previous state.
+			h.installFailed, h.installStep = true, cs.Name
+			if t := cs.LastTerminationState.Terminated; t != nil {
+				h.installExit = t.ExitCode
+				h.installMessage = strings.TrimSpace(t.Message)
+			}
+		case cs.State.Terminated == nil:
+			h.installing = true
+			if h.installStep == "" {
+				h.installStep = cs.Name
+			}
+		}
+	}
 }
 
 // endpointsFor computes the reachable addresses for a server and picks a primary

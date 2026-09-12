@@ -268,6 +268,14 @@ export interface TransferState {
   startedAt?: string;
 }
 
+// InstallLog is the output of a server's setup steps. A template with no install
+// script or no config.files simply has no such container, which shows up as a
+// per-step error rather than one opaque failure.
+export interface InstallLog {
+  pod: string;
+  steps: { step: string; log?: string; error?: string }[];
+}
+
 export interface ServerStats {
   cpuMillicores: number;
   memoryBytes: number;
@@ -434,6 +442,7 @@ export const EVENT_TYPES = [
   "server.running",
   "server.stopped",
   "server.crashed",
+  "server.install-failed",
   "server.oomkilled",
   "server.restarted",
   "server.hibernated",
@@ -576,6 +585,7 @@ export const api = {
   reinstallServer: (id: number, wipeData: boolean) =>
     req<{ status: string; wipeData: boolean }>("POST", `/api/servers/${id}/reinstall`, { wipeData }),
   stats: (id: number) => req<ServerStats>("GET", `/api/servers/${id}/stats`),
+  installLog: (id: number) => req<InstallLog>("GET", `/api/servers/${id}/install-log`),
 
   schedules: (id: number) => req<Schedule[]>("GET", `/api/servers/${id}/schedules`),
   createSchedule: (id: number, body: ScheduleInput) =>

@@ -65,6 +65,14 @@ const (
 	netpolRestricted = "restricted"
 	// WorkloadName is the Deployment/Service name within a server's namespace.
 	WorkloadName = "server"
+
+	// InstallContainer is the init container running the template's install
+	// script; RenderCopyContainer and RenderConfigContainer apply config.files.
+	// Named here because the API reads their logs: an install that fails leaves
+	// its reason nowhere else.
+	InstallContainer      = "install"
+	RenderCopyContainer   = "render-copy"
+	RenderConfigContainer = "render-config"
 	// DataVolume is the name of a server's data PVC/volume.
 	DataVolume    = "data"
 	serverLabel   = ServerLabel
@@ -960,7 +968,7 @@ func configRenderInitContainers(s *models.Server, t *models.Template, systemImag
 	sc := buildContainerSecurityContext(t)
 	return []corev1.Container{
 		{
-			Name:            "render-copy",
+			Name:            RenderCopyContainer,
 			Image:           systemImage,
 			ImagePullPolicy: corev1.PullIfNotPresent,
 			Command:         []string{configRenderBinary},
@@ -969,7 +977,7 @@ func configRenderInitContainers(s *models.Server, t *models.Template, systemImag
 			SecurityContext: sc,
 		},
 		{
-			Name:            "render-config",
+			Name:            RenderConfigContainer,
 			Image:           s.Image,
 			ImagePullPolicy: corev1.PullIfNotPresent,
 			Command:         []string{renderBinPath},
@@ -1225,7 +1233,7 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 	no := false
 	yes := true
 	return []corev1.Container{{
-		Name:            "install",
+		Name:            InstallContainer,
 		Image:           image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Command:         []string{entrypoint, "-c", wrapped},

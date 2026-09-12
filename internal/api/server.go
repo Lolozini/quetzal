@@ -241,6 +241,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/servers/{id}/power", s.auth(s.handlePower))
 	mux.Handle("POST /api/servers/{id}/reinstall", s.auth(s.handleReinstallServer))
 	mux.Handle("GET /api/servers/{id}/stats", s.auth(s.handleServerStats))
+	mux.Handle("GET /api/servers/{id}/install-log", s.auth(s.handleInstallLog))
 	mux.Handle("GET /api/servers/{id}/console", s.auth(s.handleConsole))
 	// File manager (exec into the running pod; requires the files permission).
 	mux.Handle("GET /api/servers/{id}/files", s.auth(s.handleListFiles))

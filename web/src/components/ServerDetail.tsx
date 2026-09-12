@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, Cluster, EventEntry, ExposeType, hasAdminPerm, OFFLINE_PHASES, PowerAction, Server, ServerStats, User } from "../api";
+import { api, ApiError, Cluster, EventEntry, ExposeType, hasAdminPerm, InstallLog, OFFLINE_PHASES, PowerAction, Server, ServerStats, User } from "../api";
 import { useT } from "../i18n";
 import { Access } from "./Access";
 import { Backups } from "./Backups";
@@ -528,10 +528,70 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
       {canManage && <Access id={id} />}
       {canManage && <Notifications serverId={id} />}
       <ServerActivity id={id} slug={srv?.slug ?? ""} />
+      {canManage && <SetupLog id={id} phase={srv?.status?.phase ?? ""} />}
       <div className="card">
         <Console id={id} phase={srv?.status?.phase ?? ""} />
       </div>
     </>
+  );
+}
+
+// SetupLog shows what the install script and the config render wrote. It is the
+// answer to "why won't this server start": an egg whose install fails leaves the
+// pod in Init:Error, and the reason is only ever in that container's log. Opened
+// by default while installing or after a failure, collapsed otherwise.
+function SetupLog({ id, phase }: { id: number; phase: string }) {
+  const { t } = useT();
+  const [log, setLog] = useState<InstallLog | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const relevant = phase === "Installing" || phase === "Error";
+
+  async function load() {
+    setBusy(true);
+    setError("");
+    try {
+      setLog(await api.installLog(id));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Load without being asked when the phase says something went wrong, and keep
+  // polling while it is still installing so a long modpack shows progress.
+  useEffect(() => {
+    if (!relevant) return;
+    load();
+    if (phase !== "Installing") return;
+    const h = setInterval(load, 5000);
+    return () => clearInterval(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, phase, relevant]);
+
+  const steps = (log?.steps ?? []).filter((s) => (s.log ?? "").trim() !== "");
+  return (
+    <div className="card">
+      <Collapsible title={t("Setup log")} defaultOpen={relevant}>
+        <p className="muted">
+          {t("Output of the install script and the config render. A server stuck on Installing, or in Error, explains itself here.")}
+        </p>
+        <button type="button" onClick={load} disabled={busy}>
+          {busy ? t("Loading…") : t("Refresh")}
+        </button>
+        {error && <p className="error">{error}</p>}
+        {log && steps.length === 0 && !error && (
+          <p className="muted">{t("Nothing written yet — this template may have no install step.")}</p>
+        )}
+        {steps.map((st) => (
+          <div key={st.step}>
+            <h4>{st.step}</h4>
+            <pre className="log">{st.log}</pre>
+          </div>
+        ))}
+      </Collapsible>
+    </div>
   );
 }
 

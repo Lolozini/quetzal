@@ -960,6 +960,38 @@ paths:
       responses:
         "204": { description: Renamed }
 
+  /api/servers/{id}/install-log:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Servers]
+      summary: Read a server's setup output
+      description: >
+        The output of the template's install script and of the config render,
+        both of which run as init containers. This is where a server that never
+        leaves Installing, or that lands in Error, says why. Requires the console
+        permission rather than view: an install script runs with the server's
+        environment, secret variables included.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pod: { type: string }
+                  steps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        step: { type: string }
+                        log: { type: string }
+                        error: { type: string }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: No pod exists for this server yet. }
+
   /api/servers/{id}/schedules:
     parameters:
       - $ref: "#/components/parameters/ServerId"
