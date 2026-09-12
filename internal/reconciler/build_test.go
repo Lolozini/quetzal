@@ -117,7 +117,7 @@ func TestBuildDeploymentInstallInitContainer(t *testing.T) {
 	if ic.Image != "debian:slim" {
 		t.Errorf("install image = %q", ic.Image)
 	}
-	script := ic.Command[len(ic.Command)-1]
+	script := installScriptOf(ic)
 	for _, want := range []string{".quetzal-installed", "echo installing > /mnt/server/world.txt", "QUETZAL_INSTALL_GEN"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("install script missing %q:\n%s", want, script)
@@ -179,10 +179,22 @@ func TestInstallRunsAsRootAndChowns(t *testing.T) {
 	}
 	// ...then hand the volume to the runtime user (988) so the non-root game pod can
 	// read it (fsGroup is a no-op on local-path).
-	script := ic.Command[len(ic.Command)-1]
+	script := installScriptOf(ic)
 	if !strings.Contains(script, "chown -R 988:988") {
 		t.Errorf("install script should chown the data to the runtime uid:\n%s", script)
 	}
+}
+
+// installScriptOf returns the egg script the install container will run. It
+// travels as environment rather than in Command so a missing interpreter is a
+// log line instead of a container that never starts.
+func installScriptOf(c corev1.Container) string {
+	for _, e := range c.Env {
+		if e.Name == "QUETZAL_INSTALL_SCRIPT" {
+			return e.Value
+		}
+	}
+	return ""
 }
 
 func TestInstallChownsDeclaredUID(t *testing.T) {
@@ -191,7 +203,7 @@ func TestInstallChownsDeclaredUID(t *testing.T) {
 	tmpl.SecurityContext = models.SecurityContext{RunAsUser: &uid}
 	tmpl.Install = &models.InstallScript{Image: "debian:slim", Script: "true"}
 	ic := BuildDeployment(s, tmpl, "", nil).Spec.Template.Spec.InitContainers[0]
-	script := ic.Command[len(ic.Command)-1]
+	script := installScriptOf(ic)
 	if !strings.Contains(script, "chown -R 1000:1000") {
 		t.Errorf("install should chown to the template's declared uid:\n%s", script)
 	}

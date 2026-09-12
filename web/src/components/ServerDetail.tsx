@@ -574,7 +574,10 @@ function SetupLog({ id, phase }: { id: number; phase: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, phase, relevant]);
 
-  const steps = (log?.steps ?? []).filter((s) => (s.log ?? "").trim() !== "");
+  // Every step the pod actually has is shown, with or without output: a step
+  // that failed to start wrote nothing, and hiding it was how this panel came to
+  // claim there was no install step while one was sitting there failing.
+  const steps = log?.steps ?? [];
   return (
     <div className="card">
       <Collapsible title={t("Setup log")} defaultOpen={relevant}>
@@ -586,12 +589,24 @@ function SetupLog({ id, phase }: { id: number; phase: string }) {
         </button>
         {error && <p className="error">{error}</p>}
         {log && steps.length === 0 && !error && (
-          <p className="muted">{t("Nothing written yet — this template may have no install step.")}</p>
+          <p className="muted">{t("This template has no install step.")}</p>
         )}
         {steps.map((st) => (
           <div key={st.step}>
-            <h4>{st.step}</h4>
-            <pre className="log">{st.log}</pre>
+            <h4>
+              {st.step}{" "}
+              {st.state && <span className="muted">— {st.state}</span>}
+            </h4>
+            {st.message && <p className="error">{st.message}</p>}
+            {(st.log ?? "").trim() !== "" ? (
+              <pre className="log">{st.log}</pre>
+            ) : (
+              <p className="muted">
+                {st.error
+                  ? t("No output: {reason}", { reason: st.error })
+                  : t("This step produced no output.")}
+              </p>
+            )}
           </div>
         ))}
       </Collapsible>

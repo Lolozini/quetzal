@@ -361,11 +361,24 @@ releases may include breaking changes).
   so a template moves between installs by exporting and importing it. An `id` in
   the body is ignored rather than inserted over whatever row holds it here.
 
+- **An egg whose install image lacks the interpreter it asks for now runs
+  anyway.** Naming the egg's interpreter directly as the container's command
+  meant an egg pairing, say, `ash` with a Debian install image died before any
+  process ran — `exit 128` from runc, mentioning neither the egg nor the install,
+  with an empty log. The install container now runs `/bin/sh`, which execs the
+  interpreter the egg asked for, or the closest one the image has (bash, ash,
+  sh), saying which in the log. A script that cannot work on that image still
+  fails, but it fails on its own terms — `apk: not found` says the egg expects
+  Alpine and its install image is not Alpine, which is the actual fault.
+
 - **The setup output is readable.** New `GET /api/servers/{id}/install-log`, and
   a **Setup log** panel on the server page that opens itself while installing or
   after a failure and polls while work is in progress. It needs the console
   permission, not view: an install script runs with the server's environment,
-  secret variables included.
+  secret variables included. Each step carries the state Kubernetes reports for
+  it, which is the whole answer when the step produced no log — a container that
+  never started wrote nothing, and showing only its empty output would say "no
+  install step" about an install that is sitting there failing.
 
 ### Added
 

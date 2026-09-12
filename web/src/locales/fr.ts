@@ -117,8 +117,9 @@ export const fr: Record<string, string> = {
   "That is the whole log.": "C'est tout le journal.",
   "Output of the install script and the config render. A server stuck on Installing, or in Error, explains itself here.":
     "Sortie du script d'installation et du rendu de configuration. Un serveur bloqué sur Installation, ou en Erreur, s'explique ici.",
-  "Nothing written yet — this template may have no install step.":
-    "Rien pour l'instant — ce template n'a peut-être pas d'étape d'installation.",
+  "This template has no install step.": "Ce template n'a pas d'étape d'installation.",
+  "This step produced no output.": "Cette étape n'a rien écrit.",
+  "No output: {reason}": "Aucune sortie : {reason}",
   Hibernation: "Hibernation",
   Exposure: "Exposition",
   Message: "Message",

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1551,28 +1552,72 @@ func (s *Server) handleInstallLog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "target cluster unavailable: "+err.Error())
 		return
 	}
-	pod, err := console.FindRunningPod(r.Context(), cs, srv.Namespace, srv.Slug)
+	podName, err := console.FindRunningPod(r.Context(), cs, srv.Namespace, srv.Slug)
 	if err != nil {
 		writeError(w, http.StatusConflict, "no pod for this server yet — start it to run the install")
 		return
 	}
+	pod, err := cs.CoreV1().Pods(srv.Namespace).Get(r.Context(), podName, metav1.GetOptions{})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "could not read the pod: "+err.Error())
+		return
+	}
 	type step struct {
 		Step string `json:"step"`
-		Log  string `json:"log"`
-		Err  string `json:"error,omitempty"`
+		Log  string `json:"log,omitempty"`
+		// State is what Kubernetes says about the container, and it is the whole
+		// answer when there is no log: a step that never started wrote nothing,
+		// and reporting only its empty output reads as "there was no install".
+		State   string `json:"state,omitempty"`
+		Message string `json:"message,omitempty"`
+		Err     string `json:"error,omitempty"`
 	}
+	// Only the setup containers this pod actually has. A template with no
+	// config.files has no render step, and asking for its log yields an error
+	// about a container that was never meant to exist.
+	present := map[string]bool{}
+	for _, c := range pod.Spec.InitContainers {
+		present[c.Name] = true
+	}
+	states := map[string]corev1.ContainerStatus{}
+	for _, cs := range pod.Status.InitContainerStatuses {
+		states[cs.Name] = cs
+	}
+
 	steps := make([]step, 0, len(console.SetupContainers))
 	for _, name := range console.SetupContainers {
-		log, err := console.ContainerLog(r.Context(), cs, srv.Namespace, pod, name, installLogTail)
-		if err != nil {
-			// A template with no install script, or no config.files, simply has no
-			// such container. Reporting that per step beats one opaque error.
-			steps = append(steps, step{Step: name, Err: err.Error()})
+		if !present[name] {
 			continue
 		}
-		steps = append(steps, step{Step: name, Log: log})
+		st := step{Step: name}
+		st.State, st.Message = describeContainerState(states[name])
+		if out, err := console.ContainerLog(r.Context(), cs, srv.Namespace, podName, name, installLogTail); err != nil {
+			st.Err = err.Error()
+		} else {
+			st.Log = out
+		}
+		steps = append(steps, st)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"pod": pod, "steps": steps})
+	writeJSON(w, http.StatusOK, map[string]any{"pod": podName, "steps": steps})
+}
+
+// describeContainerState turns a container status into a short state and the
+// reason Kubernetes recorded. An install that could not start — a missing
+// interpreter, an image that will not pull — leaves its explanation only here.
+func describeContainerState(cs corev1.ContainerStatus) (state, message string) {
+	switch {
+	case cs.State.Waiting != nil:
+		return "waiting: " + cs.State.Waiting.Reason, strings.TrimSpace(cs.State.Waiting.Message)
+	case cs.State.Running != nil:
+		return "running", ""
+	case cs.State.Terminated != nil:
+		t := cs.State.Terminated
+		if t.ExitCode == 0 {
+			return "completed", ""
+		}
+		return fmt.Sprintf("failed: %s (exit code %d)", t.Reason, t.ExitCode), strings.TrimSpace(t.Message)
+	}
+	return "", ""
 }
 
 // ---- observability ----

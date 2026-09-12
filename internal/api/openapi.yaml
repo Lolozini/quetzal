@@ -1044,6 +1044,14 @@ paths:
                       properties:
                         step: { type: string }
                         log: { type: string }
+                        state:
+                          type: string
+                          description: >
+                            What Kubernetes reports for the step, e.g.
+                            "failed: StartError (exit code 128)". It is the whole
+                            answer when a step produced no log, which is what a
+                            container that never started looks like.
+                        message: { type: string }
                         error: { type: string }
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { description: No pod exists for this server yet. }
