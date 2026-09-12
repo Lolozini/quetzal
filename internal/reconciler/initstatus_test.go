@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/lolozini/quetzal/internal/models"
 )
 
 // An egg's install script runs as an init container. Nothing used to read
@@ -99,4 +101,71 @@ func TestNoteInitReadsTheSetupContainers(t *testing.T) {
 			t.Errorf("render failure: failed=%v step=%q", h.installFailed, h.installStep)
 		}
 	})
+}
+
+// An egg that names an interpreter its own install image does not carry used to
+// fail before any process ran: runc answered "exec: \"ash\": executable file not
+// found in $PATH" with exit 128, which mentions neither the egg nor the install
+// and leaves an empty log. The container now runs a shell that exists and execs
+// the requested one, so a mismatch is a line in the log rather than a dead pod.
+func TestInstallRunsUnderAShellThatExists(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	tmpl.Install = &models.InstallScript{
+		Image:      "eclipse-temurin:8-jdk-jammy", // Debian-based: no ash
+		Entrypoint: "ash",
+		Script:     "apk add curl\n",
+	}
+	cs := installInitContainers(s, tmpl, nil)
+	if len(cs) != 1 {
+		t.Fatalf("want one install container, got %d", len(cs))
+	}
+	c := cs[0]
+
+	// The command must not name the egg's interpreter: that is the part that
+	// fails before the container starts.
+	if len(c.Command) < 1 || c.Command[0] != "/bin/sh" {
+		t.Errorf("command = %v, want it to start with /bin/sh", c.Command)
+	}
+	for _, arg := range c.Command {
+		if arg == "ash" {
+			t.Error("the egg's interpreter is still in Command, so a missing one still kills the container")
+		}
+	}
+
+	env := map[string]string{}
+	for _, e := range c.Env {
+		env[e.Name] = e.Value
+	}
+	if env["QUETZAL_INSTALL_SHELL"] != "ash" {
+		t.Errorf("QUETZAL_INSTALL_SHELL = %q, want ash", env["QUETZAL_INSTALL_SHELL"])
+	}
+	if !strings.Contains(env["QUETZAL_INSTALL_SCRIPT"], "apk add curl") {
+		t.Error("the egg's script did not reach the container")
+	}
+	// The picker has to try the named shell first, then fall back, and say so.
+	for _, want := range []string{`"$QUETZAL_INSTALL_SHELL" bash ash sh`, "exec", "instead"} {
+		if !strings.Contains(installShellPicker, want) {
+			t.Errorf("the picker is missing %q", want)
+		}
+	}
+}
+
+// An egg that names nothing still gets a shell.
+func TestInstallDefaultsToSh(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	tmpl.Install = &models.InstallScript{Script: "echo hi\n"}
+	cs := installInitContainers(s, tmpl, nil)
+	if len(cs) != 1 {
+		t.Fatalf("want one install container, got %d", len(cs))
+	}
+	env := map[string]string{}
+	for _, e := range cs[0].Env {
+		env[e.Name] = e.Value
+	}
+	if env["QUETZAL_INSTALL_SHELL"] != "sh" {
+		t.Errorf("default shell = %q, want sh", env["QUETZAL_INSTALL_SHELL"])
+	}
+	if cs[0].Image != "alpine:3.20" {
+		t.Errorf("default install image = %q", cs[0].Image)
+	}
 }

@@ -1189,6 +1189,27 @@ printf '%%s' "$QUETZAL_INSTALL_GEN" > "$marker"
 `, mount, userScript)
 }
 
+// installShellPicker runs the egg's install script under the interpreter the egg
+// named, falling back to one the image actually has. The order is deliberate:
+// bash before ash before sh, because egg scripts are written for bash or busybox
+// and use constructs (`[ x == y ]`) that dash rejects, so the closest available
+// shell is likelier to run the script than the most minimal one.
+//
+// The substitution is reported on stderr so it appears in the install log: a
+// script that then fails on `apk: not found` has told the reader that the egg
+// expects Alpine and its install image is not Alpine, which is the actual fault.
+const installShellPicker = `for _qz_sh in "$QUETZAL_INSTALL_SHELL" bash ash sh; do
+  [ -n "$_qz_sh" ] || continue
+  if command -v "$_qz_sh" >/dev/null 2>&1; then
+    if [ "$_qz_sh" != "$QUETZAL_INSTALL_SHELL" ]; then
+      echo "quetzal: this egg asks for '$QUETZAL_INSTALL_SHELL', which its install image does not have; running with '$_qz_sh' instead" >&2
+    fi
+    exec "$_qz_sh" -c "$QUETZAL_INSTALL_SCRIPT"
+  fi
+done
+echo "quetzal: no usable shell in this install image (tried '$QUETZAL_INSTALL_SHELL', bash, ash, sh)" >&2
+exit 127`
+
 func installInitContainers(s *models.Server, t *models.Template, secretKeys []string) []corev1.Container {
 	if t.Install == nil || t.Install.Script == "" {
 		return nil
@@ -1232,11 +1253,23 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 	rootUID := int64(0)
 	no := false
 	yes := true
+	// The interpreter and the script travel as environment, and the container
+	// runs /bin/sh (present in every image that has a package manager) which
+	// execs the one the egg asked for. Naming the egg's interpreter directly in
+	// Command means an egg that asks for an interpreter its own install image
+	// does not carry -- and they exist: pairing "ash" with a Debian image is a
+	// common egg mistake -- fails before any process runs, as an exit 128 from
+	// runc that mentions neither the egg nor the install. Now the mismatch is a
+	// line in the install log, and a script that can still run, runs.
+	env = append(env,
+		corev1.EnvVar{Name: "QUETZAL_INSTALL_SHELL", Value: entrypoint},
+		corev1.EnvVar{Name: "QUETZAL_INSTALL_SCRIPT", Value: wrapped},
+	)
 	return []corev1.Container{{
 		Name:            InstallContainer,
 		Image:           image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
-		Command:         []string{entrypoint, "-c", wrapped},
+		Command:         []string{"/bin/sh", "-c", installShellPicker},
 		Env:             env,
 		VolumeMounts:    []corev1.VolumeMount{{Name: dataVolume, MountPath: installMountPath}},
 		// Run as root even though the pod defaults to non-root: the container-level

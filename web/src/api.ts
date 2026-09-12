@@ -276,7 +276,16 @@ export interface TransferState {
 // per-step error rather than one opaque failure.
 export interface InstallLog {
   pod: string;
-  steps: { step: string; log?: string; error?: string }[];
+  steps: {
+    step: string;
+    log?: string;
+    // What Kubernetes says about the step. This is the whole answer when there
+    // is no log: a step that never started wrote nothing, and showing only its
+    // empty output reads as "there was no install".
+    state?: string;
+    message?: string;
+    error?: string;
+  }[];
 }
 
 export interface ServerStats {
