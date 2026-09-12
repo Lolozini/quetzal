@@ -81,7 +81,12 @@ spec:
           ports:
             - name: http
               containerPort: 8080
-            - name: metrics
+            # NOT "metrics": the controller already has a port by that name in
+            # this same pod, and its liveness probe selects by name. A duplicate
+            # resolves to whichever container comes first, which pointed the
+            # controller's probe at the apiserver -- a wedged controller beside a
+            # healthy apiserver would never have been restarted.
+            - name: api-metrics
               containerPort: 9091
           livenessProbe:
             httpGet: { path: /healthz, port: http }
