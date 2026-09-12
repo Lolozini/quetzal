@@ -20,7 +20,17 @@ export function Account({ user }: { user: User }) {
   );
 }
 
-function TwoFactor({ initialEnabled, username }: { initialEnabled: boolean; username: string }) {
+// Exported so the enrolment wall can reuse it: when the panel requires a second
+// factor, an account without one sees this and nothing else.
+export function TwoFactor({
+  initialEnabled,
+  username,
+  onEnabled,
+}: {
+  initialEnabled: boolean;
+  username: string;
+  onEnabled?: () => void;
+}) {
   const { t } = useT();
   const [enabled, setEnabled] = useState(initialEnabled);
   const [enroll, setEnroll] = useState<{ secret: string; uri: string } | null>(null);
@@ -61,6 +71,7 @@ function TwoFactor({ initialEnabled, username }: { initialEnabled: boolean; user
       setEnabled(true);
       setEnroll(null);
       setCode("");
+      onEnabled?.();
     } catch (e) {
       fail(e);
     } finally {

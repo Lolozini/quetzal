@@ -12,6 +12,9 @@ export interface User {
   maxMemoryMB?: number;
   maxCpuMilli?: number;
   twoFactorEnabled?: boolean;
+  // Set when the panel requires a second factor and this account has none: the
+  // session reaches only enrolment until it does.
+  twoFactorRequired?: boolean;
   createdAt?: string;
 }
 
@@ -578,7 +581,10 @@ export const api = {
   deleteTemplate: (slug: string) => req<void>("DELETE", `/api/templates/${slug}`),
   templateExportUrl: (slug: string) => `/api/templates/${slug}/export`,
   importEggUrl: (url: string) => req<Template>("POST", "/api/templates/import-url", { url }),
-  servers: () => req<Server[]>("GET", "/api/servers"),
+  // q narrows by slug or display name, filtered in the database rather than
+  // after shipping every server to the browser.
+  servers: (q?: string) =>
+    req<Server[]>("GET", `/api/servers${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   server: (id: number) => req<Server>("GET", `/api/servers/${id}`),
   createServer: (body: CreateServerRequest) =>
     req<Server>("POST", "/api/servers", body),
@@ -659,6 +665,10 @@ export const api = {
   deleteAdminRole: (rid: number) => req<void>("DELETE", `/api/admin-roles/${rid}`),
 
   // Two-factor authentication (opt-in TOTP).
+  securitySettings: () =>
+    req<{ requireTwoFactor: string; options: string[] }>("GET", "/api/security-settings"),
+  setSecuritySettings: (requireTwoFactor: string) =>
+    req<{ requireTwoFactor: string }>("PUT", "/api/security-settings", { requireTwoFactor }),
   setup2FA: () => req<{ secret: string; uri: string }>("POST", "/api/me/2fa/setup"),
   enable2FA: (code: string) =>
     req<{ recoveryCodes: string[] }>("POST", "/api/me/2fa/enable", { code }),

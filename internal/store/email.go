@@ -19,6 +19,9 @@ const (
 	// links in emails. Configured explicitly (not derived from request headers)
 	// so a spoofed Host can't poison reset links.
 	SettingPublicURL = "public_url"
+	// SettingRequire2FA is the panel-wide second-factor policy: who must hold
+	// one before their session reaches anything beyond enrolment.
+	SettingRequire2FA = "require_2fa"
 )
 
 // GetUserByEmail returns the user with the given email (case-insensitive), or
@@ -68,6 +71,13 @@ func (s *Store) GetPasswordResetByHash(hash string) (*models.PasswordReset, erro
 func (s *Store) DeletePasswordResetsForUser(userID uint) error {
 	return s.db.Where("user_id = ?", userID).Delete(&models.PasswordReset{}).Error
 }
+
+// The values SettingRequire2FA takes.
+const (
+	Require2FAOff    = "off"    // nobody is required to enrol
+	Require2FAAdmins = "admins" // superadmins and scoped admins
+	Require2FAAll    = "all"    // every account
+)
 
 // DeleteExpiredPasswordResets drops tokens past their expiry. Returns the count.
 func (s *Store) DeleteExpiredPasswordResets() (int64, error) {

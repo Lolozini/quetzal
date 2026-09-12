@@ -4,6 +4,7 @@ import { useT } from "./i18n";
 import { Auth } from "./components/Auth";
 import { ResetPassword } from "./components/ResetPassword";
 import { Dashboard } from "./components/Dashboard";
+import { TwoFactor } from "./components/Account";
 
 export function App() {
   const { t } = useT();
@@ -64,6 +65,36 @@ export function App() {
           setSetupNeeded(false);
         }}
       />
+    );
+  }
+
+  // The panel requires a second factor and this account has none. Its session is
+  // valid but reaches only enrolment, so showing the rest of the app would be a
+  // wall of 403s; show the one thing that can be done instead.
+  if (user.twoFactorRequired) {
+    return (
+      <div className="center">
+        <div className="card" style={{ maxWidth: 520 }}>
+          <h2>{t("Two-factor authentication required")}</h2>
+          <p className="muted">
+            {t("This panel requires a second factor. Set one up to carry on — nothing else is available until you do.")}
+          </p>
+          <TwoFactor
+            initialEnabled={false}
+            username={user.username}
+            onEnabled={() => api.me().then(setUser).catch(() => {})}
+          />
+          <button
+            style={{ marginTop: 12 }}
+            onClick={async () => {
+              await api.logout();
+              setUser(null);
+            }}
+          >
+            {t("Logout")}
+          </button>
+        </div>
+      </div>
     );
   }
 

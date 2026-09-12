@@ -14,6 +14,7 @@ export function Admin({ user }: { user: User }) {
       {can("users") && <Users me={user} />}
       {user.isAdmin && <Roles />}
       {can("templates") && <Templates />}
+      {can("settings") && <SecuritySettingsCard isSuperadmin={user.isAdmin} />}
       {can("settings") && <NetworkSettingsCard />}
       {can("settings") && <EmailSettingsCard />}
       {can("database-hosts") && <DatabaseHosts />}
@@ -320,6 +321,62 @@ function Roles() {
           {editing != null && <button type="button" onClick={resetForm}>{t("Cancel")}</button>}
         </div>
       </form>
+    </div>
+  );
+}
+
+// SecuritySettingsCard sets who must hold a second factor. Readable by any
+// settings-admin, writable only by a superadmin: the policy decides who gets in,
+// which is the same reason the email relay is superadmin-only.
+function SecuritySettingsCard({ isSuperadmin }: { isSuperadmin: boolean }) {
+  const { t } = useT();
+  const [mode, setMode] = useState("off");
+  const [saved, setSaved] = useState("off");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.securitySettings()
+      .then((s) => { setMode(s.requireTwoFactor); setSaved(s.requireTwoFactor); })
+      .catch(() => {});
+  }, []);
+
+  async function save() {
+    setError("");
+    setBusy(true);
+    try {
+      const res = await api.setSecuritySettings(mode);
+      setSaved(res.requireTwoFactor);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const labels: Record<string, string> = {
+    off: t("Not required"),
+    admins: t("Administrators only"),
+    all: t("Everyone"),
+  };
+  return (
+    <div className="card">
+      <h3>{t("Two-factor policy")}</h3>
+      <p className="muted">
+        {t("Accounts covered by this keep their session but can only reach the enrolment page until they have a second factor, so turning it on locks nobody out.")}
+      </p>
+      <select value={mode} onChange={(e) => setMode(e.target.value)} disabled={!isSuperadmin}>
+        {["off", "admins", "all"].map((m) => (
+          <option key={m} value={m}>{labels[m]}</option>
+        ))}
+      </select>
+      {!isSuperadmin && <p className="muted">{t("Only a superadmin can change this.")}</p>}
+      {isSuperadmin && (
+        <button className="primary" style={{ marginTop: 8 }} onClick={save} disabled={busy || mode === saved}>
+          {busy ? t("Saving…") : t("Save")}
+        </button>
+      )}
+      {error && <p className="error">{error}</p>}
     </div>
   );
 }

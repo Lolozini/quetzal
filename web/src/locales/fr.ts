@@ -99,6 +99,18 @@ export const fr: Record<string, string> = {
   "Setup log": "Journal d'installation",
   "Load older": "Charger plus ancien",
   "Time zone": "Fuseau horaire",
+  "Search servers": "Rechercher un serveur",
+  "No server matches that search.": "Aucun serveur ne correspond à cette recherche.",
+  "Two-factor authentication required": "Authentification à deux facteurs obligatoire",
+  "This panel requires a second factor. Set one up to carry on — nothing else is available until you do.":
+    "Ce panel exige un second facteur. Configurez-en un pour continuer — rien d'autre n'est accessible d'ici là.",
+  "Two-factor policy": "Politique deux facteurs",
+  "Accounts covered by this keep their session but can only reach the enrolment page until they have a second factor, so turning it on locks nobody out.":
+    "Les comptes concernés gardent leur session mais n'atteignent que la page d'inscription tant qu'ils n'ont pas de second facteur : l'activer n'enferme personne dehors.",
+  "Not required": "Non obligatoire",
+  "Administrators only": "Administrateurs seulement",
+  Everyone: "Tout le monde",
+  "Only a superadmin can change this.": "Seul un superadmin peut modifier ce réglage.",
   "UTC (default)": "UTC (défaut)",
   "IANA name. Leave empty to use the control plane's zone, which is usually UTC.":
     "Nom IANA. Laissez vide pour le fuseau du control plane, en général UTC.",
