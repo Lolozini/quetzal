@@ -81,6 +81,13 @@ jobs:
           ha="$(helm template quetzal deploy/quetzal --set replicaCount=2             --set db.driver=postgres --set persistence.enabled=false)"
           echo "$ha" | grep -q 'replicas: 2'      || fail "replicaCount ignored"
           echo "$ha" | grep -q 'type: RollingUpdate' || fail "two replicas still roll with Recreate"
+          # Metrics must stay off the port the Ingress publishes at "/" prefix.
+          # They were served next to the panel, which made the server count --
+          # and a full table scan per scrape -- readable by anyone with the URL.
+          echo "$out" | grep -q 'QUETZAL_METRICS_ADDR' || fail "apiserver metrics port not set"
+          svc="$(helm template quetzal deploy/quetzal --show-only templates/service.yaml)"
+          ! echo "$svc" | grep -q '9091' || fail "the Service publishes the metrics port"
+          ! echo "$svc" | grep -q 'metrics' || fail "the Service publishes the metrics port"
           echo "ok"
 
   web:

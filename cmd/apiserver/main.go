@@ -89,10 +89,10 @@ func main() {
 	dispatcher := notify.New(st)
 	apiSrv.Dispatch = dispatcher
 
-	// /api/* -> API; /metrics + /healthz for ops; everything else -> React SPA.
+	// /api/* -> API; /healthz for probes; everything else -> React SPA. Metrics
+	// are NOT here: see serveOps.
 	root := http.NewServeMux()
 	root.Handle("/api/", apiSrv.Handler())
-	root.Handle("/metrics", metrics.Handler(st))
 	root.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -106,6 +106,15 @@ func main() {
 		Handler:           apiSrv.SecurityHeaders(root),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+
+	// Metrics listen on their own port, like the controller's. The panel's port
+	// is published by the Ingress at "/" prefix, which made /metrics world-
+	// readable on the panel's own domain: the server count to anyone who asked,
+	// and a full table scan per scrape that no authentication stood in front of.
+	// A separate port is reachable from inside the cluster (where a scraper is)
+	// and from nowhere else.
+	opsAddr := env("QUETZAL_METRICS_ADDR", ":9091")
+	opsSrv := serveOps(opsAddr, st)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -129,6 +138,27 @@ func main() {
 	shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutCtx)
+	_ = opsSrv.Shutdown(shutCtx)
+}
+
+// serveOps starts the metrics/health listener on its own port and returns it so
+// shutdown can reach it. Binding is best-effort: metrics are not worth refusing
+// to serve the panel over.
+func serveOps(addr string, st *store.Store) *http.Server {
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", metrics.Handler(st))
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go func() {
+		log.Printf("metrics listening on %s", addr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("metrics server: %v", err)
+		}
+	}()
+	return srv
 }
 
 // gcSessions periodically deletes expired sessions and password-reset tokens,

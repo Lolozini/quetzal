@@ -184,6 +184,14 @@ cannot spoof or sniff on the node's network — and it has no API credentials an
 no cluster network. It is root in its own container and nowhere else, but grant
 the permission accordingly, and do not import eggs you have no reason to trust.
 
+An install also has a deadline: six hours, after which it is stopped and the
+server goes to Error with the reason in its setup log. That is far longer than
+any install should take — a SteamCMD download of a large game legitimately runs
+for hours — and exists so a script that hangs (a download from a host that no
+longer answers) ends somewhere instead of leaving the server in Installing for
+good. A stopped install is not recorded as done, so it runs again on the next
+start.
+
 **Brute-force counters live in the database**, so they survive a restart and are
 shared by every replica: the configured limit is the limit, not the limit times
 the number of pods. If the database is unreachable the limiter falls back to
@@ -223,6 +231,20 @@ schedules when you take a permission away.
 **An API key carries everything its owner can do.** There is no per-key scope
 today, so a key minted by an admin is an admin key. Treat one as the account
 itself and delete keys you no longer use.
+
+**Metrics are on a port the Ingress does not publish.** The apiserver serves
+`/metrics` on container port 9091 and the controller on 9090, and the Service
+carries neither — the panel's own port is published at `/` prefix, so anything
+served beside the panel is readable by anyone with the URL. Scrape them
+in-cluster (a PodMonitor, or Prometheus pod annotations). There is no
+authentication on those ports: keep them pod-local.
+
+**SFTP drops a connection that does not authenticate**, within 15 seconds, and
+caps how many may be mid-handshake at once. The SFTP server is a sidecar inside
+the game server's own pod and shares its memory limit, published on a NodePort,
+so silent connections are otherwise a way to have a pod OOM-killed from the
+internet without any credentials. A flood can still make SFTP itself unreachable
+for as long as it lasts; the game server keeps running, which is the trade.
 
 **Registering another cluster**: use the manifest the cluster form offers rather
 than an admin kubeconfig. See above.
