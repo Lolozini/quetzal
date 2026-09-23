@@ -1,7 +1,7 @@
 # Upgrading Quetzal
 
 Quetzal keeps the database as its source of truth, so upgrades are normally a
-matter of rolling the two Deployments to a newer image. Schema migrations run
+matter of rolling its Deployment to a newer image. Schema migrations run
 automatically on startup.
 
 ## Before you upgrade

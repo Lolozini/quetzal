@@ -132,6 +132,19 @@ releases may include breaking changes).
   node. Replaces the previous on-demand maintenance pod (which only ran while
   stopped) and the SFTP sidecar (which only ran while running). During a restore
   the data-manager is scaled down so the restore gets exclusive volume access.
+- **Metrics moved off the panel's port.** The apiserver serves `/metrics` on
+  container port 9091 (`api-metrics`), the controller on 9090; the Service
+  publishes neither. With the chart's Ingress, `/metrics` used to be readable by
+  anyone at the panel's URL, and each request scanned the servers table. **A
+  scraper pointed at `https://<panel>/metrics` must be pointed at the pod** — it
+  now gets the panel's HTML instead.
+- **Email in STARTTLS mode requires STARTTLS.** The mode the form calls STARTTLS
+  (the default, also used when unset) went ahead in cleartext when the server did
+  not offer it — which is what an attacker on the path arranges by deleting the
+  offer. Passwords were never sent that way (Go refuses), but the messages were,
+  and they include password reset links. **A relay that offers no STARTTLS now
+  refuses to send** until **None (cleartext)** is chosen for it explicitly; the
+  test-email button shows the error.
 
 ### Removed
 
@@ -435,6 +448,13 @@ releases may include breaking changes).
   still enabled, rather than letting either be discovered in production — two
   pods cannot share one SQLite file. Above one replica the rollout strategy
   becomes `RollingUpdate` instead of taking the panel down.
+- **Notification delivery is retried, and a failing channel shows in the panel.**
+  A delivery used to be dropped on its first error, with a log line as the only
+  trace. It now gets three attempts with backoff, honouring `Retry-After`; a
+  refusal that will not change (a 404 from a deleted webhook) is not retried. A
+  channel that still fails is marked in Notifications with the number of events
+  it has missed in a row and the reason (`failureStreak`, `lastError`,
+  `lastErrorAt`, `lastDeliveryAt` in the API); a successful test clears it.
 
 ### Fixed
 
@@ -463,6 +483,38 @@ releases may include breaking changes).
   destination back after it. The source data is untouched in both cases. The
   backup and restore Jobs also carry a six-hour deadline now, so one that hangs
   fails with a reason instead of running forever.
+- **A download cut short no longer passes for a whole file.** Reading a file and
+  archiving a directory ran under the 60-second limit meant for small file
+  operations, so a large world download was cut mid-stream — after the 200 and
+  its headers had gone out — and the error JSON was appended to the truncated
+  archive. Downloads now get six hours (a client that leaves ends them sooner),
+  and a failure after the first byte aborts the response so the client sees a
+  broken transfer.
+- **An install that hangs now ends.** An init container has no deadline of its
+  own, so a script stuck on a dead mirror left the server in Installing forever.
+  The install now runs under a six-hour watchdog, then fails with the reason in
+  the setup log and runs again on the next start.
+- **An egg's own `exit` no longer skips the install record.** The egg's script was
+  inlined into the logic that records the install, so a top-level `exit 0` — or
+  a bare `exit`, which is usually 0 — ended it before the marker was written and
+  before the files were handed to the server's user. The install then re-ran on
+  every start and the data stayed owned by root. The script now runs as its own
+  process, as Wings runs it.
+- **The chart gave two ports the same name.** The apiserver's metrics port was
+  named `metrics`, which the controller in the same pod already used, and the
+  controller's liveness probe selects by name — it was probing the apiserver.
+  It is now `api-metrics`, and CI refuses a duplicate port name.
+- **A silent connection no longer keeps a proxy-mode server awake.** The
+  activator counted open TCP connections as activity, so one that carried nothing
+  kept the server from hibernating for as long as the game tolerated it
+  (Minecraft does not: it drops silent clients after 30 seconds). Activity is now
+  traffic; nothing is disconnected for being quiet.
+- **A config file is never rewritten in place.** `config.files` rendering
+  truncated and rewrote each file on every start, so an eviction mid-write left it
+  empty or cut short. It now writes a temporary file and renames it over the
+  original, keeping its permissions.
+- **A notification interrupted by a restart is delivered after it**, instead of
+  being skipped.
 
 ### Security
 
@@ -529,6 +581,16 @@ releases may include breaking changes).
   The policy needs `POD_NAMESPACE` to know the control plane's namespace (the
   chart sets it): without it none is written, and a warning says so, since a
   policy missing that namespace would block provisioning entirely.
+- **SFTP drops a connection that never authenticates.** The SFTP server is a
+  sidecar in the game server's own pod, sharing its memory limit, on a NodePort.
+  A client that connected and said nothing held a goroutine and a file
+  descriptor indefinitely, with no limit on how many, so silent connections from
+  the internet could get the pod OOM-killed without any credentials. A
+  connection now has 15 seconds to authenticate, and the number mid-handshake is
+  capped; an authenticated session is not subject to the deadline.
+- **The channel test button no longer returns the channel's URL.** A failed test
+  delivery answered with net/http's error, which carries the request URL — for a
+  Discord or webhook channel, the secret the API masks everywhere else.
 
 ## [0.1.0] - 2026-06-25
 
