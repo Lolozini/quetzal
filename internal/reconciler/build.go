@@ -822,7 +822,7 @@ func wingsEnv(s *models.Server, t *models.Template) []corev1.EnvVar {
 	// entrypoint-driven images leave it empty, as Wings does).
 	out = append(out, corev1.EnvVar{Name: "TZ", Value: "UTC"})
 	if t.Startup != "" {
-		out = append(out, corev1.EnvVar{Name: "STARTUP", Value: startupVarRe.ReplaceAllString(t.Startup, "${$1}")})
+		out = append(out, corev1.EnvVar{Name: "STARTUP", Value: startupShell(t.Startup)})
 	}
 	return out
 }
@@ -1138,21 +1138,47 @@ var pbVarRe = regexp.MustCompile(`{{\s*([^}]+?)\s*}}`)
 // (so secrets resolve at runtime, not baked into the spec) and the default port
 // is substituted literally. Unknown placeholders are left untouched.
 func toShellTemplate(v string, primary int32) string {
+	return translatePlaceholders(v, strconv.Itoa(int(primary)))
+}
+
+// startupShell is the startup command in shell form. The port is left to the
+// SERVER_PORT the container is given rather than written in: unlike a config
+// file, this string is expanded by a shell at start, so it can follow the env.
+func startupShell(startup string) string {
+	return translatePlaceholders(startup, "${SERVER_PORT}")
+}
+
+// translatePlaceholders rewrites Wings' {{...}} placeholders into their shell
+// form, for config.files values and the startup command alike. They used to be
+// two tables: config.files understood the dotted forms and the startup only
+// {{NAME}}, so the same egg meant different things depending on where it said
+// it. port is what {{server.build.default.port}} becomes. A placeholder it does
+// not know, or one whose variable name is not a valid identifier, is left as
+// written rather than turned into shell that would not parse.
+func translatePlaceholders(v, port string) string {
 	return pbVarRe.ReplaceAllStringFunc(v, func(m string) string {
 		inner := strings.TrimSpace(pbVarRe.FindStringSubmatch(m)[1])
+		envRef := func(name string) string {
+			if !identRe.MatchString(name) {
+				return m
+			}
+			return "${" + name + "}"
+		}
 		switch {
 		case inner == "server.build.default.port":
-			return strconv.Itoa(int(primary))
+			return port
 		case inner == "server.build.default.ip", inner == "config.docker.interface":
 			// The bind address. Wings substitutes its Docker bridge interface here;
 			// in Kubernetes each server has its own pod IP and a dedicated Service,
 			// so binding to all interfaces is correct (and writing the literal
 			// placeholder, as before, broke proxies like Waterfall/Travertine).
 			return "0.0.0.0"
+		case inner == "server.build.memory":
+			return "${SERVER_MEMORY}"
 		case strings.HasPrefix(inner, "server.build.env."):
-			return "${" + strings.TrimPrefix(inner, "server.build.env.") + "}"
+			return envRef(strings.TrimPrefix(inner, "server.build.env."))
 		case strings.HasPrefix(inner, "env."):
-			return "${" + strings.TrimPrefix(inner, "env.") + "}"
+			return envRef(strings.TrimPrefix(inner, "env."))
 		case identRe.MatchString(inner):
 			return "${" + inner + "}"
 		default:
@@ -1383,8 +1409,6 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 	}}
 }
 
-var startupVarRe = regexp.MustCompile(`{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}`)
-
 // startupBashWrapper runs the (already-substituted) startup command under bash
 // when available, falling back to sh. Pterodactyl runs egg startup under bash and
 // many eggs use bash-only syntax — `[[ ]]` (Forge), process substitution and
@@ -1401,7 +1425,7 @@ func startupCommand(t *models.Template) []string {
 	if t.Startup == "" {
 		return nil
 	}
-	cmd := startupVarRe.ReplaceAllString(t.Startup, "${$1}")
+	cmd := startupShell(t.Startup)
 	return []string{"/bin/sh", "-c", startupBashWrapper, cmd}
 }
 

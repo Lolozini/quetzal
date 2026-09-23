@@ -28,6 +28,26 @@ jobs:
           echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
+      # The release page shows what CHANGELOG.md says about this version, not
+      # the commit list GitHub would generate (there are no pull requests to
+      # summarise, so it came out as a bare compare link). A tag whose version
+      # has no section there is refused before anything is published: the notes
+      # are written before the release, not after.
+      - name: Release notes from the changelog
+        run: |
+          set -euo pipefail
+          v="${{ steps.v.outputs.version }}"
+          mkdir -p dist
+          awk -v v="$v" '
+            index($0, "## [" v "]") == 1 { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md > dist/RELEASE_NOTES.md
+          if ! grep -q '[^[:space:]]' dist/RELEASE_NOTES.md; then
+            echo "CHANGELOG.md has no section for $v; write it before tagging" >&2
+            exit 1
+          fi
+
       - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
@@ -38,10 +58,37 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
+          # The git tag itself (v0.2.0) as well as the bare semver (0.2.0): the
+          # chart's default image tag is its appVersion, which is the git tag,
+          # and the docs tell people to --set image.tag=vX.Y.Z. v0.1.0 shipped a
+          # chart pointing at ghcr.io/lolozini/quetzal:v0.1.0, which was never
+          # pushed -- only 0.1.0 was -- so installing it as published failed.
           tags: |
+            type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
+      - uses: azure/setup-helm@v5
+      - name: Package Helm chart
+        run: |
+          helm package deploy/quetzal \
+            --version "${{ steps.v.outputs.version }}" \
+            --app-version "${{ github.ref_name }}" \
+            --destination dist
+      # Before anything is pushed: the image the packaged chart installs by
+      # default has to be one this release publishes.
+      - name: The chart installs an image this release publishes
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          img=$(helm template quetzal dist/quetzal-*.tgz | grep -m1 -oE 'image: "[^"]+"' | cut -d'"' -f2)
+          echo "chart default image: $img"
+          if ! printf '%s\n' "$TAGS" | grep -qxF "$img"; then
+            echo "the chart would pull $img, which is not among the tags this release pushes:" >&2
+            printf '%s\n' "$TAGS" >&2
+            exit 1
+          fi
       - uses: docker/build-push-action@v7
         with:
           context: .
@@ -55,16 +102,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - uses: azure/setup-helm@v5
-      - name: Package Helm chart
-        run: |
-          helm package deploy/quetzal \
-            --version "${{ steps.v.outputs.version }}" \
-            --app-version "${{ github.ref_name }}" \
-            --destination dist
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          body_path: dist/RELEASE_NOTES.md
+          # Appended after the changelog section: the compare link to the
+          # previous release.
           generate_release_notes: true
           files: dist/*.tgz

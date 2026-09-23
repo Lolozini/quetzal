@@ -852,21 +852,60 @@ paths:
       - $ref: "#/components/parameters/ServerId"
     post:
       tags: [Servers]
-      summary: Reinstall the server (re-run the install script)
+      summary: Reinstall the server, optionally on another template or image
       description: >-
         Bumps the install generation so the install init container re-runs; the
         change rolls the pod on the next reconcile (a stopped server reinstalls
-        on its next start). Requires the template to have an install script.
-        wipeData also clears the data volume before the script runs.
+        on its next start). wipeData also clears the data volume before the
+        script runs.
+
+
+        With `template`, the server moves to another template first (owner or
+        an administrator only): ports, resources, storage and — unless wiped —
+        files are kept. Variables the new template also declares keep their
+        value, unless it fixes them (not editable) or the value is not one of
+        its options; those take the new defaults and are listed in `reset`.
+        A variable it requires and nothing can fill must be given in `env`.
+        Switching to a template with no install script is allowed (status
+        `switched`, nothing to run), without wipeData.
+
+
+        With `image`, the server moves to another of the (target) template's
+        images; an administrator may name any image. Without it, a template
+        change keeps the current image when the new template offers it, and
+        otherwise takes its default. The body is optional, but one that does
+        not parse is refused rather than read as a plain reinstall.
       requestBody:
         content:
           application/json:
             schema:
               type: object
-              properties: { wipeData: { type: boolean } }
+              properties:
+                wipeData: { type: boolean }
+                template: { type: string, description: Slug of the template to move to }
+                image: { type: string, description: One of the target template's image refs }
+                env:
+                  type: object
+                  additionalProperties: { type: string }
+                  description: Values for the new template's variables; only with a template change
       responses:
-        "200": { description: Reinstall triggered }
-        "400": { description: Template has no install script }
+        "200":
+          description: Reinstall triggered, or template switched
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [reinstalling, switched] }
+                  wipeData: { type: boolean }
+                  template: { type: string }
+                  image: { type: string }
+                  reset:
+                    type: array
+                    items: { type: string }
+                    description: New-template variables that took their default instead of the current value
+        "400": { description: "No install script, unknown template, image off the list, missing required variable, or an unreadable body" }
+        "403": { description: A template change by someone other than the owner or an administrator }
   /api/servers/{id}/stats:
     parameters:
       - $ref: "#/components/parameters/ServerId"
