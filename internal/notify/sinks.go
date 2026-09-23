@@ -269,12 +269,23 @@ func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, 
 		return err
 	}
 	defer client.Close()
-	// Opportunistic/explicit STARTTLS for non-implicit modes.
+	// STARTTLS is required, not attempted. This used to go ahead in cleartext
+	// whenever the server did not offer it -- which is also what a man in the
+	// middle arranges by deleting the offer from the EHLO reply. The password was
+	// never at risk (net/smtp refuses PLAIN auth without TLS to anything but
+	// localhost), but a relay that needs no auth then got the message itself in
+	// the clear, and the messages this panel sends include password reset links.
+	//
+	// The form calls this mode "STARTTLS" and selects it by default, and an unset
+	// mode is displayed the same way, so all of them mean it. Cleartext remains
+	// available as "none", asked for by name.
 	if mode != "tls" && mode != "none" {
-		if ok, _ := client.Extension("STARTTLS"); ok {
-			if err := client.StartTLS(&tls.Config{ServerName: host}); err != nil {
-				return err
-			}
+		if ok, _ := client.Extension("STARTTLS"); !ok {
+			return fmt.Errorf("email: %s does not offer STARTTLS, which this configuration requires; nothing was sent. "+
+				`Choose "tls" if the server expects TLS from the first byte (usually port 465), or "none" if it is a relay on a network you trust`, addr)
+		}
+		if err := client.StartTLS(&tls.Config{ServerName: host}); err != nil {
+			return err
 		}
 	}
 	if auth != nil {

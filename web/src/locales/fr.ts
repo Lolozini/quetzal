@@ -205,7 +205,7 @@ export const fr: Record<string, string> = {
   "From address": "Adresse d'expéditeur",
   TLS: "TLS",
   "Implicit TLS": "TLS implicite",
-  None: "Aucun",
+  "None (cleartext)": "Aucun (en clair)",
   "Panel public URL (for reset links)": "URL publique du panel (pour les liens de réinitialisation)",
   "•••••• (leave blank to keep)": "•••••• (laisser vide pour garder)",
   Saved: "Enregistré",

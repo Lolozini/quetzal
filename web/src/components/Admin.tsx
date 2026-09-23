@@ -527,7 +527,7 @@ function EmailSettingsCard() {
             <select value={form.tls} onChange={set("tls")}>
               <option value="starttls">STARTTLS</option>
               <option value="tls">{t("Implicit TLS")}</option>
-              <option value="none">{t("None")}</option>
+              <option value="none">{t("None (cleartext)")}</option>
             </select>
           </div>
         </div>
