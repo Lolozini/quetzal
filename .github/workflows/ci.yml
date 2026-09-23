@@ -88,13 +88,14 @@ jobs:
           svc="$(helm template quetzal deploy/quetzal --show-only templates/service.yaml)"
           ! echo "$svc" | grep -q '9091' || fail "the Service publishes the metrics port"
           ! echo "$svc" | grep -q 'metrics' || fail "the Service publishes the metrics port"
-          # A container port name must be unique across the whole pod, not just
-          # within its container: a probe that selects a port by name resolves a
-          # duplicate to whichever container is listed first. The checker says
-          # why; it lives in hack/ because inline Python cannot be indented
-          # inside a YAML block scalar without breaking one or the other.
+          # What Kubernetes accepts but mishandles: a port name shared by two
+          # containers in the pod (a probe selecting it resolves to the first
+          # one), and a namespaced object with no namespace of its own (kubectl
+          # puts it in its context's default). hack/check-chart.py says why for
+          # each; it lives there because inline Python cannot be indented inside
+          # a YAML block scalar without breaking one or the other.
           python3 -c 'import yaml' 2>/dev/null || pip3 install --quiet pyyaml
-          helm template quetzal deploy/quetzal | python3 hack/check-chart-ports.py || fail "duplicate container port name"
+          helm template quetzal deploy/quetzal --namespace quetzal | python3 hack/check-chart.py || fail "the rendered chart has problems (see above)"
           echo "ok"
 
   web:
@@ -169,7 +170,7 @@ jobs:
             echo "== helm template $args"
             # shellcheck disable=SC2086 # $args is a list of flags on purpose
             helm template quetzal deploy/quetzal --namespace "$ns" $args \
-              | kubectl --warnings-as-errors apply --dry-run=server -f -
+              | kubectl --warnings-as-errors apply --dry-run=server -n "$ns" -f -
           done
           kubectl delete namespace "$ns" --wait=false
       - name: Load image into kind

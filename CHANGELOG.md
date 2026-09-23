@@ -244,6 +244,11 @@ zones, paged logs and log retention.
   `--set image.tag=vX.Y.Z` the docs recommend. Releases now push the tag as
   written too, and refuse to publish a chart whose default image they did not
   push. With 0.1.0, set `image.tag=0.1.0`.
+- **Every namespaced object in the chart names its namespace.** The Deployment,
+  Service, ServiceAccount, PVC, Ingress and generated Secret left it to Helm, so
+  `helm template | kubectl apply` or `kubectl diff` put them in the kubectl
+  context's default namespace instead of the release's. `helm install` itself
+  was unaffected.
 - **Wings placeholders mean the same thing in the startup command as in
   `config.files`.** `{{server.build.env.X}}`, `{{env.X}}`,
   `{{server.build.default.port}}` and `{{server.build.memory}}` reached the game
