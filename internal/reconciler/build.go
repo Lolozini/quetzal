@@ -1165,15 +1165,18 @@ func translatePlaceholders(v, port string) string {
 			return "${" + name + "}"
 		}
 		switch {
-		case inner == "server.build.default.port":
+		// Wings resolves these against the server's configuration, where the
+		// port lives under allocations.default; server.build.default.* is the
+		// legacy alias Pterodactyl eggs use, and Pelican's eggs the real path.
+		case inner == "server.build.default.port", inner == "server.allocations.default.port":
 			return port
-		case inner == "server.build.default.ip", inner == "config.docker.interface":
+		case inner == "server.build.default.ip", inner == "server.allocations.default.ip", inner == "config.docker.interface":
 			// The bind address. Wings substitutes its Docker bridge interface here;
 			// in Kubernetes each server has its own pod IP and a dedicated Service,
 			// so binding to all interfaces is correct (and writing the literal
 			// placeholder, as before, broke proxies like Waterfall/Travertine).
 			return "0.0.0.0"
-		case inner == "server.build.memory":
+		case inner == "server.build.memory", inner == "server.build.memory_limit":
 			return "${SERVER_MEMORY}"
 		case strings.HasPrefix(inner, "server.build.env."):
 			return envRef(strings.TrimPrefix(inner, "server.build.env."))

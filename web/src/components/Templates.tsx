@@ -155,7 +155,7 @@ export function Templates() {
           </button>
 
           <h3 style={{ marginTop: 20 }}>{tr("Import from URL")}</h3>
-          <p className="muted">{tr("Fetch an egg JSON straight from a URL (e.g. a raw file in an egg repository).")}</p>
+          <p className="muted">{tr("Fetch an egg straight from a URL, e.g. a file in github.com/pelican-eggs (Pterodactyl JSON and Pelican YAML are both read).")}</p>
           <div className="row">
             <input
               value={importUrl}
@@ -168,7 +168,7 @@ export function Templates() {
             </button>
           </div>
           <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-            {tr("Point at the raw JSON file; a GitHub/GitLab file page link is converted automatically.")}
+            {tr("Point at the egg file; a GitHub/GitLab file page link is converted to the raw file automatically.")}
           </p>
 
           {/* Feedback sits with the import controls: this panel scrolls, so a

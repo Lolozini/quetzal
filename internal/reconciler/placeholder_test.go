@@ -63,7 +63,11 @@ func TestConfigFilesPlaceholders(t *testing.T) {
 		"{{server.build.env.DIFFICULTY}}": "${DIFFICULTY}",
 		"{{server.build.memory}}":         "${SERVER_MEMORY}",
 		"{{config.docker.interface}}":     "0.0.0.0",
-		"{{server.build.env.bad name}}":   "{{server.build.env.bad name}}",
+		// Pelican eggs write the path Wings actually resolves.
+		"{{server.allocations.default.port}}": "25565",
+		"{{server.allocations.default.ip}}":   "0.0.0.0",
+		"{{server.build.memory_limit}}":       "${SERVER_MEMORY}",
+		"{{server.build.env.bad name}}":       "{{server.build.env.bad name}}",
 	}
 	for in, want := range cases {
 		if got := toShellTemplate(in, 25565); got != want {

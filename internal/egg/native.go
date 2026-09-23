@@ -27,6 +27,15 @@ const defaultDataPath = "/home/container"
 // env name blank. The first sign of trouble came later, on creating a server:
 // `variable "" is required`, which names nothing and points nowhere.
 func Parse(data []byte) (*models.Template, error) {
+	// Pelican publishes its eggs as YAML (PLCN_v3); read it as the JSON it
+	// maps to. Anything that does not start like JSON is tried as YAML.
+	if !isJSON(data) {
+		j, err := yamlToJSON(data)
+		if err != nil {
+			return nil, fmt.Errorf("parse template: not JSON, and not YAML either: %w", err)
+		}
+		data = j
+	}
 	native, err := looksNative(data)
 	if err != nil {
 		return nil, err

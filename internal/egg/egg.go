@@ -12,20 +12,24 @@ import (
 	"github.com/lolozini/quetzal/internal/models"
 )
 
-// eggFile mirrors the Pterodactyl egg export (PTDL_v1/v2).
+// eggFile mirrors the Pterodactyl egg export (PTDL_v1/v2) and Pelican's
+// (PLCN), which renames or reshapes a few fields (see formats.go).
 type eggFile struct {
-	Name         string            `json:"name"`
-	Author       string            `json:"author"`
-	Description  string            `json:"description"`
-	Features     []string          `json:"features"`
-	DockerImages map[string]string `json:"docker_images"`
+	Name         string         `json:"name"`
+	Author       string         `json:"author"`
+	Description  string         `json:"description"`
+	Features     stringList     `json:"features"`
+	DockerImages orderedStrings `json:"docker_images"`
 	// Older single-image eggs use "image".
-	Image        string        `json:"image"`
-	FileDenylist []string      `json:"file_denylist"`
-	Startup      string        `json:"startup"`
-	Config       eggConfig     `json:"config"`
-	Scripts      eggScripts    `json:"scripts"`
-	Variables    []eggVariable `json:"variables"`
+	Image        string     `json:"image"`
+	FileDenylist stringList `json:"file_denylist"`
+	Startup      string     `json:"startup"`
+	// StartupCommands is Pelican's named startup commands; the first is the
+	// default and stands in for startup when that is absent.
+	StartupCommands orderedStrings `json:"startup_commands"`
+	Config          eggConfig      `json:"config"`
+	Scripts         eggScripts     `json:"scripts"`
+	Variables       eggVariables   `json:"variables"`
 }
 
 // eggConfig sub-objects are exported as *stringified JSON*, so we keep them raw
@@ -47,14 +51,14 @@ type eggInstall struct {
 }
 
 type eggVariable struct {
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	EnvVariable  string `json:"env_variable"`
-	DefaultValue string `json:"default_value"`
-	UserViewable bool   `json:"user_viewable"`
-	UserEditable bool   `json:"user_editable"`
-	Rules        string `json:"rules"`
-	FieldType    string `json:"field_type"`
+	Name         string     `json:"name"`
+	Description  string     `json:"description"`
+	EnvVariable  string     `json:"env_variable"`
+	DefaultValue flexString `json:"default_value"`
+	UserViewable bool       `json:"user_viewable"`
+	UserEditable bool       `json:"user_editable"`
+	Rules        eggRules   `json:"rules"`
+	FieldType    string     `json:"field_type"`
 }
 
 // ToTemplate parses an egg JSON document into a Quetzal template.
@@ -66,6 +70,9 @@ func ToTemplate(data []byte) (*models.Template, error) {
 	if e.Name == "" {
 		return nil, fmt.Errorf("egg has no name")
 	}
+	if strings.TrimSpace(e.Startup) == "" && len(e.StartupCommands) > 0 {
+		e.Startup = e.StartupCommands[0].Value
+	}
 
 	t := &models.Template{
 		Slug:         Slugify(e.Name),
@@ -73,8 +80,8 @@ func ToTemplate(data []byte) (*models.Template, error) {
 		Author:       e.Author,
 		Description:  e.Description,
 		Startup:      normalizeNewlines(e.Startup),
-		Features:     e.Features,
-		FileDenylist: e.FileDenylist,
+		Features:     []string(e.Features),
+		FileDenylist: []string(e.FileDenylist),
 		// Pterodactyl eggs assume the server directory is /home/container (Wings'
 		// guaranteed path): many hardcode it in config.files (e.g. Terraria's
 		// worldpath) or resolve files via it. Mount the data volume there — as
@@ -86,14 +93,12 @@ func ToTemplate(data []byte) (*models.Template, error) {
 
 	// Images.
 	if len(e.DockerImages) > 0 {
-		first := true
-		for display, ref := range e.DockerImages {
+		for i, img := range e.DockerImages {
 			t.Images = append(t.Images, models.TemplateImage{
-				DisplayName: display,
-				Ref:         ref,
-				Default:     first,
+				DisplayName: img.Key,
+				Ref:         img.Value,
+				Default:     i == 0,
 			})
-			first = false
 		}
 	} else if e.Image != "" {
 		t.Images = append(t.Images, models.TemplateImage{
@@ -166,27 +171,27 @@ func convertVariable(v eggVariable) models.TemplateVariable {
 		Name:        v.Name,
 		Description: v.Description,
 		EnvVariable: v.EnvVariable,
-		Default:     v.DefaultValue,
-		Rules:       v.Rules,
+		Default:     string(v.DefaultValue),
+		Rules:       string(v.Rules),
 		Viewable:    v.UserViewable,
 		Editable:    v.UserEditable,
-		Required:    strings.Contains(v.Rules, "required"),
+		Required:    strings.Contains(string(v.Rules), "required"),
 		Type:        models.VarString,
 	}
 
 	switch {
-	case v.FieldType == "select" || enumRuleRe.MatchString(v.Rules):
+	case v.FieldType == "select" || enumRuleRe.MatchString(string(v.Rules)):
 		tv.Type = models.VarEnum
-		if m := enumRuleRe.FindStringSubmatch(v.Rules); m != nil {
+		if m := enumRuleRe.FindStringSubmatch(string(v.Rules)); m != nil {
 			for _, opt := range strings.Split(m[1], ",") {
 				if opt = strings.TrimSpace(opt); opt != "" {
 					tv.Options = append(tv.Options, opt)
 				}
 			}
 		}
-	case strings.Contains(v.Rules, "boolean"):
+	case strings.Contains(string(v.Rules), "boolean"):
 		tv.Type = models.VarBool
-	case strings.Contains(v.Rules, "integer") || strings.Contains(v.Rules, "numeric"):
+	case strings.Contains(string(v.Rules), "integer") || strings.Contains(string(v.Rules), "numeric"):
 		tv.Type = models.VarInt
 	}
 	return tv
