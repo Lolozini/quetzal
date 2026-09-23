@@ -221,6 +221,8 @@ func (s *Server) handleCopyFile(w http.ResponseWriter, r *http.Request) {
 // and renamed at the end, so a failure leaves no half archive behind.
 const compressScript = `dir="$1"; name="$2"; shift 2
 qz_guard deref "$0" "$dir"
+qz_exists "$dir"
+[ -d "$dir" ] || { echo "not a folder" >&2; exit 4; }
 cd "$dir" || exit 1
 for f in "$@"; do qz_guard link "$0" "$dir/$f"; qz_exists "$f"; done
 if [ -e "$name" ] || [ -L "$name" ]; then echo "$name already exists" >&2; exit 4; fi

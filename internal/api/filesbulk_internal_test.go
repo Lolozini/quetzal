@@ -160,6 +160,10 @@ func TestCompressAndDecompressScripts(t *testing.T) {
 	if m, _ := filepath.Glob(filepath.Join(root, ".*quetzal-part*")); len(m) > 0 {
 		t.Errorf("temporary left behind: %v", m)
 	}
+	// A folder that is not there is a 404, not a tar failure.
+	if _, _, code := runScript(t, root, compressScript, filepath.Join(root, "gone"), "a.tar.gz", "x"); code != fileOpNotFound {
+		t.Errorf("compress in a missing folder exited %d", code)
+	}
 	// It refuses to overwrite an archive of the same name.
 	if _, _, code := runScript(t, root, compressScript, root, "archive-1.tar.gz", "world"); code != fileOpBadRequest {
 		t.Errorf("second compress exited %d", code)
