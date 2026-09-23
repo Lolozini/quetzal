@@ -68,7 +68,7 @@ func renderOne(root string, sp Spec, getenv func(string) string) error {
 	case "file":
 		return applyFile(full, vals)
 	case "xml":
-		return fmt.Errorf("%s: xml parser not supported", sp.Path)
+		return applyXML(full, vals)
 	default:
 		// Unknown parser: treat like a flat key=value file (best effort).
 		return applyLineKV(full, vals, '=', false)

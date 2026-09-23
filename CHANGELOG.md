@@ -23,6 +23,13 @@ releases may include breaking changes).
 - Eggs in **Pelican's YAML format** (`PLCN_v3`, the `egg-*.yaml` files of the
   pelican-eggs repositories) are read, by paste or by URL, alongside the
   Pterodactyl JSON.
+- The **`xml` parser for `config.files`**, as Wings implements it: a dotted key
+  is an element path from the root, missing elements are created, a
+  `[name='value']` value sets an attribute, and `*` matches every element.
+  Space Engineers, Trackmania 2020 and two GTA multiplayer eggs use it; their
+  config files were left untouched before. One difference from Wings: a key
+  naming another root element changes nothing, instead of adding empty
+  elements to the file.
 - A CPU limit field in the create form.
 - `docs/MIGRATING.md`: bringing eggs (from your panel, or from pelican-eggs by
   URL) and servers over from Pterodactyl.

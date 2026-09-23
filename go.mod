@@ -3,6 +3,7 @@ module github.com/lolozini/quetzal
 go 1.26.0
 
 require (
+	github.com/beevik/etree v1.8.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/gorilla/websocket v1.5.3

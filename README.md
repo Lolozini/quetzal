@@ -178,7 +178,7 @@ Browser ──HTTP/WS──▶  api-server  (UI · REST/WebSocket · console pro
 - **Templates are eggs.** A template declares images, variables (env), startup,
   ports, lifecycle, install script, and `config.files`. Importing a Pterodactyl
   egg maps it onto this model; `config.files` are rendered at startup
-  (properties/json/yaml/ini) so imported eggs configure themselves.
+  (properties/json/yaml/ini/xml) so imported eggs configure themselves.
 - Ships with templates for **Minecraft (Paper)**, **Minecraft (CurseForge
   modpacks)**, **Valheim**, and a **generic process** — import eggs for the rest.
 
