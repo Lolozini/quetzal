@@ -27,6 +27,19 @@ type fakeStore struct {
 	channels []models.NotificationChannel
 	settings map[string]string
 	servers  map[uint][2]string // id -> {displayName, slug}
+	results  []deliveryResult
+}
+
+type deliveryResult struct {
+	channel uint
+	errMsg  string
+}
+
+func (f *fakeStore) RecordChannelResult(id uint, _ time.Time, errMsg string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.results = append(f.results, deliveryResult{id, errMsg})
+	return nil
 }
 
 func (f *fakeStore) ServerIdentity(id uint) (string, string, error) {

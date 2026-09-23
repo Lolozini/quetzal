@@ -445,6 +445,11 @@ export interface NotificationChannel {
   config: Record<string, string>;
   // secrets reports which secret keys are configured, without their values.
   secrets: Record<string, boolean>;
+  // Delivery health: events missed in a row since the last success, and why.
+  failureStreak: number;
+  lastError?: string;
+  lastErrorAt?: string;
+  lastDeliveryAt?: string;
 }
 
 export interface ChannelInput {

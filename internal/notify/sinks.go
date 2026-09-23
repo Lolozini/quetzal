@@ -22,7 +22,46 @@ import (
 )
 
 func errUnknownType(t models.ChannelType) error {
-	return fmt.Errorf("unknown channel type %q", t)
+	return permanent(fmt.Errorf("unknown channel type %q", t))
+}
+
+// statusError is a response outside 2xx. The code decides whether a retry can
+// help; retryAfter is the server's own Retry-After, when it sent one.
+type statusError struct {
+	code       int
+	retryAfter time.Duration
+}
+
+func (e *statusError) Error() string { return fmt.Sprintf("status %d", e.code) }
+
+// permanentError marks a failure no retry can change: a setting that is
+// missing, or a server that refuses what this configuration requires.
+type permanentError struct{ err error }
+
+func (e permanentError) Error() string { return e.err.Error() }
+func (e permanentError) Unwrap() error { return e.err }
+
+func permanent(err error) error { return permanentError{err} }
+
+// parseRetryAfter reads a Retry-After header in either of its forms: a number
+// of seconds (Discord sends a fraction), or an HTTP date.
+func parseRetryAfter(v string, now time.Time) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.ParseFloat(v, 64); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs * float64(time.Second))
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		if d := t.Sub(now); d > 0 {
+			return d
+		}
+	}
+	return 0
 }
 
 // serverLabel is the friendly server name for a notification: the display name,
@@ -72,7 +111,7 @@ func eventTime(e models.Event) time.Time {
 func deliverDiscord(ctx context.Context, client *http.Client, cfg map[string]string, e models.Event, name, slug string) error {
 	url := strings.TrimSpace(cfg["url"])
 	if url == "" {
-		return fmt.Errorf("discord: missing url")
+		return permanent(fmt.Errorf("discord: missing url"))
 	}
 	body, _ := json.Marshal(discordEmbed(e, name, slug))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -140,7 +179,7 @@ type webhookPayload struct {
 func deliverWebhook(ctx context.Context, client *http.Client, cfg map[string]string, e models.Event, name, slug string) error {
 	url := strings.TrimSpace(cfg["url"])
 	if url == "" {
-		return fmt.Errorf("webhook: missing url")
+		return permanent(fmt.Errorf("webhook: missing url"))
 	}
 	body, _ := json.Marshal(webhookPayload{
 		ID: e.ID, Type: e.Type, ServerID: e.ServerID, ServerName: name, ServerSlug: slug,
@@ -170,7 +209,7 @@ func doExpect2xx(client *http.Client, req *http.Request) error {
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("status %d", resp.StatusCode)
+		return &statusError{code: resp.StatusCode, retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
 	return nil
 }
@@ -180,7 +219,7 @@ func doExpect2xx(client *http.Client, req *http.Request) error {
 func deliverEmail(ctx context.Context, cfg map[string]string, e models.Event, name, slug string) error {
 	to := splitList(cfg["to"])
 	if len(to) == 0 {
-		return fmt.Errorf("email: to is required")
+		return permanent(fmt.Errorf("email: to is required"))
 	}
 	label := serverLabel(name, slug)
 	subject := "[Quetzal] "
@@ -232,7 +271,7 @@ func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, 
 	host := strings.TrimSpace(cfg["host"])
 	from := strings.TrimSpace(cfg["from"])
 	if host == "" || from == "" || len(to) == 0 {
-		return fmt.Errorf("email: host, from and to are required")
+		return permanent(fmt.Errorf("email: host, from and to are required"))
 	}
 	port := cfg["port"]
 	if port == "" {
@@ -281,8 +320,8 @@ func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, 
 	// available as "none", asked for by name.
 	if mode != "tls" && mode != "none" {
 		if ok, _ := client.Extension("STARTTLS"); !ok {
-			return fmt.Errorf("email: %s does not offer STARTTLS, which this configuration requires; nothing was sent. "+
-				`Choose "tls" if the server expects TLS from the first byte (usually port 465), or "none" if it is a relay on a network you trust`, addr)
+			return permanent(fmt.Errorf("email: %s does not offer STARTTLS, which this configuration requires; nothing was sent. "+
+				`Choose "tls" if the server expects TLS from the first byte (usually port 465), or "none" if it is a relay on a network you trust`, addr))
 		}
 		if err := client.StartTLS(&tls.Config{ServerName: host}); err != nil {
 			return err

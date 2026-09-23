@@ -2307,6 +2307,18 @@ components:
           type: object
           additionalProperties: { type: boolean }
           description: Which secret keys are configured
+        failureStreak:
+          type: integer
+          description: >
+            Events this channel has missed in a row since it last delivered one.
+            A delivery is retried a few times (not after a refusal that will not
+            change, such as a 404); one that still fails is not queued for later.
+            A successful test delivery resets it.
+        lastError:
+          type: string
+          description: Why the last missed delivery failed. Never contains the channel's URL.
+        lastErrorAt: { type: string, format: date-time }
+        lastDeliveryAt: { type: string, format: date-time }
     ChannelInput:
       type: object
       required: [name, type]
@@ -2324,6 +2336,9 @@ components:
           description: >
             Type-specific settings. discord: url. webhook: url, secret.
             email: host, port, username, password, from, to, tls.
+            tls is "starttls" (the default, and required: a server that does
+            not offer STARTTLS is refused), "tls" (implicit TLS, usually port
+            465) or "none" (cleartext, only when asked for by name).
     SSHKey:
       type: object
       properties:

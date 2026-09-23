@@ -71,6 +71,17 @@ type NotificationChannel struct {
 	// ConfigEnc is the encrypted JSON of the type-specific settings map. Never
 	// serialized; the API exposes a masked view instead.
 	ConfigEnc string `json:"-"`
+
+	// Delivery health, written by the dispatcher and never by the API. A
+	// delivery is tried a few times; one that still fails is not queued for
+	// later -- the outbox cursor has moved on -- so FailureStreak is the number
+	// of events this channel has missed since it last delivered one. Without
+	// it, a channel pointing at a deleted webhook failed in the logs and nowhere
+	// else, while looking perfectly healthy in the panel.
+	FailureStreak  int        `json:"failureStreak"`
+	LastError      string     `gorm:"size:512" json:"lastError,omitempty"`
+	LastErrorAt    *time.Time `json:"lastErrorAt,omitempty"`
+	LastDeliveryAt *time.Time `json:"lastDeliveryAt,omitempty"`
 }
 
 // EventList is a channel's event allow-list, stored as a JSON array. It carries
