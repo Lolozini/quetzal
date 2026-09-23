@@ -7,6 +7,37 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **Import a server from Pterodactyl.** In *New server*, *Import from
+  Pterodactyl* takes the address of the server's page and a client API key
+  (`ptlc_…`), fills the form from the server (template matched by the egg's
+  name, image, variables, memory/CPU/disk limits, allocations as ports) and
+  lists what does not carry over. On creation, the panel backs the server up —
+  or compresses its files when it has no backup slot — and the archive streams
+  into the new volume; the server is then marked installed, so the egg's
+  install does not run over the files, and the panel-side archive is deleted.
+  Progress and failures show on the server's page, with a retry. The key is
+  never stored. API: `POST /api/import/pterodactyl/inspect`, a `pterodactyl`
+  source on `POST /api/servers`, and `POST /api/servers/{id}/import/pterodactyl`.
+- Eggs in **Pelican's YAML format** (`PLCN_v3`, the `egg-*.yaml` files of the
+  pelican-eggs repositories) are read, by paste or by URL, alongside the
+  Pterodactyl JSON.
+- A CPU limit field in the create form.
+- `docs/MIGRATING.md`: bringing eggs (from your panel, or from pelican-eggs by
+  URL) and servers over from Pterodactyl.
+
+### Fixed
+
+- An imported egg's default image is the first one it lists, as in
+  Pterodactyl. It used to be whichever came first out of a Go map — a
+  different one from one import to the next. Re-import an egg to fix a
+  template imported before.
+- `{{server.allocations.default.port}}`, `{{server.allocations.default.ip}}`
+  and `{{server.build.memory_limit}}` — the paths Wings actually resolves, which
+  Pelican's eggs use — are translated like their `server.build.*` aliases
+  instead of being written out literally.
+
 ## [0.2.0] - 2026-09-23
 
 Mostly hardening: a security review of the whole panel, the install path made
