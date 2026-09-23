@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"regexp"
@@ -663,6 +664,44 @@ func (s *Server) updateServerEnv(r *http.Request, srv *models.Server, reqEnv map
 	return nil
 }
 
+// resolveEnvSwitch builds a server's environment for a template it is being
+// moved to. It starts from the new template's defaults and carries over the
+// current value of each variable the new template also declares (same env
+// name), so moving from one Minecraft egg to another keeps the version, the
+// MOTD, the RCON password. A value is not carried where the new template would
+// not accept it from the user: a variable it fixes (not editable) keeps the
+// template's value, and a value outside a choice list is not forced into it.
+// Those come back in reset, so the caller can say which settings changed.
+// Explicit values in reqEnv are applied last, with the usual rules.
+func resolveEnvSwitch(tmpl *models.Template, current, reqEnv map[string]string) (map[string]string, []string, error) {
+	carry := map[string]string{}
+	var reset []string
+	for _, v := range tmpl.Variables {
+		cur, ok := current[v.EnvVariable]
+		if !ok || strings.TrimSpace(cur) == "" {
+			continue
+		}
+		switch {
+		case !v.Editable:
+			if cur != v.Default {
+				reset = append(reset, v.EnvVariable)
+			}
+		case v.Type == models.VarEnum && len(v.Options) > 0 && !slices.Contains(v.Options, cur):
+			reset = append(reset, v.EnvVariable)
+		default:
+			carry[v.EnvVariable] = cur
+		}
+	}
+	env, err := resolveEnvUpdate(tmpl, carry, reqEnv)
+	if err != nil {
+		return nil, nil, err
+	}
+	// A variable the request then set explicitly was not reset.
+	reset = slices.DeleteFunc(reset, func(k string) bool { _, set := reqEnv[k]; return set })
+	slices.Sort(reset)
+	return env, reset, nil
+}
+
 // resolveEnvUpdate is resolveEnv's sibling for edits: it seeds from the server's
 // current values (not just template defaults), keeps blank secrets, and enforces
 // the same editable/enum/required contract.
@@ -982,25 +1021,150 @@ func (s *Server) handleReinstallServer(w http.ResponseWriter, r *http.Request) {
 	if transferInProgress(w, srv) {
 		return
 	}
-	tmpl, err := s.Store.GetTemplate(srv.TemplateID)
+	current, err := s.Store.GetTemplate(srv.TemplateID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not load template")
 		return
 	}
-	if tmpl.Install == nil || strings.TrimSpace(tmpl.Install.Script) == "" {
+	var req struct {
+		WipeData bool `json:"wipeData"`
+		// Template moves the server to another template (by slug) as part of
+		// the reinstall: another egg for the same game -- Paper to Fabric,
+		// keeping the world -- or another game altogether. Empty keeps it.
+		Template string `json:"template"`
+		// Image picks one of the target template's images. Empty keeps the
+		// current image when the target offers it, else takes its default.
+		Image string `json:"image"`
+		// Env sets variables of the new template, on top of what is carried
+		// over from the current one. Only with a template change: the current
+		// template's variables have their own endpoint.
+		Env map[string]string `json:"env"`
+	}
+	// The body is optional (a bare reinstall keeps the data), but one that does
+	// not parse is refused: silently ignoring a misspelt "template" would run a
+	// reinstall of the old one instead of the change that was asked for.
+	if err := decodeJSON(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	u := userFrom(r.Context())
+
+	target := current
+	switching := req.Template != "" && req.Template != current.Slug
+	if switching {
+		// Choosing the template is choosing what the server is. A subuser trusted
+		// with its settings may reinstall it; changing it into another game is
+		// its owner's call, or an administrator's (Pterodactyl leaves egg changes
+		// to administrators alone).
+		if u == nil || (u.ID != srv.OwnerID && !u.HasAdminPerm(models.AdminPermServers)) {
+			writeError(w, http.StatusForbidden, "only the server's owner or an administrator can change its template")
+			return
+		}
+		if target, err = s.Store.GetTemplateBySlug(req.Template); err != nil {
+			writeError(w, http.StatusBadRequest, "unknown template")
+			return
+		}
+	} else if len(req.Env) > 0 {
+		writeError(w, http.StatusBadRequest, "env is only accepted with a template change; set this template's variables through the server's variables instead")
+		return
+	}
+	installs := target.Install != nil && strings.TrimSpace(target.Install.Script) != ""
+	if !installs && !switching {
 		writeError(w, http.StatusBadRequest, "this server's template has no install script to run")
 		return
 	}
-	var req struct {
-		WipeData bool `json:"wipeData"`
+	if !installs && req.WipeData {
+		// The wipe is done by the install step, before the script runs.
+		writeError(w, http.StatusBadRequest, "the target template has no install step, so nothing would wipe the data; switch without wiping, or delete the files first")
+		return
 	}
-	_ = decodeJSON(r, &req) // body optional; default is keep-data
-	if err := s.Store.BumpInstallGeneration(srv.ID, req.WipeData); err != nil {
+
+	image := srv.Image
+	switch {
+	case req.Image != "":
+		if u == nil || (!u.HasAdminPerm(models.AdminPermServers) && !templateOffersImage(target, req.Image)) {
+			// Same rule as at creation: the template's image list is the
+			// operator's curation; only an administrator goes off it.
+			writeError(w, http.StatusBadRequest, "image is not one of the template's")
+			return
+		}
+		image = req.Image
+	case switching && !templateOffersImage(target, srv.Image):
+		image = defaultImage(target)
+	}
+	if image == "" {
+		writeError(w, http.StatusBadRequest, "the target template offers no image to run")
+		return
+	}
+
+	env, secretEnc := srv.Env, srv.SecretEnvEnc
+	var reset []string
+	if switching {
+		cur := map[string]string{}
+		for k, v := range srv.Env {
+			cur[k] = v
+		}
+		secrets, err := s.Store.OpenSecrets(srv.SecretEnvEnc)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "could not read the server's secret variables")
+			return
+		}
+		for k, v := range secrets {
+			cur[k] = v
+		}
+		resolved, rs, err := resolveEnvSwitch(target, cur, req.Env)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		reset = rs
+		// Split by the new template's idea of what is secret, as at creation.
+		plain, secret := map[string]string{}, map[string]string{}
+		isSecret := map[string]bool{}
+		for _, v := range target.Variables {
+			isSecret[v.EnvVariable] = v.Secret
+		}
+		for k, v := range resolved {
+			if isSecret[k] {
+				secret[k] = v
+			} else {
+				plain[k] = v
+			}
+		}
+		if secretEnc, err = s.Store.SealSecrets(secret); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to seal secrets")
+			return
+		}
+		env = plain
+	}
+
+	if err := s.Store.ReinstallServer(srv.ID, store.ServerReinstall{
+		TemplateID: target.ID, TemplateVersion: target.Version, Image: image,
+		Env: env, SecretEnvEnc: secretEnc, Install: installs, Wipe: req.WipeData,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit(r, srv.ID, "server.reinstall", fmt.Sprintf("wipeData=%v", req.WipeData))
-	writeJSON(w, http.StatusOK, map[string]any{"status": "reinstalling", "wipeData": req.WipeData})
+	detail := fmt.Sprintf("wipeData=%v", req.WipeData)
+	if switching {
+		detail = fmt.Sprintf("template %s -> %s, image %s, %s", current.Slug, target.Slug, image, detail)
+	} else if image != srv.Image {
+		detail = fmt.Sprintf("image %s -> %s, %s", srv.Image, image, detail)
+	}
+	s.audit(r, srv.ID, "server.reinstall", detail)
+	status := "reinstalling"
+	if !installs {
+		status = "switched"
+	}
+	if reset == nil {
+		reset = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": status, "wipeData": req.WipeData, "template": target.Slug, "image": image,
+		// Variables of the new template whose current value was not carried over
+		// and took the template's default instead.
+		"reset": reset,
+	})
 }
 
 // allocateNodePorts reserves a stable pool node port for each of a server's

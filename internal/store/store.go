@@ -414,6 +414,45 @@ func (s *Store) BumpInstallGeneration(id uint, wipe bool) error {
 		}).Error
 }
 
+// ServerReinstall is what a reinstall may change on a server besides the install
+// generation: the template it runs, the image, and the environment the new
+// template resolves to.
+type ServerReinstall struct {
+	TemplateID      uint
+	TemplateVersion int
+	Image           string
+	Env             map[string]string
+	SecretEnvEnc    string
+	// Install bumps the install generation, so the (new) template's install
+	// script runs at the next start; Wipe has it empty the volume first. A
+	// template with no install script has nothing to run, so it leaves both off.
+	Install bool
+	Wipe    bool
+}
+
+// ReinstallServer applies a reinstall in one transaction. The controller must
+// never see a new template with the old install generation -- it would start
+// the new game on files nobody installed for it -- nor the reverse.
+func (s *Store) ReinstallServer(id uint, r ServerReinstall) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// Struct-shaped, with the columns named, so Env goes through its JSON
+		// serializer and a false InstallWipe is still written.
+		if err := tx.Model(&models.Server{}).Where("id = ?", id).
+			Select("template_id", "template_version", "image", "env", "secret_env_enc", "install_wipe").
+			Updates(models.Server{
+				TemplateID: r.TemplateID, TemplateVersion: r.TemplateVersion, Image: r.Image,
+				Env: r.Env, SecretEnvEnc: r.SecretEnvEnc, InstallWipe: r.Install && r.Wipe,
+			}).Error; err != nil {
+			return err
+		}
+		if !r.Install {
+			return nil
+		}
+		return tx.Model(&models.Server{}).Where("id = ?", id).
+			UpdateColumn("install_generation", gorm.Expr("install_generation + 1")).Error
+	})
+}
+
 // UpdateServerStatus persists only the status field. It uses Updates with a
 // typed struct (not Update with a raw value) so GORM applies the JSON
 // serializer registered on the Status field.

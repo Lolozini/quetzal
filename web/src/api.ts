@@ -432,6 +432,21 @@ export interface ClusterNode {
 
 export type ChannelType = "discord" | "webhook" | "email";
 
+export interface ReinstallRequest {
+  wipeData: boolean;
+  template?: string;
+  image?: string;
+  env?: Record<string, string>;
+}
+
+export interface ReinstallResult {
+  status: "reinstalling" | "switched";
+  wipeData: boolean;
+  template: string;
+  image: string;
+  reset: string[];
+}
+
 export interface NotificationChannel {
   id: number;
   createdAt: string;
@@ -620,8 +635,11 @@ export const api = {
     req<Server>("PATCH", `/api/servers/${id}`, { resources }),
   setServerPorts: (id: number, ports: { port: number; protocol: string; primary: boolean }[]) =>
     req<Server>("PATCH", `/api/servers/${id}`, { ports }),
-  reinstallServer: (id: number, wipeData: boolean) =>
-    req<{ status: string; wipeData: boolean }>("POST", `/api/servers/${id}/reinstall`, { wipeData }),
+  // A reinstall can also move the server to another template (owner or admin)
+  // and/or another of the template's images. reset lists the new template's
+  // variables whose current value was not carried over.
+  reinstallServer: (id: number, body: ReinstallRequest) =>
+    req<ReinstallResult>("POST", `/api/servers/${id}/reinstall`, body),
   stats: (id: number) => req<ServerStats>("GET", `/api/servers/${id}/stats`),
   installLog: (id: number) => req<InstallLog>("GET", `/api/servers/${id}/install-log`),
 

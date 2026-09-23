@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, Server, Template, TemplateVariable } from "../api";
 import { useT } from "../i18n";
+import { Combobox } from "./Combobox";
 import { PortsEditor, PortRow, rowsToPorts } from "./PortsEditor";
 import { RestartHint } from "./RestartHint";
 
@@ -24,7 +25,7 @@ export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (
       <ResourcesForm server={server} onSaved={onSaved} />
       {tmpl && (tmpl.ports?.length ?? 0) === 0 && <ServerPorts server={server} onSaved={onSaved} />}
       {tmpl?.features?.includes("eula") && <EULAToggle server={server} onSaved={onSaved} />}
-      {tmpl?.install?.script && <Reinstall serverId={server.id} />}
+      {tmpl && <Reinstall server={server} current={tmpl} onSaved={onSaved} />}
     </div>
   );
 }
@@ -122,24 +123,83 @@ function ServerPorts({ server, onSaved }: { server: Server; onSaved: (s: Server)
   );
 }
 
-function Reinstall({ serverId }: { serverId: number }) {
+// Reinstall re-runs the install script, and can move the server to another
+// template on the way -- another egg for the same game (Paper to Fabric, keeping
+// the world) or another game -- and to another of its images. Only the owner or
+// an administrator sees this panel, which is also who the API lets switch.
+function Reinstall({ server, current, onSaved }: { server: Server; current: Template; onSaved: (s: Server) => void }) {
   const { t } = useT();
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [slug, setSlug] = useState(current.slug);
+  const [image, setImage] = useState(server.image);
   const [wipe, setWipe] = useState(false);
+  const [values, setValues] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    api.templates().then(setTemplates).catch(() => {});
+  }, []);
+  // After a switch the page reloads the server with its new template.
+  useEffect(() => {
+    setSlug(current.slug);
+    setImage(server.image);
+  }, [current.slug, server.image]);
+
+  const target = templates.find((x) => x.slug === slug) ?? current;
+  const switching = target.slug !== current.slug;
+  const installs = !!target.install?.script;
+  // The variables the switch cannot fill on its own: required by the new
+  // template, without a default. The rest carry over or take their defaults,
+  // and can be edited afterwards like any other.
+  const needed = switching
+    ? target.variables.filter((v) => v.editable && v.required && !(v.default ?? "").trim())
+    : [];
+
+  function pick(next: string) {
+    const x = templates.find((y) => y.slug === next);
+    if (!x) return;
+    setSlug(next);
+    // Keep the current image when the new template offers it, as the API does.
+    const offered = x.images.some((i) => i.ref === server.image);
+    setImage(offered ? server.image : (x.images.find((i) => i.default) ?? x.images[0])?.ref ?? "");
+    const v: Record<string, string> = {};
+    for (const nv of x.variables) {
+      if (nv.editable && nv.required && !(nv.default ?? "").trim()) v[nv.envVariable] = nv.secret ? "" : server.env?.[nv.envVariable] ?? "";
+    }
+    setValues(v);
+    if (!x.install?.script) setWipe(false);
+  }
+
   async function run() {
-    const warning = wipe
-      ? t("Reinstall AND WIPE all data? This permanently deletes the server's files, then re-runs the install script.")
-      : t("Reinstall this server? It re-runs the install script and restarts the server (data is kept).");
+    const warning = switching
+      ? t('Switch this server to "{name}"? Ports, resources and — unless wiped — its files are kept. Variables with the same name carry over; the others take the new template\'s defaults.', { name: target.name }) +
+        (installs ? " " + t("The new template's install script runs on the next start.") : "")
+      : wipe
+        ? t("Reinstall AND WIPE all data? This permanently deletes the server's files, then re-runs the install script.")
+        : t("Reinstall this server? It re-runs the install script and restarts the server (data is kept).");
     if (!window.confirm(warning)) return;
     setBusy(true);
     setMsg("");
     setError("");
     try {
-      await api.reinstallServer(serverId, wipe);
-      setMsg(t("Reinstall triggered — the server will re-run its install script on the next start/reconcile."));
+      const env: Record<string, string> = {};
+      for (const [k, v] of Object.entries(values)) if (v.trim() !== "") env[k] = v;
+      const res = await api.reinstallServer(server.id, {
+        wipeData: wipe,
+        ...(switching ? { template: target.slug } : {}),
+        ...(image !== server.image ? { image } : {}),
+        ...(switching && Object.keys(env).length ? { env } : {}),
+      });
+      let done = switching
+        ? t('Switched to "{name}".', { name: target.name }) +
+          " " +
+          (res.status === "reinstalling" ? t("Its install runs on the next start.") : t("It has no install step: the image does the work at start."))
+        : t("Reinstall triggered — the server will re-run its install script on the next start/reconcile.");
+      if (res.reset.length) done += " " + t("Reset to the new template's defaults: {vars}.", { vars: res.reset.join(", ") });
+      setMsg(done);
+      onSaved(await api.server(server.id));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -147,18 +207,51 @@ function Reinstall({ serverId }: { serverId: number }) {
     }
   }
 
+  const blocked = (!switching && !installs) || needed.some((v) => !(values[v.envVariable] ?? "").trim() && !v.secret);
   return (
     <div style={{ marginTop: 12 }}>
-      <h3>{t("Reinstall")}</h3>
-      <p className="muted">{t("Re-runs the template's install script. Applied on the next reconcile, which restarts the server.")}</p>
-      <label className="row" style={{ gap: 6 }}>
-        <input type="checkbox" style={{ width: "auto" }} checked={wipe} onChange={(e) => setWipe(e.target.checked)} />
+      <h3>{t("Reinstall or change template")}</h3>
+      <p className="muted">
+        {t("Re-runs the template's install script, optionally on another template or image. Applied on the next reconcile, which restarts the server.")}
+      </p>
+      <label>{t("Template")}</label>
+      <Combobox
+        options={templates.map((x) => ({ value: x.slug, label: x.slug === current.slug ? `${x.name} ${t("(current)")}` : x.name }))}
+        value={slug}
+        placeholder={t("Search or select a template…")}
+        emptyLabel={t("No templates match your search.")}
+        onChange={pick}
+      />
+      {!switching && !installs && <p className="muted">{t("This template has no install step. Pick another template to switch to.")}</p>}
+      <label>{t("Image")}</label>
+      <select value={image} onChange={(e) => setImage(e.target.value)}>
+        {target.images.map((i) => (
+          <option key={i.ref} value={i.ref}>
+            {i.displayName} ({i.ref})
+          </option>
+        ))}
+      </select>
+      {needed.map((v) => (
+        <div key={v.envVariable}>
+          <label>
+            {v.name} <code>{v.envVariable}</code> — {t("required by the new template")}
+          </label>
+          <input
+            type={v.secret ? "password" : "text"}
+            value={values[v.envVariable] ?? ""}
+            placeholder={v.secret ? t("leave blank to keep the current value, if any") : ""}
+            onChange={(e) => setValues({ ...values, [v.envVariable]: e.target.value })}
+          />
+        </div>
+      ))}
+      <label className="row" style={{ gap: 6, marginTop: 8 }}>
+        <input type="checkbox" style={{ width: "auto" }} checked={wipe} disabled={!installs} onChange={(e) => setWipe(e.target.checked)} />
         {t("Also wipe the data volume (delete all files first)")}
       </label>
       {msg && <div className="notice">{msg}</div>}
       {error && <div className="error">{error}</div>}
-      <button className={wipe ? "danger" : ""} style={{ marginTop: 8 }} onClick={run} disabled={busy}>
-        {busy ? "…" : wipe ? t("Reinstall & wipe") : t("Reinstall")}
+      <button className={wipe ? "danger" : ""} style={{ marginTop: 8 }} onClick={run} disabled={busy || blocked}>
+        {busy ? "…" : switching ? (wipe ? t("Switch & wipe") : t("Switch template")) : wipe ? t("Reinstall & wipe") : t("Reinstall")}
       </button>
     </div>
   );
