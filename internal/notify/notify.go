@@ -286,6 +286,10 @@ func retryable(err error) bool {
 	if errors.As(err, &pe) {
 		return false
 	}
+	// The SSRF guard refusing an internal address is a policy, not an outage.
+	if errors.Is(err, safefetch.ErrBlocked) {
+		return false
+	}
 	var se *statusError
 	if errors.As(err, &se) {
 		return se.code >= 500 || se.code == http.StatusTooManyRequests || se.code == http.StatusRequestTimeout

@@ -249,3 +249,24 @@ func TestShutdownDuringBackoffIsNotAChannelFailure(t *testing.T) {
 		t.Errorf("cursor = %q after an interrupted delivery, want 0: the event is lost", cur)
 	}
 }
+
+// A URL the SSRF guard refuses is refused identically every time; retrying it
+// only holds every other channel up for the length of the backoff.
+func TestDeliveryDoesNotRetryAnAddressTheGuardRefuses(t *testing.T) {
+	st := webhookStore("http://127.0.0.1:1/api/webhooks/9/TOKEN", 1)
+	d := New(st) // the production client, SSRF guard included
+	var waits []time.Duration
+	d.sleep = func(_ context.Context, dur time.Duration) error { waits = append(waits, dur); return nil }
+
+	d.drain(context.Background())
+
+	if len(waits) != 0 {
+		t.Errorf("backed off %v before giving up on a refused address", waits)
+	}
+	if len(st.results) != 1 || !strings.Contains(st.results[0].errMsg, "non-public address") {
+		t.Fatalf("results = %+v", st.results)
+	}
+	if strings.Contains(st.results[0].errMsg, "TOKEN") {
+		t.Errorf("recorded error leaks the URL: %q", st.results[0].errMsg)
+	}
+}

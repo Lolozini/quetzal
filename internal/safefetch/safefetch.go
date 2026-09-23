@@ -7,6 +7,7 @@ package safefetch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -28,6 +29,12 @@ func blockedIP(ip net.IP) bool {
 		ip.IsUnspecified()
 }
 
+// ErrBlocked is wrapped into the error for a connection refused because the
+// address it would reach is not public. It is a policy decision, not a network
+// failure, so a caller that retries can tell the two apart with errors.Is and
+// stop trying: the same address will be refused the same way every time.
+var ErrBlocked = errors.New("refusing to connect to non-public address")
+
 // guard runs for every actual TCP connection (each resolved IP, each redirect
 // hop), so it defeats DNS rebinding: the IP being dialed is what's checked.
 func guard(_, address string, _ syscall.RawConn) error {
@@ -36,7 +43,7 @@ func guard(_, address string, _ syscall.RawConn) error {
 		return err
 	}
 	if ip := net.ParseIP(host); blockedIP(ip) {
-		return fmt.Errorf("refusing to connect to non-public address %s", host)
+		return fmt.Errorf("%w %s", ErrBlocked, host)
 	}
 	return nil
 }
