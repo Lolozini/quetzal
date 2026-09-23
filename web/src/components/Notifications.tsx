@@ -138,6 +138,9 @@ export function Notifications({ serverId }: { serverId: number }) {
     try {
       await api.testChannel(c.id);
       setStatus((s) => ({ ...s, [c.id]: "sent ✓" }));
+      // A test that gets through clears the channel's failure on the server;
+      // reload so the badge goes with it.
+      await load();
     } catch (e) {
       setStatus((s) => ({ ...s, [c.id]: e instanceof ApiError ? e.message : String(e) }));
     }
@@ -177,6 +180,7 @@ export function Notifications({ serverId }: { serverId: number }) {
                 <td>{c.events && c.events.length ? c.events.join(", ") : <span className="muted">{t("all")}</span>}</td>
                 <td>
                   {c.enabled ? t("enabled") : <span className="muted">{t("disabled")}</span>}
+                  <DeliveryHealth c={c} />
                   {status[c.id] && <div className="muted">{status[c.id]}</div>}
                 </td>
                 <td style={{ whiteSpace: "nowrap" }}>
@@ -273,4 +277,25 @@ export function Notifications({ serverId }: { serverId: number }) {
       </form>
     </div>
   );
+}
+
+// DeliveryHealth shows whether a channel's deliveries are getting through. A
+// failing one used to look exactly like a healthy one here; the only trace was
+// a line in the apiserver's log.
+function DeliveryHealth({ c }: { c: NotificationChannel }) {
+  const { t } = useT();
+  const when = (iso?: string) => (iso ? new Date(iso).toLocaleString() : "");
+  if (c.failureStreak > 0) {
+    return (
+      <div>
+        <span className="badge Error">{t("failing — {n} missed in a row", { n: String(c.failureStreak) })}</span>
+        {c.lastError && <div className="muted">{c.lastError}</div>}
+        {c.lastErrorAt && <div className="muted">{t("last failure: {time}", { time: when(c.lastErrorAt) })}</div>}
+      </div>
+    );
+  }
+  if (c.lastDeliveryAt) {
+    return <div className="muted">{t("last delivered {time}", { time: when(c.lastDeliveryAt) })}</div>;
+  }
+  return null;
 }

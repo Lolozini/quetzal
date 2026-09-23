@@ -96,8 +96,87 @@ func readExisting(path string) ([]byte, error) {
 	return b, nil
 }
 
+// writeFile replaces path with data so that the file is, at every instant,
+// either the old config or the new one. Every parser here rewrites the whole
+// file from what it read, on every start, from an init container that can be
+// killed at any moment -- an eviction, a node under memory pressure. Written in
+// place, a kill between the truncate and the last byte left the player's config
+// empty or cut short. The file manager's write path was hardened against
+// exactly this long ago; this one had not been.
+//
+// The new content goes to a temporary file beside the target, is synced, and is
+// renamed over it. The file's permission bits are carried over (a config that
+// holds an RCON password is often 0600 on purpose). The render runs as the
+// game's user, so the replacement is owned by the user that has to read it.
+//
+// Two cases keep the old in-place write, because renaming would change what
+// they mean: a config that is a symlink (renaming would replace the link with a
+// copy and silently detach whatever it pointed at), and a writable file in a
+// directory the game's user cannot create files in (it worked before, and
+// atomicity is not worth breaking it for).
 func writeFile(path string, data []byte) error {
-	return os.WriteFile(path, data, 0o644)
+	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return os.WriteFile(path, data, 0o644)
+	}
+	mode := os.FileMode(0o644)
+	if fi, err := os.Stat(path); err == nil {
+		mode = fi.Mode().Perm()
+	}
+	dir, base := filepath.Dir(path), filepath.Base(path)
+	prefix := "." + base + ".quetzal-render-"
+
+	// A render killed between creating its temporary and renaming it leaves one
+	// behind. Only one render runs per server at a time, so any found now is
+	// stale.
+	if stale, _ := filepath.Glob(filepath.Join(dir, globEscape(prefix)+"*")); len(stale) > 0 {
+		for _, f := range stale {
+			_ = os.Remove(f)
+		}
+	}
+
+	tmp, err := os.CreateTemp(dir, prefix+"*")
+	if err != nil {
+		return os.WriteFile(path, data, 0o644)
+	}
+	name := tmp.Name()
+	done := false
+	defer func() {
+		if !done {
+			_ = os.Remove(name)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		return err
+	}
+	done = true
+	// Make the rename itself durable. Best-effort: not every filesystem lets a
+	// directory be synced, and the replacement is already whole either way.
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
+	return nil
+}
+
+// globEscape quotes the characters filepath.Match treats as patterns, so a file
+// name containing them matches only itself.
+func globEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`).Replace(s)
 }
 
 // ---- properties / flat key=value ----

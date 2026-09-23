@@ -145,7 +145,33 @@ jobs:
         uses: helm/kind-action@v1.14.0
         with:
           cluster_name: quetzal-e2e
-          node_image: kindest/node:v1.31.0
+          # A supported Kubernetes, not a pin that aged out. 1.31 is long past
+          # end of life, and an older apiserver also knows fewer things to object
+          # to: the duplicate-port-name warning below does not exist before 1.33.
+          node_image: kindest/node:v1.35.0
+      - uses: azure/setup-helm@v5
+      # Rendering the chart and grepping it proves it says what was meant. Only
+      # the apiserver can say whether Kubernetes accepts it, and some of what it
+      # objects to it reports as a warning and lets through: two containers in
+      # the pod declaring the same port name went to production that way, and
+      # pointed the controller's liveness probe at the apiserver. A plain
+      # dry-run prints that warning and exits 0; --warnings-as-errors is what
+      # makes it fail the build. Nothing is created (server-side dry-run), in a
+      # namespace no test uses.
+      - name: Chart is accepted by the apiserver
+        run: |
+          set -euo pipefail
+          ns=quetzal-chart-dryrun
+          kubectl create namespace "$ns"
+          for args in "" \
+              "--set ingress.enabled=true --set ingress.host=panel.example.test" \
+              "--set replicaCount=2 --set db.driver=postgres --set persistence.enabled=false"; do
+            echo "== helm template $args"
+            # shellcheck disable=SC2086 # $args is a list of flags on purpose
+            helm template quetzal deploy/quetzal --namespace "$ns" $args \
+              | kubectl --warnings-as-errors apply --dry-run=server -f -
+          done
+          kubectl delete namespace "$ns" --wait=false
       - name: Load image into kind
         run: kind load docker-image quetzal:e2e --name quetzal-e2e
       # The backup test brings up MinIO and runs restic in-cluster. Left to

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -23,6 +24,11 @@ type channelDTO struct {
 	Config map[string]string `json:"config"`
 	// Secrets reports which secret keys are configured, without their values.
 	Secrets map[string]bool `json:"secrets"`
+	// Delivery health: events missed in a row since the last success, and why.
+	FailureStreak  int        `json:"failureStreak"`
+	LastError      string     `json:"lastError,omitempty"`
+	LastErrorAt    *time.Time `json:"lastErrorAt,omitempty"`
+	LastDeliveryAt *time.Time `json:"lastDeliveryAt,omitempty"`
 }
 
 func (s *Server) maskChannel(c *models.NotificationChannel) channelDTO {
@@ -44,6 +50,8 @@ func (s *Server) maskChannel(c *models.NotificationChannel) channelDTO {
 		ID: c.ID, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 		Name: c.Name, Type: c.Type, Enabled: c.Enabled, ServerID: c.ServerID,
 		Events: c.Events, Config: pub, Secrets: set,
+		FailureStreak: c.FailureStreak, LastError: c.LastError,
+		LastErrorAt: c.LastErrorAt, LastDeliveryAt: c.LastDeliveryAt,
 	}
 }
 
@@ -305,8 +313,15 @@ func (s *Server) handleTestChannel(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: time.Now(),
 	}
 	if err := s.Dispatch.DeliverTo(r.Context(), c, cfg, ev); err != nil {
+		// Not recorded against the channel: a test is not an event it missed.
 		writeError(w, http.StatusBadGateway, "delivery failed: "+err.Error())
 		return
+	}
+	// A test that gets through proves the channel works again -- typically just
+	// after its URL was fixed -- so the failure it was showing is cleared now
+	// rather than at the next real event, which may be days away.
+	if err := s.Store.RecordChannelResult(c.ID, time.Now(), ""); err != nil {
+		log.Printf("notify: channel %d: record test delivery: %v", c.ID, err)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

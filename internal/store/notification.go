@@ -98,6 +98,29 @@ func (s *Store) EnabledChannels() ([]models.NotificationChannel, error) {
 	return cs, nil
 }
 
+// RecordChannelResult notes how a delivery to a channel ended: errMsg empty for
+// a success (which clears the failure streak), otherwise the reason it was
+// given up on (which extends it). UpdateColumns rather than Updates, so that
+// delivery traffic does not move the channel's UpdatedAt -- that stamp says
+// when somebody last changed the channel.
+func (s *Store) RecordChannelResult(id uint, at time.Time, errMsg string) error {
+	q := s.db.Model(&models.NotificationChannel{}).Where("id = ?", id)
+	if errMsg == "" {
+		return q.UpdateColumns(map[string]any{
+			"failure_streak":   0,
+			"last_delivery_at": at,
+		}).Error
+	}
+	if r := []rune(errMsg); len(r) > 500 {
+		errMsg = string(r[:500]) + "…"
+	}
+	return q.UpdateColumns(map[string]any{
+		"failure_streak": gorm.Expr("failure_streak + 1"),
+		"last_error":     errMsg,
+		"last_error_at":  at,
+	}).Error
+}
+
 // DeleteChannel removes a channel.
 func (s *Store) DeleteChannel(id uint) error {
 	return s.db.Delete(&models.NotificationChannel{}, id).Error
