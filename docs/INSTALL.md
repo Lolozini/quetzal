@@ -37,6 +37,20 @@ Pin a released tag in production rather than `latest`.
 
 ## Install with Helm
 
+Each [release](https://github.com/lolozini/quetzal/releases) carries the chart,
+packaged at the release's version and pointing at its image, so there is nothing
+to clone:
+
+```sh
+helm install quetzal \
+  https://github.com/lolozini/quetzal/releases/download/vX.Y.Z/quetzal-X.Y.Z.tgz \
+  --namespace quetzal --create-namespace \
+  --set ingress.enabled=true \
+  --set ingress.host=quetzal.example.com
+```
+
+Or from a checkout of the repository, pinning the image yourself:
+
 ```sh
 helm install quetzal ./deploy/quetzal \
   --namespace quetzal --create-namespace \

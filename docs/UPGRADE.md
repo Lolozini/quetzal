@@ -17,6 +17,16 @@ automatically on startup.
 ## Upgrade with Helm
 
 ```sh
+helm upgrade quetzal \
+  https://github.com/lolozini/quetzal/releases/download/vX.Y.Z/quetzal-X.Y.Z.tgz \
+  --namespace quetzal \
+  --reuse-values
+```
+
+The released chart already points at its own image. From a checkout of the
+repository instead, pin the image yourself:
+
+```sh
 helm upgrade quetzal ./deploy/quetzal \
   --namespace quetzal \
   --reuse-values \
@@ -24,10 +34,15 @@ helm upgrade quetzal ./deploy/quetzal \
 ```
 
 - `--reuse-values` keeps your existing settings; override only what changes.
+- Coming from **0.1.0**: its chart defaulted to an image tag that was never
+  published, so an install made from it had `image.tag` set by hand, and
+  `--reuse-values` keeps that setting. Pass `--set image.tag=vX.Y.Z`, or
+  `--set image.tag=` to follow the chart, or the upgrade stays on the old image.
 - The generated `QUETZAL_SECRET_KEY` is reused across upgrades (do not rotate it
   unintentionally — existing encrypted values would become unreadable).
 - A `migrate`-only init container applies schema migrations before the new
-  apiserver/controller start, so the two Deployments never race on the schema.
+  apiserver and controller containers start, so the two never race on the
+  schema.
 
 ## Verify
 
