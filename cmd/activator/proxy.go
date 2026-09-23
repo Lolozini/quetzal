@@ -6,18 +6,36 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-// activity tracks the number of live flows and beats a control-plane callback
-// while any are active, so the server's idle timer (LastActiveAt) stays fresh —
-// the only way to measure UDP activity, which /proc/net/tcp can't see.
+// activity beats a control-plane callback while traffic is flowing, so the
+// server's idle timer (LastActiveAt) stays fresh — the only way to measure UDP
+// activity, which /proc/net/tcp can't see.
+//
+// What counts is traffic, not open sockets. It used to be the number of live
+// flows, and a TCP flow lives as long as nobody closes it: one silent
+// connection -- a scanner that never hangs up, a client that vanished without a
+// FIN -- beat the timer every interval and the server never hibernated again,
+// for as long as the game itself tolerated the socket. (Minecraft does not: it
+// drops a silent client after thirty seconds, and that close propagates through
+// the pipe. Games without such a timeout had no way out.) UDP flows already
+// expired after a minute of silence; TCP had no equivalent.
+//
+// Nothing is closed for being quiet. A player in a game without keepalives who
+// stops typing keeps the connection; the server only sleeps under them once
+// nobody at all has sent a byte for the whole hibernation window.
 type activity struct {
 	beat     func()
 	interval time.Duration
 	mu       sync.Mutex
-	n        int
+	n        int // live flows, for accounting; no longer what drives the beat
+	seen     atomic.Bool
 }
+
+// touch records that bytes moved on some flow since the last beat.
+func (a *activity) touch() { a.seen.Store(true) }
 
 func (a *activity) inc() { a.mu.Lock(); a.n++; a.mu.Unlock() }
 func (a *activity) dec() {
@@ -36,7 +54,7 @@ func (a *activity) run() {
 	t := time.NewTicker(a.interval)
 	defer t.Stop()
 	for range t.C {
-		if a.count() > 0 {
+		if a.seen.Swap(false) {
 			a.beat()
 		}
 	}
@@ -112,7 +130,7 @@ func (p *proxy) handleTCP(client net.Conn, backendAddr string) {
 		return // server never came up within the budget; client retries
 	}
 	defer be.Close()
-	pipe(client, be)
+	pipe(client, be, p.activity)
 }
 
 // dialTCP dials the backend, retrying within the budget while the woken server
@@ -132,15 +150,33 @@ func (p *proxy) dialTCP(addr string) net.Conn {
 	}
 }
 
-// pipe copies bidirectionally until either side closes, then closes both.
-func pipe(a, b net.Conn) {
+// pipe copies bidirectionally until either side closes, then closes both,
+// reporting every chunk that moves in either direction as activity.
+func pipe(a, b net.Conn, act *activity) {
 	done := make(chan struct{}, 2)
-	cp := func(dst, src net.Conn) { _, _ = io.Copy(dst, src); done <- struct{}{} }
+	cp := func(dst, src net.Conn) {
+		_, _ = io.Copy(dst, touchReader{r: src, act: act})
+		done <- struct{}{}
+	}
 	go cp(a, b)
 	go cp(b, a)
 	<-done
 	_ = a.Close()
 	_ = b.Close()
+}
+
+// touchReader reports every read that returned bytes as activity.
+type touchReader struct {
+	r   io.Reader
+	act *activity
+}
+
+func (t touchReader) Read(p []byte) (int, error) {
+	n, err := t.r.Read(p)
+	if n > 0 && t.act != nil {
+		t.act.touch()
+	}
+	return n, err
 }
 
 // ---- UDP ----
@@ -183,6 +219,7 @@ func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 			go p.udpBackToClient(pc, be, caddr, flows, key, &mu)
 		}
 		f.lastSeen = time.Now()
+		p.activity.touch()
 		data := append([]byte(nil), buf[:n]...) // copy: buf is reused
 		mu.Unlock()
 		_, _ = f.backend.Write(data)
@@ -200,6 +237,7 @@ func (p *proxy) udpBackToClient(pc *net.UDPConn, be net.Conn, caddr *net.UDPAddr
 			return
 		}
 		_, _ = pc.WriteToUDP(buf[:n], caddr)
+		p.activity.touch()
 		mu.Lock()
 		if cur := flows[key]; cur != nil {
 			cur.lastSeen = time.Now()
