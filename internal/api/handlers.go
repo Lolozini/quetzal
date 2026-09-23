@@ -28,6 +28,7 @@ import (
 	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/egg"
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/pterodactyl"
 	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/stats"
 	"github.com/lolozini/quetzal/internal/store"
@@ -272,6 +273,7 @@ func (s *Server) handleGetServer(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	srv.Import = srv.Import.Effective(time.Now())
 	writeJSON(w, http.StatusOK, srv)
 }
 
@@ -293,6 +295,10 @@ type createServerRequest struct {
 	// EULAAccepted accepts the Minecraft EULA for templates with the "eula" egg
 	// feature (ignored for templates that don't declare it).
 	EULAAccepted bool `json:"eulaAccepted"`
+	// Pterodactyl, when set, imports the data of a server from a Pterodactyl
+	// panel into the new one (see pteroimport.go). The server is created
+	// stopped; Start then applies once the data is in place.
+	Pterodactyl *pteroSource `json:"pterodactyl,omitempty"`
 }
 
 func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
@@ -309,6 +315,16 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "unknown template")
 		return
+	}
+	var pteroSrc *pterodactyl.Client
+	var pteroID string
+	if req.Pterodactyl != nil {
+		// Checked before anything is created, so a bad address or key does not
+		// leave an empty server behind.
+		if pteroSrc, pteroID, err = s.pteroClient(*req.Pterodactyl); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	// The display name is a free, non-unique label (duplicates allowed, like
 	// Pterodactyl). The server's stable identity is the slug — a readable prefix
@@ -429,7 +445,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	state := models.StateStopped
-	if req.Start {
+	if req.Start && pteroSrc == nil {
 		state = models.StateRunning
 	}
 
@@ -492,6 +508,15 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		srv.Ports = allocated
 	}
 	s.audit(r, srv.ID, "server.create", srv.Slug)
+	if pteroSrc != nil {
+		st, err := s.startPteroImport(srv, pteroSrc, pteroID, req.Start)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "the server was created, but its import could not start: "+err.Error())
+			return
+		}
+		srv.Import = st
+		s.audit(r, srv.ID, "server.import", st.Source)
+	}
 	writeJSON(w, http.StatusCreated, srv)
 }
 
@@ -1018,7 +1043,7 @@ func (s *Server) handleReinstallServer(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if transferInProgress(w, srv) {
+	if transferInProgress(w, srv) || importInProgress(w, srv) {
 		return
 	}
 	current, err := s.Store.GetTemplate(srv.TemplateID)
@@ -1505,7 +1530,7 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "server is suspended by an administrator")
 		return
 	}
-	if transferInProgress(w, srv) {
+	if transferInProgress(w, srv) || importInProgress(w, srv) {
 		return
 	}
 	var req powerRequest

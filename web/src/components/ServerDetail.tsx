@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, Cluster, EventEntry, ExposeType, hasAdminPerm, InstallLog, OFFLINE_PHASES, PowerAction, Server, ServerStats, User } from "../api";
+import { api, ApiError, Cluster, EventEntry, ExposeType, hasAdminPerm, ImportState, InstallLog, OFFLINE_PHASES, PowerAction, Server, ServerStats, User } from "../api";
 import { useT } from "../i18n";
 import { Access } from "./Access";
 import { Backups } from "./Backups";
@@ -76,6 +76,74 @@ interface Sample {
 const MAX_SAMPLES = 60;
 
 // Chart is a dependency-free SVG sparkline (filled area + line) for one series.
+// ImportBanner reports a Pterodactyl import in progress and, when it failed,
+// offers to retry it (the API key is not stored, so it is asked for again).
+function ImportBanner({ id, imp, canRetry, onChange }: { id: number; imp: ImportState; canRetry: boolean; onChange: () => void }) {
+  const { t } = useT();
+  const [url, setUrl] = useState("");
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (imp.phase === "Done") return null;
+  if (imp.phase !== "Failed") {
+    const copied = imp.bytes ? formatMem(imp.bytes) : "";
+    return (
+      <div className="notice" style={{ marginTop: 12 }}>
+        {t("Importing from Pterodactyl ({source}): the server cannot start until it is done.", { source: imp.source })}{" "}
+        {imp.phase === "Downloading"
+          ? imp.total
+            ? t("Copied {done} of {total}.", { done: copied || "0 MiB", total: formatMem(imp.total) })
+            : t("Copied {done}.", { done: copied || "0 MiB" })
+          : imp.message}
+      </div>
+    );
+  }
+  async function retry() {
+    setBusy(true);
+    setError("");
+    try {
+      await api.importPterodactyl(id, { url: url.trim(), apiKey: key.trim(), start: imp.startAfter });
+      onChange();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="notice" style={{ marginTop: 12 }}>
+      <div className="error">{t("The import from Pterodactyl failed: {message}", { message: imp.message || "?" })}</div>
+      {canRetry && (
+        <>
+          <div className="muted" style={{ fontSize: 12 }}>
+            {t("The server is stopped. To retry, give the server's page address and a client API key again.")}
+          </div>
+          <div className="row" style={{ marginTop: 6, gap: 6, flexWrap: "wrap" }}>
+            <input
+              style={{ flex: 2, minWidth: 220 }}
+              value={url}
+              placeholder="https://panel.example.com/server/1a2b3c4d"
+              onChange={(e) => setUrl(e.target.value)}
+            />
+            <input
+              style={{ flex: 1, minWidth: 140 }}
+              type="password"
+              autoComplete="off"
+              value={key}
+              placeholder="ptlc_…"
+              onChange={(e) => setKey(e.target.value)}
+            />
+            <button type="button" disabled={busy || !url || !key} onClick={retry}>
+              {busy ? t("Starting…") : t("Retry the import")}
+            </button>
+          </div>
+          {error && <div className="error">{error}</div>}
+        </>
+      )}
+    </div>
+  );
+}
+
 function Chart({ label, value, points, color }: { label: string; value: string; points: number[]; color: string }) {
   const w = 240;
   const h = 48;
@@ -292,7 +360,9 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
   }
 
   const canManage = !!srv && (hasAdminPerm(user, "servers") || srv.ownerId === user.id);
-  const transferring = !!srv?.transfer;
+  // A running import blocks power like a transfer does (the API answers 409).
+  const importing = !!srv?.import && (srv.import.phase === "Preparing" || srv.import.phase === "Downloading");
+  const transferring = !!srv?.transfer || importing;
   const hasPorts = !!srv?.ports && srv.ports.length > 0;
   // TCP-only servers can use the lightweight wake-on-connect; UDP needs the proxy.
   const tcpOnly = hasPorts && srv!.ports!.every((p) => p.protocol.toUpperCase() !== "UDP");
@@ -439,6 +509,14 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
               )
             )}
           </div>
+        )}
+        {srv.import && (
+          <ImportBanner
+            id={id}
+            imp={srv.import}
+            canRetry={canManage}
+            onChange={async () => setSrv(await api.server(id))}
+          />
         )}
         <div className="row" style={{ marginTop: 12 }}>
           <button className="primary" disabled={busy !== "" || transferring} onClick={() => power("start")}>

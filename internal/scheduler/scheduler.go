@@ -212,6 +212,13 @@ func (s *Scheduler) runTask(ctx context.Context, srv *models.Server, t models.Sc
 		(t.Action == models.SchedStart || t.Action == models.SchedStop || t.Action == models.SchedRestart) {
 		return true, "skipped (server suspended)"
 	}
+	// Starting a server whose data is still being imported would run the egg's
+	// install over the arriving files.
+	if t.Action == models.SchedStart || t.Action == models.SchedRestart {
+		if srv.Import.Running(time.Now()) {
+			return false, "skipped (the server's data is still being imported)"
+		}
+	}
 	var err error
 	switch t.Action {
 	case models.SchedStart:

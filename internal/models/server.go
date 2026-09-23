@@ -209,6 +209,10 @@ type Server struct {
 	// Driven by the controller's transfer manager.
 	Transfer *TransferState `gorm:"serializer:json" json:"transfer,omitempty"`
 
+	// Import is the copy of the server's data from another panel (nil when the
+	// server was not imported). Driven by the apiserver's import job.
+	Import *ImportState `gorm:"serializer:json" json:"import,omitempty"`
+
 	Status Status `gorm:"serializer:json" json:"status"`
 }
 

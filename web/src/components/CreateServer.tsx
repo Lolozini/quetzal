@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, Cluster, CreateServerRequest, ExposeType, Template } from "../api";
+import { api, ApiError, Cluster, CreateServerRequest, ExposeType, PterodactylInspect, Template } from "../api";
 import { useT } from "../i18n";
 import { Combobox } from "./Combobox";
 import { PortsEditor, rowsToPorts } from "./PortsEditor";
@@ -17,6 +17,7 @@ export function CreateServer({
   const [name, setName] = useState("");
   const [image, setImage] = useState("");
   const [memory, setMemory] = useState("");
+  const [cpu, setCpu] = useState("");
   const [size, setSize] = useState("10Gi");
   const [expose, setExpose] = useState<ExposeType>("ClusterIP");
   const [clusters, setClusters] = useState<Cluster[]>([]);
@@ -36,8 +37,17 @@ export function CreateServer({
   const [start, setStart] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // Import from Pterodactyl: the server's page address and a client API key.
+  // Once inspected, the form is filled from the source and the create request
+  // carries the source, so the new server receives its data.
+  const [pteroOpen, setPteroOpen] = useState(false);
+  const [pteroUrl, setPteroUrl] = useState("");
+  const [pteroKey, setPteroKey] = useState("");
+  const [pteroBusy, setPteroBusy] = useState(false);
+  const [pteroError, setPteroError] = useState("");
+  const [ptero, setPtero] = useState<PterodactylInspect | null>(null);
 
-  function selectTemplate(t: Template) {
+  function selectTemplate(t: Template, from: PterodactylInspect | null = ptero) {
     setTplSlug(t.slug);
     const def = t.images.find((i) => i.default) || t.images[0];
     setImage(def ? def.ref : "");
@@ -48,12 +58,28 @@ export function CreateServer({
     t.variables.forEach((v) => {
       if (v.editable && v.default) e[v.envVariable] = v.default;
     });
+    // Imported: the source's values win, for whichever template is picked (an
+    // enum value the template does not offer keeps the default).
+    if (from) {
+      t.variables.forEach((v) => {
+        const val = from.draft.variables[v.envVariable];
+        if (!v.editable || val === undefined) return;
+        if (v.type === "enum" && v.options && !v.options.includes(val)) return;
+        e[v.envVariable] = val;
+      });
+      const src = from.source.dockerImage;
+      if (src && t.images.some((i) => i.ref === src)) setImage(src);
+    }
     setEnv(e);
     // Pre-fill the ports editor: templates that declare no ports (imported eggs)
     // expose extra ports as variables (QUERY_PORT, RCON_PORT…). Seed those so the
     // user starts from the egg's ports instead of a blank row.
     const sugg = t.ports?.length ? [] : t.suggestedPorts ?? [];
-    if (sugg.length > 0) {
+    if (!t.ports?.length && from?.draft.ports?.length) {
+      // The source's allocations, default first.
+      setCustomPorts(from.draft.ports.map((p) => ({ port: p.port, protocol: p.protocol })));
+      setPrimaryIdx(0);
+    } else if (sugg.length > 0) {
       setCustomPorts(sugg.map((p) => ({ port: String(p.port), protocol: (p.protocol || "TCP").toUpperCase() })));
       const pi = sugg.findIndex((p) => p.primary);
       setPrimaryIdx(pi >= 0 ? pi : 0);
@@ -87,6 +113,32 @@ export function CreateServer({
 
   const tpl = templates.find((t) => t.slug === tplSlug);
 
+  async function inspect() {
+    setPteroBusy(true);
+    setPteroError("");
+    try {
+      const res = await api.inspectPterodactyl({ url: pteroUrl.trim(), apiKey: pteroKey.trim() });
+      setPtero(res);
+      const d = res.draft;
+      setName(d.name);
+      setMemory(d.memory ?? "");
+      setCpu(d.cpu ?? "");
+      setSize(d.storage);
+      // The egg's template when one matches; otherwise the one on screen, so
+      // the values still land wherever the variable names agree.
+      const target = templates.find((x) => x.slug === d.template) ?? templates.find((x) => x.slug === tplSlug);
+      if (target) selectTemplate(target, res);
+      // The data brings the server with it: installing on top would be wasted
+      // at best. Start once the import is done.
+      setStart(true);
+    } catch (err) {
+      setPtero(null);
+      setPteroError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setPteroBusy(false);
+    }
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -97,6 +149,7 @@ export function CreateServer({
         template: tplSlug,
         image: image || undefined,
         memory: memory || undefined,
+        cpu: cpu || undefined,
         start,
         storage: {
           type: "pvc",
@@ -111,6 +164,7 @@ export function CreateServer({
           usingCustomPorts && effPorts.length > 0
             ? effPorts.map((p) => ({ port: p.port, protocol: p.protocol, primary: p.primary }))
             : undefined,
+        pterodactyl: ptero ? { url: pteroUrl.trim(), apiKey: pteroKey.trim() } : undefined,
       };
       await api.createServer(body);
       onDone();
@@ -141,6 +195,66 @@ export function CreateServer({
         <h2>{t("New server")}</h2>
         <div className="spacer" />
         <button onClick={onCancel}>{t("Cancel")}</button>
+      </div>
+      <div className="notice" style={{ marginBottom: 12 }}>
+        {!pteroOpen ? (
+          <button type="button" onClick={() => setPteroOpen(true)}>
+            {t("Import from Pterodactyl…")}
+          </button>
+        ) : (
+          <>
+            <strong>{t("Import from Pterodactyl")}</strong>
+            <div className="muted" style={{ fontSize: 12 }}>
+              {t("Paste the address of the server's page on the panel and a client API key (Account → API Credentials, ptlc_…). The form is filled from the server; on creation, the panel backs it up and its files are copied into the new server. The key is not stored.")}
+            </div>
+            <label>{t("Server page address")}</label>
+            <input
+              value={pteroUrl}
+              placeholder="https://panel.example.com/server/1a2b3c4d"
+              onChange={(e) => setPteroUrl(e.target.value)}
+            />
+            <label>{t("Client API key")}</label>
+            <input
+              type="password"
+              autoComplete="off"
+              value={pteroKey}
+              placeholder="ptlc_…"
+              onChange={(e) => setPteroKey(e.target.value)}
+            />
+            <div className="row" style={{ marginTop: 8 }}>
+              <button type="button" disabled={pteroBusy || !pteroUrl || !pteroKey} onClick={inspect}>
+                {pteroBusy ? t("Reading…") : t("Read the server")}
+              </button>
+              {ptero && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPtero(null);
+                    setPteroOpen(false);
+                  }}
+                >
+                  {t("Do not import")}
+                </button>
+              )}
+            </div>
+            {pteroError && <div className="error">{pteroError}</div>}
+            {ptero && (
+              <div style={{ marginTop: 8, fontSize: 13 }}>
+                {t("Importing {name} (egg {egg}). Players will need the new server's address.", {
+                  name: ptero.source.name,
+                  egg: ptero.source.egg || "?",
+                })}
+                {(ptero.warnings ?? []).length > 0 && (
+                  <ul className="muted" style={{ margin: "4px 0 0 16px", padding: 0 }}>
+                    {(ptero.warnings ?? []).map((w) => (
+                      <li key={w}>{w}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </>
+        )}
       </div>
       <form onSubmit={submit}>
         <label>{t("Template")}</label>
@@ -191,6 +305,10 @@ export function CreateServer({
               placeholder={t("e.g. 4Gi (optional)")}
               onChange={(e) => setMemory(e.target.value)}
             />
+          </div>
+          <div>
+            <label>{t("CPU limit")}</label>
+            <input value={cpu} placeholder={t("e.g. 2 or 1500m (optional)")} onChange={(e) => setCpu(e.target.value)} />
           </div>
           <div>
             <label>{t("Volume size")}</label>
@@ -344,7 +462,7 @@ export function CreateServer({
             checked={start}
             onChange={(e) => setStart(e.target.checked)}
           />
-          &nbsp;{t("Start immediately")}
+          &nbsp;{ptero ? t("Start once the data is imported") : t("Start immediately")}
         </label>
 
         {error && <div className="error">{error}</div>}
@@ -353,7 +471,7 @@ export function CreateServer({
           style={{ marginTop: 16 }}
           disabled={busy || !name || !tplSlug}
         >
-          {busy ? t("Creating…") : t("Create server")}
+          {busy ? t("Creating…") : ptero ? t("Create and import") : t("Create server")}
         </button>
       </form>
     </div>

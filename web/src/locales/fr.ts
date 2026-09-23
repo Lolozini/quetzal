@@ -261,10 +261,10 @@ export const fr: Record<string, string> = {
   "Importing…": "Import…",
   Import: "Importer",
   "Import from URL": "Importer depuis une URL",
-  "Point at the raw JSON file; a GitHub/GitLab file page link is converted automatically.":
-    "Indiquez le fichier JSON brut ; un lien vers la page d'un fichier GitHub/GitLab est converti automatiquement.",
-  "Fetch an egg JSON straight from a URL (e.g. a raw file in an egg repository).":
-    "Récupère un JSON d'egg directement depuis une URL (p. ex. un fichier brut d'un dépôt d'eggs).",
+  "Point at the egg file; a GitHub/GitLab file page link is converted to the raw file automatically.":
+    "Indiquez le fichier de l'egg ; un lien vers la page d'un fichier GitHub/GitLab est converti automatiquement vers le fichier brut.",
+  "Fetch an egg straight from a URL, e.g. a file in github.com/pelican-eggs (Pterodactyl JSON and Pelican YAML are both read).":
+    "Récupère un egg directement depuis une URL, p. ex. un fichier de github.com/pelican-eggs (le JSON Pterodactyl et le YAML Pelican sont lus tous les deux).",
   "Template saved.": "Modèle enregistré.",
   'Delete template "{name}"?': "Supprimer le modèle « {name} » ?",
   'Imported "{name}".': "Importé « {name} ».",
@@ -595,4 +595,28 @@ export const fr: Record<string, string> = {
     "Préparer d’abord le cluster distant (recommandé)",
   "An admin kubeconfig would give Quetzal — and anyone who reaches it — everything on that cluster. Run this there instead: it creates a service account with only the access Quetzal needs, then prints the kubeconfig to paste below.":
     "Un kubeconfig admin donnerait à Quetzal — et à quiconque l’atteint — tous les droits sur ce cluster. Exécutez plutôt ceci là-bas : cela crée un compte de service limité à ce dont Quetzal a besoin, puis affiche le kubeconfig à coller ci-dessous.",
+  // Import from Pterodactyl
+  "CPU limit": "Limite CPU",
+  "e.g. 2 or 1500m (optional)": "ex. 2 ou 1500m (facultatif)",
+  "Client API key": "Clé API client",
+  "Copied {done} of {total}.": "{done} copiés sur {total}.",
+  "Copied {done}.": "{done} copiés.",
+  "Create and import": "Créer et importer",
+  "Do not import": "Ne pas importer",
+  "Import from Pterodactyl": "Importer depuis Pterodactyl",
+  "Import from Pterodactyl…": "Importer depuis Pterodactyl…",
+  "Importing from Pterodactyl ({source}): the server cannot start until it is done.":
+    "Import depuis Pterodactyl ({source}) : le serveur ne peut pas démarrer avant la fin.",
+  "Importing {name} (egg {egg}). Players will need the new server's address.":
+    "Import de {name} (egg {egg}). Les joueurs devront utiliser l’adresse du nouveau serveur.",
+  "Paste the address of the server's page on the panel and a client API key (Account → API Credentials, ptlc_…). The form is filled from the server; on creation, the panel backs it up and its files are copied into the new server. The key is not stored.":
+    "Collez l’adresse de la page du serveur sur le panel et une clé API client (Account → API Credentials, ptlc_…). Le formulaire est rempli à partir du serveur ; à la création, le panel le sauvegarde et ses fichiers sont copiés dans le nouveau serveur. La clé n’est pas conservée.",
+  "Read the server": "Lire le serveur",
+  "Reading…": "Lecture…",
+  "Retry the import": "Relancer l’import",
+  "Server page address": "Adresse de la page du serveur",
+  "Start once the data is imported": "Démarrer une fois les données importées",
+  "The import from Pterodactyl failed: {message}": "L’import depuis Pterodactyl a échoué : {message}",
+  "The server is stopped. To retry, give the server's page address and a client API key again.":
+    "Le serveur est arrêté. Pour relancer, redonnez l’adresse de la page du serveur et une clé API client.",
 };

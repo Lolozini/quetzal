@@ -207,6 +207,9 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "stop the server before restoring (a live restore would corrupt the data volume)")
 		return
 	}
+	if importInProgress(w, srv) {
+		return
+	}
 	b := &models.Backup{
 		ServerID:  src.ServerID,
 		Direction: models.DirRestore,

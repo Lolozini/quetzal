@@ -85,6 +85,12 @@ type Server struct {
 	// CheckBucket confirms a backup target exists before it is stored. Defaults
 	// to objectstore.CheckBucket; overridable in tests so they need no network.
 	CheckBucket BucketChecker
+	// PteroHTTP is the client for Pterodactyl imports. Nil means the
+	// SSRF-guarded default; tests point it at a local fake panel.
+	PteroHTTP *http.Client
+	// ImportSink writes an imported archive into a server's volume. Nil means
+	// the data-manager pod (see extractIntoVolume); tests capture it instead.
+	ImportSink ImportSink
 	// TrustProxy honors X-Forwarded-For when deriving the client IP (set when
 	// served behind a reverse proxy such as Traefik).
 	TrustProxy bool
@@ -235,6 +241,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/templates/{slug}/export", s.auth(s.handleExportTemplate))
 	mux.Handle("GET /api/servers", s.auth(s.handleListServers))
 	mux.Handle("POST /api/servers", s.auth(s.handleCreateServer))
+	mux.Handle("POST /api/import/pterodactyl/inspect", s.auth(s.handleInspectPterodactyl))
+	mux.Handle("POST /api/servers/{id}/import/pterodactyl", s.auth(s.handleImportPterodactyl))
 	mux.Handle("GET /api/servers/{id}", s.auth(s.handleGetServer))
 	mux.Handle("PATCH /api/servers/{id}", s.auth(s.handleUpdateServer))
 	mux.Handle("DELETE /api/servers/{id}", s.auth(s.handleDeleteServer))

@@ -76,6 +76,9 @@ func (s *Server) handleTransferServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "a transfer is already in progress")
 		return
 	}
+	if importInProgress(w, srv) {
+		return
+	}
 	var req transferRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")

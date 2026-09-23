@@ -1254,6 +1254,67 @@ paths:
       responses:
         "204": { description: Unsuspended }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /api/import/pterodactyl/inspect:
+    post:
+      tags: [Servers]
+      summary: Read a Pterodactyl server and map it to a create request
+      description: >-
+        Reads the server through the panel's client API and returns a draft of
+        the create request (template matched by the egg's name, image, limits,
+        allocations as ports, variable values), with warnings for whatever does
+        not carry over. Nothing is created. The egg must already be imported as
+        a template. The panel is reached through the same guard as other
+        outbound requests: one on a private address is refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PterodactylSource" }
+      responses:
+        "200":
+          description: The draft
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source: { type: object, additionalProperties: true }
+                  draft: { type: object, additionalProperties: true }
+                  warnings: { type: array, items: { type: string } }
+        "400": { description: Unusable address or key }
+        "502": { description: The panel refused or could not be reached }
+  /api/servers/{id}/import/pterodactyl:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    post:
+      tags: [Servers]
+      summary: Import a Pterodactyl server's data into a stopped server
+      description: >-
+        Has the panel back up the server (or, without a free backup slot,
+        compress its files), streams the archive into this server's volume and
+        marks it installed. Files already there are overwritten by the
+        archive's; others are kept. This is also how a failed import is
+        retried. Needs the files and settings permissions. While it runs,
+        start, reinstall, restore and transfer answer 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/PterodactylSource"
+                - type: object
+                  properties:
+                    start: { type: boolean, description: Start the server once the data is in place }
+      responses:
+        "202":
+          description: Import started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportState" }
+        "400": { description: Unusable address or key }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: The server is running, or an import or transfer is in progress }
   /api/servers/{id}/transfer:
     parameters:
       - $ref: "#/components/parameters/ServerId"
@@ -2042,6 +2103,8 @@ components:
         clusterId: { type: integer }
         transfer:
           $ref: "#/components/schemas/TransferState"
+        import:
+          $ref: "#/components/schemas/ImportState"
         status: { $ref: "#/components/schemas/Status" }
     TransferState:
       type: object
@@ -2072,7 +2135,48 @@ components:
         expose: { $ref: "#/components/schemas/Expose" }
         hibernation: { $ref: "#/components/schemas/Hibernation" }
         cluster: { type: string, description: Target cluster slug (empty = local) }
-        start: { type: boolean }
+        start:
+          type: boolean
+          description: Start the server once created (with `pterodactyl`, once its data is in place)
+        ports:
+          type: array
+          items: { $ref: "#/components/schemas/Port" }
+          description: Overrides the template's ports (templates imported from eggs declare none)
+        eulaAccepted: { type: boolean }
+        pterodactyl:
+          allOf: [{ $ref: "#/components/schemas/PterodactylSource" }]
+          description: >-
+            Import the data of a Pterodactyl server into the new one. The server
+            is created stopped and a background job copies the data (see
+            `import` on the server); it is then marked installed, so the
+            template's install script does not run over the imported files.
+    PterodactylSource:
+      type: object
+      required: [url, apiKey]
+      properties:
+        url:
+          type: string
+          description: >-
+            Address of the server's page on the panel
+            (https://panel.example.com/server/1a2b3c4d), or the panel root with
+            `identifier`.
+        identifier: { type: string }
+        apiKey:
+          type: string
+          format: password
+          description: A client API key (ptlc_…) with access to the server. Used for the import only, never stored.
+    ImportState:
+      type: object
+      description: The server's data import from Pterodactyl (absent if it was never imported)
+      properties:
+        phase: { type: string, enum: [Preparing, Downloading, Done, Failed] }
+        source: { type: string, description: Panel host and server identifier }
+        message: { type: string }
+        bytes: { type: integer, description: Bytes copied so far }
+        total: { type: integer, description: Archive size, when the panel announced it }
+        startedAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        startAfter: { type: boolean }
     DatabaseHostInput:
       type: object
       required: [name]

@@ -27,3 +27,10 @@ func (s *Store) ListServersWithTransfer() ([]models.Server, error) {
 	}
 	return srvs, nil
 }
+
+// SetServerImport sets (or clears, when i is nil) a server's import state,
+// touching only that column.
+func (s *Store) SetServerImport(id uint, i *models.ImportState) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Select("import").Updates(models.Server{Import: i}).Error
+}
