@@ -249,6 +249,11 @@ zones, paged logs and log retention.
   `helm template | kubectl apply` or `kubectl diff` put them in the kubectl
   context's default namespace instead of the release's. `helm install` itself
   was unaffected.
+- **Every namespaced object in the chart declares its namespace.** Five did not
+  (the Deployment, Service, ServiceAccount, key Secret and data claim), so
+  `helm template | kubectl apply` or `kubectl diff` placed them in the kubectl
+  context's default namespace rather than the release's. CI now refuses such an
+  object.
 - **Wings placeholders mean the same thing in the startup command as in
   `config.files`.** `{{server.build.env.X}}`, `{{env.X}}`,
   `{{server.build.default.port}}` and `{{server.build.memory}}` reached the game
