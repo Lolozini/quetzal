@@ -2,6 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "quetzal.fullname" . }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "quetzal.labels" . | nindent 4 }}
 spec:

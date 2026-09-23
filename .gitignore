@@ -35,3 +35,7 @@ web/dist/*
 # Secrets / local config
 *.local.yaml
 kubeconfig
+
+# Python bytecode (hack/ scripts)
+__pycache__/
+*.pyc

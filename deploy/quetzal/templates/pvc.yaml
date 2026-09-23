@@ -3,6 +3,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ include "quetzal.fullname" . }}-data
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "quetzal.labels" . | nindent 4 }}
 spec:
