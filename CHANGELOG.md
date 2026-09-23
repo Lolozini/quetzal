@@ -7,8 +7,36 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-23
+
+Mostly hardening: a security review of the whole panel, the install path made
+honest about failure, notifications that retry and show when they cannot, and a
+release pipeline whose chart installs. New: changing a server's template or
+image on reinstall, a required second factor, server search, schedule time
+zones, paged logs and log retention.
+
+**Upgrading from 0.1.0** — four things behave differently:
+
+- `/metrics` is no longer served on the panel's port: scrape container port 9091
+  (apiserver) and 9090 (controller) instead. See *Changed*.
+- Email set to STARTTLS (the default) now requires it: a relay that does not
+  offer STARTTLS needs **None (cleartext)** chosen explicitly. See *Changed*.
+- Imported eggs now keep their data under `/home/container`, as on Pterodactyl;
+  re-import an egg to pick up the new path. See *Fixed*.
+- Built-in templates are no longer seeded; ones already in the database stay.
+  See *Removed*.
+
 ### Added
 
+- **Change a server's template or image when reinstalling.** A reinstall can now
+  move the server to another template — another egg for the same game (Paper to
+  Fabric, keeping the world) or another game — and to another of its images.
+  Ports, resources, storage and, unless wiped, files are kept. Variables the new
+  template also declares keep their value, secrets included, unless it fixes them
+  or the value is not one of its options; those take the new defaults and are
+  listed back. Only the server's owner or an administrator can change the
+  template; a subuser with **settings** can still reinstall. `template`, `image`
+  and `env` on `POST /api/servers/{id}/reinstall`.
 - **Public hostname for server endpoints.** Admin → Network takes a DNS name that
   is published to players instead of the raw node IP, for both a server's game
   endpoints and its SFTP connection string; the page shows the detected node
@@ -66,6 +94,55 @@ releases may include breaking changes).
   accepted, the controller renders `eula.txt=true` into the data volume at
   startup (and writes nothing otherwise, so the server keeps asking). Mirrors
   Pterodactyl's `eula` feature without modifying the imported egg.
+- **The logs page back through their history.** The audit log and the event feed
+  answered with their newest entries and nothing else — 200 for the panel-wide
+  log — so an admin looking up what happened last week simply could not. Both now
+  take a `before=<id>` cursor and report the total in `X-Total-Count`, and the
+  activity views grow a **Load older** button that walks to the beginning.
+- **Two-factor authentication can be required panel-wide.** Admin → **Two-factor
+  policy** sets it to off, administrators only, or everyone; superadmin-only to
+  change, because it decides who gets in. Turning it on locks nobody out,
+  including the superadmin who turned it on: an account the policy covers keeps
+  its session but reaches only `/api/me`, enrolment and logout until it has a
+  second factor, and the panel shows the enrolment page instead of a wall of
+  refusals. `GET`/`PUT /api/security-settings`.
+- **Search the server list.** The dashboard fetched every server on the panel on
+  every load, with nothing to narrow it. `GET /api/servers?q=` filters on slug
+  and display name in the database, and the list has a search box. A `%` or `_`
+  in the query is literal, so searching for "100%" finds the one server rather
+  than all of them.
+- **Schedules have a time zone.** A cron was read in whatever zone the control
+  plane runs in — UTC in a container — so "restart at 4am" fired at 6am local in
+  a European summer, and the only lever was a panel-wide `TZ` in `extraEnv`. A
+  schedule now carries an IANA zone (`timezone`, e.g. `Europe/Paris`), validated
+  on save, and the form prefills it from the browser so the common case is right
+  without anyone knowing the panel runs in UTC. Existing schedules keep the old
+  behaviour (an empty zone still means the control plane's own). The binaries
+  embed the zone database: the runtime image is distroless and carries no
+  `/usr/share/zoneinfo`, so a named zone would otherwise fail to load in
+  production while working on every developer machine.
+- **Log retention.** `retention.eventDays` (default 30) prunes the event outbox,
+  which is written on every power action, crash and restart, read by the
+  dispatcher through a cursor, and was never emptied — so it only grew, for the
+  life of the install. Pruning stops dead at the dispatcher's position: an event
+  that has not gone out yet is never dropped, so no notification is lost to it.
+  `retention.auditDays` defaults to **0, keep everything** — an audit log is an
+  accountability record, and deleting one because a default said so is not a
+  decision to make for an operator.
+- **`replicaCount` in the chart.** It was pinned at 1 with no way to change it,
+  while the code had already done the work that makes more than one safe:
+  leader election in the controller, rate-limit counters in the database. The
+  chart refuses `replicaCount > 1` on SQLite, and with a ReadWriteOnce claim
+  still enabled, rather than letting either be discovered in production — two
+  pods cannot share one SQLite file. Above one replica the rollout strategy
+  becomes `RollingUpdate` instead of taking the panel down.
+- **Notification delivery is retried, and a failing channel shows in the panel.**
+  A delivery used to be dropped on its first error, with a log line as the only
+  trace. It now gets three attempts with backoff, honouring `Retry-After`; a
+  refusal that will not change (a 404 from a deleted webhook) is not retried. A
+  channel that still fails is marked in Notifications with the number of events
+  it has missed in a row and the reason (`failureStreak`, `lastError`,
+  `lastErrorAt`, `lastDeliveryAt` in the API); a successful test clears it.
 
 ### Changed
 
@@ -161,6 +238,17 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **The v0.1.0 chart installed an image that was never published.** Its default
+  image tag was `v0.1.0`, but the release pushed only `0.1.0`, `0.1` and `latest`,
+  so installing the chart as published ended in `ImagePullBackOff` — as did the
+  `--set image.tag=vX.Y.Z` the docs recommend. Releases now push the tag as
+  written too, and refuse to publish a chart whose default image they did not
+  push. With 0.1.0, set `image.tag=0.1.0`.
+- **Wings placeholders mean the same thing in the startup command as in
+  `config.files`.** `{{server.build.env.X}}`, `{{env.X}}`,
+  `{{server.build.default.port}}` and `{{server.build.memory}}` reached the game
+  as literal text when used in a startup command; `config.files` had always
+  translated them. (None of the commonly used eggs puts them in a startup.)
 - **A scheduled `start` never woke a hibernated server.** The schedule reported
   success while the server stayed scaled to zero: the task set the desired state
   to Running but left the hibernation flag set, and a server counts zero replicas
@@ -258,7 +346,6 @@ releases may include breaking changes).
   outright, leaving the server reconciling forever with no networking.
 - CPU is reported in **cores** rather than millicores, and CPU and memory show
   usage against their limit with a percentage.
-
 - The per-server **Disk** metric now reports usage of the server's **data volume**
   against the **PVC's declared size**, instead of the node filesystem. It's read
   with `du` (actual usage) rather than `df`: on local-path (hostPath-backed) PVCs
@@ -348,9 +435,6 @@ releases may include breaking changes).
   resources are now validated on create as well as update.
 - Server creation no longer fails with `variable "TYPE" is not editable` when a
   template has fixed (non-editable) variables.
-
-### Fixed
-
 - **A failed install is no longer silent.** An egg's install script runs as an
   init container, and nothing read `InitContainerStatuses` — so a script that
   exited non-zero left the pod in `Init:Error` while the panel reported
@@ -373,7 +457,6 @@ releases may include breaking changes).
   naming nothing. Import now detects which of the two formats a document is in,
   so a template moves between installs by exporting and importing it. An `id` in
   the body is ignored rather than inserted over whatever row holds it here.
-
 - **An egg whose install image lacks the interpreter it asks for now runs
   anyway.** Naming the egg's interpreter directly as the container's command
   meant an egg pairing, say, `ash` with a Debian install image died before any
@@ -383,7 +466,6 @@ releases may include breaking changes).
   sh), saying which in the log. A script that cannot work on that image still
   fails, but it fails on its own terms — `apk: not found` says the egg expects
   Alpine and its install image is not Alpine, which is the actual fault.
-
 - **The setup output is readable.** New `GET /api/servers/{id}/install-log`, and
   a **Setup log** panel on the server page that opens itself while installing or
   after a failure and polls while work is in progress. It needs the console
@@ -392,72 +474,6 @@ releases may include breaking changes).
   it, which is the whole answer when the step produced no log — a container that
   never started wrote nothing, and showing only its empty output would say "no
   install step" about an install that is sitting there failing.
-
-### Added
-
-- **Go 1.26 and current dependencies.** Go maintains the two most recent majors,
-  so 1.23 had stopped receiving security fixes and the pinned build image was
-  frozen on whatever it shipped with. `govulncheck` found thirteen advisories in
-  code the project actually calls — ten of them in `golang.org/x/crypto/ssh`,
-  which is what the SFTP server is built on: source-address restrictions not
-  enforced for non-public-key auth, certificate restrictions bypassed, deadlocks
-  and an underflow panic. Also an SQL injection in `pgx` (Postgres installs),
-  unbounded memory in `spdystream` (the exec and attach path), a weak PRNG in
-  the WebSocket masking, and an infinite loop in `x/text`. All upgraded; the
-  scan now reports none, and CI runs it on every push so the next one is caught
-  rather than accumulated.
-- **The logs page back through their history.** The audit log and the event feed
-  answered with their newest entries and nothing else — 200 for the panel-wide
-  log — so an admin looking up what happened last week simply could not. Both now
-  take a `before=<id>` cursor and report the total in `X-Total-Count`, and the
-  activity views grow a **Load older** button that walks to the beginning.
-- **Two-factor authentication can be required panel-wide.** Admin → **Two-factor
-  policy** sets it to off, administrators only, or everyone; superadmin-only to
-  change, because it decides who gets in. Turning it on locks nobody out,
-  including the superadmin who turned it on: an account the policy covers keeps
-  its session but reaches only `/api/me`, enrolment and logout until it has a
-  second factor, and the panel shows the enrolment page instead of a wall of
-  refusals. `GET`/`PUT /api/security-settings`.
-- **Search the server list.** The dashboard fetched every server on the panel on
-  every load, with nothing to narrow it. `GET /api/servers?q=` filters on slug
-  and display name in the database, and the list has a search box. A `%` or `_`
-  in the query is literal, so searching for "100%" finds the one server rather
-  than all of them.
-- **Schedules have a time zone.** A cron was read in whatever zone the control
-  plane runs in — UTC in a container — so "restart at 4am" fired at 6am local in
-  a European summer, and the only lever was a panel-wide `TZ` in `extraEnv`. A
-  schedule now carries an IANA zone (`timezone`, e.g. `Europe/Paris`), validated
-  on save, and the form prefills it from the browser so the common case is right
-  without anyone knowing the panel runs in UTC. Existing schedules keep the old
-  behaviour (an empty zone still means the control plane's own). The binaries
-  embed the zone database: the runtime image is distroless and carries no
-  `/usr/share/zoneinfo`, so a named zone would otherwise fail to load in
-  production while working on every developer machine.
-- **Log retention.** `retention.eventDays` (default 30) prunes the event outbox,
-  which is written on every power action, crash and restart, read by the
-  dispatcher through a cursor, and was never emptied — so it only grew, for the
-  life of the install. Pruning stops dead at the dispatcher's position: an event
-  that has not gone out yet is never dropped, so no notification is lost to it.
-  `retention.auditDays` defaults to **0, keep everything** — an audit log is an
-  accountability record, and deleting one because a default said so is not a
-  decision to make for an operator.
-- **`replicaCount` in the chart.** It was pinned at 1 with no way to change it,
-  while the code had already done the work that makes more than one safe:
-  leader election in the controller, rate-limit counters in the database. The
-  chart refuses `replicaCount > 1` on SQLite, and with a ReadWriteOnce claim
-  still enabled, rather than letting either be discovered in production — two
-  pods cannot share one SQLite file. Above one replica the rollout strategy
-  becomes `RollingUpdate` instead of taking the panel down.
-- **Notification delivery is retried, and a failing channel shows in the panel.**
-  A delivery used to be dropped on its first error, with a log line as the only
-  trace. It now gets three attempts with backoff, honouring `Retry-After`; a
-  refusal that will not change (a 404 from a deleted webhook) is not retried. A
-  channel that still fails is marked in Notifications with the number of events
-  it has missed in a row and the reason (`failureStreak`, `lastError`,
-  `lastErrorAt`, `lastDeliveryAt` in the API); a successful test clears it.
-
-### Fixed
-
 - **An install that fails now fails, and runs again.** The generated install
   script ended with the marker write and a `chown … || true`, so its exit status
   was always zero — an egg's script could not fail, whatever it did — and the
@@ -500,10 +516,6 @@ releases may include breaking changes).
   before the files were handed to the server's user. The install then re-ran on
   every start and the data stayed owned by root. The script now runs as its own
   process, as Wings runs it.
-- **The chart gave two ports the same name.** The apiserver's metrics port was
-  named `metrics`, which the controller in the same pod already used, and the
-  controller's liveness probe selects by name — it was probing the apiserver.
-  It is now `api-metrics`, and CI refuses a duplicate port name.
 - **A silent connection no longer keeps a proxy-mode server awake.** The
   activator counted open TCP connections as activity, so one that carried nothing
   kept the server from hibernating for as long as the game tolerated it
@@ -518,6 +530,17 @@ releases may include breaking changes).
 
 ### Security
 
+- **Go 1.26 and current dependencies.** Go maintains the two most recent majors,
+  so 1.23 had stopped receiving security fixes and the pinned build image was
+  frozen on whatever it shipped with. `govulncheck` found thirteen advisories in
+  code the project actually calls — ten of them in `golang.org/x/crypto/ssh`,
+  which is what the SFTP server is built on: source-address restrictions not
+  enforced for non-public-key auth, certificate restrictions bypassed, deadlocks
+  and an underflow panic. Also an SQL injection in `pgx` (Postgres installs),
+  unbounded memory in `spdystream` (the exec and attach path), a weak PRNG in
+  the WebSocket masking, and an infinite loop in `x/text`. All upgraded; the
+  scan now reports none, and CI runs it on every push so the next one is caught
+  rather than accumulated.
 - **A scheduled task now needs the permission the action itself needs.** A
   subuser holding only **schedules** could put a `command` task on a one-minute
   cron and get the console they were never granted — on a Minecraft server, that
@@ -556,7 +579,6 @@ releases may include breaking changes).
   `QUETZAL_SECURE_COOKIES=true`, so an http-only install is not pinned to a
   scheme it does not serve. `/api/docs` relaxes the policy for itself alone, to
   load the Redoc viewer from its CDN.
-
 - **A two-factor code can only be used once.** A TOTP code is valid across a
   three-step window — up to 90 seconds — and nothing recorded that one had been
   used, so a code seen over a shoulder or left in a screenshot still worked
@@ -637,5 +659,6 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/lolozini/quetzal/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lolozini/quetzal/releases/tag/v0.1.0
