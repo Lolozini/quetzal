@@ -30,6 +30,10 @@ releases may include breaking changes).
   config files were left untouched before. One difference from Wings: a key
   naming another root element changes nothing, instead of adding empty
   elements to the file.
+- **File manager**: copy a file or folder (`name copy.ext`, as on
+  Pterodactyl), extract an archive already on the server (.zip, .tar,
+  .tar.gz, .tar.bz2, .tar.xz), select several entries to delete, move or
+  archive them at once, and a sortable modification-date column.
 - A CPU limit field in the create form.
 - `docs/MIGRATING.md`: bringing eggs (from your panel, or from pelican-eggs by
   URL) and servers over from Pterodactyl.

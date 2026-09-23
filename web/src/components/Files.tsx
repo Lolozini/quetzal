@@ -8,6 +8,12 @@ function join(dir: string, name: string): string {
   return dir ? `${dir}/${name}` : name;
 }
 
+// Archives the server can extract in place (the API decides; this only
+// decides where the button shows).
+const ARCHIVE_RE = /\.(zip|tar|tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz)$/i;
+
+type SortKey = "name" | "size" | "mtime";
+
 export function Files({ id, offline = false }: { id: number; offline?: boolean }) {
   const { t } = useT();
   const [path, setPath] = useState(""); // relative to the data root
@@ -17,6 +23,8 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
   const [editing, setEditing] = useState<{ path: string; content: string } | null>(null);
   const [saved, setSaved] = useState("");
   const [mut, setMut] = useState(0); // bumped on changes so the tree refreshes
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "name", desc: false });
   const uploadRef = useRef<HTMLInputElement>(null);
   const archiveRef = useRef<HTMLInputElement>(null);
 
@@ -25,6 +33,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
     setBusy(true);
     try {
       setEntries(await api.listFiles(id, path));
+      setSelected(new Set());
     } catch (e) {
       setEntries([]);
       setError(e instanceof ApiError ? e.message : String(e));
@@ -146,6 +155,73 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
     }
   }
 
+  // run wraps an action: busy flag, error display, refresh on success.
+  async function run(fn: () => Promise<unknown>) {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+      changed();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function copy(e: FileEntry) {
+    run(() => api.copyFile(id, join(path, e.name)));
+  }
+
+  function extract(e: FileEntry) {
+    if (!window.confirm(t('Extract "{file}" here? Existing files with the same names are overwritten.', { file: e.name }))) return;
+    run(() => api.decompressFile(id, join(path, e.name)));
+  }
+
+  const sel = [...selected];
+
+  function removeSelected() {
+    if (!window.confirm(t("Delete {n} selected items, folders included?", { n: sel.length }))) return;
+    if (editing && sel.some((n) => editing.path.startsWith(join(path, n)))) setEditing(null);
+    run(() => api.deleteFiles(id, path, sel));
+  }
+
+  function moveSelected() {
+    const to = window.prompt(t("Move {n} items to which folder? (path from the root)", { n: sel.length }), path);
+    if (to === null) return;
+    const dest = to.trim().replace(/^\/+|\/+$/g, "");
+    if (dest === path) return;
+    run(() => api.moveFiles(id, path, sel, dest));
+  }
+
+  function archiveSelected() {
+    run(() => api.compressFiles(id, path, sel));
+  }
+
+  function toggle(name: string) {
+    setSelected((prev) => {
+      const n = new Set(prev);
+      if (n.has(name)) n.delete(name);
+      else n.add(name);
+      return n;
+    });
+  }
+
+  function sortBy(key: SortKey) {
+    setSort((cur) => (cur.key === key ? { key, desc: !cur.desc } : { key, desc: key !== "name" }));
+  }
+
+  const sorted = entries.slice().sort((a, b) => {
+    if (a.dir !== b.dir) return a.dir ? -1 : 1;
+    let c = 0;
+    if (sort.key === "size") c = a.size - b.size;
+    else if (sort.key === "mtime") c = (a.mtime ?? 0) - (b.mtime ?? 0);
+    if (c === 0) c = a.name.localeCompare(b.name);
+    return sort.desc ? -c : c;
+  });
+  const allSelected = entries.length > 0 && selected.size === entries.length;
+  const arrow = (key: SortKey) => (sort.key === key ? (sort.desc ? " ▾" : " ▴") : "");
+
   const segs = path ? path.split("/") : [];
 
   return (
@@ -182,6 +258,16 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
 
       {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
 
+      {selected.size > 0 && (
+        <div className="row notice" style={{ gap: 6, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <span>{t("{n} selected", { n: selected.size })}</span>
+          <button onClick={moveSelected} disabled={busy}>{t("Move to…")}</button>
+          <button onClick={archiveSelected} disabled={busy}>{t("Archive")}</button>
+          <button className="danger" onClick={removeSelected} disabled={busy}>{t("Delete")}</button>
+          <button onClick={() => setSelected(new Set())}>{t("Clear selection")}</button>
+        </div>
+      )}
+
       <div className="row" style={{ alignItems: "flex-start", gap: 12, marginTop: 8 }}>
         {/* Tree sidebar */}
         <div style={{ width: 240, minWidth: 200, maxHeight: 420, overflow: "auto", borderRight: "1px solid var(--border, #333)", paddingRight: 8 }}>
@@ -192,29 +278,58 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
         <div style={{ flex: 1, minWidth: 0 }}>
           <table>
             <thead>
-              <tr><th>{t("Name")}</th><th>{t("Size")}</th><th></th></tr>
+              <tr>
+                <th style={{ width: 24 }}>
+                  <input
+                    type="checkbox"
+                    style={{ width: "auto" }}
+                    aria-label={t("Select all")}
+                    checked={allSelected}
+                    onChange={() => setSelected(allSelected ? new Set() : new Set(entries.map((e) => e.name)))}
+                  />
+                </th>
+                <th style={{ cursor: "pointer" }} onClick={() => sortBy("name")}>{t("Name")}{arrow("name")}</th>
+                <th style={{ cursor: "pointer" }} onClick={() => sortBy("size")}>{t("Size")}{arrow("size")}</th>
+                <th style={{ cursor: "pointer" }} onClick={() => sortBy("mtime")}>{t("Modified")}{arrow("mtime")}</th>
+                <th></th>
+              </tr>
             </thead>
             <tbody>
-              {entries
-                .slice()
-                .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1))
-                .map((e) => (
+              {sorted.map((e) => (
                   <tr key={e.name}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        style={{ width: "auto" }}
+                        aria-label={e.name}
+                        checked={selected.has(e.name)}
+                        onChange={() => toggle(e.name)}
+                      />
+                    </td>
                     <td>
                       <a href="#" onClick={(ev) => { ev.preventDefault(); open(e); }}>
                         {e.dir ? "📁 " : "📄 "}{e.name}
                       </a>
                     </td>
                     <td>{e.dir ? "" : humanSize(e.size)}</td>
+                    <td className="muted" style={{ whiteSpace: "nowrap" }}>
+                      {e.mtime ? new Date(e.mtime * 1000).toLocaleString() : ""}
+                    </td>
                     <td style={{ whiteSpace: "nowrap" }}>
                       <a href={e.dir ? api.fileArchiveUrl(id, join(path, e.name)) : api.fileDownloadUrl(id, join(path, e.name))}>{t("Download")}</a>{" "}
                       <button onClick={() => rename(e)}>{t("Rename")}</button>{" "}
+                      <button onClick={() => copy(e)} disabled={busy}>{t("Copy")}</button>{" "}
+                      {!e.dir && ARCHIVE_RE.test(e.name) && (
+                        <>
+                          <button onClick={() => extract(e)} disabled={busy}>{t("Extract")}</button>{" "}
+                        </>
+                      )}
                       <button className="danger" onClick={() => remove(e)}>{t("Delete")}</button>
                     </td>
                   </tr>
                 ))}
               {entries.length === 0 && !error && (
-                <tr><td colSpan={3} className="muted">{t("Empty directory.")}</td></tr>
+                <tr><td colSpan={5} className="muted">{t("Empty directory.")}</td></tr>
               )}
             </tbody>
           </table>

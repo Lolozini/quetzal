@@ -619,4 +619,17 @@ export const fr: Record<string, string> = {
   "The import from Pterodactyl failed: {message}": "L’import depuis Pterodactyl a échoué : {message}",
   "The server is stopped. To retry, give the server's page address and a client API key again.":
     "Le serveur est arrêté. Pour relancer, redonnez l’adresse de la page du serveur et une clé API client.",
+  // File manager: copy, extract, bulk actions
+  Archive: "Archiver",
+  "Clear selection": "Tout désélectionner",
+  Copy: "Copier",
+  "Delete {n} selected items, folders included?": "Supprimer les {n} éléments sélectionnés, dossiers compris ?",
+  Extract: "Extraire",
+  'Extract "{file}" here? Existing files with the same names are overwritten.':
+    "Extraire « {file} » ici ? Les fichiers existants de même nom seront écrasés.",
+  Modified: "Modifié",
+  "Move to…": "Déplacer vers…",
+  "Move {n} items to which folder? (path from the root)": "Déplacer {n} éléments vers quel dossier ? (chemin depuis la racine)",
+  "Select all": "Tout sélectionner",
+  "{n} selected": "{n} sélectionné(s)",
 };

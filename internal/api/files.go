@@ -45,7 +45,9 @@ const fileStreamTimeout = 6 * time.Hour
 type fileEntry struct {
 	Name string `json:"name"`
 	Size int64  `json:"size"`
-	Dir  bool   `json:"dir"`
+	// ModTime is the last modification, in Unix seconds (0 when unknown).
+	ModTime int64 `json:"mtime,omitempty"`
+	Dir     bool  `json:"dir"`
 }
 
 // dataRoot returns the server's data directory (the only writable, mounted path).
@@ -270,7 +272,8 @@ func streamFailed(w http.ResponseWriter, what string, sent int64, err error) {
 // and simply calls qz_guard on the arguments that are paths.
 func guarded(body string) string { return guardScript + body }
 
-// listScript prints "<type>\t<size>\t<name>" per entry of the directory in $1.
+// listScript prints "<type>\t<size>\t<mtime>\t<name>" per entry of the
+// directory in $1, mtime in Unix seconds (0 where the image has no stat).
 const listScript = `qz_guard deref "$0" "$1"
 qz_exists "$1"
 cd "$1" 2>/dev/null || { echo "not a directory" >&2; exit 4; }
@@ -278,8 +281,9 @@ for e in * .*; do
   [ "$e" = "." ] && continue
   [ "$e" = ".." ] && continue
   [ -e "$e" ] || [ -L "$e" ] || continue
-  if [ -d "$e" ]; then printf 'd\t0\t%s\n' "$e"
-  else s=$(wc -c < "$e" 2>/dev/null) || s=0; printf 'f\t%s\t%s\n' "$s" "$e"; fi
+  m=$(stat -c %Y -- "$e" 2>/dev/null) || m=0
+  if [ -d "$e" ]; then printf 'd\t0\t%s\t%s\n' "$m" "$e"
+  else s=$(wc -c < "$e" 2>/dev/null) || s=0; printf 'f\t%s\t%s\t%s\n' "$s" "$m" "$e"; fi
 done`
 
 func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
@@ -298,12 +302,13 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) != 3 {
+		parts := strings.SplitN(line, "\t", 4)
+		if len(parts) != 4 {
 			continue
 		}
 		size, _ := strconv.ParseInt(parts[1], 10, 64)
-		entries = append(entries, fileEntry{Name: parts[2], Size: size, Dir: parts[0] == "d"})
+		mtime, _ := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 64)
+		entries = append(entries, fileEntry{Name: parts[3], Size: size, ModTime: mtime, Dir: parts[0] == "d"})
 	}
 	writeJSON(w, http.StatusOK, entries)
 }

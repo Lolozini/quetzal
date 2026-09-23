@@ -957,6 +957,7 @@ paths:
                   properties:
                     name: { type: string }
                     size: { type: integer, format: int64 }
+                    mtime: { type: integer, format: int64, description: Last modification in Unix seconds (absent when the image has no stat) }
                     dir: { type: boolean }
         "403": { description: Server is suspended (owners/subusers are blocked; admins may still inspect) }
         "409": { description: Server is mid-start (not yet running and not fully stopped); retry once it settles }
@@ -1054,6 +1055,105 @@ paths:
         - { name: to, in: query, required: true, schema: { type: string }, description: Destination (relative to data root) }
       responses:
         "204": { description: Renamed }
+  /api/servers/{id}/files/copy:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    post:
+      tags: [Files]
+      summary: Copy a file or directory beside itself
+      description: >-
+        The copy is named like Pterodactyl's: `name copy.ext`, then `name copy
+        1.ext` and on. Symbolic links inside a copied directory stay links.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string, description: Relative to the data root }
+      responses:
+        "200":
+          description: Copied
+          content:
+            application/json:
+              schema: { type: object, properties: { name: { type: string } } }
+  /api/servers/{id}/files/delete:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    post:
+      tags: [Files]
+      summary: Delete several entries of a directory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FileBulk" }
+      responses:
+        "204": { description: Deleted }
+        "400": { description: No names, more than 1000, or a name that is not a plain entry name }
+  /api/servers/{id}/files/move:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    post:
+      tags: [Files]
+      summary: Move several entries into a directory
+      description: Nothing is overwritten; a name already taken in the destination stops the whole move.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/FileBulk"
+                - type: object
+                  required: [destination]
+                  properties:
+                    destination: { type: string, description: Existing directory, relative to the data root }
+      responses:
+        "204": { description: Moved }
+        "400": { description: Destination is not a directory, or a name is taken there }
+  /api/servers/{id}/files/compress:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    post:
+      tags: [Files]
+      summary: Archive several entries into a .tar.gz on the server
+      description: Written in `root` as `archive-<UTC date>.tar.gz`. The server's image needs tar.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FileBulk" }
+      responses:
+        "200":
+          description: Archive created
+          content:
+            application/json:
+              schema: { type: object, properties: { name: { type: string } } }
+  /api/servers/{id}/files/decompress:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    post:
+      tags: [Files]
+      summary: Extract an archive already on the server
+      description: >-
+        Unpacks into the directory holding the archive, overwriting files of the
+        same name. .zip needs unzip in the server's image; .tar, .tar.gz/.tgz,
+        .tar.bz2 and .tar.xz need tar.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string, description: The archive, relative to the data root }
+      responses:
+        "204": { description: Extracted }
+        "400": { description: Not an archive format that can be extracted }
 
   /api/servers/{id}/install-log:
     parameters:
@@ -2150,6 +2250,15 @@ components:
             is created stopped and a background job copies the data (see
             `import` on the server); it is then marked installed, so the
             template's install script does not run over the imported files.
+    FileBulk:
+      type: object
+      required: [files]
+      properties:
+        root: { type: string, description: Directory holding the entries, relative to the data root }
+        files:
+          type: array
+          maxItems: 1000
+          items: { type: string, description: A plain entry name within root }
     PterodactylSource:
       type: object
       required: [url, apiKey]

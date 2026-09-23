@@ -133,6 +133,8 @@ export interface ServerDatabase {
 export interface FileEntry {
   name: string;
   size: number;
+  // Last modification, Unix seconds (absent when the image cannot tell).
+  mtime?: number;
   dir: boolean;
 }
 
@@ -833,6 +835,19 @@ export const api = {
     req<void>("POST", `/api/servers/${id}/files/rename?path=${encodeURIComponent(path)}&to=${encodeURIComponent(to)}`),
   deleteFile: (id: number, path: string) =>
     req<void>("DELETE", `/api/servers/${id}/files?path=${encodeURIComponent(path)}`),
+  // Copy a file or folder beside itself ("name copy.ext"); returns the new name.
+  copyFile: (id: number, path: string) =>
+    req<{ name: string }>("POST", `/api/servers/${id}/files/copy`, { path }),
+  // Bulk actions on entries of one folder (root, relative to the data root).
+  deleteFiles: (id: number, root: string, files: string[]) =>
+    req<void>("POST", `/api/servers/${id}/files/delete`, { root, files }),
+  moveFiles: (id: number, root: string, files: string[], destination: string) =>
+    req<void>("POST", `/api/servers/${id}/files/move`, { root, files, destination }),
+  compressFiles: (id: number, root: string, files: string[]) =>
+    req<{ name: string }>("POST", `/api/servers/${id}/files/compress`, { root, files }),
+  // Extract an archive already on the server into its own folder.
+  decompressFile: (id: number, path: string) =>
+    req<void>("POST", `/api/servers/${id}/files/decompress`, { path }),
   fileDownloadUrl: (id: number, path: string) =>
     `/api/servers/${id}/files/content?path=${encodeURIComponent(path)}&download=1`,
   fileArchiveUrl: (id: number, path: string) =>
