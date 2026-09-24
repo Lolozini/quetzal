@@ -7,6 +7,29 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-25
+
+Migrating from Pterodactyl, and a server that behaves the way players expect.
+New: importing a server from a Pterodactyl panel in one step, Pelican's YAML
+eggs, the `xml` config parser, a complete file manager, renaming a server and
+console history. A server is now Running when the game says it is up, not when
+its container starts, and a sleeping Minecraft server wakes only for a player,
+not for every port scanner on the internet. Among the fixes, one that matters:
+restoring a backup taken before a reinstall wiped the restored data.
+
+**Upgrading from 0.2.0** — four things behave differently:
+
+- A server shows **Starting** until its game prints its template's done line;
+  it used to show Running as soon as its container started. Servers already
+  running when you upgrade stay Running. See *Changed*.
+- A sleeping **Minecraft** server wakes only for a player joining; server-list
+  pings show it asleep, and connections to its other ports wake nothing. See
+  *Changed*.
+- On an install that runs the `latest` image, the upgrade restarts the servers
+  that render config files, once. An install on a version tag is not affected.
+  See *Changed*.
+- Server names are limited to 190 characters, on one line.
+
 ### Added
 
 - **Import a server from Pterodactyl.** In *New server*, *Import from
@@ -44,8 +67,18 @@ releases may include breaking changes).
 - **Console history**: the up and down arrows bring back the commands sent
   earlier, per server, as in Pterodactyl (kept in the browser, 50 at most).
 
-### Fixed
+### Changed
 
+- **A server was reported Running before it was up.** Running meant the
+  container had started, while a Minecraft world, say, still had a minute or
+  two to load: players who connected were refused, and "is up and running" was
+  announced early. The server now stays Starting until the console shows one of
+  its template's done lines (the egg's `config.startup.done`), as Pterodactyl
+  waits for, and the page says which line it is waiting for. A done line that
+  never shows within 30 minutes no longer holds the server back: it is reported
+  Running, with a message that the line may be out of date. Eggs that list
+  several done lines are now read too (they used to be dropped), and templates
+  store them as `done`; the older single `doneRegex` is still read.
 - **Port scanners no longer wake a sleeping Minecraft server.** Wake-on-connect
   woke on any TCP connection, so every scanner on the internet could wake a
   public server, and each wake bought it a full idle window: it spent its
@@ -67,19 +100,12 @@ releases may include breaking changes).
   are now pulled like the control plane's own pods. A version tag is pulled
   once per node, as before. On a `latest` install, the upgrade restarts the
   servers that render config files, once.
+
+### Fixed
+
 - The first reconcile of a new server no longer logs "cannot patch resource
   resourcequotas": the access the control plane grants itself in the new
   namespace is now given a moment to take effect before it is used.
-- **A server was reported Running before it was up.** Running meant the
-  container had started, while a Minecraft world, say, still had a minute or
-  two to load: players who connected were refused, and "is up and running" was
-  announced early. The server now stays Starting until the console shows one of
-  its template's done lines (the egg's `config.startup.done`), as Pterodactyl
-  waits for, and the page says which line it is waiting for. A done line that
-  never shows within 30 minutes no longer holds the server back: it is reported
-  Running, with a message that the line may be out of date. Eggs that list
-  several done lines are now read too (they used to be dropped), and templates
-  store them as `done`; the older single `doneRegex` is still read.
 - **Restoring a backup could wipe the restored data.** A reinstall's "wipe the
   data" flag was never cleared, and a restore brought back the install marker
   of the snapshot's day: restoring a backup taken before the last reinstall
@@ -123,6 +149,15 @@ releases may include breaking changes).
   and `{{server.build.memory_limit}}` — the paths Wings actually resolves, which
   Pelican's eggs use — are translated like their `server.build.*` aliases
   instead of being written out literally.
+
+### Security
+
+- `golang.org/x/oauth2` 0.27.0 and `filippo.io/edwards25519` 1.1.1, which ship
+  in the image, for the advisories GitHub raised on them; govulncheck finds no
+  call to either from Quetzal.
+- The web toolchain moves to vite 6 (esbuild 0.25), with its transitive
+  dependencies at their fixed releases: eight advisories on the dev server and
+  the build, none of which reached the image. `npm audit` reports none.
 
 ## [0.2.0] - 2026-09-23
 
@@ -781,6 +816,7 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/lolozini/quetzal/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lolozini/quetzal/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lolozini/quetzal/releases/tag/v0.1.0
