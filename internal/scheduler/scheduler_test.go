@@ -356,3 +356,28 @@ func TestNextRunRejectsBadCron(t *testing.T) {
 		t.Errorf("valid cron rejected: %v", err)
 	}
 }
+
+// A scheduled start during a cross-cluster transfer would put a pod back on the
+// volume the transfer is waiting to have to itself, and the transfer would wait
+// for good. The API refuses it; the scheduler must too.
+func TestScheduledStartSkippedDuringTransfer(t *testing.T) {
+	st := testStore(t)
+	srv := &models.Server{Slug: "s", Namespace: "ns", DesiredState: models.StateStopped}
+	_ = st.CreateServer(srv)
+	_ = st.SetServerTransfer(srv.ID, &models.TransferState{Phase: models.TransferBackingUp, SourceCluster: 1, TargetCluster: 2})
+	past := time.Now().Add(-time.Minute)
+	sc := &models.Schedule{ServerID: srv.ID, Name: "morning", Cron: "* * * * *", Enabled: true, NextRun: &past,
+		Tasks: []models.ScheduleTask{{Action: models.SchedStart}}}
+	_ = st.CreateSchedule(sc)
+
+	m := &mockExec{}
+	runTick(New(st, m), context.Background())
+
+	if m.started != 0 {
+		t.Errorf("Start fired during a transfer (%d)", m.started)
+	}
+	got, _ := st.GetSchedule(sc.ID)
+	if !strings.Contains(got.LastStatus, "transferred") {
+		t.Errorf("LastStatus = %q", got.LastStatus)
+	}
+}

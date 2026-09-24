@@ -40,6 +40,41 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Restoring a backup could wipe the restored data.** A reinstall's "wipe the
+  data" flag was never cleared, and a restore brought back the install marker
+  of the snapshot's day: restoring a backup taken before the last reinstall
+  made the next start run the install again, wiping the volume first. A
+  restore now marks the data installed (as on Pterodactyl), and the wipe is
+  retired once its reinstall has run.
+- **Server owners could not back up from the panel.** The Backups tab read the
+  backup target, which only settings admins may see, so for everyone else it
+  showed an error and kept "Backup now" disabled. Every user now learns
+  whether backups are configured; the target stays admin-only.
+- Hibernation now sends the template's stop command before scaling a server
+  to zero, as stopping does. The game used to get only SIGTERM, which a
+  startup wrapped in a shell does not pass on, so it went down without saving.
+- The wake-on-connect activator no longer stays up in front of a server that
+  was stopped or suspended while asleep.
+- Uploading a file through the file manager no longer fails after a minute:
+  the write lasted as long as the upload, and was cut at 60 seconds. Deleting
+  a large folder had the same limit.
+- A backup or restore Job gets the retry it was built with: the operation was
+  declared failed, and its Job deleted, on the first failed attempt.
+- `PATCH /api/users/{uid}` changes only the fields it is sent. A request that
+  only reset a password also set the account's quotas to 0 (unlimited) and
+  demoted an administrator; nothing is written any more when one field is
+  refused.
+- A scheduled start or restart is skipped, and a restore refused, while the
+  server is being transferred to another cluster; either could stall the
+  transfer for good.
+- Re-importing an egg no longer resets its template's creation date.
+- The console no longer leaks a goroutine when a line was typed while no
+  container was attached.
+- The SQLite database gets a busy timeout by default, as the Helm chart
+  already set; two processes share it, and a concurrent write failed at once
+  with "database is locked".
+- The drop-mode activator closes a connection before calling wake, instead of
+  holding its accept loop for the length of the call.
 - An imported egg's default image is the first one it lists, as in
   Pterodactyl. It used to be whichever came first out of a Go map — a
   different one from one import to the next. Re-import an egg to fix a

@@ -467,8 +467,15 @@ func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// The body streams through the exec as the client sends it, so the write
+	// lasts as long as the upload: the minute a mkdir gets cut every upload that
+	// took longer -- a 150 MB modpack jar on a home uplink -- and the file was
+	// refused after the whole transfer. The request context still ends it as soon
+	// as the client goes away.
 	write := func(in io.Reader) error {
-		return s.execFile(r.Context(), cs, cfg, srv.Namespace, pod,
+		ctx, cancel := context.WithTimeout(r.Context(), fileJobTimeout)
+		defer cancel()
+		return console.Exec(ctx, cs, cfg, srv.Namespace, pod,
 			[]string{"sh", "-c", guarded(writeScript), root, full, expected}, in, io.Discard)
 	}
 	err := write(src)
@@ -509,7 +516,10 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	full := jail(root, rel)
-	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", guarded(`qz_guard link "$0" "$1"
+	// A world folder takes longer than a minute to delete on slow storage.
+	ctx, cancel := context.WithTimeout(r.Context(), fileJobTimeout)
+	defer cancel()
+	if err := console.Exec(ctx, cs, cfg, srv.Namespace, pod, []string{"sh", "-c", guarded(`qz_guard link "$0" "$1"
 exec rm -rf -- "$1"`), root, full}, nil, io.Discard); err != nil {
 		writeFileOpError(w, "delete failed", err)
 		return

@@ -161,10 +161,14 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 	for k := range secretEnv {
 		secretKeys = append(secretKeys, k)
 	}
-	// Graceful stop: when transitioning a currently-running server to a
-	// non-running state and the template defines a stop command, deliver it
-	// before scaling to zero (SIGTERM + termination grace period follow).
-	if srv.DesiredState != models.StateRunning && isConsoleStop(tmpl.StopCommand) && r.OnStop != nil {
+	// Graceful stop: when a server that is up is about to be scaled to zero --
+	// stopped, suspended, or put to sleep by hibernation -- and the template
+	// defines a stop command, deliver it first (SIGTERM + the termination grace
+	// period follow). Hibernation used to be left out, because a hibernated
+	// server is still desired Running: its game only got the SIGTERM, which a
+	// startup wrapped in a shell never passes on, so the world went down with
+	// whatever it had not saved.
+	if needsGracefulStop(srv, tmpl) && r.OnStop != nil {
 		if running, _ := r.deploymentRunning(ctx, srv.Namespace); running {
 			if err := r.OnStop(ctx, srv.Namespace, srv.Slug, tmpl.StopCommand); err != nil {
 				log.Printf("graceful stop for %s (continuing to scale down): %v", srv.Slug, err)
@@ -179,6 +183,19 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 		return fmt.Errorf("data manager: %w", err)
 	}
 
+	// A reinstall's wipe is one-shot, but the flag used to stay set for good:
+	// the next time the install step ran for that generation -- a restore that
+	// rolled the install marker back, a marker deleted from the file manager --
+	// it wiped the volume again, taking the restored data with it. Retire it
+	// once the reinstall has been seen to come up, and only while nothing runs,
+	// since the flag is part of the pod spec and changing it rolls the pod.
+	if wipeConsumed(srv) {
+		if err := r.Store.ClearInstallWipe(srv.ID); err != nil {
+			log.Printf("server %s: clear install wipe: %v", srv.Slug, err)
+		} else {
+			srv.InstallWipe = false
+		}
+	}
 	if err := r.ensureDeployment(ctx, srv, tmpl, secretKeys); err != nil {
 		return fmt.Errorf("deployment: %w", err)
 	}
@@ -205,6 +222,21 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 	}
 
 	return r.updateStatus(ctx, srv, tmpl)
+}
+
+// needsGracefulStop reports whether a server's game should be sent its stop
+// command before the workload scales down: it is going to zero replicas and the
+// template's stop is console input rather than a signal.
+func needsGracefulStop(s *models.Server, t *models.Template) bool {
+	return s.Replicas() == 0 && isConsoleStop(t.StopCommand)
+}
+
+// wipeConsumed reports whether a reinstall's wipe has done its job and can be
+// retired: the reinstall's generation has been seen running, and nothing runs
+// now (the flag is in the pod spec, so clearing it on a live server would roll
+// its pod).
+func wipeConsumed(s *models.Server) bool {
+	return s.InstallWipe && s.Replicas() == 0 && s.Status.InstalledGeneration >= s.InstallGeneration
 }
 
 // DeleteServer tears down a server by deleting its namespace (cascades).
@@ -424,8 +456,11 @@ func (r *Reconciler) ensureService(ctx context.Context, s *models.Server, t *mod
 // (hibernation + proxy mode + at least one port + an image to run).
 func (r *Reconciler) proxyActive(s *models.Server, t *models.Template) bool {
 	// Require a callback URL too: a proxy with no way to wake/heartbeat would let
-	// the server hibernate with players and never wake.
-	if r.ActivatorImage == "" || r.WakeURL == "" || !s.Hibernation.Enabled || !s.Hibernation.Proxy {
+	// the server hibernate with players and never wake. A server that is stopped
+	// or suspended has nothing to front: its connections should be refused, not
+	// accepted by a proxy with no backend.
+	if r.ActivatorImage == "" || r.WakeURL == "" || !s.Hibernation.Enabled || !s.Hibernation.Proxy ||
+		s.DesiredState != models.StateRunning {
 		return false
 	}
 	return len(serverPorts(s, t)) > 0
@@ -434,7 +469,11 @@ func (r *Reconciler) proxyActive(s *models.Server, t *models.Template) bool {
 // dropActive reports whether the lightweight wake-and-drop activator should
 // front this server (hibernated + wake-on-connect, not proxy, a TCP port).
 func (r *Reconciler) dropActive(s *models.Server, t *models.Template) bool {
-	if r.ActivatorImage == "" || r.WakeURL == "" || s.Hibernation.Proxy || !s.Hibernated || !s.Hibernation.WakeOnConnect {
+	// Hibernated is not cleared when a sleeping server is stopped or suspended,
+	// so the desired state has to be checked too: otherwise the activator kept
+	// listening in front of a server nobody may start, and kept calling wake.
+	if r.ActivatorImage == "" || r.WakeURL == "" || s.Hibernation.Proxy || !s.Hibernated || !s.Hibernation.WakeOnConnect ||
+		s.DesiredState != models.StateRunning {
 		return false
 	}
 	return hasTCPPort(serverPorts(s, t))
@@ -575,7 +614,7 @@ func secretDataEqual(data map[string][]byte, want map[string]string) bool {
 // including crash detection.
 func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *models.Template) error {
 	eps, addr := r.endpointsFor(ctx, s, t)
-	st := models.Status{Endpoints: eps, Address: addr}
+	st := models.Status{Endpoints: eps, Address: addr, InstalledGeneration: s.Status.InstalledGeneration}
 
 	switch {
 	case s.DesiredState == models.StateSuspended:
@@ -597,6 +636,9 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 			st.Message = installFailureMessage(h)
 		case r.deploymentReady(ctx, s.Namespace):
 			st.Phase = models.PhaseRunning
+			if r.deploymentCurrent(ctx, s.Namespace) {
+				st.InstalledGeneration = s.InstallGeneration
+			}
 		case h.crashloop:
 			st.Phase = models.PhaseCrashed
 			st.Message = h.msg
@@ -707,6 +749,19 @@ func (r *Reconciler) deploymentReady(ctx context.Context, ns string) bool {
 		return false
 	}
 	return dep.Status.ReadyReplicas >= 1
+}
+
+// deploymentCurrent reports whether the Deployment's ready pod runs its current
+// revision: the controller has observed the latest spec and a pod from it is
+// ready. A spec applied a moment ago is not current yet, so a pod that predates
+// a reinstall is never taken for one that went through it.
+func (r *Reconciler) deploymentCurrent(ctx context.Context, ns string) bool {
+	dep := &appsv1.Deployment{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: workloadName}, dep); err != nil {
+		return false
+	}
+	return dep.Status.ObservedGeneration >= dep.Generation &&
+		dep.Status.UpdatedReplicas >= 1 && dep.Status.ReadyReplicas >= 1
 }
 
 func (r *Reconciler) deploymentRunning(ctx context.Context, ns string) (bool, error) {

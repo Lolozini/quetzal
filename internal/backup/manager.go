@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -121,7 +122,7 @@ func (m *Manager) processPending(ctx context.Context) {
 			BackupID: b.ID, Direction: b.Direction, SourceID: b.SourceID,
 			KeepLast: cfg.KeepLast, Repository: Repository(cfg, srv.Slug), Region: cfg.Region,
 			AccessKey: access, SecretKey: secret, RepoPassword: pass,
-			NodeSelector: srv.NodeSelector,
+			NodeSelector: srv.NodeSelector, InstallGen: srv.InstallGeneration,
 		}
 		if err := ensureSecret(ctx, cs, BuildSecret(p)); err != nil {
 			m.finish(b, models.BackupFailed, 0, "create creds secret: "+err.Error())
@@ -173,8 +174,9 @@ func (m *Manager) processRunning(ctx context.Context) {
 		if err != nil {
 			continue // transient; retry next tick
 		}
+		done, failed := jobOutcome(job)
 		switch {
-		case job.Status.Succeeded > 0:
+		case done:
 			size := int64(0)
 			if b.Direction == models.DirBackup {
 				size = ParseBackupSize(podLogs(ctx, cs, srv.Namespace, b.JobName))
@@ -186,7 +188,7 @@ func (m *Manager) processRunning(ctx context.Context) {
 				}
 			}
 			cleanup(ctx, cs, srv.Namespace, b.JobName)
-		case job.Status.Failed > 0:
+		case failed:
 			msg := redactRepository(lastLogLine(podLogs(ctx, cs, srv.Namespace, b.JobName)),
 				Repository(cfg, srv.Slug))
 			if msg == "" {
@@ -280,13 +282,14 @@ func (m *Manager) processDeleting(ctx context.Context) {
 		if err != nil {
 			continue // transient; retry next tick
 		}
+		done, failed := jobOutcome(job)
 		switch {
-		case job.Status.Succeeded > 0:
+		case done:
 			cleanup(ctx, cs, srv.Namespace, b.JobName)
 			if err := m.Store.DeleteBackup(b.ID); err != nil {
 				log.Printf("backup: delete %d: %v", b.ID, err)
 			}
-		case job.Status.Failed > 0:
+		case failed:
 			msg := redactRepository(lastLogLine(podLogs(ctx, cs, srv.Namespace, b.JobName)),
 				Repository(cfg, srv.Slug))
 			if msg == "" {
@@ -296,6 +299,34 @@ func (m *Manager) processDeleting(ctx context.Context) {
 			m.failDelete(b, msg)
 		}
 	}
+}
+
+// jobOutcome reads whether a Job has finished, and how. A failed pod is not a
+// failed Job: the Job retries (BackoffLimit), and it is only failed once it has
+// given up, which Kubernetes records as its Failed condition. Reading the
+// failure count instead called the operation failed on the first attempt and
+// deleted the Job, so the retry it was built with never ran.
+func jobOutcome(job *batchv1.Job) (done, failed bool) {
+	if job.Status.Succeeded > 0 {
+		return true, false
+	}
+	for _, c := range job.Status.Conditions {
+		if c.Status != corev1.ConditionTrue {
+			continue
+		}
+		switch c.Type {
+		case batchv1.JobComplete:
+			return true, false
+		case batchv1.JobFailed:
+			return false, true
+		}
+	}
+	// No condition yet: a Job past its retries is failed even before the
+	// controller writes the condition down.
+	if limit := job.Spec.BackoffLimit; limit != nil && job.Status.Failed > *limit {
+		return false, true
+	}
+	return false, false
 }
 
 // failDelete returns a record to Succeeded so it reappears in the list with the

@@ -200,6 +200,10 @@ func Stream(ctx context.Context, ws *websocket.Conn, cs kubernetes.Interface, cf
 	// the reader never blocks, and the attach loop re-reads it across restarts.
 	stdin := make(chan string, 64)
 	pr, pw := io.Pipe()
+	// Closing the read end on the way out releases the pump below. A line typed
+	// while no container was attached left it blocked writing into the pipe with
+	// nobody reading, and it outlived the session: a goroutine per such console.
+	defer pr.Close()
 	go func() {
 		for {
 			select {

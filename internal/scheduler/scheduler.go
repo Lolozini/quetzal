@@ -213,10 +213,15 @@ func (s *Scheduler) runTask(ctx context.Context, srv *models.Server, t models.Sc
 		return true, "skipped (server suspended)"
 	}
 	// Starting a server whose data is still being imported would run the egg's
-	// install over the arriving files.
+	// install over the arriving files; starting one mid-transfer puts a pod back
+	// on the volume the transfer is waiting to have to itself, and the transfer
+	// then waits for good. The API refuses both; the scheduler has to as well.
 	if t.Action == models.SchedStart || t.Action == models.SchedRestart {
 		if srv.Import.Running(time.Now()) {
 			return false, "skipped (the server's data is still being imported)"
+		}
+		if srv.Transfer != nil {
+			return false, "skipped (the server is being transferred to another cluster)"
 		}
 	}
 	var err error

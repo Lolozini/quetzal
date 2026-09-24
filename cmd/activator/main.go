@@ -65,8 +65,11 @@ func dropListen(port string, w *waker) {
 		if err != nil {
 			continue
 		}
-		w.trigger()
+		// Drop the connection first and wake in the background: the callback can
+		// take seconds, and holding the accept loop meanwhile left every other
+		// player's connection hanging behind it. trigger debounces itself.
 		_ = conn.Close()
+		go w.trigger()
 	}
 }
 

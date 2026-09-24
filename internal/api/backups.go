@@ -27,27 +27,39 @@ type backupConfigDTO struct {
 	Configured     bool   `json:"configured"`
 	HasCredentials bool   `json:"hasCredentials"`
 	HasPassword    bool   `json:"hasPassword"`
+	// Editable tells the caller whether it may change the target (the settings
+	// admin permission). Everyone else gets only Configured and KeepLast.
+	Editable bool `json:"editable"`
 }
 
+// handleGetBackupConfig describes the backup target. Every signed-in user may
+// ask whether backups are configured -- a server's Backups tab needs to know,
+// and it used to be refused outright to anyone without the settings admin
+// permission, which left "Backup now" greyed out for every server owner. Where
+// the target is and how it is reached stays with the administrators.
 func (s *Server) handleGetBackupConfig(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdminPerm(w, r, models.AdminPermSettings) {
-		return
-	}
+	editable := userFrom(r.Context()).HasAdminPerm(models.AdminPermSettings)
 	cfg, err := s.Store.GetBackupConfig()
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, http.StatusOK, backupConfigDTO{KeepLast: 7})
+		writeJSON(w, http.StatusOK, backupConfigDTO{KeepLast: 7, Editable: editable})
 		return
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	configured := cfg.Endpoint != "" && cfg.Bucket != ""
+	if !editable {
+		writeJSON(w, http.StatusOK, backupConfigDTO{Configured: configured, KeepLast: cfg.KeepLast})
+		return
+	}
 	writeJSON(w, http.StatusOK, backupConfigDTO{
 		Endpoint: cfg.Endpoint, Bucket: cfg.Bucket, Prefix: cfg.Prefix, Region: cfg.Region,
 		UseSSL: cfg.UseSSL, KeepLast: cfg.KeepLast, RunnerImage: cfg.RunnerImage,
-		Configured:     cfg.Endpoint != "" && cfg.Bucket != "",
+		Configured:     configured,
 		HasCredentials: cfg.AccessKeyEnc != "" && cfg.SecretKeyEnc != "",
 		HasPassword:    cfg.RepoPasswordEnc != "",
+		Editable:       true,
 	})
 }
 
@@ -207,7 +219,9 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "stop the server before restoring (a live restore would corrupt the data volume)")
 		return
 	}
-	if importInProgress(w, srv) {
+	// A transfer runs its own backup and restore on this volume, and moves it to
+	// another cluster half way: a restore queued alongside would race it.
+	if transferInProgress(w, srv) || importInProgress(w, srv) {
 		return
 	}
 	b := &models.Backup{

@@ -142,6 +142,11 @@ type Status struct {
 	Message    string `json:"message,omitempty"`
 	CrashCount int    `json:"crashCount,omitempty"`
 	DiskUsed   int64  `json:"diskUsed,omitempty"` // bytes
+	// InstalledGeneration is the install generation last seen come up: a pod of
+	// the current Deployment revision reached Ready, so its install step either
+	// ran for that generation or found it already done. The controller uses it
+	// to retire a one-shot wipe once the reinstall that asked for it happened.
+	InstalledGeneration int `json:"installedGeneration,omitempty"`
 }
 
 // Server is a deployable game server instance. The database row is the source

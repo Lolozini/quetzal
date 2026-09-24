@@ -1263,7 +1263,11 @@ paths:
   /api/backup-config:
     get:
       tags: [Backups]
-      summary: Get backup configuration (admin)
+      summary: Get backup configuration
+      description: >-
+        Any signed-in user learns whether backups are configured (`configured`,
+        `keepLast`); the target itself and `editable: true` are returned only
+        to holders of the settings admin permission.
       responses:
         "200":
           description: OK
@@ -2457,6 +2461,8 @@ components:
         configured: { type: boolean }
         hasCredentials: { type: boolean }
         hasPassword: { type: boolean }
+        editable: { type: boolean, description: The caller may change the target }
+
     BackupConfigInput:
       type: object
       properties:

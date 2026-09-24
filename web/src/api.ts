@@ -407,6 +407,9 @@ export interface BackupConfig {
   configured: boolean;
   hasCredentials: boolean;
   hasPassword: boolean;
+  // Whether the caller may change the target (settings admins). Others only
+  // learn whether backups are configured.
+  editable: boolean;
 }
 
 export interface BackupConfigInput {

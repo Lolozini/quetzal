@@ -911,3 +911,17 @@ func TestServerNamespacesUsingHost(t *testing.T) {
 		t.Errorf("unused host = %v (%v), want none", ns, err)
 	}
 }
+
+func TestWithBusyTimeout(t *testing.T) {
+	cases := map[string]string{
+		"quetzal.db":                            "quetzal.db?_pragma=busy_timeout(5000)",
+		"/data/q.db?_pragma=journal_mode(WAL)":  "/data/q.db?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
+		"/data/q.db?_pragma=busy_timeout(9000)": "/data/q.db?_pragma=busy_timeout(9000)",
+		":memory:":                              ":memory:",
+	}
+	for in, want := range cases {
+		if got := withBusyTimeout(in); got != want {
+			t.Errorf("withBusyTimeout(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

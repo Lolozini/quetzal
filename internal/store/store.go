@@ -73,7 +73,7 @@ func Open(cfg Config) (*Store, error) {
 		if dsn == "" {
 			dsn = "quetzal.db"
 		}
-		dialector = sqlite.Open(dsn)
+		dialector = sqlite.Open(withBusyTimeout(dsn))
 	case DriverPostgres:
 		dialector = postgres.Open(cfg.DSN)
 	default:
@@ -88,6 +88,22 @@ func Open(cfg Config) (*Store, error) {
 		log.Printf("warning: QUETZAL_SECRET_KEY not set; server secrets will NOT be encrypted at rest")
 	}
 	return &Store{db: db, key: cfg.SecretKey}, nil
+}
+
+// withBusyTimeout gives a SQLite DSN a busy timeout when it names none. The
+// apiserver and the controller are two processes writing one file, and without
+// a timeout the loser of a concurrent write fails at once with "database is
+// locked" -- a status update dropped, a user's request answered 500. The Helm
+// chart sets one; a DSN written by hand, or the default, did not.
+func withBusyTimeout(dsn string) string {
+	if strings.Contains(dsn, "busy_timeout") || strings.Contains(dsn, ":memory:") {
+		return dsn
+	}
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "_pragma=busy_timeout(5000)"
 }
 
 const (
@@ -212,6 +228,9 @@ func (s *Store) UpsertTemplate(t *models.Template) (*models.Template, error) {
 	}
 	t.ID = existing.ID
 	t.Version = existing.Version + 1
+	// Save writes every column, and a re-imported egg carries no creation time:
+	// without this its template's createdAt became year 1.
+	t.CreatedAt = existing.CreatedAt
 	if err := s.db.Save(t).Error; err != nil {
 		return nil, err
 	}
@@ -412,6 +431,14 @@ func (s *Store) BumpInstallGeneration(id uint, wipe bool) error {
 			"install_generation": gorm.Expr("install_generation + 1"),
 			"install_wipe":       wipe,
 		}).Error
+}
+
+// ClearInstallWipe retires a reinstall's wipe once that reinstall has run, so it
+// cannot fire again on a later install of the same generation (after a restore
+// rolled the volume back, or a deleted install marker).
+func (s *Store) ClearInstallWipe(id uint) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Update("install_wipe", false).Error
 }
 
 // ServerReinstall is what a reinstall may change on a server besides the install

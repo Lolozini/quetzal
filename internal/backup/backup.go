@@ -8,6 +8,7 @@ package backup
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -49,6 +50,9 @@ type Params struct {
 	// repository, so unlike a backup or restore it mounts no data volume and
 	// needs no node placement.
 	Forget bool
+	// InstallGen is the server's install generation, written into the install
+	// marker after a restore (see the restore script).
+	InstallGen int
 	// Purge drops every snapshot the server has, for when the server itself is
 	// deleted. Like Forget it only talks to the repository — which also means it
 	// has no affinity to the server's cluster or namespace, so it can run in the
@@ -192,9 +196,20 @@ restic forget --host %q --tag %q --unsafe-allow-remove-all --prune
 		// directory, so an unfiltered delete would take that directory's siblings
 		// at / with it. Scoping the deletion to the data path keeps it to the
 		// volume.
+		//
+		// The restored data then counts as installed, as it does on Pterodactyl:
+		// the snapshot carries the install marker of its day, and a snapshot
+		// older than the last reinstall carried an older generation, so the next
+		// start re-ran the install over the data that had just been restored
+		// (wiping it first, when that reinstall had asked for a wipe). The marker
+		// keeps the owner it was restored with; a new one goes to the owner of
+		// the volume's root, which is the server's user.
 		script = fmt.Sprintf(`set -e
 restic restore latest --host %q --tag %q --target / --delete --include %s
-`, p.Slug, srcTag, mountPath)
+marker=%s/.quetzal-installed
+printf '%%s' %q > "$marker"
+chown "$(stat -c %%u:%%g %s)" "$marker" 2>/dev/null || true
+`, p.Slug, srcTag, mountPath, mountPath, strconv.Itoa(p.InstallGen), mountPath)
 	default: // backup
 		keep := p.KeepLast
 		if keep <= 0 {

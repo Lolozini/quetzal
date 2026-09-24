@@ -2,9 +2,13 @@ package backup
 
 import (
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -366,5 +370,72 @@ func TestRedactRepositoryKeepsTheErrorAndDropsTheURL(t *testing.T) {
 	}
 	if got := redactRepository("anything", ""); got != "anything" {
 		t.Errorf("empty repository altered the message: %s", got)
+	}
+}
+
+// A restore marks the restored data installed at the server's current install
+// generation. The snapshot carries the marker of its own day, and when that was
+// before the last reinstall the next start re-ran the install over the restored
+// data -- wiping it first if that reinstall had asked for a wipe.
+func TestRestoreMarksTheDataInstalled(t *testing.T) {
+	root := t.TempDir()
+	bin := t.TempDir()
+	// A restic that "restores" a snapshot whose marker is from generation 1.
+	fake := "#!/bin/sh\nprintf 1 > " + root + "/.quetzal-installed\n"
+	if err := os.WriteFile(filepath.Join(bin, "restic"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	job := BuildJob(Params{Slug: "s1", BackupID: 9, SourceID: 4, Direction: models.DirRestore, InstallGen: 3})
+	script := strings.ReplaceAll(job.Spec.Template.Spec.Containers[0].Command[2], mountPath, root)
+	cmd := exec.Command("sh", "-c", script)
+	cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("restore script: %v\n%s", err, out)
+	}
+	if b, _ := os.ReadFile(filepath.Join(root, ".quetzal-installed")); string(b) != "3" {
+		t.Errorf("marker after restore = %q, want 3", b)
+	}
+
+	// A failed restore writes nothing (set -e stops before the marker).
+	if err := os.WriteFile(filepath.Join(bin, "restic"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(root, ".quetzal-installed"))
+	cmd = exec.Command("sh", "-c", script)
+	cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
+	if err := cmd.Run(); err == nil {
+		t.Error("a failed restore exited 0")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".quetzal-installed")); err == nil {
+		t.Error("a failed restore marked the server installed")
+	}
+}
+
+func TestJobOutcome(t *testing.T) {
+	one := int32(1)
+	cond := func(ty batchv1.JobConditionType) []batchv1.JobCondition {
+		return []batchv1.JobCondition{{Type: ty, Status: corev1.ConditionTrue}}
+	}
+	cases := []struct {
+		name         string
+		status       batchv1.JobStatus
+		done, failed bool
+	}{
+		{"running", batchv1.JobStatus{Active: 1}, false, false},
+		// The first pod failed and the Job is retrying: not a verdict yet.
+		{"retrying", batchv1.JobStatus{Failed: 1, Active: 1}, false, false},
+		{"succeeded on retry", batchv1.JobStatus{Failed: 1, Succeeded: 1}, true, false},
+		{"complete condition", batchv1.JobStatus{Conditions: cond(batchv1.JobComplete)}, true, false},
+		{"failed condition", batchv1.JobStatus{Failed: 2, Conditions: cond(batchv1.JobFailed)}, false, true},
+		// Deadline exceeded: failed with no pod failure counted.
+		{"deadline", batchv1.JobStatus{Conditions: cond(batchv1.JobFailed)}, false, true},
+		{"retries exhausted, no condition yet", batchv1.JobStatus{Failed: 2}, false, true},
+	}
+	for _, c := range cases {
+		job := &batchv1.Job{Spec: batchv1.JobSpec{BackoffLimit: &one}, Status: c.status}
+		done, failed := jobOutcome(job)
+		if done != c.done || failed != c.failed {
+			t.Errorf("%s: done=%v failed=%v, want %v %v", c.name, done, failed, c.done, c.failed)
+		}
 	}
 }

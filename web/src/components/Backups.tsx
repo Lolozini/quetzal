@@ -15,7 +15,7 @@ export function Backups({ id }: { id: number }) {
       const [c, bs] = await Promise.all([api.backupConfig(), api.backups(id)]);
       setCfg(c);
       setList(bs);
-      if (!c.configured) setShowCfg(true);
+      if (!c.configured && c.editable) setShowCfg(true);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
@@ -72,17 +72,23 @@ export function Backups({ id }: { id: number }) {
       <div className="row">
         <h3>{t("Backups")}</h3>
         <div className="spacer" />
-        <button onClick={() => setShowCfg((v) => !v)}>{showCfg ? t("Hide target") : t("Backup target")}</button>
+        {cfg?.editable && (
+          <button onClick={() => setShowCfg((v) => !v)}>{showCfg ? t("Hide target") : t("Backup target")}</button>
+        )}
         <button className="primary" disabled={busy !== "" || !cfg?.configured} onClick={backupNow}>
           {busy === "backup" ? t("Queuing…") : t("Backup now")}
         </button>
       </div>
 
       {cfg && !cfg.configured && (
-        <p className="muted">{t("No backup target configured yet — set one below to enable backups.")}</p>
+        <p className="muted">
+          {cfg.editable
+            ? t("No backup target configured yet — set one below to enable backups.")
+            : t("Backups are not set up on this panel yet; an administrator has to configure a backup target first.")}
+        </p>
       )}
 
-      {showCfg && <BackupConfigForm cfg={cfg} onSaved={load} />}
+      {showCfg && cfg?.editable && <BackupConfigForm cfg={cfg} onSaved={load} />}
 
       {list.length === 0 ? (
         <p className="muted">{t("No backups yet.")}</p>
