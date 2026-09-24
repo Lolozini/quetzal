@@ -681,6 +681,7 @@ export const api = {
     req<Server>("PATCH", `/api/servers/${id}`, { hibernation }),
   setServerEnv: (id: number, env: Record<string, string>) =>
     req<Server>("PATCH", `/api/servers/${id}`, { env }),
+  renameServer: (id: number, name: string) => req<Server>("PATCH", `/api/servers/${id}`, { name }),
   setServerResources: (id: number, resources: { memory: string; cpu: string }) =>
     req<Server>("PATCH", `/api/servers/${id}`, { resources }),
   setServerPorts: (id: number, ports: { port: number; protocol: string; primary: boolean }[]) =>

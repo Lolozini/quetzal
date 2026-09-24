@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -45,6 +47,24 @@ const slugSuffixLen = 4
 // display name and capped to leave room for the "-<suffix>". Falls back to
 // "server" when the name yields no slug characters (the name is a free label,
 // so it may be all emoji/non-latin).
+// maxServerNameLen bounds a server's display name, like other names here.
+const maxServerNameLen = 190
+
+// cleanServerName trims a server's display name and checks it: present, on one
+// line, and at most maxServerNameLen characters.
+func cleanServerName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	switch {
+	case name == "":
+		return "", errors.New("name is required")
+	case utf8.RuneCountInString(name) > maxServerNameLen:
+		return "", fmt.Errorf("name is longer than %d characters", maxServerNameLen)
+	case strings.IndexFunc(name, unicode.IsControl) >= 0:
+		return "", errors.New("name must be a single line of text")
+	}
+	return name, nil
+}
+
 func serverSlugBase(name string) string {
 	b := egg.Slugify(name)
 	if max := maxServerSlugLen - slugSuffixLen - 1; len(b) > max {
@@ -307,10 +327,16 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if req.Name == "" || req.Template == "" {
+	if strings.TrimSpace(req.Name) == "" || req.Template == "" {
 		writeError(w, http.StatusBadRequest, "name and template are required")
 		return
 	}
+	name, err := cleanServerName(req.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.Name = name
 	tmpl, err := s.Store.GetTemplateBySlug(req.Template)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "unknown template")
@@ -886,6 +912,9 @@ func (s *Server) checkResourceQuotaForUpdate(u *models.User, serverID uint, memo
 }
 
 type updateServerRequest struct {
+	// Name, when present, renames the server. Only the displayed name changes:
+	// the slug, and with it every Kubernetes object and address, stays put.
+	Name *string `json:"name"`
 	// Expose, when present, reconfigures external reachability (and reallocates
 	// or frees pool node ports accordingly).
 	Expose *models.Expose `json:"expose"`
@@ -920,6 +949,21 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
+	}
+	if req.Name != nil {
+		name, err := cleanServerName(*req.Name)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if name != srv.DisplayName {
+			if err := s.Store.UpdateServerName(srv.ID, name); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			s.audit(r, srv.ID, "server.rename", name)
+			srv.DisplayName = name
+		}
 	}
 	if req.Hibernation != nil {
 		if err := s.Store.UpdateServerHibernation(srv.ID, *req.Hibernation); err != nil {

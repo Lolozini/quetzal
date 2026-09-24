@@ -37,6 +37,10 @@ releases may include breaking changes).
 - A CPU limit field in the create form.
 - `docs/MIGRATING.md`: bringing eggs (from your panel, or from pelican-eggs by
   URL) and servers over from Pterodactyl.
+- **Rename a server** from its Settings tab (`name` on
+  `PATCH /api/servers/{id}`). Only the displayed name changes; the slug, the
+  Kubernetes objects and the address stay put. Names are trimmed, one line,
+  and at most 190 characters, at creation too.
 
 ### Fixed
 

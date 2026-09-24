@@ -175,7 +175,8 @@ func TestCreateServerLongNameSlugCapped(t *testing.T) {
 	ts, c := newTestServer(t)
 	post(t, c, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
 
-	longName := strings.Repeat("very-long-server-name ", 10) // ~220 chars
+	// Within the 190-character name limit, and far past the 50-character slug.
+	longName := strings.Repeat("very-long-server-name ", 8) // 175 chars once trimmed
 	var srv struct {
 		Slug      string `json:"slug"`
 		Namespace string `json:"namespace"`

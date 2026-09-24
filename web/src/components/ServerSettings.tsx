@@ -18,6 +18,8 @@ export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (
   const editable = (tmpl?.variables ?? []).filter((v) => v.editable);
 
   return (
+    <>
+    <RenameForm server={server} onSaved={onSaved} />
     <div className="card">
       <h2>{t("Startup & resources")}</h2>
       <p className="muted">{t("Edit this server's configuration. A ↻ marker appears on a pending change that will restart the server.")}</p>
@@ -27,6 +29,47 @@ export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (
       {tmpl?.features?.includes("eula") && <EULAToggle server={server} onSaved={onSaved} />}
       {tmpl && <Reinstall server={server} current={tmpl} onSaved={onSaved} />}
     </div>
+    </>
+  );
+}
+
+// RenameForm changes the name shown for the server. The slug, and with it the
+// server's Kubernetes objects and addresses, never changes.
+function RenameForm({ server, onSaved }: { server: Server; onSaved: (s: Server) => void }) {
+  const { t } = useT();
+  const [name, setName] = useState(server.displayName);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => setName(server.displayName), [server.displayName]);
+  const dirty = name.trim() !== server.displayName;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setMsg("");
+    setError("");
+    setBusy(true);
+    try {
+      onSaved(await api.renameServer(server.id, name.trim()));
+      setMsg(t("Name saved."));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="card" onSubmit={submit}>
+      <h2>{t("Name")}</h2>
+      <div className="row" style={{ gap: 8 }}>
+        <input value={name} maxLength={190} onChange={(e) => setName(e.target.value)} aria-label={t("Name")} style={{ flex: "1 1 200px", width: "auto" }} />
+        <button className="primary" disabled={busy || !dirty || !name.trim()}>{busy ? t("Saving…") : t("Rename")}</button>
+      </div>
+      <p className="muted">{t("Only the displayed name changes: the server's address and ID stay the same.")}</p>
+      {msg && <div className="notice">{msg}</div>}
+      {error && <div className="error">{error}</div>}
+    </form>
   );
 }
 

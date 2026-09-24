@@ -634,4 +634,7 @@ export const fr: Record<string, string> = {
   "{n} selected": "{n} sélectionné(s)",
   "Backups are not set up on this panel yet; an administrator has to configure a backup target first.":
     "Les sauvegardes ne sont pas encore configurées sur ce panel : un administrateur doit d’abord définir une cible de sauvegarde.",
+  "Name saved.": "Nom enregistré.",
+  "Only the displayed name changes: the server's address and ID stay the same.":
+    "Seul le nom affiché change : l’adresse et l’identifiant du serveur restent les mêmes.",
 };

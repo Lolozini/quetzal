@@ -488,6 +488,12 @@ func (s *Store) UpdateServerStatus(id uint, st models.Status) error {
 		Select("status").Updates(models.Server{Status: st}).Error
 }
 
+// UpdateServerName persists only a server's display name.
+func (s *Store) UpdateServerName(id uint, name string) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Select("display_name").Updates(models.Server{DisplayName: name}).Error
+}
+
 // UpdateServerNetworking persists only the exposure config and the (re)computed
 // port list, leaving controller-written status untouched.
 func (s *Store) UpdateServerNetworking(id uint, expose models.Expose, ports []models.PortSpec) error {

@@ -781,9 +781,10 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
     patch:
       tags: [Servers]
-      summary: Update settings (exposure, hibernation, SFTP, startup variables, resources)
+      summary: Update settings (name, exposure, hibernation, SFTP, startup variables, resources)
       description: >-
-        All fields are optional; only the present ones change. Editing env or
+        All fields are optional; only the present ones change. A rename changes
+        the displayed name only, never the slug. Editing env or
         resources is applied on the next reconcile, which restarts the server.
         env is validated against the template's variable contract; a blank
         secret variable keeps the stored value. resources are re-checked against
@@ -795,6 +796,10 @@ paths:
             schema:
               type: object
               properties:
+                name:
+                  type: string
+                  maxLength: 190
+                  description: New display name (trimmed; one line)
                 expose: { $ref: "#/components/schemas/Expose" }
                 hibernation: { $ref: "#/components/schemas/Hibernation" }
                 sftp:
