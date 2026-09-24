@@ -175,7 +175,8 @@ jobs:
           kubectl delete namespace "$ns" --wait=false
       - name: Load image into kind
         run: kind load docker-image quetzal:e2e --name quetzal-e2e
-      # The backup test brings up MinIO and runs restic in-cluster. Left to
+      # The backup test brings up an S3 server (VersityGW, since MinIO stopped
+      # publishing images) and runs restic in-cluster. Left to
       # itself the kind node pulls both while the test is already waiting on a
       # readiness deadline, so anything wrong with a pull surfaces as "minio not
       # ready" and looks like a failure of whatever is in the changeset. Pulling
@@ -184,7 +185,7 @@ jobs:
       - name: Preload the fixture images into kind
         run: |
           set -eux
-          for img in quay.io/minio/minio:RELEASE.2024-10-13T13-34-11Z restic/restic:0.17.3; do
+          for img in versity/versitygw:v1.8.0 restic/restic:0.17.3; do
             docker pull "$img"
             kind load docker-image "$img" --name quetzal-e2e
           done

@@ -214,7 +214,15 @@ func execInPod(ctx context.Context, t *testing.T, cs kubernetes.Interface, cfg *
 	return stdout.String()
 }
 
-// deployMinIO stands up a single-node MinIO with a pre-created "quetzal" bucket.
+// s3FixtureImage is the S3-compatible server the backup test runs against. CI
+// preloads the same tag into kind (see ci.yml); keep the two in step.
+const s3FixtureImage = "versity/versitygw:v1.8.0"
+
+// deployMinIO stands up the S3 fixture with a pre-created "quetzal" bucket. It
+// keeps its name, but it is no longer MinIO: MinIO stopped publishing its
+// community images, and the tag this used vanished from quay.io as it had from
+// Docker Hub ("unauthorized" on pull). VersityGW's POSIX backend serves a
+// directory as a bucket, which is what the test relied on MinIO for.
 func deployMinIO(ctx context.Context, t *testing.T, cs kubernetes.Interface) {
 	t.Helper()
 	ns := "minio"
@@ -229,19 +237,16 @@ func deployMinIO(ctx context.Context, t *testing.T, cs kubernetes.Interface) {
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{Containers: []corev1.Container{{
-					Name: "minio",
-					// quay.io, not Docker Hub: MinIO stopped serving the community
-					// image there, and a pull of minio/minio now answers "pull
-					// access denied ... repository does not exist", which reads
-					// like a credentials problem rather than a moved image.
-					Image: "quay.io/minio/minio:RELEASE.2024-10-13T13-34-11Z",
+					Name:  "minio",
+					Image: s3FixtureImage,
 					// Pre-create the bucket as a directory so restic finds it.
-					Command: []string{"sh", "-c", "mkdir -p /data/quetzal && minio server /data --console-address :9001"},
-					Env: []corev1.EnvVar{
-						{Name: "MINIO_ROOT_USER", Value: "quetzaltest"},
-						{Name: "MINIO_ROOT_PASSWORD", Value: "quetzaltest"},
-					},
+					Command: []string{"sh", "-c",
+						"mkdir -p /data/quetzal && exec versitygw --port :9000 --access quetzaltest --secret quetzaltest posix /data"},
 					Ports: []corev1.ContainerPort{{ContainerPort: 9000}},
+					// Ready once it answers, so the test does not race the listener.
+					ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{
+						TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(9000)},
+					}},
 				}}},
 			},
 		},
