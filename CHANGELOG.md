@@ -46,6 +46,9 @@ releases may include breaking changes).
 
 ### Fixed
 
+- The first reconcile of a new server no longer logs "cannot patch resource
+  resourcequotas": the access the control plane grants itself in the new
+  namespace is now given a moment to take effect before it is used.
 - **A server was reported Running before it was up.** Running meant the
   container had started, while a Minecraft world, say, still had a minute or
   two to load: players who connected were refused, and "is up and running" was

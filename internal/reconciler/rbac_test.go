@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	authnv1 "k8s.io/api/authentication/v1"
+	authzv1 "k8s.io/api/authorization/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -20,7 +22,7 @@ func rbacScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	s := runtime.NewScheme()
 	for _, add := range []func(*runtime.Scheme) error{
-		corev1.AddToScheme, rbacv1.AddToScheme, authnv1.AddToScheme,
+		corev1.AddToScheme, rbacv1.AddToScheme, authnv1.AddToScheme, authzv1.AddToScheme,
 	} {
 		if err := add(s); err != nil {
 			t.Fatalf("scheme: %v", err)
@@ -159,5 +161,79 @@ func TestEnsureRoleBindingSkippedWhenUnconfigured(t *testing.T) {
 	}
 	if len(all.Items) != 0 {
 		t.Errorf("bound %d role(s) without being told which", len(all.Items))
+	}
+}
+
+// A new binding is enforced only once the API server's RBAC cache has seen it.
+// The first reconcile of every new server used to fail on the next step
+// ("cannot patch resource resourcequotas") and succeed a tick later. The
+// binding is now given a moment to take effect; one that already existed is not.
+func TestNewRoleBindingIsWaitedFor(t *testing.T) {
+	var reviews int
+	answer := func(allowedAfter int, created *bool) interceptor.Funcs {
+		return interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				switch o := obj.(type) {
+				case *authnv1.SelfSubjectReview:
+					o.Status.UserInfo = authnv1.UserInfo{Username: "system:serviceaccount:quetzal:quetzal"}
+					return nil
+				case *authzv1.SelfSubjectAccessReview:
+					reviews++
+					ra := o.Spec.ResourceAttributes
+					if ra == nil || ra.Namespace != "quetzal-srv-demo" || ra.Verb != "patch" || ra.Resource != "resourcequotas" {
+						t.Errorf("asked about %+v, want patch resourcequotas in the new namespace", ra)
+					}
+					o.Status.Allowed = reviews > allowedAfter
+					return nil
+				case *rbacv1.RoleBinding:
+					if !*created {
+						*created = true
+						return c.Create(ctx, obj, opts...)
+					}
+					return apierrors.NewAlreadyExists(schema.GroupResource{Resource: "rolebindings"}, o.Name)
+				}
+				return c.Create(ctx, obj, opts...)
+			},
+		}
+	}
+	created := false
+	cl := fake.NewClientBuilder().WithScheme(rbacScheme(t)).WithInterceptorFuncs(answer(2, &created)).Build()
+	r := &Reconciler{Client: cl, NamespacedRole: "quetzal-namespaced", accessWait: 5 * time.Second}
+
+	start := time.Now()
+	r.ensureRoleBinding(context.Background(), "quetzal-srv-demo")
+	if reviews != 3 {
+		t.Errorf("asked %d times, want until the third answer allowed it", reviews)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Errorf("took %s: it should stop as soon as the access is in effect", time.Since(start))
+	}
+
+	reviews = 0
+	r.ensureRoleBinding(context.Background(), "quetzal-srv-demo")
+	if reviews != 0 {
+		t.Errorf("an existing binding was waited for (%d reviews)", reviews)
+	}
+}
+
+// Access that never shows up is not waited for forever.
+func TestRoleBindingWaitIsBounded(t *testing.T) {
+	cl := fake.NewClientBuilder().WithScheme(rbacScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			switch o := obj.(type) {
+			case *authnv1.SelfSubjectReview:
+				o.Status.UserInfo = authnv1.UserInfo{Username: "system:serviceaccount:quetzal:quetzal"}
+				return nil
+			case *authzv1.SelfSubjectAccessReview:
+				return nil // never allowed
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+	}).Build()
+	r := &Reconciler{Client: cl, NamespacedRole: "quetzal-namespaced", accessWait: 200 * time.Millisecond}
+	start := time.Now()
+	r.ensureRoleBinding(context.Background(), "quetzal-srv-demo")
+	if d := time.Since(start); d < 200*time.Millisecond || d > 2*time.Second {
+		t.Errorf("waited %s, want about the 200ms bound", d)
 	}
 }

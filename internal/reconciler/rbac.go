@@ -4,8 +4,10 @@ import (
 	"context"
 	"log"
 	"strings"
+	"time"
 
 	authnv1 "k8s.io/api/authentication/v1"
+	authzv1 "k8s.io/api/authorization/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,10 +50,53 @@ func (r *Reconciler) ensureRoleBinding(ctx context.Context, namespace string) {
 		Subjects: []rbacv1.Subject{subject},
 	}
 	err := r.Client.Create(ctx, rb)
-	if err == nil || apierrors.IsAlreadyExists(err) {
+	if err == nil {
+		r.waitForAccess(ctx, namespace)
+		return
+	}
+	if apierrors.IsAlreadyExists(err) {
 		return
 	}
 	r.warnOnce("role-binding", "cannot grant myself access in %s (%v); this is expected when the cluster was registered with an administrator's kubeconfig, and a problem otherwise", namespace, err)
+}
+
+// defaultAccessWait bounds how long a new binding is given to take effect.
+const defaultAccessWait = 10 * time.Second
+
+// waitForAccess returns once the binding just made in namespace is enforced.
+// The API server applies a new binding only when its RBAC cache has seen it, a
+// moment after the create returns, so the first reconcile of every new server
+// used to fail on the very next step ("cannot patch resource resourcequotas")
+// and succeed a tick later: harmless, but an error in the log at each
+// creation. It asks the server, which any authenticated identity may do
+// (system:basic-user); if it cannot ask, or the wait runs out, it carries on
+// and the steps that follow report what is missing, as before.
+func (r *Reconciler) waitForAccess(ctx context.Context, namespace string) {
+	wait := r.accessWait
+	if wait == 0 {
+		wait = defaultAccessWait
+	}
+	deadline := time.Now().Add(wait)
+	poll := wait / 50
+	for {
+		review := &authzv1.SelfSubjectAccessReview{Spec: authzv1.SelfSubjectAccessReviewSpec{
+			ResourceAttributes: &authzv1.ResourceAttributes{
+				Namespace: namespace, Verb: "patch", Resource: "resourcequotas",
+			},
+		}}
+		if err := r.Client.Create(ctx, review); err != nil || review.Status.Allowed {
+			return
+		}
+		if !time.Now().Before(deadline) {
+			r.warnOnce("access-wait", "the access granted in %s was not in effect after %s; the next reconcile will retry", namespace, wait)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(poll):
+		}
+	}
 }
 
 // identity asks the cluster who this control plane authenticates as, so the

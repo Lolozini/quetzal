@@ -46,6 +46,10 @@ type Reconciler struct {
 	identityOK      bool
 	identitySubject rbacv1.Subject
 
+	// accessWait bounds the wait for a new RoleBinding to take effect (0: the
+	// default); tests shorten it.
+	accessWait time.Duration
+
 	// OnStop, if set, is called just before a running server is scaled to zero
 	// so a graceful stop command can be delivered to the container (via the
 	// console attach path). It is best-effort. Injected by the controller to
