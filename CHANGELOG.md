@@ -7,6 +7,18 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-25
+
+A security fix: the guard on outbound requests let a user-supplied URL reach
+the carrier-grade NAT range, where Tailscale nodes and, on some clusters, pods
+live.
+
+**Upgrading from 0.3.0** — one thing behaves differently:
+
+- A webhook, an egg URL or a Pterodactyl panel on a 100.64.0.0/10 address (a
+  Tailscale node, for instance) is now refused, as private addresses already
+  were. See *Security*.
+
 ### Security
 
 - The outbound guard (webhooks, eggs by URL, Pterodactyl imports) also
@@ -827,7 +839,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/lolozini/quetzal/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/lolozini/quetzal/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lolozini/quetzal/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lolozini/quetzal/releases/tag/v0.1.0
