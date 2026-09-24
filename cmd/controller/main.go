@@ -75,8 +75,9 @@ func main() {
 		log.Fatalf("kube config: %v", err)
 	}
 	// Bound every API call so an unreachable cluster can't wedge a reconcile
-	// tick. Safe here because the controller never streams (console log/attach
-	// live in the apiserver, which keeps its clients timeout-free).
+	// tick. The one stream the controller opens, a starting game's log, is made
+	// on a copy without this bound (see startupSeenFor); console log/attach live
+	// in the apiserver, which keeps its clients timeout-free.
 	clusterTimeout := envDuration("QUETZAL_CLUSTER_TIMEOUT", 30*time.Second)
 	cfg.Timeout = clusterTimeout
 	local, err := cluster.FromConfig(cfg)
@@ -419,11 +420,20 @@ func onStopFor(clients cluster.Clients) func(ctx context.Context, ns, slug, stop
 }
 
 // startupSeenFor answers whether a game container printed its done line, by
-// following the container's log on the given cluster.
+// following the container's log on the given cluster. The controller's clients
+// cut every request after QUETZAL_CLUSTER_TIMEOUT, a log stream included, so the
+// log is read on a copy without it: the watcher's own deadline bounds it, and
+// it runs in its own goroutine, so a slow cluster cannot hold up a tick.
 func startupSeenFor(w *startup.Watcher, clients cluster.Clients) func(ns, pod, containerID string, deadline time.Time, ms []startup.Matcher) bool {
 	return func(ns, pod, containerID string, deadline time.Time, ms []startup.Matcher) bool {
 		return w.Seen(containerID, deadline, ms, func(ctx context.Context) (io.ReadCloser, error) {
-			return clients.Clientset.CoreV1().Pods(ns).GetLogs(pod, &corev1.PodLogOptions{
+			cfg := rest.CopyConfig(clients.Config)
+			cfg.Timeout = 0
+			cs, err := kubernetes.NewForConfig(cfg)
+			if err != nil {
+				return nil, err
+			}
+			return cs.CoreV1().Pods(ns).GetLogs(pod, &corev1.PodLogOptions{
 				Container: reconciler.WorkloadName,
 				Follow:    true,
 			}).Stream(ctx)
