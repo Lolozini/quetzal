@@ -77,8 +77,8 @@ func TestParsePelicanYAML(t *testing.T) {
 	if tmpl.Name != "Paper" || tmpl.Startup != "java -Xms128M -jar {{SERVER_JARFILE}}" || tmpl.StopCommand != "stop" {
 		t.Errorf("name/startup/stop = %q / %q / %q", tmpl.Name, tmpl.Startup, tmpl.StopCommand)
 	}
-	if tmpl.DoneRegex != ")! For help, type " {
-		t.Errorf("done = %q", tmpl.DoneRegex)
+	if got := tmpl.DoneLines(); len(got) != 1 || got[0] != ")! For help, type " {
+		t.Errorf("done = %q", got)
 	}
 	// Images keep the egg's order, and the first is the default.
 	var refs []string

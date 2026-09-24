@@ -9,6 +9,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/startup"
 	"github.com/lolozini/quetzal/internal/store"
 )
 
@@ -49,6 +51,13 @@ type Reconciler struct {
 	// console attach path). It is best-effort. Injected by the controller to
 	// avoid an import cycle with the console package.
 	OnStop func(ctx context.Context, namespace, slug, stopCommand string) error
+
+	// StartupSeen, if set, reports whether a game container has printed one of
+	// its template's done lines, following its output in the background until it
+	// does or deadline passes (see the startup package). Injected by the
+	// controller, which holds the clientset a log stream needs. Unset, a ready
+	// container counts as started.
+	StartupSeen func(namespace, pod, containerID string, deadline time.Time, ms []startup.Matcher) bool
 
 	// Wake-on-connect: when ActivatorImage is set, a server with wake-on-connect
 	// (drop) or proxy mode gets an activator. WakeURL/ActiveURL are the control
@@ -635,7 +644,7 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 			st.Phase = models.PhaseError
 			st.Message = installFailureMessage(h)
 		case r.deploymentReady(ctx, s.Namespace):
-			st.Phase = models.PhaseRunning
+			st.Phase, st.StartedContainer, st.Message = r.startupPhase(s, t, h, time.Now())
 			if r.deploymentCurrent(ctx, s.Namespace) {
 				st.InstalledGeneration = s.InstallGeneration
 			}
@@ -665,6 +674,64 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 
 	r.emitTransition(s, s.Status.Phase, st)
 	return r.Store.UpdateServerStatus(s.ID, st)
+}
+
+// startupLimit is how long a game has to print its done line. Past it, the
+// server is reported Running anyway, with a message: a done line an update of
+// the game no longer prints would otherwise keep it Starting for good.
+const startupLimit = 30 * time.Minute
+
+// startupPhase tells Running from Starting once the pod is ready. Ready only
+// means the container is up; the game is ready when it prints one of its
+// template's done lines, which is what Pterodactyl waits for too. It returns
+// the phase, the container known to have started, and a message.
+func (r *Reconciler) startupPhase(s *models.Server, t *models.Template, h podHealth, now time.Time) (models.Phase, string, string) {
+	lines := t.DoneLines()
+	ms, bad := startup.Compile(lines)
+	id := h.gameContainer
+	switch {
+	case len(ms) == 0:
+		// Nothing to wait for: the container being up is all there is to know.
+		msg := ""
+		if bad != nil {
+			msg = "the template's startup line is invalid (" + bad.Error() + "), so the server is not checked for it"
+		}
+		return models.PhaseRunning, id, msg
+	case r.StartupSeen == nil:
+		return models.PhaseRunning, id, ""
+	case id == "" || h.gameStarted.IsZero():
+		// The Deployment and the pod list disagree for a moment. Keep what was
+		// reported rather than flap between phases.
+		if s.Status.Phase == models.PhaseRunning || s.Status.Phase == models.PhaseStarting {
+			return s.Status.Phase, s.Status.StartedContainer, s.Status.Message
+		}
+		return models.PhaseStarting, "", ""
+	case s.Status.StartedContainer == id:
+		return models.PhaseRunning, id, ""
+	case s.Status.StartedContainer == "" && s.Status.Phase == models.PhaseRunning:
+		// Reported Running before this check existed. Sending every running
+		// server back to Starting on upgrade, some for good because their done
+		// line has since left the log, would be worse than trusting it.
+		return models.PhaseRunning, id, ""
+	}
+	deadline := h.gameStarted.Add(startupLimit)
+	if r.StartupSeen(s.Namespace, h.gamePod, id, deadline, ms) {
+		return models.PhaseRunning, id, ""
+	}
+	if !now.Before(deadline) {
+		return models.PhaseRunning, id, fmt.Sprintf("the console never showed %s within %s of starting; the template's startup line may be out of date",
+			quoteLines(lines), startupLimit)
+	}
+	return models.PhaseStarting, "", "waiting for " + quoteLines(lines) + " in the console"
+}
+
+// quoteLines lists done lines for a message: "a" or "b".
+func quoteLines(lines []string) string {
+	q := make([]string, len(lines))
+	for i, l := range lines {
+		q[i] = fmt.Sprintf("%q", l)
+	}
+	return strings.Join(q, " or ")
 }
 
 // installFailureMessage says which step failed, with what code, and quotes what
@@ -796,6 +863,12 @@ type podHealth struct {
 	installStep    string // the init container concerned
 	installExit    int32
 	installMessage string
+
+	// The game container that is up, if any: its pod, its runtime ID (new on
+	// every restart) and when it started.
+	gamePod       string
+	gameContainer string
+	gameStarted   time.Time
 }
 
 // inspectPods sums container restarts, detects CrashLoopBackOff, and records the
@@ -832,6 +905,10 @@ func (r *Reconciler) inspectPods(ctx context.Context, ns, slug string) podHealth
 			// back up; a container terminated right now is captured too.
 			note(cs.LastTerminationState.Terminated)
 			note(cs.State.Terminated)
+			if run := cs.State.Running; run != nil && cs.Name == workloadName && cs.ContainerID != "" &&
+				pods.Items[i].DeletionTimestamp == nil && !run.StartedAt.Time.Before(h.gameStarted) {
+				h.gamePod, h.gameContainer, h.gameStarted = pods.Items[i].Name, cs.ContainerID, run.StartedAt.Time
+			}
 		}
 		noteInit(&h, pods.Items[i].Status.InitContainerStatuses)
 	}

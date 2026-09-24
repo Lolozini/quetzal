@@ -40,6 +40,16 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A server was reported Running before it was up.** Running meant the
+  container had started, while a Minecraft world, say, still had a minute or
+  two to load: players who connected were refused, and "is up and running" was
+  announced early. The server now stays Starting until the console shows one of
+  its template's done lines (the egg's `config.startup.done`), as Pterodactyl
+  waits for, and the page says which line it is waiting for. A done line that
+  never shows within 30 minutes no longer holds the server back: it is reported
+  Running, with a message that the line may be out of date. Eggs that list
+  several done lines are now read too (they used to be dropped), and templates
+  store them as `done`; the older single `doneRegex` is still read.
 - **Restoring a backup could wipe the restored data.** A reinstall's "wipe the
   data" flag was never cleared, and a restore brought back the install marker
   of the snapshot's day: restoring a backup taken before the last reinstall

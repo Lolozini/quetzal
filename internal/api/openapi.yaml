@@ -2180,8 +2180,18 @@ components:
           type: array
           items: { type: string }
         address: { type: string }
-        message: { type: string }
+        message:
+          type: string
+          description: >-
+            What the server is waiting on or why it failed, e.g. the done line
+            a Starting server has not printed yet.
         crashCount: { type: integer }
+        startedContainer:
+          type: string
+          description: >-
+            The game container that printed one of its template's done lines.
+            A ready container is reported Starting until it does, or until 30
+            minutes have passed.
     Server:
       type: object
       properties:
@@ -2365,6 +2375,14 @@ components:
         variables:
           type: array
           items: { $ref: "#/components/schemas/TemplateVariable" }
+        done:
+          type: array
+          description: >-
+            Console lines that mean the server has finished starting (egg
+            config.startup.done). Each is text to find in an output line, or a
+            regular expression when prefixed "regex:". Templates exported before
+            this field carry a single line as doneRegex, which is still read.
+          items: { type: string }
         ports:
           type: array
           items: { $ref: "#/components/schemas/Port" }

@@ -70,8 +70,8 @@ func TestToTemplate(t *testing.T) {
 	if tmpl.StopCommand != "stop" {
 		t.Errorf("stopCommand = %q, want stop", tmpl.StopCommand)
 	}
-	if tmpl.DoneRegex != ")! For help, type " {
-		t.Errorf("doneRegex = %q", tmpl.DoneRegex)
+	if got := tmpl.DoneLines(); len(got) != 1 || got[0] != ")! For help, type " {
+		t.Errorf("done = %q", got)
 	}
 	if len(tmpl.Images) != 1 || tmpl.Images[0].Ref != "itzg/minecraft-server:java21" {
 		t.Errorf("images = %+v", tmpl.Images)
@@ -110,5 +110,36 @@ func TestToTemplate(t *testing.T) {
 	}
 	if !tmpl.Variables[0].Required {
 		t.Errorf("var 0 should be required")
+	}
+}
+
+// Some eggs list several done lines, any of which means the server is up. They
+// used to be dropped, leaving the server with nothing to wait for.
+func TestDoneLinesFromAList(t *testing.T) {
+	egg := `{
+  "name": "Portal Knights",
+  "docker_images": {"Wine": "ghcr.io/parkervcp/yolks:wine_latest"},
+  "startup": "./server",
+  "config": {"startup": "{\"done\": [\"Listening on\", \"ReadyToServe\", \"\"]}", "stop": "^C"}
+}`
+	tmpl, err := Parse([]byte(egg))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	got := tmpl.DoneLines()
+	if len(got) != 2 || got[0] != "Listening on" || got[1] != "ReadyToServe" {
+		t.Errorf("done = %q, want [Listening on ReadyToServe]", got)
+	}
+}
+
+// Exports made before the list keep their single line.
+func TestDoneLineFromAnOlderExport(t *testing.T) {
+	native := `{"name": "Old", "images": [{"ref": "alpine:3.20", "default": true}], "startup": "sh", "doneRegex": "Done (", "dataPath": "/data"}`
+	tmpl, err := Parse([]byte(native))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got := tmpl.DoneLines(); len(got) != 1 || got[0] != "Done (" {
+		t.Errorf("done = %q, want [Done (]", got)
 	}
 }

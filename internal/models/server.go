@@ -147,6 +147,10 @@ type Status struct {
 	// ran for that generation or found it already done. The controller uses it
 	// to retire a one-shot wipe once the reinstall that asked for it happened.
 	InstalledGeneration int `json:"installedGeneration,omitempty"`
+	// StartedContainer is the game container (by its runtime ID, which changes
+	// on every restart) that printed one of the template's done lines. The
+	// server is Running while that container is the one up.
+	StartedContainer string `json:"startedContainer,omitempty"`
 }
 
 // Server is a deployable game server instance. The database row is the source

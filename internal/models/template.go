@@ -38,8 +38,13 @@ type Template struct {
 
 	// Startup is the command run inside the container, with {{VARS}} substitution.
 	Startup string `json:"startup"`
-	// DoneRegex marks the line indicating the server finished starting
-	// (egg config.startup.done).
+	// Done lists the console lines that mean the server has finished starting
+	// (egg config.startup.done). As in Wings, each is text to find in an output
+	// line, or a regular expression when prefixed "regex:". The server reads as
+	// Starting until one appears; with none, it is Running once its container is.
+	Done []string `gorm:"column:done_lines;serializer:json" json:"done,omitempty"`
+	// DoneRegex is the single-line field Done replaced, still read from older
+	// templates and exports. Despite its name, it was always matched as text.
 	DoneRegex string `json:"doneRegex,omitempty"`
 	// StopCommand is sent to stdin for a graceful stop (egg config.stop),
 	// e.g. "stop" or "^C". Empty means SIGTERM.
@@ -87,6 +92,21 @@ func (t *Template) HasFeature(name string) bool {
 		}
 	}
 	return false
+}
+
+// DoneLines returns the lines that mean the server has finished starting,
+// folding in the single-line field older templates carry.
+func (t *Template) DoneLines() []string {
+	var out []string
+	for _, l := range t.Done {
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	if len(out) == 0 && t.DoneRegex != "" {
+		out = append(out, t.DoneRegex)
+	}
+	return out
 }
 
 // DetectPorts infers per-server ports from a template's port-like variables.

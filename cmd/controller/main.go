@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -40,6 +41,7 @@ import (
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/scheduler"
+	"github.com/lolozini/quetzal/internal/startup"
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/internal/transfer"
 	"github.com/lolozini/quetzal/internal/version"
@@ -132,14 +134,27 @@ func main() {
 		log.Printf("quetzal-controller reconciling (db=%s, resync=%s)", dbDriver, resync)
 		ticker := time.NewTicker(resync)
 		defer ticker.Stop()
+		// A game printing its done line kicks a reconcile, so "Running" shows
+		// when the console says so rather than up to a resync later.
+		kick := make(chan struct{}, 1)
+		watcher := startup.NewWatcher(ctx)
+		watcher.Kick = func() {
+			select {
+			case kick <- struct{}{}:
+			default:
+			}
+		}
+		reconcile := func() {
+			_ = guarded("reconcile", func() error {
+				reconcileAll(ctx, reg, st, actCfg, egressAllow, namespacedRole, watcher)
+				return nil
+			})
+		}
 		tick := func() {
 			// Each step is independent, and none of them is worth the whole
 			// controller: a panic anywhere below would end the process, which
 			// Kubernetes restarts straight back into the row that caused it.
-			_ = guarded("reconcile", func() error {
-				reconcileAll(ctx, reg, st, actCfg, egressAllow, namespacedRole)
-				return nil
-			})
+			reconcile()
 			_ = guarded("schedules", func() error { sched.Tick(ctx); return nil })
 			// Transfers advance after reconcile (which creates the destination
 			// namespace/volume post cluster-flip) and before the backup manager
@@ -156,6 +171,8 @@ func main() {
 				return
 			case <-ticker.C:
 				tick()
+			case <-kick:
+				reconcile()
 			}
 		}
 	}
@@ -312,7 +329,7 @@ func apiCallbackURL(base, kind string) string {
 	return base + "/api/internal/" + kind
 }
 
-func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, actCfg activatorConfig, egressAllow []string, namespacedRole string) {
+func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, actCfg activatorConfig, egressAllow []string, namespacedRole string, watcher *startup.Watcher) {
 	servers, err := st.ListServers()
 	if err != nil {
 		log.Printf("list servers: %v", err)
@@ -349,6 +366,7 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 		}
 		rec := reconciler.New(clients.Client, st)
 		rec.OnStop = onStopFor(clients)
+		rec.StartupSeen = startupSeenFor(watcher, clients)
 		rec.ActivatorImage = actCfg.image
 		rec.WakeURL = actCfg.wakeURL
 		rec.ActiveURL = actCfg.activeURL
@@ -397,6 +415,19 @@ func onStopFor(clients cluster.Clients) func(ctx context.Context, ns, slug, stop
 		cctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
 		return console.SendStdin(cctx, clients.Clientset, clients.Config, ns, pod, stopCommand+"\n")
+	}
+}
+
+// startupSeenFor answers whether a game container printed its done line, by
+// following the container's log on the given cluster.
+func startupSeenFor(w *startup.Watcher, clients cluster.Clients) func(ns, pod, containerID string, deadline time.Time, ms []startup.Matcher) bool {
+	return func(ns, pod, containerID string, deadline time.Time, ms []startup.Matcher) bool {
+		return w.Seen(containerID, deadline, ms, func(ctx context.Context) (io.ReadCloser, error) {
+			return clients.Clientset.CoreV1().Pods(ns).GetLogs(pod, &corev1.PodLogOptions{
+				Container: reconciler.WorkloadName,
+				Follow:    true,
+			}).Stream(ctx)
+		})
 	}
 }
 

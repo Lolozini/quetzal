@@ -20,7 +20,7 @@
     { "name": "RCON Password", "description": "Password for RCON (stored encrypted, kept in a Kubernetes Secret). Optional — the panel console uses stdin, not RCON.", "envVariable": "RCON_PASSWORD", "type": "string", "secret": true, "viewable": true, "editable": true }
   ],
   "startup": "",
-  "doneRegex": "Done (",
+  "done": ["Done ("],
   "stopCommand": "stop",
   "stopGraceSeconds": 120,
   "console": { "type": "attach" },

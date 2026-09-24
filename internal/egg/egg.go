@@ -117,15 +117,24 @@ func ToTemplate(data []byte) (*models.Template, error) {
 		t.StopCommand = stop
 	}
 
-	// Done regex (config.startup -> {"done": "..."}).
+	// Done lines (config.startup -> {"done": "..."} or {"done": ["...", "..."]}).
+	// Some eggs list several, any of which means the server is up.
 	if len(e.Config.Startup) > 0 {
 		var su struct {
 			Done json.RawMessage `json:"done"`
 		}
 		if err := decodeMaybeString(e.Config.Startup, &su); err == nil && len(su.Done) > 0 {
-			var done string
-			if json.Unmarshal(su.Done, &done) == nil {
-				t.DoneRegex = done
+			var one string
+			var many []string
+			if json.Unmarshal(su.Done, &one) == nil {
+				many = []string{one}
+			} else {
+				_ = json.Unmarshal(su.Done, &many)
+			}
+			for _, l := range many {
+				if l != "" {
+					t.Done = append(t.Done, l)
+				}
 			}
 		}
 	}
