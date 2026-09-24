@@ -24,9 +24,25 @@ func TestBlockedIP(t *testing.T) {
 		"::ffff:127.0.0.1":       true,
 		"::ffff:169.254.169.254": true,
 		"::ffff:10.0.0.1":        true,
-		"8.8.8.8":                false, // public
-		"1.1.1.1":                false, // public
-		"93.184.216.34":          false, // public
+		// Special-use ranges net.IP's predicates leave out.
+		"100.64.0.1":      true, // CGNAT / Tailscale / some pod networks
+		"100.127.255.254": true,
+		"0.1.2.3":         true, // "this network"
+		"192.0.0.8":       true, // IETF protocol assignments
+		"198.18.0.1":      true, // benchmarking
+		"240.0.0.1":       true, // reserved
+		"255.255.255.255": true, // limited broadcast
+		// NAT64 reaches the IPv4 address it embeds: judge that one.
+		"64:ff9b::a00:1":       true, // 10.0.0.1
+		"64:ff9b::7f00:1":      true, // 127.0.0.1
+		"64:ff9b:1::a9fe:a9fe": true, // local-use NAT64: refused as a whole
+		"64:ff9b:1::808:808":   true,
+		"64:ff9b::808:808":     false, // 8.8.8.8
+		"100.128.0.1":          false, // just past the CGNAT range
+		"2606:4700:4700::1111": false, // public v6
+		"8.8.8.8":              false, // public
+		"1.1.1.1":              false, // public
+		"93.184.216.34":        false, // public
 	}
 	for ipStr, want := range cases {
 		if got := blockedIP(net.ParseIP(ipStr)); got != want {

@@ -7,6 +7,17 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Security
+
+- The outbound guard (webhooks, eggs by URL, Pterodactyl imports) also
+  refuses the special-use IPv4 ranges Go's `IsPrivate` leaves out, chiefly
+  100.64.0.0/10: carrier-grade NAT, which is also where Tailscale puts its
+  nodes and where some clusters (EKS with custom networking, among others) put
+  their pods, so a user-supplied URL could reach them. Also 0.0.0.0/8,
+  192.0.0.0/24, 198.18.0.0/15 and 240.0.0.0/4, and NAT64 addresses: the
+  well-known prefix is judged by the IPv4 address it embeds, the local-use one
+  is refused.
+
 ## [0.3.0] - 2026-09-25
 
 Migrating from Pterodactyl, and a server that behaves the way players expect.

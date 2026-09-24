@@ -17,16 +17,61 @@ import (
 	"time"
 )
 
+// specialV4 are the IPv4 ranges net.IP's predicates leave out that still never
+// lead to the public internet. The one that matters is 100.64.0.0/10: carrier-
+// grade NAT, which is also where Tailscale puts its nodes and where some
+// clusters (EKS with custom networking, among others) put their pods, so a
+// guard that only knew RFC 1918 let a user-supplied URL reach them.
+var specialV4 = func() []*net.IPNet {
+	var out []*net.IPNet
+	for _, c := range []string{
+		"0.0.0.0/8",     // "this network"
+		"100.64.0.0/10", // shared address space (RFC 6598): CGNAT, Tailscale, some pod networks
+		"192.0.0.0/24",  // IETF protocol assignments
+		"198.18.0.0/15", // benchmarking
+		"240.0.0.0/4",   // reserved, and the limited broadcast address
+	} {
+		_, n, _ := net.ParseCIDR(c)
+		out = append(out, n)
+	}
+	return out
+}()
+
+// nat64 is the well-known NAT64 prefix (RFC 6052): an address in it reaches
+// the IPv4 address in its last four bytes, so that is the address to judge.
+var _, nat64, _ = net.ParseCIDR("64:ff9b::/96")
+
+// nat64Local is the local-use NAT64 prefix (RFC 8215). Where the IPv4 address
+// sits in it depends on the operator's prefix length, and it is local by
+// definition, so it is refused as a whole.
+var _, nat64Local, _ = net.ParseCIDR("64:ff9b:1::/48")
+
 // blockedIP reports whether dialing ip should be refused (non-public ranges).
 func blockedIP(ip net.IP) bool {
-	return ip == nil ||
-		ip.IsLoopback() ||
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() ||
 		ip.IsPrivate() || // RFC1918 + fc00::/7 unique-local
 		ip.IsLinkLocalUnicast() || // 169.254.0.0/16 (incl. metadata) + fe80::/10
 		ip.IsLinkLocalMulticast() ||
 		ip.IsInterfaceLocalMulticast() ||
 		ip.IsMulticast() ||
-		ip.IsUnspecified()
+		ip.IsUnspecified() {
+		return true
+	}
+	if v4 := ip.To4(); v4 != nil {
+		for _, n := range specialV4 {
+			if n.Contains(v4) {
+				return true
+			}
+		}
+		return false
+	}
+	if nat64.Contains(ip) {
+		return blockedIP(net.IP(ip[12:16]))
+	}
+	return nat64Local.Contains(ip)
 }
 
 // ErrBlocked is wrapped into the error for a connection refused because the
