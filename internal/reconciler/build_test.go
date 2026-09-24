@@ -1008,3 +1008,33 @@ func TestBuildActivatorGatesMinecraftOnItsGamePort(t *testing.T) {
 		t.Errorf("a UDP-only server got game port %q", e["QUETZAL_GAME_PORT"])
 	}
 }
+
+// The helpers run the Quetzal image. Pinned to IfNotPresent, a node kept the
+// first "latest" it pulled, and ran an old activator or config render against a
+// newer controller. They now follow Kubernetes' own default for the reference.
+func TestSystemPullPolicy(t *testing.T) {
+	for image, want := range map[string]corev1.PullPolicy{
+		"ghcr.io/lolozini/quetzal:latest":                        corev1.PullAlways,
+		"ghcr.io/lolozini/quetzal":                               corev1.PullAlways,
+		"registry.local:5000/quetzal":                            corev1.PullAlways,
+		"registry.local:5000/quetzal:v0.2.0":                     corev1.PullIfNotPresent,
+		"ghcr.io/lolozini/quetzal:v0.2.0":                        corev1.PullIfNotPresent,
+		"ghcr.io/lolozini/quetzal@sha256:0123456789abcdef":       corev1.PullIfNotPresent,
+		"ghcr.io/lolozini/quetzal:latest@sha256:0123456789abcde": corev1.PullIfNotPresent,
+	} {
+		if got := systemPullPolicy(image); got != want {
+			t.Errorf("%s: %s, want %s", image, got, want)
+		}
+	}
+
+	s, tmpl := testServerAndTemplate()
+	dep := BuildActivatorDeployment(s, tmpl, ActivatorParams{Image: "ghcr.io/lolozini/quetzal:latest"})
+	if got := dep.Spec.Template.Spec.Containers[0].ImagePullPolicy; got != corev1.PullAlways {
+		t.Errorf("activator on latest: %s", got)
+	}
+	// The game's own image keeps its policy: a game on "latest" is not pulled
+	// again on every start.
+	if got := BuildDeployment(s, tmpl, "ghcr.io/lolozini/quetzal:latest", nil).Spec.Template.Spec.Containers[0].ImagePullPolicy; got != corev1.PullIfNotPresent {
+		t.Errorf("game container: %s", got)
+	}
+}

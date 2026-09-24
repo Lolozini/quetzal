@@ -418,6 +418,27 @@ func BuildService(s *models.Server, t *models.Template, activator bool) *corev1.
 	return svc
 }
 
+// systemPullPolicy is the pull policy for the Quetzal image the helper
+// containers run (activator, config render, SFTP): the one Kubernetes itself
+// defaults to for that reference. A version tag or a digest is pulled once per
+// node. "latest", or no tag, moves with every release, and IfNotPresent kept
+// whatever a node had pulled first: on a node with no Quetzal pod of its own,
+// the helpers ran an old build against a newer controller.
+func systemPullPolicy(image string) corev1.PullPolicy {
+	if strings.Contains(image, "@") {
+		return corev1.PullIfNotPresent
+	}
+	name := image[strings.LastIndex(image, "/")+1:] // a registry's port is not a tag
+	tag := ""
+	if i := strings.LastIndex(name, ":"); i >= 0 {
+		tag = name[i+1:]
+	}
+	if tag == "" || tag == "latest" {
+		return corev1.PullAlways
+	}
+	return corev1.PullIfNotPresent
+}
+
 // activatorBinary is the activator command inside the Quetzal image.
 const activatorBinary = "/usr/local/bin/quetzal-activator"
 
@@ -502,7 +523,7 @@ func BuildActivatorDeployment(s *models.Server, t *models.Template, p ActivatorP
 					Containers: []corev1.Container{{
 						Name:            "activator",
 						Image:           p.Image,
-						ImagePullPolicy: corev1.PullIfNotPresent,
+						ImagePullPolicy: systemPullPolicy(p.Image),
 						Command:         []string{activatorBinary},
 						Ports:           cports,
 						Env:             env,
@@ -1003,7 +1024,7 @@ func configRenderInitContainers(s *models.Server, t *models.Template, systemImag
 		{
 			Name:            RenderCopyContainer,
 			Image:           systemImage,
-			ImagePullPolicy: corev1.PullIfNotPresent,
+			ImagePullPolicy: systemPullPolicy(systemImage),
 			Command:         []string{configRenderBinary},
 			Env:             []corev1.EnvVar{{Name: "QUETZAL_INSTALL_TO", Value: renderBinPath}},
 			VolumeMounts:    []corev1.VolumeMount{{Name: renderBinVolume, MountPath: renderBinMount}},
@@ -1054,7 +1075,7 @@ func sftpCopyInitContainer(systemImage string, t *models.Template) corev1.Contai
 	return corev1.Container{
 		Name:            "sftp-copy",
 		Image:           systemImage,
-		ImagePullPolicy: corev1.PullIfNotPresent,
+		ImagePullPolicy: systemPullPolicy(systemImage),
 		Command:         []string{"/usr/local/bin/quetzal-sftp"},
 		Env:             []corev1.EnvVar{{Name: "QUETZAL_INSTALL_TO", Value: sftpBinPath}},
 		VolumeMounts:    []corev1.VolumeMount{{Name: renderBinVolume, MountPath: renderBinMount}},

@@ -59,6 +59,14 @@ releases may include breaking changes).
   `eula` egg feature, which Minecraft Java servers and proxies carry; a
   template's new `wakeProtocol` (`minecraft` or `any`) overrides it. Other
   games still wake on any connection.
+- The helper containers that run the Quetzal image (the wake-on-connect
+  activator, the config render and the SFTP copy) follow Kubernetes' default
+  pull policy for that image instead of always `IfNotPresent`. On an install
+  that runs `latest`, a node without a Quetzal pod of its own kept the first
+  `latest` it had pulled, and ran old helpers against a newer controller; they
+  are now pulled like the control plane's own pods. A version tag is pulled
+  once per node, as before. On a `latest` install, the upgrade restarts the
+  servers that render config files, once.
 - The first reconcile of a new server no longer logs "cannot patch resource
   resourcequotas": the access the control plane grants itself in the new
   namespace is now given a moment to take effect before it is used.
