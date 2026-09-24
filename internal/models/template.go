@@ -43,6 +43,12 @@ type Template struct {
 	// line, or a regular expression when prefixed "regex:". The server reads as
 	// Starting until one appears; with none, it is Running once its container is.
 	Done []string `gorm:"column:done_lines;serializer:json" json:"done,omitempty"`
+	// WakeProtocol is how the wake-on-connect activator tells a player from a
+	// port scanner: WakeMinecraft wakes only on a Minecraft Java login and
+	// answers server-list pings itself, WakeAnyConnection wakes on any
+	// connection. Empty picks WakeMinecraft for templates with the "eula" egg
+	// feature (Minecraft Java servers and proxies), WakeAnyConnection otherwise.
+	WakeProtocol string `json:"wakeProtocol,omitempty"`
 	// DoneRegex is the single-line field Done replaced, still read from older
 	// templates and exports. Despite its name, it was always matched as text.
 	DoneRegex string `json:"doneRegex,omitempty"`
@@ -92,6 +98,31 @@ func (t *Template) HasFeature(name string) bool {
 		}
 	}
 	return false
+}
+
+// Wake protocols (see Template.WakeProtocol).
+const (
+	WakeAnyConnection = "any"
+	WakeMinecraft     = "minecraft"
+)
+
+// ValidWakeProtocol reports whether p is a wake protocol a template may name
+// (empty meaning the default).
+func ValidWakeProtocol(p string) bool {
+	return p == "" || p == WakeAnyConnection || p == WakeMinecraft
+}
+
+// EffectiveWakeProtocol resolves the template's wake protocol, defaulting on
+// the "eula" feature, which Minecraft Java eggs carry and others do not.
+func (t *Template) EffectiveWakeProtocol() string {
+	switch {
+	case t.WakeProtocol != "":
+		return t.WakeProtocol
+	case t.HasFeature("eula"):
+		return WakeMinecraft
+	default:
+		return WakeAnyConnection
+	}
 }
 
 // DoneLines returns the lines that mean the server has finished starting,

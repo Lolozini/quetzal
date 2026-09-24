@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, Cluster, EventEntry, ExposeType, hasAdminPerm, ImportState, InstallLog, OFFLINE_PHASES, PowerAction, Server, ServerStats, User } from "../api";
+import { api, ApiError, Cluster, EventEntry, ExposeType, hasAdminPerm, ImportState, InstallLog, OFFLINE_PHASES, PowerAction, Server, ServerStats, User, wakesOnMinecraftLogin } from "../api";
 import { useT } from "../i18n";
 import { Access } from "./Access";
 import { Backups } from "./Backups";
@@ -259,6 +259,19 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
+  // Whether only a Minecraft login wakes this server (see the hibernation hint).
+  const [mcWake, setMcWake] = useState(false);
+
+  useEffect(() => {
+    if (!srv?.templateId) return;
+    api
+      .templates()
+      .then((ts) => {
+        const tmpl = ts.find((x) => x.id === srv.templateId);
+        setMcWake(!!tmpl && wakesOnMinecraftLogin(tmpl));
+      })
+      .catch(() => {});
+  }, [srv?.templateId]);
 
   useEffect(() => {
     let active = true;
@@ -608,6 +621,11 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
                   {!tcpOnly && !srv.hibernation?.proxy && (
                     <div className="error" style={{ fontSize: 12 }}>
                       {t("UDP servers need the transparent proxy to auto-sleep.")}
+                    </div>
+                  )}
+                  {mcWake && (srv.hibernation?.wakeOnConnect || srv.hibernation?.proxy) && (
+                    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                      {t("Only a player joining wakes it: the server list shows it asleep, and port scanners are ignored.")}
                     </div>
                   )}
                 </>

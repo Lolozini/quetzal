@@ -46,6 +46,19 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Port scanners no longer wake a sleeping Minecraft server.** Wake-on-connect
+  woke on any TCP connection, so every scanner on the internet could wake a
+  public server, and each wake bought it a full idle window: it spent its
+  nights cycling awake for nobody. The activator now reads the client's
+  Minecraft handshake. A server-list ping is answered by the activator, with
+  the server shown as asleep; a player joining wakes it and is asked to
+  reconnect in a minute; anything that is not a Minecraft client, and any
+  connection to another port (RCON, query), wakes nothing. In proxy mode, only
+  a player's traffic now counts as activity, so a scanner polling the server
+  list no longer keeps it awake either. This applies to templates with the
+  `eula` egg feature, which Minecraft Java servers and proxies carry; a
+  template's new `wakeProtocol` (`minecraft` or `any`) overrides it. Other
+  games still wake on any connection.
 - The first reconcile of a new server no longer logs "cannot patch resource
   resourcequotas": the access the control plane grants itself in the new
   namespace is now given a moment to take effect before it is used.

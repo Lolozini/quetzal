@@ -960,3 +960,51 @@ func TestManagedDBNetworkPolicyNamesOnlyItsTenants(t *testing.T) {
 		t.Errorf("policy types = %v, want Ingress only", np.Spec.PolicyTypes)
 	}
 }
+
+// A Minecraft template's activator is told the game's protocol and port, so
+// only a player joining wakes the server; other games keep waking on any
+// connection.
+func TestBuildActivatorGatesMinecraftOnItsGamePort(t *testing.T) {
+	env := func(s *models.Server, tmpl *models.Template) map[string]string {
+		dep := BuildActivatorDeployment(s, tmpl, ActivatorParams{Image: "quetzal:test", WakeURL: "http://x/wake", Token: "tok"})
+		out := map[string]string{}
+		for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
+			out[e.Name] = e.Value
+		}
+		return out
+	}
+
+	s, tmpl := testServerAndTemplate()
+	tmpl.Features = []string{"eula"}
+	// Minecraft with its query enabled: 25565 on both protocols, plus RCON.
+	s.Ports = []models.PortSpec{
+		{Name: "p25565-udp", Port: 25565, Protocol: "UDP", Primary: true},
+		{Name: "p25565-tcp", Port: 25565, Protocol: "TCP"},
+		{Name: "rcon", Port: 25575, Protocol: "TCP"},
+	}
+	e := env(s, tmpl)
+	if e["QUETZAL_WAKE_PROTOCOL"] != models.WakeMinecraft || e["QUETZAL_GAME_PORT"] != "25565" {
+		t.Errorf("eula template: protocol %q port %q, want minecraft on 25565", e["QUETZAL_WAKE_PROTOCOL"], e["QUETZAL_GAME_PORT"])
+	}
+
+	// An admin can turn it off for a template, or on for one without the feature.
+	tmpl.WakeProtocol = models.WakeAnyConnection
+	if e := env(s, tmpl); e["QUETZAL_WAKE_PROTOCOL"] != "" {
+		t.Errorf("wakeProtocol any still gates on %q", e["QUETZAL_WAKE_PROTOCOL"])
+	}
+	tmpl.Features, tmpl.WakeProtocol = nil, models.WakeMinecraft
+	if e := env(s, tmpl); e["QUETZAL_GAME_PORT"] != "25565" {
+		t.Errorf("wakeProtocol minecraft: port %q", e["QUETZAL_GAME_PORT"])
+	}
+
+	// A game without the feature, and Bedrock (UDP only), wake on any connection.
+	s2, other := testServerAndTemplate()
+	if e := env(s2, other); e["QUETZAL_WAKE_PROTOCOL"] != "" {
+		t.Errorf("another game gates on %q", e["QUETZAL_WAKE_PROTOCOL"])
+	}
+	s2.Ports = []models.PortSpec{{Name: "game", Port: 19132, Protocol: "UDP", Primary: true}}
+	other.Features = []string{"eula"}
+	if e := env(s2, other); e["QUETZAL_GAME_PORT"] != "" {
+		t.Errorf("a UDP-only server got game port %q", e["QUETZAL_GAME_PORT"])
+	}
+}

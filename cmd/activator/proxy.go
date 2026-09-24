@@ -66,6 +66,10 @@ type proxy struct {
 	waker      *waker
 	activity   *activity
 	dialBudget time.Duration // how long to keep retrying the backend while it starts
+	// gate says which flows are a player. For a Minecraft server only a login
+	// on the game port wakes the server or counts as activity: a scanner's
+	// server-list ping, a query packet or an RCON probe does neither.
+	gate wakeGate
 }
 
 func runProxy() {
@@ -88,13 +92,14 @@ func runProxy() {
 		waker:      &waker{cooldown: 15 * time.Second, post: func() error { return postCallback(wakeURL, slug, token) }},
 		activity:   act,
 		dialBudget: 90 * time.Second,
+		gate:       gateFromEnv(),
 	}
 	for _, port := range tcp {
 		ln, err := net.Listen("tcp", ":"+port)
 		if err != nil {
 			log.Fatalf("activator: tcp listen %s: %v", port, err)
 		}
-		go p.serveTCP(ln, net.JoinHostPort(backend, port))
+		go p.serveTCP(ln, net.JoinHostPort(backend, port), port)
 	}
 	for _, port := range udp {
 		laddr, _ := net.ResolveUDPAddr("udp", ":"+port)
@@ -104,20 +109,80 @@ func runProxy() {
 		}
 		go p.serveUDP(pc, net.JoinHostPort(backend, port))
 	}
-	log.Printf("activator(proxy): fronting %q -> %s (tcp %v, udp %v)", slug, backend, tcp, udp)
+	log.Printf("activator(proxy): fronting %q -> %s (tcp %v, udp %v), woken by %s", slug, backend, tcp, udp, p.gate)
 	select {}
 }
 
 // ---- TCP ----
 
-func (p *proxy) serveTCP(ln net.Listener, backendAddr string) {
+func (p *proxy) serveTCP(ln net.Listener, backendAddr, port string) {
 	for {
 		c, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		go p.handleTCP(c, backendAddr)
+		switch {
+		case !p.gate.minecraft():
+			go p.handleTCP(c, backendAddr)
+		case port == p.gate.gamePort:
+			go p.handleMinecraft(c, backendAddr)
+		default:
+			go p.forwardIfUp(c, backendAddr)
+		}
 	}
+}
+
+// backendDial is how long a flow that must not wake the server waits for it.
+const backendDial = 2 * time.Second
+
+// handleMinecraft forwards a Minecraft client, but lets only a player joining
+// wake the server or count as activity. While the server sleeps, a server-list
+// ping is answered here and a player joining is told to reconnect in a minute:
+// Minecraft's client gives up long before a server has started.
+func (p *proxy) handleMinecraft(client net.Conn, backendAddr string) {
+	defer client.Close()
+	_ = client.SetReadDeadline(time.Now().Add(mcTimeout))
+	h, err := readMCHandshake(client)
+	if err != nil {
+		return
+	}
+	_ = client.SetReadDeadline(time.Time{})
+	if h.joining() {
+		p.waker.trigger()
+	}
+	be, err := net.DialTimeout("tcp", backendAddr, backendDial)
+	if err != nil {
+		_ = client.SetDeadline(time.Now().Add(mcTimeout))
+		if h.joining() {
+			_ = mcDisconnect(client, mcWakingReason)
+		} else {
+			_ = serveMCStatus(client, h)
+		}
+		return
+	}
+	defer be.Close()
+	if _, err := be.Write(h.raw); err != nil {
+		return
+	}
+	if !h.joining() {
+		pipe(client, be, nil)
+		return
+	}
+	p.activity.inc()
+	defer p.activity.dec()
+	pipe(client, be, p.activity)
+}
+
+// forwardIfUp forwards a flow that is not a player -- RCON, a query port --
+// when the server is up, and neither wakes it nor counts as activity.
+func (p *proxy) forwardIfUp(client net.Conn, backendAddr string) {
+	defer client.Close()
+	be, err := net.DialTimeout("tcp", backendAddr, backendDial)
+	if err != nil {
+		return
+	}
+	defer be.Close()
+	pipe(client, be, nil)
 }
 
 func (p *proxy) handleTCP(client net.Conn, backendAddr string) {
@@ -204,8 +269,11 @@ func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 		key := caddr.String()
 		mu.Lock()
 		f := flows[key]
+		player := !p.gate.minecraft() // a Minecraft server's UDP is query, not a player
 		if f == nil {
-			p.waker.trigger()
+			if player {
+				p.waker.trigger()
+			}
 			// Resolve + dial per flow so a transient DNS miss at startup (the
 			// backend Service may not be resolvable yet) doesn't kill the handler.
 			be, derr := net.Dial("udp", backendAddr)
@@ -219,7 +287,9 @@ func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 			go p.udpBackToClient(pc, be, caddr, flows, key, &mu)
 		}
 		f.lastSeen = time.Now()
-		p.activity.touch()
+		if player {
+			p.activity.touch()
+		}
 		data := append([]byte(nil), buf[:n]...) // copy: buf is reused
 		mu.Unlock()
 		_, _ = f.backend.Write(data)
@@ -237,7 +307,9 @@ func (p *proxy) udpBackToClient(pc *net.UDPConn, be net.Conn, caddr *net.UDPAddr
 			return
 		}
 		_, _ = pc.WriteToUDP(buf[:n], caddr)
-		p.activity.touch()
+		if !p.gate.minecraft() {
+			p.activity.touch()
+		}
 		mu.Lock()
 		if cur := flows[key]; cur != nil {
 			cur.lastSeen = time.Now()

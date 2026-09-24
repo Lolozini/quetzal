@@ -635,6 +635,8 @@ export const fr: Record<string, string> = {
   "Backups are not set up on this panel yet; an administrator has to configure a backup target first.":
     "Les sauvegardes ne sont pas encore configurées sur ce panel : un administrateur doit d’abord définir une cible de sauvegarde.",
   "Name saved.": "Nom enregistré.",
+  "Only a player joining wakes it: the server list shows it asleep, and port scanners are ignored.":
+    "Seul un joueur qui se connecte le réveille : la liste des serveurs l’affiche endormi, et les scanners de ports sont ignorés.",
   "Only the displayed name changes: the server's address and ID stay the same.":
     "Seul le nom affiché change : l’adresse et l’identifiant du serveur restent les mêmes.",
 };

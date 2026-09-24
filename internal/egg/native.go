@@ -92,6 +92,9 @@ func fromNative(data []byte) (*models.Template, error) {
 				"dataPath %q must be an absolute, already-clean directory other than \"/\"", p)
 		}
 	}
+	if !models.ValidWakeProtocol(t.WakeProtocol) {
+		return nil, fmt.Errorf("wakeProtocol %q is not one of %q or %q", t.WakeProtocol, models.WakeAnyConnection, models.WakeMinecraft)
+	}
 	// An export always carries these; a hand-edited document may not, and a
 	// template with no image or no console cannot run a server.
 	if len(t.Images) == 0 {

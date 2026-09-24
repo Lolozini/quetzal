@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"net/http"
@@ -48,29 +49,102 @@ func runDrop() {
 	slug := os.Getenv("QUETZAL_WAKE_SLUG")
 	token := os.Getenv("QUETZAL_WAKE_TOKEN")
 	w := &waker{cooldown: 15 * time.Second, post: func() error { return postCallback(wakeURL, slug, token) }}
+	gate := gateFromEnv()
 	for _, p := range ports {
-		go dropListen(p, w)
+		ln, err := net.Listen("tcp", ":"+p)
+		if err != nil {
+			log.Fatalf("activator: listen %s: %v", p, err)
+		}
+		go dropListen(ln, p, w, gate)
 	}
-	log.Printf("activator(drop): waiting for a connection to wake %q on %v", slug, ports)
+	log.Printf("activator(drop): waiting for %s to wake %q on %v", gate, slug, ports)
 	select {}
 }
 
-func dropListen(port string, w *waker) {
-	ln, err := net.Listen("tcp", ":"+port)
-	if err != nil {
-		log.Fatalf("activator: listen %s: %v", port, err)
+// wakeGate is what the activator knows of the game's protocol, set by the
+// controller from the template: which connections are a player.
+type wakeGate struct {
+	protocol string // "minecraft", or empty for any connection
+	gamePort string // the port the game's own protocol is spoken on
+}
+
+func gateFromEnv() wakeGate {
+	return wakeGate{protocol: os.Getenv("QUETZAL_WAKE_PROTOCOL"), gamePort: os.Getenv("QUETZAL_GAME_PORT")}
+}
+
+// minecraft reports whether only a Minecraft login may wake the server.
+func (g wakeGate) minecraft() bool { return g.protocol == "minecraft" && g.gamePort != "" }
+
+func (g wakeGate) String() string {
+	if g.minecraft() {
+		return "a Minecraft login on :" + g.gamePort
 	}
+	return "a connection"
+}
+
+const (
+	// mcTimeout bounds a conversation with a client that has not joined: a
+	// player's client sends its handshake at once.
+	mcTimeout = 5 * time.Second
+	// maxPending bounds the connections being read at once on a port, so a
+	// flood costs a bounded amount; past it, connections are closed unread and
+	// a player's client simply retries.
+	maxPending = 64
+)
+
+func dropListen(ln net.Listener, port string, w *waker, gate wakeGate) {
+	slots := make(chan struct{}, maxPending)
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			continue
 		}
-		// Drop the connection first and wake in the background: the callback can
-		// take seconds, and holding the accept loop meanwhile left every other
-		// player's connection hanging behind it. trigger debounces itself.
-		_ = conn.Close()
-		go w.trigger()
+		switch {
+		case !gate.minecraft():
+			// Drop the connection first and wake in the background: the callback
+			// can take seconds, and holding the accept loop meanwhile left every
+			// other player's connection hanging behind it. trigger debounces.
+			_ = conn.Close()
+			go w.trigger()
+		case port != gate.gamePort:
+			// RCON, query and the like are not a player joining.
+			_ = conn.Close()
+		default:
+			select {
+			case slots <- struct{}{}:
+				go func() {
+					defer func() { <-slots }()
+					dropMinecraft(conn, w)
+				}()
+			default:
+				_ = conn.Close()
+			}
+		}
 	}
+}
+
+// dropMinecraft reads a Minecraft client's handshake: a server-list ping gets
+// the server shown as asleep, a player joining wakes it and is told to come
+// back in a minute, and anything else is closed without waking anything.
+func dropMinecraft(conn net.Conn, w *waker) {
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(mcTimeout))
+	h, err := readMCHandshake(conn)
+	if err != nil {
+		return
+	}
+	if !h.joining() {
+		_ = serveMCStatus(conn, h)
+		return
+	}
+	name := readMCLoginName(conn)
+	_ = mcDisconnect(conn, mcWakingReason)
+	_ = conn.Close()
+	log.Printf("activator: %s joining from %s wakes the server", name, conn.RemoteAddr())
+	w.trigger()
 }
 
 // waker fires a callback, debounced to at most once per cooldown so a burst of

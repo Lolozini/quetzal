@@ -51,7 +51,7 @@ func TestProxyTCP(t *testing.T) {
 		t.Fatalf("front: %v", err)
 	}
 	defer ln.Close()
-	go p.serveTCP(ln, be.Addr().String())
+	go p.serveTCP(ln, be.Addr().String(), "")
 
 	c, err := net.Dial("tcp", ln.Addr().String())
 	if err != nil {

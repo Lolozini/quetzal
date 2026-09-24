@@ -94,6 +94,10 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if !models.ValidWakeProtocol(t.WakeProtocol) {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("wakeProtocol must be %q, %q or empty", models.WakeAnyConnection, models.WakeMinecraft))
+		return
+	}
 	// Pin identity + creation time to the existing row (Save writes every column,
 	// so a hand-edited body that omits createdAt would otherwise zero it);
 	// everything else comes from the payload.

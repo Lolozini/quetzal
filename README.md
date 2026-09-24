@@ -56,7 +56,9 @@ network policy, and a multi-cluster API.
   normal restarts.
 - **Hibernation**: scale idle servers to zero and **wake them on connect** — a
   lightweight TCP "wake-and-drop" mode (no latency, real client IP when awake) or
-  an always-in-path TCP+UDP proxy mode (so UDP games can auto-sleep too).
+  an always-in-path TCP+UDP proxy mode (so UDP games can auto-sleep too). A
+  Minecraft Java server wakes only for a player joining: the server list shows
+  it asleep, and port scanners wake nothing.
 
 **Console, files & SFTP**
 - Live **console** over WebSocket — log stream + stdin via the Kubernetes

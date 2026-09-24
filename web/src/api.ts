@@ -209,6 +209,14 @@ export interface Template {
   suggestedPorts?: { name: string; port: number; protocol: string; primary?: boolean }[];
   install?: { image?: string; entrypoint?: string; script?: string };
   features?: string[];
+  // How a sleeping server tells a player from a scanner: "minecraft", "any",
+  // or unset (Minecraft for templates with the "eula" feature).
+  wakeProtocol?: string;
+}
+
+// wakesOnMinecraftLogin mirrors Template.EffectiveWakeProtocol on the server.
+export function wakesOnMinecraftLogin(t: Template): boolean {
+  return t.wakeProtocol ? t.wakeProtocol === "minecraft" : !!t.features?.includes("eula");
 }
 
 export interface ServerStatus {

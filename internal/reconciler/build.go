@@ -456,6 +456,16 @@ func BuildActivatorDeployment(s *models.Server, t *models.Template, p ActivatorP
 		{Name: "QUETZAL_WAKE_TOKEN", Value: p.Token},
 		{Name: "QUETZAL_TCP_PORTS", Value: strings.Join(tcpCSV, ",")},
 	}
+	// A Minecraft server is woken only by a player joining on its game port,
+	// never by a scanner's connection (see cmd/activator/minecraft.go).
+	if t.EffectiveWakeProtocol() == models.WakeMinecraft {
+		if gp, ok := gamePort(ports); ok {
+			env = append(env,
+				corev1.EnvVar{Name: "QUETZAL_WAKE_PROTOCOL", Value: models.WakeMinecraft},
+				corev1.EnvVar{Name: "QUETZAL_GAME_PORT", Value: strconv.Itoa(int(gp))},
+			)
+		}
+	}
 	if p.Proxy {
 		for _, pt := range udpPorts(ports) {
 			udpCSV = append(udpCSV, strconv.Itoa(int(pt.Port)))
@@ -513,6 +523,29 @@ func BuildActivatorDeployment(s *models.Server, t *models.Template, p ActivatorP
 			},
 		},
 	}
+}
+
+// gamePort is the TCP port a game's own protocol is spoken on: the primary port,
+// or the only TCP port. A primary port shared by TCP and UDP (Minecraft with
+// its query enabled) is the TCP one; a primary port on UDP alone (Bedrock) has
+// none.
+func gamePort(ports []models.PortSpec) (int32, bool) {
+	tcp := tcpPorts(ports)
+	for _, p := range ports {
+		if !p.Primary {
+			continue
+		}
+		for _, t := range tcp {
+			if t.Port == p.Port {
+				return t.Port, true
+			}
+		}
+		return 0, false
+	}
+	if len(tcp) == 1 {
+		return tcp[0].Port, true
+	}
+	return 0, false
 }
 
 // BuildInternalService is the proxy's stable backend: a ClusterIP Service that

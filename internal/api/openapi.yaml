@@ -2380,6 +2380,15 @@ components:
         variables:
           type: array
           items: { $ref: "#/components/schemas/TemplateVariable" }
+        wakeProtocol:
+          type: string
+          enum: [minecraft, any]
+          description: >-
+            How a sleeping server tells a player from a port scanner. With
+            minecraft, only a Minecraft Java login on the game port wakes it
+            and server-list pings are answered with the server shown asleep;
+            with any, any connection wakes it. Unset picks minecraft for
+            templates with the eula feature, any otherwise.
         done:
           type: array
           description: >-

@@ -143,3 +143,10 @@ func TestDoneLineFromAnOlderExport(t *testing.T) {
 		t.Errorf("done = %q, want [Done (]", got)
 	}
 }
+
+func TestWakeProtocolMustBeKnown(t *testing.T) {
+	native := `{"name": "X", "images": [{"ref": "alpine:3.20", "default": true}], "dataPath": "/data", "wakeProtocol": "telnet"}`
+	if _, err := Parse([]byte(native)); err == nil {
+		t.Error("an unknown wakeProtocol was accepted")
+	}
+}
