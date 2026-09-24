@@ -41,6 +41,8 @@ releases may include breaking changes).
   `PATCH /api/servers/{id}`). Only the displayed name changes; the slug, the
   Kubernetes objects and the address stay put. Names are trimmed, one line,
   and at most 190 characters, at creation too.
+- **Console history**: the up and down arrows bring back the commands sent
+  earlier, per server, as in Pterodactyl (kept in the browser, 50 at most).
 
 ### Fixed
 

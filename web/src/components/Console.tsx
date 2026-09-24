@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { ConsoleMessage, consoleSocket, OFFLINE_PHASES } from "../api";
 import { useT } from "../i18n";
 
@@ -7,10 +7,37 @@ interface Line {
   text: string;
 }
 
+// Sent commands are kept per server, newest first, in this browser only: the
+// arrow keys bring them back, as in a shell or Pterodactyl's console.
+const HISTORY_MAX = 50;
+const historyKey = (id: number) => `quetzal.console-history.${id}`;
+
+function loadHistory(id: number): string[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(historyKey(id)) ?? "[]");
+    return Array.isArray(v) ? v.filter((c): c is string => typeof c === "string").slice(0, HISTORY_MAX) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(id: number, history: string[]) {
+  try {
+    localStorage.setItem(historyKey(id), JSON.stringify(history));
+  } catch {
+    /* storage unavailable: the history lasts as long as the page */
+  }
+}
+
 export function Console({ id, phase }: { id: number; phase: string }) {
   const { t } = useT();
   const [lines, setLines] = useState<Line[]>([]);
   const [input, setInput] = useState("");
+  const [history, setHistory] = useState<string[]>(() => loadHistory(id));
+  // Position in the history while browsing it (-1: editing a new command), and
+  // what was being typed before browsing started, restored on the way back down.
+  const [historyPos, setHistoryPos] = useState(-1);
+  const [draft, setDraft] = useState("");
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -75,13 +102,40 @@ export function Console({ id, phase }: { id: number; phase: string }) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [lines]);
 
+  useEffect(() => {
+    setHistory(loadHistory(id));
+    setHistoryPos(-1);
+  }, [id]);
+
   function send(e: FormEvent) {
     e.preventDefault();
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN || !input) return;
     ws.send(JSON.stringify({ type: "stdin", data: input }));
     setLines((prev) => [...prev, { cls: "sys", text: "> " + input + "\n" }]);
+    // The same command sent twice in a row is kept once.
+    const next = (history[0] === input ? history : [input, ...history]).slice(0, HISTORY_MAX);
+    setHistory(next);
+    saveHistory(id, next);
+    setHistoryPos(-1);
+    setDraft("");
     setInput("");
+  }
+
+  function browseHistory(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.nativeEvent.isComposing) return;
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (historyPos + 1 >= history.length) return;
+      if (historyPos === -1) setDraft(input);
+      setHistoryPos(historyPos + 1);
+      setInput(history[historyPos + 1]);
+    } else if (e.key === "ArrowDown") {
+      if (historyPos === -1) return;
+      e.preventDefault();
+      setHistoryPos(historyPos - 1);
+      setInput(historyPos - 1 === -1 ? draft : history[historyPos - 1]);
+    }
   }
 
   return (
@@ -104,6 +158,7 @@ export function Console({ id, phase }: { id: number; phase: string }) {
           placeholder={t("type a command and press Enter…")}
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onKeyDown={browseHistory}
           disabled={!connected}
         />
         <button className="primary" disabled={!connected}>
