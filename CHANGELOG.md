@@ -7,6 +7,19 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-25
+
+Quetzal gets its own look, and its releases can be verified. The panel wears
+the new visual identity: a logo, a favicon, warm dark colours and its own
+fonts. Images and the release chart are signed, with an SBOM. One security fix
+matters: a line break in a startup variable could add any key to a server's
+configuration files, `online-mode=false` for instance.
+
+**Upgrading from 0.3.1** — one thing to check:
+
+- A config file that already grew duplicate lines at each start keeps them;
+  Quetzal stops adding more, but delete the extras once. See *Fixed*.
+
 ### Added
 
 - **Signed images.** The images on GHCR are signed with cosign, keylessly, by
@@ -883,7 +896,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/lolozini/quetzal/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/lolozini/quetzal/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/lolozini/quetzal/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lolozini/quetzal/compare/v0.1.0...v0.2.0
