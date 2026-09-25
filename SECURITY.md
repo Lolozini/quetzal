@@ -47,14 +47,20 @@ import. Report those to their authors.
 
 From the release after 0.3.1 on, the images are signed with
 [cosign](https://github.com/sigstore/cosign), keylessly, by the GitHub Actions
-workflow that built them. Each image also carries a software bill of materials
-(SBOM) and its build provenance.
+workflow that built them, and so is the Helm chart attached to each release.
+Each image also carries a software bill of materials (SBOM) and its build
+provenance.
 
 ```sh
 cosign verify ghcr.io/lolozini/quetzal:<version> \
   --certificate-identity-regexp '^https://github\.com/Lolozini/quetzal/\.github/workflows/(release|ci)\.yml@' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
-# The SBOM, in SPDX
+# The chart, with the .sigstore.json bundle downloaded next to it from the release
+cosign verify-blob quetzal-<version>.tgz --bundle quetzal-<version>.tgz.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/Lolozini/quetzal/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+# The image's SBOM, in SPDX
 docker buildx imagetools inspect ghcr.io/lolozini/quetzal:<version> --format '{{ json .SBOM }}'
 ```

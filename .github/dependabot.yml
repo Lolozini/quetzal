@@ -22,6 +22,9 @@ updates:
     groups:
       web:
         update-types: [minor, patch]
+      # Major versions (React, Vite, TypeScript) together, to be migrated as one.
+      web-major:
+        update-types: [major]
     labels: [dependencies]
     commit-message:
       prefix: chore
@@ -44,6 +47,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Node's latest major is often not an LTS; move between LTS lines by hand.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
     labels: [dependencies]
     commit-message:
       prefix: chore

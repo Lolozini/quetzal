@@ -11,7 +11,7 @@ releases may include breaking changes).
 
 - **Signed images.** The images on GHCR are signed with cosign, keylessly, by
   the workflow that builds them, and carry an SBOM and their build provenance.
-  [SECURITY.md](SECURITY.md) shows how to verify them.
+  The Helm chart attached to a release is signed too. [SECURITY.md](SECURITY.md) shows how to verify them.
 
 ### Changed
 
