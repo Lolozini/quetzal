@@ -66,15 +66,14 @@ network policy, and a multi-cluster API.
 
 ## Quickstart
 
-> **Prerequisites:** a Kubernetes cluster + `kubectl`, [Helm](https://helm.sh) v3,
+> **Prerequisites:** a Kubernetes 1.30+ cluster + `kubectl`, [Helm](https://helm.sh) 3.8+,
 > and a storage class (a local provisioner like local-path for single-node). Optional:
 > metrics-server for CPU/RAM graphs. Nodes can be amd64 or arm64, but many games
 > only exist for amd64: see [CPU architectures](docs/INSTALL.md#cpu-architectures).
 
 ```sh
-helm install quetzal ./deploy/quetzal \
+helm install quetzal oci://ghcr.io/lolozini/charts/quetzal \
   --namespace quetzal --create-namespace \
-  --set image.tag=latest \
   --set ingress.enabled=true --set ingress.host=quetzal.example.com
 ```
 

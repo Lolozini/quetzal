@@ -58,7 +58,12 @@ cosign verify ghcr.io/lolozini/quetzal:<version> \
   --certificate-identity-regexp '^https://github\.com/Lolozini/quetzal/\.github/workflows/(release|ci)\.yml@' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 
-# The chart, with the .sigstore.json bundle downloaded next to it from the release
+# The chart in the registry (from 0.5.0 on)
+cosign verify ghcr.io/lolozini/charts/quetzal:<version> \
+  --certificate-identity-regexp '^https://github\.com/Lolozini/quetzal/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+# The chart file, with the .sigstore.json bundle downloaded next to it from the release
 cosign verify-blob quetzal-<version>.tgz --bundle quetzal-<version>.tgz.sigstore.json \
   --certificate-identity-regexp '^https://github\.com/Lolozini/quetzal/\.github/workflows/release\.yml@' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com

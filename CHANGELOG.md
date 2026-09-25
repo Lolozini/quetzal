@@ -15,6 +15,26 @@ releases may include breaking changes).
   on a cluster with both kinds of nodes Quetzal doesn't yet keep them off the
   arm64 ones. See *CPU architectures* in the
   [install guide](docs/INSTALL.md#cpu-architectures).
+- **The Helm chart is in a registry.** Install it with `helm install quetzal
+  oci://ghcr.io/lolozini/charts/quetzal`, signed like the images; the file
+  attached to each release stays. The chart also gets a README, shown by
+  `helm show readme`, and a values schema that refuses unknown keys, so a typo
+  fails the install instead of being ignored.
+
+### Changed
+
+- **The panel's pod meets the Pod Security Standards' `restricted` level.**
+  Its containers run with a read-only root filesystem, no privilege escalation
+  and no capabilities, under the runtime's default seccomp profile, so it
+  installs in a namespace that enforces `restricted`.
+- **The chart needs Kubernetes 1.30 or later** and says so: Helm refuses an
+  older cluster instead of failing later on the admission policy.
+
+### Fixed
+
+- **`helm uninstall` deleted the panel's database** along with its encryption
+  key, when the chart had created them. Both are now kept, and installing again
+  under the same release name picks them up.
 
 ## [0.4.0] - 2026-09-25
 

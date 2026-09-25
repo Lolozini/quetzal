@@ -1,13 +1,43 @@
 apiVersion: v2
 name: quetzal
-description: Kubernetes-native control plane & UI to deploy game servers
+description: >-
+  Game servers, run by Kubernetes. A self-hosted panel for Minecraft, Valheim
+  and anything in a container; an alternative to Pterodactyl and Pelican that
+  imports their eggs.
 type: application
 version: 0.4.0
 appVersion: "0.4.0"
-home: https://github.com/lolozini/quetzal
+# The admission policy (admissionPolicy.enabled) is a ValidatingAdmissionPolicy,
+# GA in 1.30; older releases are out of support upstream anyway.
+kubeVersion: ">=1.30.0-0"
+home: https://lolozini.github.io/quetzal/
+icon: https://lolozini.github.io/quetzal/brand/favicon-512.png
 sources:
-  - https://github.com/lolozini/quetzal
+  - https://github.com/Lolozini/quetzal
+maintainers:
+  - name: Lolozini
+    url: https://github.com/Lolozini
 keywords:
   - game-server
+  - game-server-panel
   - minecraft
+  - valheim
+  - pterodactyl
+  - self-hosted
   - control-plane
+annotations:
+  artifacthub.io/license: AGPL-3.0-or-later
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://lolozini.github.io/quetzal/
+    - name: Source
+      url: https://github.com/Lolozini/quetzal
+    - name: Changelog
+      url: https://lolozini.github.io/quetzal/changelog/
+  # The tag follows appVersion (the release skill bumps both).
+  artifacthub.io/images: |
+    - name: quetzal
+      image: ghcr.io/lolozini/quetzal:0.4.0
+      platforms:
+        - linux/amd64
+        - linux/arm64

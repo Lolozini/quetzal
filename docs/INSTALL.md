@@ -79,9 +79,21 @@ The panel itself can still run there: give the chart a matching toleration
 
 ## Install with Helm
 
-Each [release](https://github.com/lolozini/quetzal/releases) carries the chart,
-packaged at the release's version and pointing at its image, so there is nothing
-to clone:
+The chart is published to the GitHub Container Registry, at the release's
+version and pointing at its image, so there is nothing to clone (Helm 3.8 or
+later):
+
+```sh
+helm install quetzal oci://ghcr.io/lolozini/charts/quetzal \
+  --version X.Y.Z \
+  --namespace quetzal --create-namespace \
+  --set ingress.enabled=true \
+  --set ingress.host=quetzal.example.com
+```
+
+The registry has the chart from 0.5.0 on. Each
+[release](https://github.com/lolozini/quetzal/releases) also carries it as a
+file, which is the way to install 0.4.0 and earlier:
 
 ```sh
 helm install quetzal \
@@ -90,6 +102,11 @@ helm install quetzal \
   --set ingress.enabled=true \
   --set ingress.host=quetzal.example.com
 ```
+
+Both are signed; the [security policy](../SECURITY.md#verifying-the-images)
+shows how to check them. The chart refuses unknown values (a typo fails the
+install instead of being ignored), needs Kubernetes 1.30 or later, and its pod
+is admitted under the Pod Security Standards' `restricted` level.
 
 Or from a checkout of the repository, pinning the image yourself:
 
@@ -101,7 +118,8 @@ helm install quetzal ./deploy/quetzal \
   --set ingress.host=quetzal.example.com
 ```
 
-See [deploy/quetzal/values.yaml](../deploy/quetzal/values.yaml) for every option.
+See the [chart's README](../deploy/quetzal/README.md) and
+[values.yaml](../deploy/quetzal/values.yaml) for every option.
 Common ones:
 
 | Setting | Purpose |

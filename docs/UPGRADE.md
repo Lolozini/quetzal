@@ -17,13 +17,17 @@ automatically on startup.
 ## Upgrade with Helm
 
 ```sh
-helm upgrade quetzal \
-  https://github.com/lolozini/quetzal/releases/download/vX.Y.Z/quetzal-X.Y.Z.tgz \
+helm upgrade quetzal oci://ghcr.io/lolozini/charts/quetzal \
+  --version X.Y.Z \
   --namespace quetzal \
   --reuse-values
 ```
 
-The released chart already points at its own image. From a checkout of the
+The registry has the chart from 0.5.0 on; for an earlier version, use the file
+attached to its release,
+`https://github.com/lolozini/quetzal/releases/download/vX.Y.Z/quetzal-X.Y.Z.tgz`,
+in place of the `oci://` address. The released chart already points at its own
+image. From a checkout of the
 repository instead, pin the image yourself:
 
 ```sh

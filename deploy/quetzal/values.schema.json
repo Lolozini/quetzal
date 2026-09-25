@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Quetzal chart values",
+  "description": "Every value is described in values.yaml. Unknown keys are refused, so a typo fails the install instead of being ignored.",
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "port": {
+      "description": "A port number, or empty for the default. A string is accepted, as --set and YAML often give one.",
+      "oneOf": [
+        { "type": "integer", "minimum": 1, "maximum": 65535 },
+        { "type": "string", "pattern": "^([1-9][0-9]{0,4})?$" }
+      ]
+    },
+    "stringMap": { "type": "object", "additionalProperties": { "type": "string" } }
+  },
+  "properties": {
+    "global": { "type": "object" },
+    "replicaCount": { "type": "integer", "minimum": 1 },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" } } }
+    },
+    "db": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "driver": { "type": "string", "enum": ["sqlite", "postgres"] },
+        "dsn": { "type": "string", "minLength": 1 }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "size": { "type": "string" },
+        "storageClass": { "type": "string" },
+        "existingClaim": { "type": "string" }
+      }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "eventDays": { "type": "integer", "minimum": 0 },
+        "auditDays": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      }
+    },
+    "nodePort": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min": { "$ref": "#/definitions/port" },
+        "max": { "$ref": "#/definitions/port" }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "host": { "type": "string" },
+        "annotations": { "$ref": "#/definitions/stringMap" },
+        "tls": { "type": "boolean" },
+        "tlsSecretName": { "type": "string" }
+      }
+    },
+    "secureCookies": { "type": "boolean" },
+    "trustProxy": { "type": "boolean" },
+    "leaderElection": { "type": "boolean" },
+    "resync": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
+    "egressAllow": { "type": "array", "items": { "type": "string" } },
+    "admissionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "namespacePrefix": { "type": "string", "minLength": 1 }
+      }
+    },
+    "secretKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": { "type": "string" },
+        "existingSecretKey": { "type": "string" }
+      }
+    },
+    "extraEnv": { "type": "array", "items": { "type": "object", "required": ["name"] } },
+    "resources": { "type": "object" },
+    "podLabels": { "$ref": "#/definitions/stringMap" },
+    "podAnnotations": { "$ref": "#/definitions/stringMap" },
+    "nodeSelector": { "$ref": "#/definitions/stringMap" },
+    "tolerations": { "type": "array", "items": { "type": "object" } },
+    "affinity": { "type": "object" },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" }
+      }
+    }
+  }
+}

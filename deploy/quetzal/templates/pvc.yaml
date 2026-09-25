@@ -6,6 +6,10 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "quetzal.labels" . | nindent 4 }}
+  annotations:
+    # The panel's database: `helm uninstall` must not take it along. A later
+    # install under the same release name adopts it again.
+    helm.sh/resource-policy: keep
 spec:
   accessModes: ["ReadWriteOnce"]
   resources:

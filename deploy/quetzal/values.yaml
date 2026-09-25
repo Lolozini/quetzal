@@ -91,8 +91,8 @@ egressAllow: []
 # — handing itself its own role — that would otherwise undo that scoping, and the
 # namespace deletions that go with it.
 #
-# Needs Kubernetes 1.30, where ValidatingAdmissionPolicy went GA. Turn it off on
-# an older cluster: Quetzal runs exactly the same, you lose this guard.
+# A ValidatingAdmissionPolicy (GA in Kubernetes 1.30, the chart's minimum).
+# Quetzal runs exactly the same without it; you only lose this guard.
 admissionPolicy:
   enabled: true
   # The prefix of the namespaces Quetzal owns. Change it only if you have also
@@ -118,7 +118,11 @@ secretKey:
 #       value: Europe/Paris
 extraEnv: []
 
+# Requests and limits for each of the two containers (apiserver, controller).
 resources: {}
+# Extra labels and annotations on the pod: a scrape annotation, a team label.
+podLabels: {}
+podAnnotations: {}
 nodeSelector: {}
 tolerations: []
 affinity: {}

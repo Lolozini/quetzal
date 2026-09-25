@@ -200,6 +200,26 @@ jobs:
           kubectl delete namespace "$ns" --wait=false
       - name: Load image into kind
         run: kind load docker-image quetzal:e2e --name quetzal-e2e
+      # Install the chart for real, with its defaults, in a namespace that
+      # enforces the Pod Security Standards' "restricted" level, and wait for the
+      # panel to be ready: the pod must be admitted there and start with its
+      # read-only root filesystem. Uninstalled before the suite runs.
+      - name: Chart installs under Pod Security "restricted"
+        run: |
+          set -euo pipefail
+          ns=chart-restricted
+          kubectl create namespace "$ns"
+          kubectl label namespace "$ns" pod-security.kubernetes.io/enforce=restricted
+          if ! helm install quetzal deploy/quetzal -n "$ns" \
+              --set image.repository=quetzal --set image.tag=e2e --set image.pullPolicy=Never \
+              --wait --timeout 5m; then
+            kubectl -n "$ns" get events --sort-by=.lastTimestamp | tail -20
+            kubectl -n "$ns" logs deploy/quetzal --all-containers --tail=50 || true
+            exit 1
+          fi
+          kubectl -n "$ns" get pods
+          helm uninstall quetzal -n "$ns" --wait
+          kubectl delete namespace "$ns" --wait=false
       # The backup test brings up an S3 server (VersityGW, since MinIO stopped
       # publishing images) and runs restic in-cluster. Left to
       # itself the kind node pulls both while the test is already waiting on a
