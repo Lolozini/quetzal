@@ -7,6 +7,12 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **Signed images.** The images on GHCR are signed with cosign, keylessly, by
+  the workflow that builds them, and carry an SBOM and their build provenance.
+  [SECURITY.md](SECURITY.md) shows how to verify them.
+
 ### Changed
 
 - **Quetzal has a visual identity.** The panel shows the new logo, a
