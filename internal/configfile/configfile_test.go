@@ -229,3 +229,41 @@ func TestRenderRefusesToClobberUnreadableFile(t *testing.T) {
 		t.Errorf("config was overwritten:\n got %q\nwant %q", got, original)
 	}
 }
+
+// A startup variable is typed by whoever may edit the server's variables, who
+// is not necessarily allowed to edit its files. A line break in its value must
+// not turn into a line, and so a key, of the config file.
+func TestValueCannotAddLines(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "server.properties", "online-mode=true\nmax-players=10\n")
+	write(t, dir, "config.ini", "[server]\nname=a\n")
+	specs := []Spec{
+		{Path: "server.properties", Parser: "properties", Find: map[string]string{"max-players": "${MAX}"}},
+		{Path: "config.ini", Parser: "ini", Find: map[string]string{"server.name": "${MAX}"}},
+	}
+	if err := Render(dir, specs, env(map[string]string{"MAX": "20\nonline-mode=false\r\nop=me"})); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := read(t, dir, "server.properties"), "online-mode=true\nmax-players=20 online-mode=false  op=me\n"; got != want {
+		t.Errorf("server.properties = %q, want %q", got, want)
+	}
+	if got, want := read(t, dir, "config.ini"), "[server]\nname=20 online-mode=false  op=me\n"; got != want {
+		t.Errorf("config.ini = %q, want %q", got, want)
+	}
+}
+
+// A key missing from an INI file goes into its own section; a top-level one
+// before the first section, where it is still top-level when read back.
+func TestINIInsertsWhereTheKeyBelongs(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "c.ini", "[a]\nx=1\n\n[b]\ny=2\n")
+	specs := []Spec{{Path: "c.ini", Parser: "ini", Find: map[string]string{"top": "0", "a.z": "3", "c.w": "4"}}}
+	for range 2 { // the second pass must change nothing
+		if err := Render(dir, specs, env(nil)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, want := read(t, dir, "c.ini"), "top=0\n[a]\nx=1\nz=3\n\n[b]\ny=2\n[c]\nw=4\n"; got != want {
+		t.Errorf("c.ini = %q, want %q", got, want)
+	}
+}

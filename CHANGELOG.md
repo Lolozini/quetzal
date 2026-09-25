@@ -32,9 +32,23 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Some configuration files grew at every start.** In an INI file, a key
+  outside any section was added at the end of the file, inside the last
+  section, where the next start didn't find it and added it again. A key with
+  spaces around it did the same in a `properties` file. Missing keys now go
+  into their own section, keys are matched the way they are written, and a
+  stray carriage return no longer turns into a Windows line ending.
 - **Network and disk figures can no longer go negative.** They are read from a
   command's output inside the game container; a negative or overflowing number
   there is now ignored.
+
+### Security
+
+- **A startup variable could add lines to a server's configuration files.** A
+  line break in a variable's value was written as is into the `properties`,
+  `ini` and `file` configurations an egg manages. Whoever could edit a server's
+  variables could then set any key of those files, `online-mode=false` for
+  instance, without access to the files. A value is now kept on its line.
 
 ## [0.3.1] - 2026-09-25
 

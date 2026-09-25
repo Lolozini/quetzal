@@ -188,6 +188,9 @@ func applyLineKV(path string, vals map[string]string, sep byte, spaced bool) err
 	if err != nil {
 		return err
 	}
+	vals = lineKeys(vals, func(k string) bool {
+		return strings.IndexByte(k, sep) < 0 && !strings.ContainsAny(k[:1], "#!;")
+	})
 	lines := splitLines(string(cur))
 	applied := make(map[string]bool, len(vals))
 	for i, line := range lines {
@@ -225,16 +228,17 @@ func applyINI(path string, vals map[string]string) error {
 	if err != nil {
 		return err
 	}
+	vals = iniKeys(vals)
 	lines := splitLines(string(cur))
 	applied := make(map[string]bool, len(vals))
 	current := "" // section name, "" = top-level
 
 	for i, line := range lines {
-		t := strings.TrimSpace(line)
-		if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
-			current = strings.TrimSpace(t[1 : len(t)-1])
+		if sec, ok := iniSection(line); ok {
+			current = sec
 			continue
 		}
+		t := strings.TrimSpace(line)
 		if t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, ";") {
 			continue
 		}
@@ -253,28 +257,82 @@ func applyINI(path string, vals map[string]string) error {
 		}
 	}
 
-	// Append the rest, grouped by section.
-	bySection := map[string][]string{}
+	// The keys not found go at the end of their section, or in a new section at
+	// the end of the file. A top-level key goes before the first section: after
+	// it, it would belong to that section and never be found again.
+	pending := map[string][]string{}
 	for _, k := range sortedUnapplied(vals, applied) {
 		sec, key := splitSection(k)
-		bySection[sec] = append(bySection[sec], fmt.Sprintf("%s=%s", key, vals[k]))
+		pending[sec] = append(pending[sec], fmt.Sprintf("%s=%s", key, vals[k]))
 	}
-	// Top-level keys first, then named sections (deterministic).
-	if rest, ok := bySection[""]; ok {
-		lines = append(lines, rest...)
-	}
-	secs := make([]string, 0, len(bySection))
-	for s := range bySection {
-		if s != "" {
-			secs = append(secs, s)
+	out := make([]string, 0, len(lines)+len(vals)+len(pending))
+	flush := func(sec string) {
+		add := pending[sec]
+		if len(add) == 0 {
+			return
 		}
+		delete(pending, sec)
+		// After the section's last line with content, before its blank lines.
+		n := len(out)
+		for n > 0 && strings.TrimSpace(out[n-1]) == "" {
+			n--
+		}
+		tail := append([]string(nil), out[n:]...)
+		out = append(append(out[:n], add...), tail...)
+	}
+	current = ""
+	for _, line := range lines {
+		if sec, ok := iniSection(line); ok {
+			flush(current)
+			current = sec
+		}
+		out = append(out, line)
+	}
+	flush(current)
+	secs := make([]string, 0, len(pending))
+	for s := range pending {
+		secs = append(secs, s)
 	}
 	sort.Strings(secs)
 	for _, s := range secs {
-		lines = append(lines, "["+s+"]")
-		lines = append(lines, bySection[s]...)
+		out = append(out, "["+s+"]")
+		out = append(out, pending[s]...)
 	}
-	return writeFile(path, []byte(joinLines(lines)))
+	return writeFile(path, []byte(joinLines(out)))
+}
+
+// iniSection reports whether a line is a section header, and its name.
+func iniSection(line string) (string, bool) {
+	t := strings.TrimSpace(line)
+	if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") && len(t) >= 2 {
+		return strings.TrimSpace(t[1 : len(t)-1]), true
+	}
+	return "", false
+}
+
+// iniKeys is lineKeys for INI: "section.key" with both parts trimmed, as the
+// file reads back, and without the keys no line can hold.
+func iniKeys(vals map[string]string) map[string]string {
+	out := make(map[string]string, len(vals))
+	for _, k := range sortedKeys(vals) {
+		sec, key := splitSection(k)
+		sec, key = strings.TrimSpace(sec), strings.TrimSpace(key)
+		if key == "" || strings.ContainsAny(key, "=\r\n") || strings.ContainsAny(key[:1], "#;[") ||
+			strings.ContainsAny(sec, "\r\n") {
+			continue
+		}
+		full := key
+		if sec != "" {
+			full = sec + "." + key
+		}
+		// It must split back the same way: a top-level key holding a dot would
+		// be read as a section.
+		if s2, k2 := splitSection(full); s2 != sec || k2 != key {
+			continue
+		}
+		out[full] = oneLine(vals[k])
+	}
+	return out
 }
 
 func splitSection(dotted string) (section, key string) {
@@ -373,13 +431,19 @@ func applyFile(path string, vals map[string]string) error {
 	if err != nil {
 		return err
 	}
+	for k, v := range vals {
+		vals[k] = oneLine(v)
+	}
+	// In a fixed order, so a line that starts with two keys ("query" and
+	// "query.port") gets the same one on every start.
+	keys := sortedKeys(vals)
 	lines := splitLines(string(cur))
 	applied := make(map[string]bool, len(vals))
 	for i, line := range lines {
 		t := strings.TrimSpace(line)
-		for k, v := range vals {
+		for _, k := range keys {
 			if !applied[k] && strings.HasPrefix(t, k) {
-				lines[i] = v
+				lines[i] = vals[k]
 				applied[k] = true
 				break
 			}
@@ -393,13 +457,56 @@ func applyFile(path string, vals map[string]string) error {
 
 // ---- line helpers ----
 
+// oneLine keeps a value on its line. The line-based formats write a value as
+// part of a line; a line break in it would write more lines, which read back
+// as keys of their own. A startup variable could then set any key of the file
+// (online-mode=false, say) without access to the file, and every start would
+// add those lines again.
+func oneLine(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
+// lineKeys prepares the keys of a flat key/value file: trimmed, as the file
+// reads them back, and without the ones no line can hold (empty, holding a line
+// break, or refused by ok). Values are kept on one line. Without this, a key
+// the scan cannot find again is appended again on every start.
+func lineKeys(vals map[string]string, ok func(key string) bool) map[string]string {
+	out := make(map[string]string, len(vals))
+	for _, k := range sortedKeys(vals) {
+		key := strings.TrimSpace(k)
+		if key == "" || strings.ContainsAny(key, "\r\n") || !ok(key) {
+			continue
+		}
+		out[key] = oneLine(vals[k])
+	}
+	return out
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func splitLines(s string) []string {
-	s = strings.ReplaceAll(s, "\r\n", "\n")
 	if s == "" {
 		return nil
 	}
-	s = strings.TrimSuffix(s, "\n")
-	return strings.Split(s, "\n")
+	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+	for i, l := range lines {
+		// CRLF files, and any carriage return left at a line's end, which the
+		// "\n" of joinLines would turn into a CRLF the next pass reads differently.
+		lines[i] = strings.TrimRight(l, "\r")
+	}
+	return lines
 }
 
 func joinLines(lines []string) string {
