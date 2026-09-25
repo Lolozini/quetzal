@@ -30,6 +30,12 @@ releases may include breaking changes).
   A destructive button is now red and outlined. The logo files and how to use
   them are in [docs/brand](docs/brand/README.md).
 
+### Fixed
+
+- **Network and disk figures can no longer go negative.** They are read from a
+  command's output inside the game container; a negative or overflowing number
+  there is now ignored.
+
 ## [0.3.1] - 2026-09-25
 
 A security fix: the guard on outbound requests let a user-supplied URL reach

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"strconv"
 	"strings"
 
@@ -90,14 +91,24 @@ func ParseNetDev(raw []byte) (rxBytes, txBytes int64) {
 		if len(fields) < 9 {
 			continue
 		}
-		if v, err := strconv.ParseInt(fields[0], 10, 64); err == nil {
-			rxBytes += v
-		}
-		if v, err := strconv.ParseInt(fields[8], 10, 64); err == nil {
-			txBytes += v
-		}
+		rxBytes = addCounter(rxBytes, fields[0])
+		txBytes = addCounter(txBytes, fields[8])
 	}
 	return rxBytes, txBytes
+}
+
+// addCounter adds a byte counter to a running total. The command runs inside
+// the game container, so its output is the tenant's to choose: a negative
+// count is skipped and the total saturates rather than wrapping negative.
+func addCounter(total int64, field string) int64 {
+	v, err := strconv.ParseInt(field, 10, 64)
+	if err != nil || v < 0 {
+		return total
+	}
+	if total > math.MaxInt64-v {
+		return math.MaxInt64
+	}
+	return total + v
 }
 
 // ParseDuUsed reads used bytes from `du -sk <path>` output (a single summary
@@ -110,7 +121,8 @@ func ParseDuUsed(raw []byte) int64 {
 		return -1
 	}
 	kib, err := strconv.ParseInt(f[0], 10, 64)
-	if err != nil {
+	// Negative, or too large to be a size in bytes: not something du printed.
+	if err != nil || kib < 0 || kib > math.MaxInt64/1024 {
 		return -1
 	}
 	return kib * 1024
