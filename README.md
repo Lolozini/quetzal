@@ -4,6 +4,7 @@
 </picture>
 
 [![CI](https://github.com/lolozini/quetzal/actions/workflows/ci.yml/badge.svg)](https://github.com/lolozini/quetzal/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/lolozini/quetzal)](https://github.com/lolozini/quetzal/releases/latest)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](./LICENSE)
 [![Image](https://img.shields.io/badge/ghcr.io-lolozini%2Fquetzal-2496ED?logo=docker&logoColor=white)](https://github.com/lolozini/quetzal/pkgs/container/quetzal)
 
@@ -14,6 +15,8 @@ servers *directly on Kubernetes*, with no node agent to install.
 Point it at a cluster, open the panel, and deploy Minecraft, Valheim, or
 anything you can describe with a template — or import the
 [Pterodactyl/Pelican egg](https://github.com/pelican-eggs) you already use.
+
+<img alt="A Minecraft server in Quetzal: its address, live CPU, memory and network graphs, the power controls and the hibernation settings" src="docs/screenshots/server.png" width="880">
 
 ---
 
@@ -46,9 +49,49 @@ network policy, and a multi-cluster API.
   provisioner for single-node), any S3-compatible backup target, AGPL-3.0.
   Nothing hardcoded to one environment.
 
+### Compared with Pterodactyl and Pelican
+
+| | Pterodactyl / Pelican | Quetzal |
+|---|---|---|
+| On each node | the Wings daemon and Docker | nothing to install |
+| Where a server runs | on one node, chosen when it is created | where the Kubernetes scheduler places it |
+| Server data | on that node's disk | on a volume from any storage class |
+| Network isolation | one Docker network shared by the node's servers | a namespace and a deny-by-default NetworkPolicy per server |
+| Console | served by Wings | the Kubernetes `attach` and `logs` APIs |
+| Game definitions | eggs | templates, and eggs imported as they are |
+| Upgrading | the panel, then Wings on every node | one Helm release |
+
+---
+
+## Quickstart
+
+> **Prerequisites:** a Kubernetes cluster + `kubectl`, [Helm](https://helm.sh) v3,
+> and a storage class (a local provisioner like local-path for single-node). Optional:
+> metrics-server for CPU/RAM graphs.
+
+```sh
+helm install quetzal ./deploy/quetzal \
+  --namespace quetzal --create-namespace \
+  --set image.tag=latest \
+  --set ingress.enabled=true --set ingress.host=quetzal.example.com
+```
+
+Open the panel, complete the first-run admin setup, and create your first server.
+
+Images are published to GHCR — `ghcr.io/lolozini/quetzal:latest` (rolling `main`)
+and `:vX.Y.Z` (releases; pin one in production).
+
+Full guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
+**[Changelog](CHANGELOG.md)** · all chart options in
+[deploy/quetzal/values.yaml](deploy/quetzal/values.yaml).
+
 ---
 
 ## Features
+
+| Every server and its state | The live console | Templates and imported eggs |
+|---|---|---|
+| [<img alt="The server list, with each server's state and address" src="docs/screenshots/servers.png">](docs/screenshots/servers.png) | [<img alt="The console of a Minecraft server" src="docs/screenshots/console.png">](docs/screenshots/console.png) | [<img alt="Creating a server: the template list, with eggs imported from Pelican" src="docs/screenshots/new-server.png">](docs/screenshots/new-server.png) |
 
 **Deploy & run**
 - Create servers from built-in or imported templates; start / stop / restart /
@@ -134,30 +177,6 @@ network policy, and a multi-cluster API.
 
 ---
 
-## Quickstart
-
-> **Prerequisites:** a Kubernetes cluster + `kubectl`, [Helm](https://helm.sh) v3,
-> and a storage class (a local provisioner like local-path for single-node). Optional:
-> metrics-server for CPU/RAM graphs.
-
-```sh
-helm install quetzal ./deploy/quetzal \
-  --namespace quetzal --create-namespace \
-  --set image.tag=latest \
-  --set ingress.enabled=true --set ingress.host=quetzal.example.com
-```
-
-Open the panel, complete the first-run admin setup, and create your first server.
-
-Images are published to GHCR — `ghcr.io/lolozini/quetzal:latest` (rolling `main`)
-and `:vX.Y.Z` (releases; pin one in production).
-
-Full guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
-**[Changelog](CHANGELOG.md)** · all chart options in
-[deploy/quetzal/values.yaml](deploy/quetzal/values.yaml).
-
----
-
 ## How it works
 
 The **database is the source of truth.** The API server writes your *desired
@@ -199,6 +218,15 @@ end-to-end test suite that runs on a real `kind` cluster in CI.
 It is **pre-1.0 and not yet battle-tested in production** — expect rough edges,
 and pin a released image tag rather than `latest`. Issues, feedback, and eggs are
 very welcome.
+
+---
+
+## Contributing
+
+Bug reports, eggs that don't import cleanly and pull requests are welcome; see
+[CONTRIBUTING.md](CONTRIBUTING.md). Ask questions in
+[Discussions](https://github.com/Lolozini/quetzal/discussions), and report
+vulnerabilities privately as [SECURITY.md](SECURITY.md) explains.
 
 ---
 
