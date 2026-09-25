@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { api, ApiError } from "../api";
 import { useT } from "../i18n";
+import { Lockup } from "./Brand";
 
 // ResetPassword is shown when the app loads with a #reset=<token> link from a
 // password-reset email. On success it returns to the login screen.
@@ -35,11 +36,9 @@ export function ResetPassword({ token, onDone }: { token: string; onDone: () => 
   }
 
   return (
-    <div className="center">
+    <div className="center auth">
+      <Lockup stacked />
       <form className="card" style={{ width: 360 }} onSubmit={submit}>
-        <h1>
-          Quetz<span style={{ color: "var(--accent)" }}>al</span>
-        </h1>
         {done ? (
           <>
             <p className="muted">{t("Your password has been reset.")}</p>

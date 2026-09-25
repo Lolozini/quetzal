@@ -1,4 +1,7 @@
-# Quetzal
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/quetzal-lockup-dark.svg">
+  <img alt="Quetzal" src="docs/brand/quetzal-lockup.svg" width="360">
+</picture>
 
 [![CI](https://github.com/lolozini/quetzal/actions/workflows/ci.yml/badge.svg)](https://github.com/lolozini/quetzal/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](./LICENSE)
@@ -207,3 +210,7 @@ Quetzal is free software under the **GNU Affero General Public License v3.0 or
 later** ([AGPL-3.0-or-later](./LICENSE)). In particular, if you run a modified
 version to provide a service over a network, you must offer that service's users
 the corresponding source code of your modified version.
+
+The fonts bundled with the web UI ([web/public/fonts](web/public/fonts)) are under
+the SIL Open Font License 1.1, with their license texts alongside. The logo and
+how to use it are in [docs/brand](docs/brand/README.md).

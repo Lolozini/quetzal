@@ -90,7 +90,7 @@ export function Databases({ serverId }: { serverId: number }) {
         dbs.map((d) => {
           const r = reveal[d.id];
           return (
-            <div key={d.id} className="card" style={{ background: "var(--panel-2)", marginBottom: 8 }}>
+            <div key={d.id} className="card" style={{ background: "var(--surface-sunken)", marginBottom: 8 }}>
               <div className="kv"><span className="k">{t("Database")}</span><span><code>{d.databaseName}</code></span></div>
               <div className="kv"><span className="k">{t("Username")}</span><span><code>{d.username}</code></span></div>
               <div className="kv"><span className="k">{t("Endpoint")}</span><span><code>{d.host}:{d.port}</code>{d.hostName ? ` (${d.hostName})` : ""}</span></div>

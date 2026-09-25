@@ -17,7 +17,7 @@ import (
 var distFS embed.FS
 
 const placeholder = `<!doctype html><html><head><meta charset="utf-8"><title>Quetzal</title></head>
-<body style="font-family:system-ui;background:#0f1115;color:#e6e9ef;padding:40px">
+<body style="font-family:system-ui;background:#141416;color:#eee9e1;padding:40px">
 <h1>Quetzal</h1><p>The API is running, but the web UI was not built into this binary.</p>
 <p>Run <code>npm --prefix web run build</code> and rebuild, or use the Vite dev server.</p>
 </body></html>`

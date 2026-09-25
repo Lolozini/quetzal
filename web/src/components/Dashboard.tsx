@@ -6,6 +6,7 @@ import { CreateServer } from "./CreateServer";
 import { ServerDetail } from "./ServerDetail";
 import { Admin } from "./Admin";
 import { Account } from "./Account";
+import { Lockup } from "./Brand";
 
 type View =
   | { name: "list" }
@@ -68,8 +69,8 @@ export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void
   return (
     <>
       <div className="topbar">
-        <div className="brand" style={{ cursor: "pointer" }} onClick={() => go({ name: "list" })}>
-          Quetz<span>al</span>
+        <div className="brand" onClick={() => go({ name: "list" })}>
+          <Lockup />
         </div>
         <div className="row">
           <button onClick={() => go({ name: "list" })}>{t("Servers")}</button>

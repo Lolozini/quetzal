@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { api, ApiError, User } from "../api";
 import { LangSwitcher, useT } from "../i18n";
+import { Lockup } from "./Brand";
 
 export function Auth({
   setupNeeded,
@@ -46,11 +47,9 @@ export function Auth({
   }
 
   return (
-    <div className="center">
+    <div className="center auth">
+      <Lockup stacked />
       <form className="card" style={{ width: 360 }} onSubmit={submit}>
-        <h1>
-          Quetz<span style={{ color: "var(--accent)" }}>al</span>
-        </h1>
         <p className="muted">
           {setupNeeded
             ? t("Create the admin account")
@@ -134,11 +133,9 @@ function Forgot({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <div className="center">
+    <div className="center auth">
+      <Lockup stacked />
       <form className="card" style={{ width: 360 }} onSubmit={submit}>
-        <h1>
-          Quetz<span style={{ color: "var(--accent)" }}>al</span>
-        </h1>
         {sent ? (
           <p className="muted">
             {t("If an account with that username or email exists and email is configured, a reset link is on its way.")}

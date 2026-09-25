@@ -179,7 +179,7 @@ function DiskBar({ used, total }: { used: number; total: number }) {
         <strong>{`${formatMem(used)} / ${formatMem(total)} (${pct.toFixed(0)}%)`}</strong>
       </div>
       <div className="diskbar-track">
-        <div className="diskbar-fill" style={{ width: `${pct}%`, background: pct > 90 ? "var(--danger)" : "var(--accent-2)" }} />
+        <div className="diskbar-fill" style={{ width: `${pct}%`, background: pct > 90 ? "var(--danger)" : "var(--accent)" }} />
       </div>
     </div>
   );
@@ -241,10 +241,10 @@ function StatsPanel({ stats, history, phase }: { stats: ServerStats | null; hist
         label={t("Memory")}
         value={memVal}
         points={history.map((s) => s.mem)}
-        color="var(--accent-2)"
+        color="var(--accent)"
       />
-      {hasNet && <Chart label={t("Net in")} value={formatRate(rxRate[rxRate.length - 1] ?? 0)} points={rxRate} color="#3fb950" />}
-      {hasNet && <Chart label={t("Net out")} value={formatRate(txRate[txRate.length - 1] ?? 0)} points={txRate} color="#d29922" />}
+      {hasNet && <Chart label={t("Net in")} value={formatRate(rxRate[rxRate.length - 1] ?? 0)} points={rxRate} color="var(--accent)" />}
+      {hasNet && <Chart label={t("Net out")} value={formatRate(txRate[txRate.length - 1] ?? 0)} points={txRate} color="var(--accent)" />}
       {stats.diskTotalBytes ? <DiskBar used={stats.diskUsedBytes ?? 0} total={stats.diskTotalBytes} /> : null}
     </div>
   );

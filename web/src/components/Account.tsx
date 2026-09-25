@@ -307,7 +307,7 @@ function SSHKeys() {
           onChange={(e) => setPub(e.target.value)}
           placeholder="ssh-ed25519 AAAA… you@host"
           spellCheck={false}
-          style={{ width: "100%", minHeight: 70, fontFamily: "monospace" }}
+          style={{ width: "100%", minHeight: 70, fontFamily: "var(--font-mono)" }}
         />
         {error && <div className="error">{error}</div>}
         <button className="primary" style={{ marginTop: 8 }} disabled={!pub.trim()}>{t("Add key")}</button>

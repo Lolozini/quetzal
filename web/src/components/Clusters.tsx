@@ -273,7 +273,7 @@ export function Clusters() {
                 readOnly
                 value={setup.manifest}
                 rows={10}
-                style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+                style={{ width: "100%", fontFamily: "var(--font-mono)", fontSize: 12 }}
                 onFocus={(e) => e.currentTarget.select()}
               />
               <label>{t("2. Print the kubeconfig")}</label>
@@ -281,7 +281,7 @@ export function Clusters() {
                 readOnly
                 value={setup.kubeconfigScript}
                 rows={8}
-                style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+                style={{ width: "100%", fontFamily: "var(--font-mono)", fontSize: 12 }}
                 onFocus={(e) => e.currentTarget.select()}
               />
             </>
@@ -294,7 +294,7 @@ export function Clusters() {
           value={kubeconfig}
           onChange={(e) => setKubeconfig(e.target.value)}
           rows={8}
-          style={{ width: "100%", fontFamily: "monospace", fontSize: 12 }}
+          style={{ width: "100%", fontFamily: "var(--font-mono)", fontSize: 12 }}
           placeholder="apiVersion: v1&#10;kind: Config&#10;clusters: ..."
           required
         />

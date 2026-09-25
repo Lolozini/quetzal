@@ -130,7 +130,7 @@ export function Templates() {
             value={editing.json}
             onChange={(e) => setEditing({ ...editing, json: e.target.value })}
             spellCheck={false}
-            style={{ width: "100%", minHeight: 280, fontFamily: "monospace" }}
+            style={{ width: "100%", minHeight: 280, fontFamily: "var(--font-mono)" }}
           />
           <div className="row" style={{ marginTop: 8 }}>
             <button className="primary" onClick={saveEdit} disabled={busy}>{busy ? tr("Saving…") : tr("Save")}</button>
@@ -148,7 +148,7 @@ export function Templates() {
             onChange={(e) => setImportJson(e.target.value)}
             spellCheck={false}
             placeholder='{ "name": "...", "docker_images": { ... }, "startup": "...", "variables": [ ... ] }'
-            style={{ width: "100%", minHeight: 160, fontFamily: "monospace" }}
+            style={{ width: "100%", minHeight: 160, fontFamily: "var(--font-mono)" }}
           />
           <button className="primary" style={{ marginTop: 8 }} onClick={doImport} disabled={busy || !importJson.trim()}>
             {busy ? tr("Importing…") : tr("Import egg")}

@@ -270,7 +270,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
 
       <div className="row" style={{ alignItems: "flex-start", gap: 12, marginTop: 8 }}>
         {/* Tree sidebar */}
-        <div style={{ width: 240, minWidth: 200, maxHeight: 420, overflow: "auto", borderRight: "1px solid var(--border, #333)", paddingRight: 8 }}>
+        <div style={{ width: 240, minWidth: 200, maxHeight: 420, overflow: "auto", borderRight: "1px solid var(--line)", paddingRight: 8 }}>
           <DirTree id={id} current={path} onNavigate={nav} reload={mut} />
         </div>
 
@@ -341,7 +341,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
                 value={editing.content}
                 onChange={(e) => { setEditing({ ...editing, content: e.target.value }); setSaved(""); }}
                 spellCheck={false}
-                style={{ width: "100%", minHeight: 320, fontFamily: "monospace" }}
+                style={{ width: "100%", minHeight: 320, fontFamily: "var(--font-mono)" }}
               />
               <div className="row" style={{ marginTop: 8 }}>
                 <button className="primary" onClick={save} disabled={busy}>{t("Save")}</button>

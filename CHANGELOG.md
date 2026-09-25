@@ -7,6 +7,23 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- **Quetzal has a visual identity.** The panel shows the new logo, a
+  Quetzalcoatlus in flight, in the top bar and on the sign-in page, and the
+  browser tab shows a favicon. The colours are warm darks with a rust accent,
+  and the fonts are Bricolage Grotesque, Instrument Sans and JetBrains Mono.
+  The fonts ship with the panel, so it loads nothing from a CDN. Each server
+  state has its own colour and a dot:
+
+  - Running: green;
+  - Hibernated: blue;
+  - Starting, Installing and Stopping: amber;
+  - Crashed: red.
+
+  A destructive button is now red and outlined. The logo files and how to use
+  them are in [docs/brand](docs/brand/README.md).
+
 ## [0.3.1] - 2026-09-25
 
 A security fix: the guard on outbound requests let a user-supplied URL reach

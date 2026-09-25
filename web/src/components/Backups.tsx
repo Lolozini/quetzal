@@ -170,7 +170,7 @@ function BackupConfigForm({ cfg, onSaved }: { cfg: BackupConfig | null; onSaved:
   }
 
   return (
-    <form onSubmit={submit} style={{ borderBottom: "1px solid var(--border)", paddingBottom: 12, marginBottom: 12 }}>
+    <form onSubmit={submit} style={{ borderBottom: "1px solid var(--line)", paddingBottom: 12, marginBottom: 12 }}>
       <div className="grid2">
         <div><label>{t("S3 endpoint (host:port)")}</label>
           <input value={f.endpoint} onChange={(e) => set("endpoint", e.target.value)} placeholder="s3.gra.io.cloud.ovh.net" required /></div>
