@@ -5,8 +5,8 @@ features are all welcome.
 
 - **A bug or a broken egg**: open an issue with the matching template.
 - **A question**: ask in [Discussions](https://github.com/Lolozini/quetzal/discussions).
-- **A vulnerability**: don't open an issue. Report it privately; see
-  [SECURITY.md](SECURITY.md).
+- **A vulnerability**: don't open an issue. Report it privately; see the
+  [security policy](SECURITY.md).
 - **A larger change** (a new feature, a new dependency, anything that touches
   the database schema or the chart's values): open an issue or a discussion
   first, so we agree on the approach before you write the code.
@@ -62,12 +62,13 @@ helm lint deploy/quetzal    # if you touched the chart
 - **Commits** follow [Conventional Commits](https://www.conventionalcommits.org):
   `fix(console): …`, `feat(web): …`, `docs: …`. Explain the why in the body.
 - **The changelog**: a change that users will notice gets an entry under
-  `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md), written for someone who is
+  `## [Unreleased]` in the [changelog](CHANGELOG.md), written for someone who is
   upgrading. The release notes are taken from it.
 - **UI text**: every string goes through `t()`. Add its French translation in
   `web/src/locales/fr.ts`; the build fails on a missing key.
 - **The look**: use the CSS variables at the top of `web/src/styles.css` rather
-  than hard-coded colours. The brand is described in [docs/brand](docs/brand/README.md).
+  than hard-coded colours; the [brand guide](docs/brand/README.md) describes
+  the rest.
 - **Tests**: a fix comes with a test that fails without it, when the code allows it.
 
 ## License

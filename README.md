@@ -3,6 +3,7 @@
   <img alt="Quetzal" src="docs/brand/quetzal-lockup.svg" width="360">
 </picture>
 
+[![Docs](https://img.shields.io/badge/docs-lolozini.github.io%2Fquetzal-C8553D)](https://lolozini.github.io/quetzal/)
 [![CI](https://github.com/lolozini/quetzal/actions/workflows/ci.yml/badge.svg)](https://github.com/lolozini/quetzal/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/lolozini/quetzal)](https://github.com/lolozini/quetzal/releases/latest)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](./LICENSE)
@@ -41,8 +42,8 @@ network policy, and a multi-cluster API.
   eggs** as-is (variables, startup, install scripts, `config.files`) — paste the
   JSON or YAML, or fetch it from a URL (a GitHub/GitLab file page link works) —
   then **import a Pterodactyl server in one step**: its settings and its files,
-  pulled from the panel with a client API key. See
-  [docs/MIGRATING.md](docs/MIGRATING.md).
+  pulled from the panel with a client API key. See the
+  [migration guide](docs/MIGRATING.md).
 - **Multi-tenant and secure by default.** Namespace-per-server, NetworkPolicy,
   hardened `securityContext`, encrypted secrets, scoped subusers and admin roles.
 - **Self-hostable, no lock-in.** SQLite or Postgres, any storageClass (a local
@@ -81,7 +82,8 @@ Open the panel, complete the first-run admin setup, and create your first server
 Images are published to GHCR — `ghcr.io/lolozini/quetzal:latest` (rolling `main`)
 and `:vX.Y.Z` (releases; pin one in production).
 
-Full guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
+The full documentation is at **[lolozini.github.io/quetzal](https://lolozini.github.io/quetzal/)**.
+Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
 **[Changelog](CHANGELOG.md)** · all chart options in
 [deploy/quetzal/values.yaml](deploy/quetzal/values.yaml).
 
@@ -93,7 +95,7 @@ Full guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
 |---|---|---|
 | [<img alt="The server list, with each server's state and address" src="docs/screenshots/servers.png">](docs/screenshots/servers.png) | [<img alt="The console of a Minecraft server" src="docs/screenshots/console.png">](docs/screenshots/console.png) | [<img alt="Creating a server: the template list, with eggs imported from Pelican" src="docs/screenshots/new-server.png">](docs/screenshots/new-server.png) |
 
-**Deploy & run**
+### Deploy & run
 - Create servers from built-in or imported templates; start / stop / restart /
   kill, with graceful stop via a template's stop command.
 - Edit startup variables and CPU/RAM limits after creation (validated against the
@@ -106,7 +108,7 @@ Full guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   Minecraft Java server wakes only for a player joining: the server list shows
   it asleep, and port scanners wake nothing.
 
-**Console, files & SFTP**
+### Console, files & SFTP
 - Live **console** over WebSocket — log stream + stdin via the Kubernetes
   `attach` subresource (no RCON server, no sidecar).
 - **File manager**: browse, edit, upload, rename, delete, download folders as
@@ -117,7 +119,7 @@ Full guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   or stopped** — a small always-on data-manager pod mounts the data volume, with
   the game pod co-located so they share the volume on one node.
 
-**Networking**
+### Networking
 - Publish in-cluster (ClusterIP), on node IPs (**NodePort** from a managed port
   pool), or via a **LoadBalancer** — TCP **and** UDP.
 - `externalTrafficPolicy: Local` by default so the game sees the real player IP;
@@ -127,7 +129,7 @@ Full guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
 - A port can serve **TCP and UDP on the same number** (a Minecraft query, a
   Source RCON), sharing one external port.
 
-**Data & backups**
+### Data & backups
 - **Backups & restore** to any S3-compatible target via **restic** (dedup,
   encryption, retention) — one-shot Jobs, credentials encrypted at rest.
 - Deleting a server **destroys its data volume** along with it, so nothing is
@@ -140,14 +142,14 @@ Full guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   the panel, against a registered **external** host *or* a **managed MariaDB**
   Quetzal deploys and owns in-cluster.
 
-**Automation**
+### Automation
 - **Scheduled tasks** (cron) as ordered **chains** — e.g. *warn players → wait
   30s → stop → backup → start* — with per-step delays and continue-on-failure.
 - **Notifications** to **Discord**, **HMAC-signed webhooks**, or **email/SMTP**
   on events (up / crash / idle-sleep / power / backups), global or per-server,
   delivered from a durable event outbox.
 
-**Multi-tenant & access control**
+### Multi-tenant & access control
 - Per-server **ownership** and **subusers** with scoped permissions.
 - **Granular admin roles**: delegate management of servers, users, templates,
   clusters, database hosts, notifications, settings, or the audit log — without
@@ -157,7 +159,7 @@ Full guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
 - **Two-factor auth** (TOTP + recovery codes) and **self-service password reset**
   by email.
 
-**Security by default**
+### Security by default
 - Namespace-per-server, deny-by-default **NetworkPolicy**, hardened
   `securityContext`, **no ServiceAccount token** in game pods, per-namespace
   **ResourceQuota**.
@@ -165,7 +167,7 @@ Full guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   rest**; never stored in clear text.
 - Login/2FA **rate-limiting**, **CSRF** protection, secure cookies.
 
-**Operations**
+### Operations
 - **Multi-cluster**: register clusters by kubeconfig (encrypted) and pick a
   deploy target per server; the controller reconciles each against its own
   cluster. **Transfer a server between clusters** (data moves via the backup
@@ -223,10 +225,10 @@ very welcome.
 
 ## Contributing
 
-Bug reports, eggs that don't import cleanly and pull requests are welcome; see
-[CONTRIBUTING.md](CONTRIBUTING.md). Ask questions in
+Bug reports, eggs that don't import cleanly and pull requests are welcome; see the
+[contributing guide](CONTRIBUTING.md). Ask questions in
 [Discussions](https://github.com/Lolozini/quetzal/discussions), and report
-vulnerabilities privately as [SECURITY.md](SECURITY.md) explains.
+vulnerabilities privately as the [security policy](SECURITY.md) explains.
 
 ---
 
@@ -241,4 +243,4 @@ the corresponding source code of your modified version.
 
 The fonts bundled with the web UI ([web/public/fonts](web/public/fonts)) are under
 the SIL Open Font License 1.1, with their license texts alongside. The logo and
-how to use it are in [docs/brand](docs/brand/README.md).
+how to use it are in the [brand guide](docs/brand/README.md).

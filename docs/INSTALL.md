@@ -107,7 +107,7 @@ the app starts, avoiding a schema race between the two Deployments).
 
 Open the panel and complete the first-run admin setup (create the initial admin
 account). From there you can register clusters, import templates/eggs, and create
-servers. Coming from Pterodactyl, see [MIGRATING.md](MIGRATING.md) to bring your
+servers. Coming from Pterodactyl, see [Migrating from Pterodactyl](MIGRATING.md) to bring your
 eggs and servers over.
 
 ## Backup target (S3)
