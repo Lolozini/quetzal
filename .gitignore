@@ -39,3 +39,12 @@ kubeconfig
 # Python bytecode (hack/ scripts)
 __pycache__/
 *.pyc
+
+# Docs site: dependencies, build output, and what scripts/sync-docs.mjs
+# generates from the repository's Markdown (hand-written pages are .mdx).
+/website/node_modules/
+/website/dist/
+/website/.astro/
+/website/src/content/docs/*.md
+/website/src/assets/
+/website/public/

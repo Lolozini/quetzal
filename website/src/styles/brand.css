@@ -1,0 +1,76 @@
+/* Quetzal's brand (docs/brand): the Nuit theme in dark mode, Crème in light
+   mode, and the panel's three fonts, served by the site itself. */
+
+@font-face {
+	font-family: 'Bricolage Grotesque';
+	src: url('/quetzal/fonts/BricolageGrotesque-Variable.woff2') format('woff2');
+	font-weight: 200 800;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'Instrument Sans';
+	src: url('/quetzal/fonts/InstrumentSans-Variable.woff2') format('woff2');
+	font-weight: 400 700;
+	font-display: swap;
+}
+@font-face {
+	font-family: 'JetBrains Mono';
+	src: url('/quetzal/fonts/JetBrainsMono-Variable.woff2') format('woff2');
+	font-weight: 100 800;
+	font-display: swap;
+}
+
+:root {
+	--sl-font: 'Instrument Sans', system-ui, sans-serif;
+	--sl-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+	--sl-color-accent-low: #3b221c;
+	--sl-color-accent: #c8553d;
+	--sl-color-accent-high: #e57a5f;
+	--sl-color-text-invert: #1a0e0b;
+
+	--sl-color-white: #f7f3ec;
+	--sl-color-gray-1: #eee9e1;
+	--sl-color-gray-2: #ddd7ce;
+	--sl-color-gray-3: #a8a29a;
+	--sl-color-gray-4: #75726d;
+	--sl-color-gray-5: #2f2f34;
+	--sl-color-gray-6: #1c1c1f;
+	--sl-color-black: #141416;
+}
+
+:root[data-theme='light'] {
+	--sl-color-accent-low: #f7e2da;
+	--sl-color-accent: #c8553d;
+	--sl-color-accent-high: #a8412b;
+	--sl-color-text-invert: #ffffff;
+
+	--sl-color-white: #2b2b2e;
+	--sl-color-gray-1: #35353a;
+	--sl-color-gray-2: #45423e;
+	--sl-color-gray-3: #655f57;
+	--sl-color-gray-4: #7f786e;
+	--sl-color-gray-5: #e2dbd0;
+	--sl-color-gray-6: #efe8dd;
+	--sl-color-gray-7: #fbf9f5;
+	--sl-color-black: #f7f3ec;
+}
+
+/* Bricolage for the titles, as in the logo and the panel. */
+h1,
+.sl-markdown-content :is(h2, h3),
+.hero h1,
+.card .title {
+	font-family: 'Bricolage Grotesque', var(--sl-font);
+	letter-spacing: -0.01em;
+}
+
+.site-title img {
+	height: 2.25rem;
+}
+
+/* Screenshots on the home page: a frame like the panel's cards. */
+.sl-markdown-content img[src*='/screenshots/'] {
+	border: 1px solid var(--sl-color-gray-5);
+	border-radius: 10px;
+}

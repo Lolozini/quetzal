@@ -30,6 +30,18 @@ updates:
       prefix: chore
       include: scope
 
+  - package-ecosystem: npm
+    directory: /website
+    schedule:
+      interval: weekly
+    groups:
+      website:
+        patterns: ["*"]
+    labels: [dependencies]
+    commit-message:
+      prefix: chore
+      include: scope
+
   # Actions are pinned to a commit; this keeps the pins current.
   - package-ecosystem: github-actions
     directory: /

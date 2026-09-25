@@ -1,0 +1,42 @@
+---
+title: Quetzal
+description: Game servers, run by Kubernetes. A self-hosted panel, an alternative to Pterodactyl and Pelican, that imports the eggs you already use.
+template: splash
+hero:
+  title: Game servers, run by Kubernetes.
+  tagline: A self-hosted panel for Minecraft, Valheim and anything you can put in a container. An alternative to Pterodactyl and Pelican that imports the eggs you already use.
+  image:
+    light: ../../assets/quetzal-logo.svg
+    dark: ../../assets/quetzal-logo-dark.svg
+    alt: The Quetzal logo, a Quetzalcoatlus in flight
+  actions:
+    - text: Quickstart
+      link: /quetzal/quickstart/
+      icon: right-arrow
+    - text: Why Quetzal
+      link: /quetzal/why/
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/Lolozini/quetzal
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+![A Minecraft server in Quetzal: its address, live CPU, memory and network graphs, the power controls and the hibernation settings](/quetzal/screenshots/server.png)
+
+<CardGrid>
+	<Card title="Kubernetes runs your servers" icon="rocket">
+		The panel talks to the Kubernetes API. Scheduling across nodes, self-healing, storage classes and network policy come with the cluster, and there is no agent to install on each node. [How it works](/quetzal/architecture/)
+	</Card>
+	<Card title="Your eggs, as they are" icon="puzzle">
+		Import Pterodactyl and Pelican eggs, variables, install scripts and configuration files included, then bring a server over with its files in one step. [Migrating](/quetzal/migrating/)
+	</Card>
+	<Card title="Servers that sleep" icon="moon">
+		Idle servers scale to zero and wake up when a player connects. A sleeping Minecraft server shows up in the game's server list, and only a real login wakes it. [Features](/quetzal/features/)
+	</Card>
+	<Card title="Secure by default" icon="approve-check">
+		A namespace and a deny-by-default network policy per server, secrets encrypted at rest, two-factor authentication, scoped roles, and signed images. [Security](/quetzal/security/)
+	</Card>
+</CardGrid>
