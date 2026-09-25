@@ -1,0 +1,47 @@
+name: Egg doesn't work
+description: A Pterodactyl or Pelican egg doesn't import, install, configure or start as it does on Pterodactyl.
+labels: [egg-compat, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Quetzal imports eggs as they are, so an egg that works on Pterodactyl should work here. When it doesn't, the difference is usually something to fix in Quetzal.
+  - type: input
+    id: egg
+    attributes:
+      label: The egg
+      description: A link to the egg's JSON or YAML (for instance in [pelican-eggs](https://github.com/pelican-eggs)), or attach the file.
+    validations:
+      required: true
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Where it fails
+      options:
+        - Import
+        - Install script
+        - Configuration files (config.files)
+        - Startup
+        - Console, stop command or "server is ready" detection
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: The error in the panel, and what the same egg does on Pterodactyl or Pelican.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Install log or console output
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Quetzal version
+      placeholder: v0.3.1
+    validations:
+      required: true

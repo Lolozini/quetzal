@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or help with an install
+    url: https://github.com/Lolozini/quetzal/discussions/categories/q-a
+    about: Ask in Discussions.
+  - name: Security vulnerability
+    url: https://github.com/Lolozini/quetzal/security/advisories/new
+    about: Report it privately, not in an issue.

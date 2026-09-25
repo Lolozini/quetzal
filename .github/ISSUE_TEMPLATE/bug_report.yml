@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in Quetzal doesn't work as it should.
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. A vulnerability doesn't go here: report it privately, see [SECURITY.md](https://github.com/Lolozini/quetzal/blob/main/SECURITY.md). An imported egg that misbehaves has its own template.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create a server from the Minecraft (Paper) template
+        2. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Quetzal version
+      description: In the panel's footer, or from `GET /api/version`.
+      placeholder: v0.3.1
+    validations:
+      required: true
+  - type: input
+    id: kubernetes
+    attributes:
+      label: Kubernetes distribution and version
+      placeholder: k3s v1.33.4, single node
+    validations:
+      required: true
+  - type: textarea
+    id: install
+    attributes:
+      label: How Quetzal is installed
+      description: The Helm chart version and the values you changed from the defaults (leave secrets out).
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        The panel's logs around the problem: `kubectl -n quetzal logs deploy/quetzal -c apiserver` and `-c controller`. For a server, its activity log and console output.
+      render: text
