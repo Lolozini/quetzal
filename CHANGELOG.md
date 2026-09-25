@@ -7,6 +7,15 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **arm64 images.** The Quetzal image now exists for arm64 as well as amd64,
+  so the panel runs on ARM clusters. Games are another matter: many only exist
+  for amd64, Valheim and everything installed through SteamCMD among them, and
+  on a cluster with both kinds of nodes Quetzal doesn't yet keep them off the
+  arm64 ones. See *CPU architectures* in the
+  [install guide](docs/INSTALL.md#cpu-architectures).
+
 ## [0.4.0] - 2026-09-25
 
 Quetzal gets its own look, and its releases can be verified. The panel wears

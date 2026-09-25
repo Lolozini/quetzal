@@ -144,9 +144,20 @@ jobs:
           GOARCH=386 go build ./...
           GOARCH=386 go test ./internal/api/
 
+  # The same suite on both architectures the image ships for, each on a native
+  # runner. The amd64 job keeps the plain name "e2e": it is a required check.
   e2e:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
     needs: [lint, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: e2e
+            runner: ubuntu-latest
+          - name: e2e (arm64)
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -239,6 +250,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           sbom: true
           provenance: mode=max

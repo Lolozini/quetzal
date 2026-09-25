@@ -68,7 +68,8 @@ network policy, and a multi-cluster API.
 
 > **Prerequisites:** a Kubernetes cluster + `kubectl`, [Helm](https://helm.sh) v3,
 > and a storage class (a local provisioner like local-path for single-node). Optional:
-> metrics-server for CPU/RAM graphs.
+> metrics-server for CPU/RAM graphs. Nodes can be amd64 or arm64, but many games
+> only exist for amd64: see [CPU architectures](docs/INSTALL.md#cpu-architectures).
 
 ```sh
 helm install quetzal ./deploy/quetzal \

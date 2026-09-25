@@ -35,6 +35,48 @@ ghcr.io/lolozini/quetzal:vX.Y.Z      # tagged releases (recommended)
 
 Pin a released tag in production rather than `latest`.
 
+## CPU architectures
+
+The Quetzal image is published for **amd64** and **arm64** (on `latest`, and on
+releases after 0.4.0), so the panel runs on ARM clusters too: Raspberry Pi,
+Ampere, Graviton. The images Quetzal starts on its own also exist for both:
+the helper that serves the file manager, SFTP and wake-on-connect, restic for
+backups, the managed MariaDB.
+
+**Not every game does.** A game server runs its own image, and many games are
+published for amd64 only:
+
+| Template | amd64 | arm64 |
+|---|---|---|
+| Minecraft (Paper), Minecraft (CurseForge modpacks) | yes | yes |
+| Valheim | yes | **no** |
+| Generic process | depends on the image you choose | |
+| Imported eggs | depends on the egg's image | |
+
+Games installed through SteamCMD are amd64 only, because SteamCMD itself is:
+Valheim, Satisfactory, Rust, ARK, Counter-Strike and most Steam dedicated
+servers. Before running an imported egg on arm64, check the platforms of its
+image:
+
+```sh
+docker buildx imagetools inspect <image> | grep Platform
+```
+
+A server whose image has no arm64 build fails to start on an arm64 node, with
+`exec format error` in its log.
+
+**On a cluster with both kinds of nodes**, Quetzal doesn't yet choose the node
+from the game's image: an amd64-only server can be scheduled on an arm64 node.
+Until it does, keep game servers off the arm64 nodes with a taint, which game
+servers don't tolerate:
+
+```sh
+kubectl taint nodes <arm64-node> arch=arm64:NoSchedule
+```
+
+The panel itself can still run there: give the chart a matching toleration
+(`tolerations` in `values.yaml`).
+
 ## Install with Helm
 
 Each [release](https://github.com/lolozini/quetzal/releases) carries the chart,

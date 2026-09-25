@@ -3,8 +3,12 @@
 # Base images are pinned by digest, so a rebuild uses the same bytes; Dependabot
 # moves tag and digest together.
 
-# 1) Build the React UI.
-FROM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS web
+# The image is built for amd64 and arm64. The two build stages run on the
+# builder's own platform ($BUILDPLATFORM) and Go cross-compiles for the target,
+# so nothing is emulated; the last stage only copies files.
+
+# 1) Build the React UI (the same static files on every platform).
+FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS web
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
@@ -12,8 +16,9 @@ COPY web/ ./
 RUN npm run build
 
 # 2) Build the Go binaries (apiserver embeds the UI built above).
-FROM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS build
-ENV GOTOOLCHAIN=local CGO_ENABLED=0
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS build
+ARG TARGETOS TARGETARCH
+ENV GOTOOLCHAIN=local CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH
 # Build metadata stamped into the binaries (see internal/version).
 ARG VERSION=dev
 ARG COMMIT=none
