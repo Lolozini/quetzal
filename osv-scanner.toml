@@ -1,0 +1,13 @@
+# Advisories that osv-scanner, and OpenSSF Scorecard through it, report against
+# this module but that don't apply to Quetzal, each with the reason. They are
+# matched per module, not per package; govulncheck in CI checks the code that is
+# actually called.
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+# Re-examined by then, or earlier if x/crypto drops the package.
+ignoreUntil = 2027-03-25
+reason = """\
+The advisory covers every version of golang.org/x/crypto because of its \
+openpgp package, which Quetzal does not import; the CI fails if it ever does \
+(lint job). No fixed version exists."""

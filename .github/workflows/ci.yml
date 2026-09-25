@@ -42,6 +42,14 @@ jobs:
         # than on a vulnerability -- an alarm that cries the wrong thing. Bump
         # it together with GO_VERSION.
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+      # osv-scanner.toml ignores GO-2026-5932, an advisory on all of x/crypto
+      # for its openpgp package. That holds only while nothing imports it.
+      - name: x/crypto/openpgp stays out
+        run: |
+          if go list -deps ./... | grep -qx 'golang.org/x/crypto/openpgp.*'; then
+            echo "golang.org/x/crypto/openpgp is imported: GO-2026-5932 applies now; see osv-scanner.toml" >&2
+            exit 1
+          fi
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
       - name: helm lint
         run: helm lint deploy/quetzal
@@ -94,7 +102,7 @@ jobs:
           # puts it in its context's default). hack/check-chart.py says why for
           # each; it lives there because inline Python cannot be indented inside
           # a YAML block scalar without breaking one or the other.
-          python3 -c 'import yaml' 2>/dev/null || pip3 install --quiet pyyaml
+          python3 -c 'import yaml' 2>/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq python3-yaml; }
           helm template quetzal deploy/quetzal --namespace quetzal | python3 hack/check-chart.py || fail "the rendered chart has problems (see above)"
           echo "ok"
 
