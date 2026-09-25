@@ -1,7 +1,8 @@
 # Contributing to Quetzal
 
 Thanks for helping. Bug reports, eggs that don't import cleanly, fixes and
-features are all welcome.
+features are all welcome. Everyone taking part follows the
+[code of conduct](CODE_OF_CONDUCT.md).
 
 - **A bug or a broken egg**: open an issue with the matching template.
 - **A question**: ask in [Discussions](https://github.com/Lolozini/quetzal/discussions).

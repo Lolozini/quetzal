@@ -13,6 +13,8 @@ version. Before 1.0, older minor versions don't get backports: upgrade to the
 
 **Don't open a public issue.** Report it privately on GitHub:
 [Security → Report a vulnerability](https://github.com/Lolozini/quetzal/security/advisories/new).
+Without a GitHub account, email
+[quetzal-github@proton.me](mailto:quetzal-github@proton.me) instead.
 
 Please include:
 

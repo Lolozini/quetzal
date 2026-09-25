@@ -229,6 +229,7 @@ Bug reports, eggs that don't import cleanly and pull requests are welcome; see t
 [contributing guide](CONTRIBUTING.md). Ask questions in
 [Discussions](https://github.com/Lolozini/quetzal/discussions), and report
 vulnerabilities privately as the [security policy](SECURITY.md) explains.
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 ---
 

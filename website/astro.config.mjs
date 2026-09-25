@@ -28,7 +28,7 @@ export default defineConfig({
 			sidebar: [
 				{ label: 'Start here', items: ['why', 'quickstart', 'features', 'architecture'] },
 				{ label: 'Guides', items: ['install', 'upgrade', 'migrating'] },
-				{ label: 'Project', items: ['changelog', 'contributing', 'security', 'brand'] },
+				{ label: 'Project', items: ['changelog', 'contributing', 'code-of-conduct', 'security', 'brand'] },
 			],
 			plugins: [starlightLinksValidator({ errorOnRelativeLinks: false, errorOnLocalLinks: false })],
 		}),

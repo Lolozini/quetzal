@@ -28,6 +28,7 @@ const PAGES = [
 	{ src: 'docs/MIGRATING.md', slug: 'migrating', description: 'Bring eggs and servers over from Pterodactyl or Pelican.' },
 	{ src: 'CONTRIBUTING.md', slug: 'contributing', title: 'Contributing', description: 'Set up a development environment and send a change.' },
 	{ src: 'SECURITY.md', slug: 'security', title: 'Security', description: 'Report a vulnerability, and verify the images and the chart.' },
+	{ src: 'CODE_OF_CONDUCT.md', slug: 'code-of-conduct', title: 'Code of conduct', description: 'How everyone taking part in Quetzal is expected to behave.' },
 	{ src: 'docs/brand/README.md', slug: 'brand', title: 'Brand', description: 'The logo, the colours and the type, and how to use them.' },
 	{ src: 'CHANGELOG.md', slug: 'changelog', description: 'What changed in each release.' },
 ];
