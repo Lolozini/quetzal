@@ -1,0 +1,5 @@
+# Artifact Hub's metadata for the chart repository. Pushed next to the chart in
+# GHCR (tag "artifacthub.io") by .github/workflows/artifacthub.yml. The ID ties
+# oci://ghcr.io/lolozini/charts/quetzal to its Artifact Hub entry, which shows
+# the publisher as verified.
+repositoryID: d892ff2c-2b71-41ea-a29c-a3a5d0fc7d76
