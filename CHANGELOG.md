@@ -7,6 +7,27 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-28
+
+Quetzal on ARM, and a chart you can install from a registry. The image now
+exists for arm64, so the panel runs on ARM clusters, though many games still
+need amd64 nodes. The Helm chart is published to GHCR and signed, with a README
+and a values schema, and the panel's pod meets the Pod Security Standards'
+`restricted` level. One fix matters: uninstalling the chart deleted the
+panel's database and its encryption key.
+
+**Upgrading from 0.4.0** — three things behave differently:
+
+- The chart refuses values it doesn't know. A key left over from an older
+  chart, or mistyped, used to be ignored; the upgrade now stops and names it.
+  Remove it and run the upgrade again. See *Added*.
+- The chart needs Kubernetes 1.30 or later; Helm refuses an older cluster. See
+  *Changed*.
+- The upgrade replaces the panel's pod, whose security settings change. Game
+  servers keep running. Upgrade from the registry:
+  `helm upgrade quetzal oci://ghcr.io/lolozini/charts/quetzal --version 0.5.0 --reuse-values`
+  (the release's chart file works too).
+
 ### Added
 
 - **arm64 images.** The Quetzal image now exists for arm64 as well as amd64,
@@ -925,7 +946,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/lolozini/quetzal/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lolozini/quetzal/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/lolozini/quetzal/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/lolozini/quetzal/compare/v0.2.0...v0.3.0
