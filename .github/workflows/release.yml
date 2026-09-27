@@ -117,19 +117,6 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: cosign sign --yes "ghcr.io/${GITHUB_REPOSITORY,,}@${DIGEST}"
-      # The chart also goes to GHCR as an OCI artifact, which is what
-      # `helm install oci://…` pulls, signed like the image.
-      - name: Push the chart to GHCR
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          echo "$GH_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          out=$(helm push dist/quetzal-${{ steps.v.outputs.version }}.tgz "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts" 2>&1)
-          echo "$out"
-          digest=$(echo "$out" | awk '/^Digest:/ {print $2}')
-          test -n "$digest"
-          cosign sign --yes "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts/quetzal@${digest}"
       # The chart attached to the release gets a signature bundle next to it.
       - name: Sign the chart
         run: |
@@ -147,3 +134,18 @@ jobs:
           files: |
             dist/*.tgz
             dist/*.tgz.sigstore.json
+      # The chart also goes to GHCR as an OCI artifact, which is what
+      # `helm install oci://…` pulls, signed like the image. Last, so that if it
+      # fails the release page and its chart file already exist; pushing the
+      # same version again just replaces it.
+      - name: Push the chart to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          out=$(helm push dist/quetzal-${{ steps.v.outputs.version }}.tgz "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts" 2>&1)
+          echo "$out"
+          digest=$(echo "$out" | awk '/^Digest:/ {print $2}')
+          test -n "$digest"
+          cosign sign --yes "ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/charts/quetzal@${digest}"
