@@ -19,7 +19,7 @@ func TestScheduleTasksNeedTheMatchingPermission(t *testing.T) {
 	mallory := loginAs(t, srv.URL, "mallory", "mallorypw1")
 
 	var created struct{ ID uint }
-	r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "victim", "template": "generic-process"})
+	r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "victim", "template": "generic-process", "memory": "512Mi"})
 	if r.StatusCode != http.StatusCreated {
 		t.Fatalf("create server = %d", r.StatusCode)
 	}

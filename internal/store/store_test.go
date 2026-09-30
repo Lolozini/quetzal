@@ -938,3 +938,52 @@ func TestWithImmediateWrites(t *testing.T) {
 		}
 	}
 }
+
+// 0 used to mean unlimited. Existing accounts keep what they could do: each 0
+// becomes QuotaUnlimited, once. An account created afterwards with 0 servers
+// is closed, and a later start must leave it so.
+func TestQuotaMigrationRunsOnce(t *testing.T) {
+	s, err := Open(Config{Driver: DriverSQLite, DSN: filepath.Join(t.TempDir(), "q.db"), Silent: true})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err := s.autoMigrate(); err != nil { // the schema of a panel that predates the change
+		t.Fatalf("schema: %v", err)
+	}
+	old := []*models.User{
+		{Username: "free", PasswordHash: "x"},
+		{Username: "capped", PasswordHash: "x", MaxServers: 2, MaxMemoryMB: 4096},
+	}
+	for _, u := range old {
+		if err := s.CreateUser(u); err != nil {
+			t.Fatalf("user: %v", err)
+		}
+	}
+	if err := s.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	quotas := func(name string) [3]int64 {
+		u, err := s.GetUserByUsername(name)
+		if err != nil {
+			t.Fatalf("get %s: %v", name, err)
+		}
+		return [3]int64{int64(u.MaxServers), u.MaxMemoryMB, u.MaxCPUMilli}
+	}
+	if got := quotas("free"); got != [3]int64{-1, -1, -1} {
+		t.Errorf("free = %v, want unlimited everywhere", got)
+	}
+	if got := quotas("capped"); got != [3]int64{2, 4096, -1} {
+		t.Errorf("capped = %v, want its bounds kept and CPU unlimited", got)
+	}
+
+	closed := &models.User{Username: "closed", PasswordHash: "x", MaxMemoryMB: -1, MaxCPUMilli: -1}
+	if err := s.CreateUser(closed); err != nil {
+		t.Fatalf("user: %v", err)
+	}
+	if err := s.Migrate(); err != nil {
+		t.Fatalf("migrate again: %v", err)
+	}
+	if got := quotas("closed"); got[0] != 0 {
+		t.Errorf("a new closed account was reopened by a later start: %v", got)
+	}
+}

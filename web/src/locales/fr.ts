@@ -65,6 +65,7 @@ export const fr: Record<string, string> = {
   Memory: "Mémoire",
   "Memory limit": "Limite mémoire",
   "e.g. 4Gi (optional)": "ex. 4Gi (optionnel)",
+  "e.g. 4Gi": "ex. 4Gi",
   Storage: "Stockage",
   "Volume size": "Taille du volume",
   "Host path": "Chemin hôte",
@@ -157,8 +158,11 @@ export const fr: Record<string, string> = {
   "Reset 2FA": "Réinitialiser la 2FA",
   "New user": "Nouvel utilisateur",
   "Create user": "Créer l'utilisateur",
-  "Max servers (0 = ∞)": "Serveurs max (0 = ∞)",
-  "Max memory MB (0 = ∞)": "Mémoire max Mo (0 = ∞)",
+  "Max servers": "Serveurs max",
+  "Max memory MB": "Mémoire max Mo",
+  "0 servers: the account creates none until you change it. Empty: no limit. Servers created by users always need a memory limit.":
+    "0 serveur : le compte n'en crée aucun tant que vous ne le changez pas. Vide : sans limite. Un serveur créé par un utilisateur demande toujours une limite mémoire.",
+  Quotas: "Quotas",
   "Administrator (superadmin)": "Administrateur (superadmin)",
   'Delete user "{name}"? Their servers are NOT deleted.':
     "Supprimer l'utilisateur « {name} » ? Ses serveurs ne sont PAS supprimés.",

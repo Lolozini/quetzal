@@ -27,14 +27,25 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 type createUserRequest struct {
-	Username    string `json:"username"`
-	Password    string `json:"password"`
-	Email       string `json:"email"`
-	IsAdmin     bool   `json:"isAdmin"`
-	MaxServers  int    `json:"maxServers"`
-	MaxMemoryMB int64  `json:"maxMemoryMB"`
-	MaxCPUMilli int64  `json:"maxCpuMilli"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Email    string `json:"email"`
+	IsAdmin  bool   `json:"isAdmin"`
+	// Quotas left out take the defaults of a new account: no server, and no
+	// bound on memory or CPU (see models.User).
+	MaxServers  *int   `json:"maxServers,omitempty"`
+	MaxMemoryMB *int64 `json:"maxMemoryMB,omitempty"`
+	MaxCPUMilli *int64 `json:"maxCpuMilli,omitempty"`
 }
+
+// validQuotas reports whether quota values mean something: QuotaUnlimited, 0
+// (none) or a bound.
+func validQuotas(servers int, memMB, cpuMilli int64) bool {
+	return servers >= models.QuotaUnlimited && memMB >= models.QuotaUnlimited && cpuMilli >= models.QuotaUnlimited
+}
+
+// quotasInvalid is the answer to quota values that mean nothing.
+const quotasInvalid = "a quota is -1 (unlimited), 0 (none) or a bound"
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPerm(w, r, models.AdminPermUsers) {
@@ -64,6 +75,23 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid email")
 		return
 	}
+	// A new account is closed: it may own no server until an administrator
+	// gives it some. Memory and CPU are left unbounded, so giving it servers
+	// is all it takes to open it.
+	maxServers, maxMem, maxCPU := 0, int64(models.QuotaUnlimited), int64(models.QuotaUnlimited)
+	if req.MaxServers != nil {
+		maxServers = *req.MaxServers
+	}
+	if req.MaxMemoryMB != nil {
+		maxMem = *req.MaxMemoryMB
+	}
+	if req.MaxCPUMilli != nil {
+		maxCPU = *req.MaxCPUMilli
+	}
+	if !validQuotas(maxServers, maxMem, maxCPU) {
+		writeError(w, http.StatusBadRequest, quotasInvalid)
+		return
+	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "hash failed")
@@ -71,7 +99,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	u := &models.User{
 		Username: req.Username, PasswordHash: hash, Email: email, IsAdmin: req.IsAdmin,
-		MaxServers: req.MaxServers, MaxMemoryMB: req.MaxMemoryMB, MaxCPUMilli: req.MaxCPUMilli,
+		MaxServers: maxServers, MaxMemoryMB: maxMem, MaxCPUMilli: maxCPU,
 	}
 	if err := s.Store.CreateUser(u); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -84,7 +112,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 // updateUserRequest is a PATCH: every field is optional and an omitted one keeps
 // its stored value. The admin flag and the quotas used to be plain values, so a
 // request that only reset a password -- as the API documents it can -- also set
-// the account's quotas to 0, which means unlimited, and demoted an admin.
+// the account's quotas to 0, which then meant unlimited, and demoted an admin.
 type updateUserRequest struct {
 	IsAdmin     *bool   `json:"isAdmin,omitempty"`
 	MaxServers  *int    `json:"maxServers,omitempty"`
@@ -136,8 +164,8 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if maxServers < 0 || maxMem < 0 || maxCPU < 0 {
-		writeError(w, http.StatusBadRequest, "quotas cannot be negative (0 means unlimited)")
+	if !validQuotas(maxServers, maxMem, maxCPU) {
+		writeError(w, http.StatusBadRequest, quotasInvalid)
 		return
 	}
 	// Everything is checked before anything is written, so a request refused for

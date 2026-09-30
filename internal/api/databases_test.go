@@ -49,7 +49,7 @@ func TestServerImageMustBeOneTheTemplateOffers(t *testing.T) {
 
 	create := func(c *http.Client, image string) int {
 		t.Helper()
-		body := map[string]any{"name": "s", "template": "generic-process"}
+		body := map[string]any{"name": "s", "template": "generic-process", "memory": "512Mi"}
 		if image != "" {
 			body["image"] = image
 		}

@@ -245,6 +245,14 @@ encryption key and every stored credential. If you host for others and want a
 hard boundary, register a second cluster and put the game servers there; the
 panel keeps running where it is.
 
+**A new account creates nothing until you allow it.** Accounts have quotas:
+how many servers they may own, and the total memory and CPU of those servers.
+A new one may own none, with no bound on memory or CPU, so giving it a number
+of servers is what opens it; `-1`, an empty field in the panel, removes a
+bound. Whatever the quotas, a server created by anyone but an administrator
+needs a memory limit: without one its pod may take all of its node's memory,
+at the expense of every other server there.
+
 **Game servers themselves are confined.** Their pods mount no service account
 token, run with every capability dropped and no privilege escalation, and their
 NetworkPolicy allows DNS and the public internet only — not the cluster network,

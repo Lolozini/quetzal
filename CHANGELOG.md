@@ -7,6 +7,22 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- **A new account creates no server until an administrator allows it.** An
+  account created without quotas could create as many servers as it liked:
+  0 meant unlimited. It now means none, `-1` means unlimited, and a new account
+  starts with no servers and no bound on memory or CPU, so giving it a number
+  of servers is what opens it. The Users card shows unlimited as an empty
+  field and can now change an account's quotas after it is created. Existing
+  accounts keep what they could do: each quota of 0 becomes unlimited, once,
+  when the panel upgrades. A script that sets quotas through the API must send
+  `-1` where it sent 0 for unlimited.
+- **A server created by anyone but an administrator needs a memory limit**,
+  whatever the account's quotas: a pod without one may take all of its node's
+  memory, and Java takes 95% of it. The same goes for removing a server's
+  limit.
+
 ## [0.5.1] - 2026-09-30
 
 The fixes from a full test of 0.5.0 on three clusters: eight serious bugs and a

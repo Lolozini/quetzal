@@ -193,10 +193,55 @@ func (s *Store) Migrate() error {
 	var err error
 	for attempt := 0; attempt < 5; attempt++ {
 		if err = s.autoMigrate(); err == nil || !isConcurrentMigrationError(err) {
-			return err
+			break
 		}
 		// Back off with a little jitter so the two processes don't lock-step.
 		time.Sleep(time.Duration(100*(attempt+1))*time.Millisecond + time.Duration(rand.Intn(50))*time.Millisecond)
+	}
+	if err != nil {
+		return err
+	}
+	return s.migrateUnlimitedQuotas()
+}
+
+// settingQuotaSemantics marks that quotas read 0 as none and QuotaUnlimited
+// as no bound, after migrateUnlimitedQuotas has run.
+const settingQuotaSemantics = "quota_semantics"
+
+// errMigrated ends a one-time migration that has already run.
+var errMigrated = errors.New("already migrated")
+
+// migrateUnlimitedQuotas moves accounts from the old reading of a quota, where
+// 0 meant unlimited, to the new one, where it means none: each 0 becomes
+// QuotaUnlimited, so no existing account loses a right it had. It runs once
+// per database, which its marker records in the same transaction. Two
+// processes migrating at the same moment both try to write it; the second is
+// refused by the key and rolls back (on PostgreSQL a failed statement spoils
+// the transaction, so it must not commit).
+func (s *Store) migrateUnlimitedQuotas() error {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var n int64
+		if err := tx.Model(&models.Setting{}).Where("key = ?", settingQuotaSemantics).Count(&n).Error; err != nil {
+			return err
+		}
+		if n > 0 {
+			return errMigrated
+		}
+		if err := tx.Create(&models.Setting{Key: settingQuotaSemantics, Value: "0-is-none"}).Error; err != nil {
+			if errors.Is(err, gorm.ErrDuplicatedKey) {
+				return errMigrated
+			}
+			return err
+		}
+		for _, col := range []string{"max_servers", "max_memory_mb", "max_cpu_milli"} {
+			if err := tx.Model(&models.User{}).Where(col+" = ?", 0).Update(col, models.QuotaUnlimited).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, errMigrated) {
+		return nil
 	}
 	return err
 }

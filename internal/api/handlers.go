@@ -618,25 +618,25 @@ func (e *quotaError) Error() string { return e.msg }
 func quotaErrorf(format string, a ...any) error { return &quotaError{fmt.Sprintf(format, a...)} }
 
 // creationQuota returns what the servers u owns must satisfy for u to create
-// one more with these limits, or nil when u has no quota to respect (admins are
-// exempt). The limits a quota requires are checked here; the totals are left to
-// the returned check, which the store runs in the transaction that creates the
-// server, so that parallel requests cannot all fit in the same room.
+// one more with these limits, or nil when there is nothing to count. Admins are
+// exempt. The rest is checked here; the totals are left to the returned check,
+// which the store runs in the transaction that creates the server, so that
+// parallel requests cannot all fit in the same room.
 func creationQuota(u *models.User, memory, cpu string) (func(owned []models.Server) error, error) {
-	if u.HasAdminPerm(models.AdminPermServers) || (u.MaxServers == 0 && u.MaxMemoryMB == 0 && u.MaxCPUMilli == 0) {
+	if u.HasAdminPerm(models.AdminPermServers) {
 		return nil, nil
 	}
-	// A memory/CPU quota only means something if every server it covers declares
-	// a limit; otherwise an unlimited server counts as 0 and trivially bypasses
-	// the quota while consuming unbounded resources. Require the matching limit.
-	if u.MaxMemoryMB > 0 && strings.TrimSpace(memory) == "" {
-		return nil, &quotaError{"a memory limit is required (your account has a memory quota)"}
+	if u.MaxServers == 0 {
+		return nil, &quotaError{"your account may not create servers; an administrator can allow it"}
 	}
-	if u.MaxCPUMilli > 0 && strings.TrimSpace(cpu) == "" {
-		return nil, &quotaError{"a CPU limit is required (your account has a CPU quota)"}
+	if err := requireLimits(u, memory, cpu, "your account"); err != nil {
+		return nil, err
+	}
+	if !models.Bounded(u.MaxServers) && !models.Bounded(u.MaxMemoryMB) && !models.Bounded(u.MaxCPUMilli) {
+		return nil, nil
 	}
 	return func(owned []models.Server) error {
-		if u.MaxServers > 0 && len(owned)+1 > u.MaxServers {
+		if models.Bounded(u.MaxServers) && len(owned)+1 > u.MaxServers {
 			return quotaErrorf("quota exceeded: at most %d servers", u.MaxServers)
 		}
 		return withinResourceQuota(u, owned, memory, cpu)
@@ -647,16 +647,30 @@ func creationQuota(u *models.User, memory, cpu string) (func(owned []models.Serv
 // of servers does not change, and the check is given u's other servers (the
 // edited one's old limits are being replaced).
 func resourceQuota(u *models.User, memory, cpu string) (func(others []models.Server) error, error) {
-	if u.HasAdminPerm(models.AdminPermServers) || (u.MaxMemoryMB == 0 && u.MaxCPUMilli == 0) {
+	if u.HasAdminPerm(models.AdminPermServers) {
 		return nil, nil
 	}
-	if u.MaxMemoryMB > 0 && strings.TrimSpace(memory) == "" {
-		return nil, &quotaError{"a memory limit is required (the owner has a memory quota)"}
+	if err := requireLimits(u, memory, cpu, "the owner"); err != nil {
+		return nil, err
 	}
-	if u.MaxCPUMilli > 0 && strings.TrimSpace(cpu) == "" {
-		return nil, &quotaError{"a CPU limit is required (the owner has a CPU quota)"}
+	if !models.Bounded(u.MaxMemoryMB) && !models.Bounded(u.MaxCPUMilli) {
+		return nil, nil
 	}
 	return func(others []models.Server) error { return withinResourceQuota(u, others, memory, cpu) }, nil
+}
+
+// requireLimits refuses a server without the limits its owner must set. Memory
+// always: a pod without a limit may take all of its node's memory, Java takes
+// 95% of it, and the other tenants' servers pay for it. CPU when the owner has
+// a CPU quota, which a server without a limit would count as nothing against.
+func requireLimits(u *models.User, memory, cpu, whose string) error {
+	if strings.TrimSpace(memory) == "" {
+		return &quotaError{"a memory limit is required"}
+	}
+	if models.Bounded(u.MaxCPUMilli) && strings.TrimSpace(cpu) == "" {
+		return quotaErrorf("a CPU limit is required (%s has a CPU quota)", whose)
+	}
+	return nil
 }
 
 // withinResourceQuota adds the requested limits to those of servers and holds
@@ -669,10 +683,10 @@ func withinResourceQuota(u *models.User, servers []models.Server, memory, cpu st
 		cpuM += c
 	}
 	nmb, ncpu := resourceTotals(models.Resources{Memory: memory, CPU: cpu})
-	if u.MaxMemoryMB > 0 && memMB+nmb > u.MaxMemoryMB {
+	if models.Bounded(u.MaxMemoryMB) && memMB+nmb > u.MaxMemoryMB {
 		return quotaErrorf("quota exceeded: memory limit %d MB", u.MaxMemoryMB)
 	}
-	if u.MaxCPUMilli > 0 && cpuM+ncpu > u.MaxCPUMilli {
+	if models.Bounded(u.MaxCPUMilli) && cpuM+ncpu > u.MaxCPUMilli {
 		return quotaErrorf("quota exceeded: CPU limit %dm", u.MaxCPUMilli)
 	}
 	return nil

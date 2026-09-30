@@ -5,9 +5,13 @@ import { Combobox } from "./Combobox";
 import { PortsEditor, rowsToPorts } from "./PortsEditor";
 
 export function CreateServer({
+  memoryRequired = false,
   onDone,
   onCancel,
 }: {
+  // The panel refuses a server without a memory limit from anyone but an
+  // administrator: its pod could take all of its node's memory.
+  memoryRequired?: boolean;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -302,7 +306,8 @@ export function CreateServer({
             <label>{t("Memory limit")}</label>
             <input
               value={memory}
-              placeholder={t("e.g. 4Gi (optional)")}
+              required={memoryRequired}
+              placeholder={memoryRequired ? t("e.g. 4Gi") : t("e.g. 4Gi (optional)")}
               onChange={(e) => setMemory(e.target.value)}
             />
           </div>

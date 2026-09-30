@@ -28,7 +28,7 @@ func TestDeletingAnOwnerReassignsTheirServers(t *testing.T) {
 	alice := loginAs(t, srv.URL, "alice", "alicepw12")
 
 	var created struct{ ID uint }
-	r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "orphan", "template": "generic-process"})
+	r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "orphan", "template": "generic-process", "memory": "512Mi"})
 	if r.StatusCode != http.StatusCreated {
 		t.Fatalf("create server = %d", r.StatusCode)
 	}
@@ -66,7 +66,7 @@ func TestScopedUsersAdminCannotInheritServersByDeletingTheOwner(t *testing.T) {
 	alice := loginAs(t, srv.URL, "alice", "alicepw12")
 	var created struct{ ID uint }
 	json.NewDecoder(post(t, alice, srv.URL+"/api/servers",
-		map[string]any{"name": "coveted", "template": "generic-process"}).Body).Decode(&created)
+		map[string]any{"name": "coveted", "template": "generic-process", "memory": "512Mi"}).Body).Decode(&created)
 
 	mel := loginAs(t, srv.URL, "mel", "melpw12345")
 	aliceID := userID(t, admin, srv.URL, "alice")

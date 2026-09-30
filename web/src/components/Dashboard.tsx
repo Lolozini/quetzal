@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, User, isAnyAdmin } from "../api";
+import { api, hasAdminPerm, User, isAnyAdmin } from "../api";
 import { LangSwitcher, useT } from "../i18n";
 import { ServerList } from "./ServerList";
 import { CreateServer } from "./CreateServer";
@@ -93,6 +93,7 @@ export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void
         )}
         {view.name === "create" && (
           <CreateServer
+            memoryRequired={!hasAdminPerm(user, "servers")}
             onDone={() => go({ name: "list" })}
             onCancel={() => go({ name: "list" })}
           />

@@ -89,7 +89,7 @@ func TestReinstallCanChangeTheTemplate(t *testing.T) {
 
 	var created struct{ ID uint }
 	r := post(t, alice, ts.URL+"/api/servers", map[string]any{
-		"name": "world", "template": "egg-paper",
+		"name": "world", "template": "egg-paper", "memory": "1Gi",
 		"env": map[string]string{"MC_VERSION": "1.20.4", "RCON_PASSWORD": "s3cret", "DIFFICULTY": "hard", "PAPER_ONLY": "y"},
 	})
 	if r.StatusCode != http.StatusCreated {

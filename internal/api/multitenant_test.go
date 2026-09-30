@@ -22,8 +22,14 @@ func loginAs(t *testing.T, ts string, username, password string) *http.Client {
 	return c
 }
 
+// createUser creates an account an administrator has allowed servers, with no
+// bound unless body sets one: most tests are not about quotas. A new account
+// otherwise may own none (TestNewAccountsAreClosed).
 func createUser(t *testing.T, admin *http.Client, ts string, body map[string]any) {
 	t.Helper()
+	if _, set := body["maxServers"]; !set {
+		body["maxServers"] = models.QuotaUnlimited
+	}
 	if r := post(t, admin, ts+"/api/users", body); r.StatusCode != http.StatusCreated {
 		t.Fatalf("create user = %d", r.StatusCode)
 	}
@@ -40,7 +46,7 @@ func TestMultiTenantOwnershipAndSubusers(t *testing.T) {
 
 	// Alice creates a server (she owns it).
 	var created struct{ ID uint }
-	r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "alice srv", "template": "generic-process"})
+	r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "alice srv", "template": "generic-process", "memory": "512Mi"})
 	if r.StatusCode != http.StatusCreated {
 		t.Fatalf("alice create = %d", r.StatusCode)
 	}
@@ -101,7 +107,7 @@ func TestSuspendBlocksPower(t *testing.T) {
 	alice := loginAs(t, srv.URL, "alice", "alicepw12")
 
 	var created struct{ ID uint }
-	r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "s", "template": "generic-process", "start": true})
+	r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "s", "template": "generic-process", "memory": "512Mi", "start": true})
 	json.NewDecoder(r.Body).Decode(&created)
 	url := srv.URL + "/api/servers/" + itoa(created.ID)
 
@@ -160,10 +166,10 @@ func TestQuotaEnforcement(t *testing.T) {
 	createUser(t, admin, srv.URL, map[string]any{"username": "alice", "password": "alicepw12", "maxServers": 1})
 	alice := loginAs(t, srv.URL, "alice", "alicepw12")
 
-	if r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "one", "template": "generic-process"}); r.StatusCode != http.StatusCreated {
+	if r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "one", "template": "generic-process", "memory": "512Mi"}); r.StatusCode != http.StatusCreated {
 		t.Fatalf("first create = %d", r.StatusCode)
 	}
-	if r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "two", "template": "generic-process"}); r.StatusCode != http.StatusForbidden {
+	if r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "two", "template": "generic-process", "memory": "512Mi"}); r.StatusCode != http.StatusForbidden {
 		t.Errorf("second create = %d, want 403 (quota)", r.StatusCode)
 	}
 }
@@ -209,6 +215,70 @@ func TestQuotaHoldsUnderParallelCreations(t *testing.T) {
 	getJSON(t, quinn, srv.URL+"/api/servers", &list)
 	if len(list) != 1 {
 		t.Errorf("quinn owns %d servers, quota is 1", len(list))
+	}
+}
+
+// A new account used to be able to create as many servers as it liked, each
+// without a memory limit: an administrator who created one without quotas had
+// handed out the cluster. It now may own none until given some, and every
+// server a non-admin creates needs a memory limit.
+func TestNewAccountsAreClosed(t *testing.T) {
+	srv, admin := newTestServer(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+	if r := post(t, admin, srv.URL+"/api/users", map[string]any{"username": "nina", "password": "ninapw123"}); r.StatusCode != http.StatusCreated {
+		t.Fatalf("create user = %d", r.StatusCode)
+	}
+	var users []models.User
+	getJSON(t, admin, srv.URL+"/api/users", &users)
+	var nina models.User
+	for _, u := range users {
+		if u.Username == "nina" {
+			nina = u
+		}
+	}
+	if nina.MaxServers != 0 || nina.MaxMemoryMB != models.QuotaUnlimited || nina.MaxCPUMilli != models.QuotaUnlimited {
+		t.Errorf("new account quotas = %d / %d / %d, want 0 servers and unbounded memory and CPU",
+			nina.MaxServers, nina.MaxMemoryMB, nina.MaxCPUMilli)
+	}
+	c := loginAs(t, srv.URL, "nina", "ninapw123")
+	create := func(body map[string]any) (int, string) {
+		r := post(t, c, srv.URL+"/api/servers", body)
+		defer r.Body.Close()
+		var e struct{ Error string }
+		_ = json.NewDecoder(r.Body).Decode(&e)
+		return r.StatusCode, e.Error
+	}
+	if code, msg := create(map[string]any{"name": "a", "template": "generic-process", "memory": "512Mi"}); code != http.StatusForbidden || !strings.Contains(msg, "may not create servers") {
+		t.Errorf("a new account's creation = %d %q, want 403 saying it may not", code, msg)
+	}
+
+	// Giving it servers is all it takes.
+	if r := doPatch(t, admin, srv.URL+"/api/users/"+itoa(nina.ID), map[string]any{"maxServers": 2}); r.StatusCode != http.StatusOK {
+		t.Fatalf("give servers = %d", r.StatusCode)
+	}
+	if code, msg := create(map[string]any{"name": "a", "template": "generic-process"}); code != http.StatusForbidden || !strings.Contains(msg, "memory limit is required") {
+		t.Errorf("creation without memory = %d %q, want 403 asking for a memory limit", code, msg)
+	}
+	if code, msg := create(map[string]any{"name": "a", "template": "generic-process", "memory": "8Gi"}); code != http.StatusCreated {
+		t.Errorf("creation within the quota = %d %q, want 201", code, msg)
+	}
+
+	// Unlimited lifts the bound, not the memory limit.
+	if r := doPatch(t, admin, srv.URL+"/api/users/"+itoa(nina.ID), map[string]any{"maxServers": models.QuotaUnlimited}); r.StatusCode != http.StatusOK {
+		t.Fatalf("unlimited = %d", r.StatusCode)
+	}
+	for i := 0; i < 3; i++ {
+		if code, msg := create(map[string]any{"name": "more", "template": "generic-process", "memory": "512Mi"}); code != http.StatusCreated {
+			t.Errorf("creation %d on an unlimited account = %d %q", i, code, msg)
+		}
+	}
+
+	// A value below unlimited means nothing.
+	if r := doPatch(t, admin, srv.URL+"/api/users/"+itoa(nina.ID), map[string]any{"maxServers": -2}); r.StatusCode != http.StatusBadRequest {
+		t.Errorf("maxServers -2 = %d, want 400", r.StatusCode)
+	}
+	if r := post(t, admin, srv.URL+"/api/users", map[string]any{"username": "odd", "password": "oddpw1234", "maxMemoryMB": -5}); r.StatusCode != http.StatusBadRequest {
+		t.Errorf("create with maxMemoryMB -5 = %d, want 400", r.StatusCode)
 	}
 }
 

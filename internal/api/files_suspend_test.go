@@ -19,7 +19,7 @@ func TestSuspendedServerBlocksOfflineFilesForOwner(t *testing.T) {
 	alice := loginAs(t, srv.URL, "alice", "alicepw12")
 
 	var created struct{ ID uint }
-	r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "alice srv", "template": "generic-process"})
+	r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "alice srv", "template": "generic-process", "memory": "512Mi"})
 	if r.StatusCode != http.StatusCreated {
 		t.Fatalf("create = %d", r.StatusCode)
 	}

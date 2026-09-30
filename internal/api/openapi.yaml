@@ -2103,9 +2103,9 @@ components:
           type: array
           items: { type: string }
           description: Resolved admin permissions (from isAdmin or the assigned role)
-        maxServers: { type: integer, description: "0 = unlimited" }
-        maxMemoryMB: { type: integer, format: int64 }
-        maxCpuMilli: { type: integer, format: int64 }
+        maxServers: { type: integer, description: "Servers the account may own: -1 = unlimited, 0 = none. Admins are exempt." }
+        maxMemoryMB: { type: integer, format: int64, description: "Total memory limit (MiB) of its servers: -1 = unlimited, 0 = none" }
+        maxCpuMilli: { type: integer, format: int64, description: "Total CPU limit (millicores) of its servers: -1 = unlimited, 0 = none" }
         twoFactorEnabled: { type: boolean }
         createdAt: { type: string, format: date-time }
     AdminRole:
@@ -2137,9 +2137,9 @@ components:
         password: { type: string, format: password }
         email: { type: string, format: email }
         isAdmin: { type: boolean }
-        maxServers: { type: integer }
-        maxMemoryMB: { type: integer, format: int64 }
-        maxCpuMilli: { type: integer, format: int64 }
+        maxServers: { type: integer, description: "-1 = unlimited, 0 = none. A new account left without it may own no server." }
+        maxMemoryMB: { type: integer, format: int64, description: "-1 = unlimited (a new account's default), 0 = none" }
+        maxCpuMilli: { type: integer, format: int64, description: "-1 = unlimited (a new account's default), 0 = none" }
     Resources:
       type: object
       properties:

@@ -25,6 +25,13 @@ export function Admin({ user }: { user: User }) {
   );
 }
 
+// A quota as the API holds it: -1 is unlimited, 0 none, anything else a bound.
+// The forms show unlimited as an empty field.
+const UNLIMITED = -1;
+const quotaField = (v: number | undefined) => (v === undefined || v === UNLIMITED ? "" : String(v));
+const quotaValue = (s: string) => (s.trim() === "" ? UNLIMITED : Number(s));
+const quotaText = (v: number | undefined) => (v === undefined || v === UNLIMITED ? "∞" : String(v));
+
 // Users is shown to admins holding the "users" permission. Admin-status and
 // admin-role controls are superadmin-only (me.isAdmin) — a scoped users-admin
 // manages regular accounts but can't escalate privileges.
@@ -37,9 +44,14 @@ function Users({ me }: { me: User }) {
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
-  const [maxServers, setMaxServers] = useState(0);
-  const [maxMemoryMB, setMaxMemoryMB] = useState(0);
+  // A new account may create no server until it is given some.
+  const [maxServers, setMaxServers] = useState("0");
+  const [maxMemoryMB, setMaxMemoryMB] = useState("");
   const [busy, setBusy] = useState(false);
+  // The account whose quotas are being edited, and the values in its form.
+  const [quotaOf, setQuotaOf] = useState<number | null>(null);
+  const [editServers, setEditServers] = useState("");
+  const [editMemory, setEditMemory] = useState("");
 
   async function load() {
     try {
@@ -79,13 +91,16 @@ function Users({ me }: { me: User }) {
     setBusy(true);
     setError("");
     try {
-      await api.createUser({ username, password, email: email.trim(), isAdmin, maxServers, maxMemoryMB });
+      await api.createUser({
+        username, password, email: email.trim(), isAdmin,
+        maxServers: quotaValue(maxServers), maxMemoryMB: quotaValue(maxMemoryMB),
+      });
       setUsername("");
       setPassword("");
       setEmail("");
       setIsAdmin(false);
-      setMaxServers(0);
-      setMaxMemoryMB(0);
+      setMaxServers("0");
+      setMaxMemoryMB("");
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -97,15 +112,29 @@ function Users({ me }: { me: User }) {
   async function toggleAdmin(u: User) {
     setError("");
     try {
-      await api.updateUser(u.id, {
-        isAdmin: !u.isAdmin,
-        maxServers: u.maxServers ?? 0,
-        maxMemoryMB: u.maxMemoryMB ?? 0,
-        maxCpuMilli: u.maxCpuMilli ?? 0,
-      });
+      await api.updateUser(u.id, { isAdmin: !u.isAdmin });
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
+  function editQuotas(u: User) {
+    setQuotaOf(u.id);
+    setEditServers(quotaField(u.maxServers));
+    setEditMemory(quotaField(u.maxMemoryMB));
+  }
+
+  async function saveQuotas(e: FormEvent) {
+    e.preventDefault();
+    if (quotaOf === null) return;
+    setError("");
+    try {
+      await api.updateUser(quotaOf, { maxServers: quotaValue(editServers), maxMemoryMB: quotaValue(editMemory) });
+      setQuotaOf(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
     }
   }
 
@@ -160,8 +189,31 @@ function Users({ me }: { me: User }) {
                 )}
               </td>
               <td>{u.twoFactorEnabled ? t("on") : <span className="muted">{t("off")}</span>}</td>
-              <td>{(u.maxServers || "∞") + " / " + (u.maxMemoryMB || "∞")}</td>
+              <td>
+                {quotaOf === u.id ? (
+                  <form onSubmit={saveQuotas} className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                    <input
+                      type="number" min={0} value={editServers} placeholder="∞" style={{ width: 70 }}
+                      aria-label={t("Max servers")} onChange={(e) => setEditServers(e.target.value)}
+                    />
+                    <input
+                      type="number" min={0} value={editMemory} placeholder="∞" style={{ width: 90 }}
+                      aria-label={t("Max memory MB")} onChange={(e) => setEditMemory(e.target.value)}
+                    />
+                    <button className="primary">{t("Save")}</button>
+                    <button type="button" onClick={() => setQuotaOf(null)}>{t("Cancel")}</button>
+                  </form>
+                ) : u.isAdmin ? (
+                  <span className="muted">—</span>
+                ) : (
+                  quotaText(u.maxServers) + " / " + quotaText(u.maxMemoryMB)
+                )}
+              </td>
               <td style={{ whiteSpace: "nowrap" }}>
+                {/* Admins are exempt from quotas; a scoped users-admin can't edit an admin's account. */}
+                {!u.isAdmin && (me.isAdmin || u.adminRoleId == null) && quotaOf !== u.id && (
+                  <><button onClick={() => editQuotas(u)}>{t("Quotas")}</button>{" "}</>
+                )}
                 {me.isAdmin && (
                   <><button onClick={() => toggleAdmin(u)}>{u.isAdmin ? t("Demote") : t("Make admin")}</button>{" "}</>
                 )}
@@ -181,9 +233,12 @@ function Users({ me }: { me: User }) {
         </div>
         <div><label>{t("Email (optional, for password reset)")}</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@example.com" /></div>
         <div className="grid2">
-          <div><label>{t("Max servers (0 = ∞)")}</label><input type="number" min={0} value={maxServers} onChange={(e) => setMaxServers(Number(e.target.value))} /></div>
-          <div><label>{t("Max memory MB (0 = ∞)")}</label><input type="number" min={0} value={maxMemoryMB} onChange={(e) => setMaxMemoryMB(Number(e.target.value))} /></div>
+          <div><label>{t("Max servers")}</label><input type="number" min={0} value={maxServers} placeholder="∞" onChange={(e) => setMaxServers(e.target.value)} /></div>
+          <div><label>{t("Max memory MB")}</label><input type="number" min={0} value={maxMemoryMB} placeholder="∞" onChange={(e) => setMaxMemoryMB(e.target.value)} /></div>
         </div>
+        <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+          {t("0 servers: the account creates none until you change it. Empty: no limit. Servers created by users always need a memory limit.")}
+        </p>
         {me.isAdmin && (
           <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} />&nbsp;{t("Administrator (superadmin)")}</label>
         )}

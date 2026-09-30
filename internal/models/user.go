@@ -24,8 +24,11 @@ type User struct {
 	// drives admin authorization decisions.
 	AdminPerms []string `gorm:"-" json:"adminPerms,omitempty"`
 
-	// Per-user quotas (0 = unlimited), enforced at server creation. Admins are
-	// exempt.
+	// Per-user quotas: how many servers the account may own, and their total
+	// memory (MiB) and CPU (millicores). QuotaUnlimited (-1) sets no bound and 0
+	// allows none. They are enforced when a server is created or given new
+	// limits; admins are exempt. A new account may own no server until an
+	// administrator gives it some, with no bound on memory or CPU.
 	MaxServers  int   `json:"maxServers"`
 	MaxMemoryMB int64 `json:"maxMemoryMB"`
 	MaxCPUMilli int64 `json:"maxCpuMilli"`
@@ -42,6 +45,13 @@ type User struct {
 	LastTOTPStep  uint64   `json:"-"`
 	RecoveryCodes []string `gorm:"serializer:json" json:"-"`
 }
+
+// QuotaUnlimited is a quota without a bound. 0 used to mean that, which left
+// every account created without quotas free to fill the cluster.
+const QuotaUnlimited = -1
+
+// Bounded reports whether a quota value sets a bound (0 included: none).
+func Bounded[T int | int64](quota T) bool { return quota != QuotaUnlimited }
 
 // HasAdminPerm reports whether the user holds admin permission p. Superadmins
 // hold all of them; scoped admins hold the resolved set from their role.
