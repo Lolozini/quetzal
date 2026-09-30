@@ -658,6 +658,8 @@ export const fr: Record<string, string> = {
   "Only a player joining wakes it: the server list shows it asleep, and port scanners are ignored.":
     "Seul un joueur qui se connecte le réveille : la liste des serveurs l’affiche endormi, et les scanners de ports sont ignorés.",
   "Reachable servers": "Serveurs joignables",
+  "Servers given a database here reach this port of the host, and nothing else of it. Name a Service of the cluster in full: <service>.<namespace>.svc.cluster.local.":
+    "Les serveurs qui ont une base ici joignent ce port de l'hôte, et rien d'autre. Nommez un Service du cluster en entier : <service>.<namespace>.svc.cluster.local.",
   "A game server cannot reach the others inside the cluster. Choose the ones this server may reach, such as the servers behind a Velocity or BungeeCord proxy: they then need not be exposed at all, and the proxy uses the address shown next to each.":
     "Un serveur de jeu ne peut pas joindre les autres à l'intérieur du cluster. Choisissez ceux que ce serveur peut joindre, comme les serveurs derrière un proxy Velocity ou BungeeCord : ils n'ont alors pas besoin d'être exposés, et le proxy utilise l'adresse indiquée à côté de chacun.",
   "No other server runs on this cluster.": "Aucun autre serveur ne tourne sur ce cluster.",

@@ -131,6 +131,9 @@ export function DatabaseHosts() {
               <div><label>{t("Advertised host (optional)")}</label><input value={form.connectHost} onChange={set("connectHost")} placeholder={t("defaults to host")} /></div>
               <div><label>{t("Advertised port (optional)")}</label><input type="number" value={form.connectPort} onChange={set("connectPort")} /></div>
             </div>
+            <p className="muted">
+              {t("Servers given a database here reach this port of the host, and nothing else of it. Name a Service of the cluster in full: <service>.<namespace>.svc.cluster.local.")}
+            </p>
           </>
         ) : (
           <>

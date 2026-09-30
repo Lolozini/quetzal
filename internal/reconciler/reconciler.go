@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +28,8 @@ import (
 type Reconciler struct {
 	Client client.Client
 	Store  *store.Store
+	// lookupState resolves the names of external database hosts (dbegress.go).
+	lookupState
 
 	// NamespacedRole is the ClusterRole the control plane binds to itself in each
 	// namespace it creates, instead of holding that access cluster-wide. Empty
@@ -572,9 +573,11 @@ func (r *Reconciler) egressPeersFor(s *models.Server) []EgressPeer {
 				peers = append(peers, EgressPeer{Namespace: ns})
 			}
 		default:
-			if c := hostCIDR(h.ConnectHost, h.Host); c != "" && !seen[c] {
-				seen[c] = true
-				peers = append(peers, EgressPeer{CIDR: c})
+			for _, p := range r.dbHostPeers(h) {
+				if k := fmt.Sprintf("%s|%s|%d", p.Namespace, p.CIDR, p.Port); !seen[k] {
+					seen[k] = true
+					peers = append(peers, p)
+				}
 			}
 		}
 	}
@@ -590,25 +593,6 @@ func (r *Reconciler) egressPeersFor(s *models.Server) []EgressPeer {
 		peers = append(peers, EgressPeer{Namespace: t.Namespace})
 	}
 	return peers
-}
-
-// hostCIDR turns an external host into a single-address CIDR when it is written
-// as a literal IP. A hostname yields "": it cannot go in a NetworkPolicy, and
-// guessing by resolving it here would bake in an answer that changes.
-func hostCIDR(candidates ...string) string {
-	for _, c := range candidates {
-		h := strings.TrimSpace(c)
-		if h == "" {
-			continue
-		}
-		if ip := net.ParseIP(h); ip != nil {
-			if ip.To4() != nil {
-				return ip.String() + "/32"
-			}
-			return ip.String() + "/128"
-		}
-	}
-	return ""
 }
 
 // ensureSecret creates/updates the per-server Secret, skipping the write when

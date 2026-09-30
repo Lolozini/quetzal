@@ -34,10 +34,26 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A database on an external host at a private address is reachable from
+  the servers.** A game server may not reach private addresses, and only a
+  host given by a literal address got a way through, so one named by DNS --
+  a MariaDB in the cluster, or on the LAN -- handed its users an address that
+  never answered. A Service of the cluster named in full
+  (`<service>.<namespace>.svc.cluster.local`) is now reached through its
+  namespace, and any other name through the addresses it resolves to, looked
+  up again every minute.
 - **A Bedrock player coming through Geyser wakes a sleeping Java server.** On
   a Minecraft Java server nothing on UDP woke it, since that was its query
   port, so a Bedrock player could not wake it, and a server with only Bedrock
   players on it could fall asleep under them.
+
+### Security
+
+- **An external database host opens only its database port to the servers.**
+  A host given by a literal private address let the servers with a database
+  on it reach every port of that address, the cloud metadata endpoint
+  included had a host been pointed at it. It is the database port only now,
+  and link-local and loopback addresses never get through.
 
 ## [0.6.0] - 2026-09-30
 

@@ -277,9 +277,14 @@ stay as they were for whoever looks into why it was suspended.
 **Game servers themselves are confined.** Their pods mount no service account
 token, run with every capability dropped and no privilege escalation, and their
 NetworkPolicy allows DNS and the public internet only — not the cluster network,
-not the node, not your LAN. A managed database is reachable because it is
-granted explicitly; anything else on a private address needs `egressAllow`. So
-are the servers a server was given to reach (its settings, *Reachable
+not the node, not your LAN. A database host is reachable because it is granted
+explicitly: a managed one, in the namespace that holds nothing else, and an
+external one at a private address on its database port only, however it is
+named — a Service of the cluster in full
+(`<service>.<namespace>.svc.cluster.local`), a name on your LAN, looked up again
+every minute, or an address. Link-local and loopback addresses, where the cloud
+metadata endpoint lives, never get through. Anything else on a private address
+needs `egressAllow`. So are the servers a server was given to reach (its settings, *Reachable
 servers*): a proxy and the servers behind it, which then need not be exposed.
 Only someone who may change both servers can link them, on one cluster, and a
 server reached this way still admits nothing but its game ports.

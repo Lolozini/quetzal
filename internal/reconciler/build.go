@@ -658,6 +658,9 @@ type EgressPeer struct {
 	// CIDR allows a literal address range. A hostname cannot be expressed in a
 	// NetworkPolicy, so an external service named by DNS needs its address here.
 	CIDR string
+	// Port, when set, narrows the peer to that TCP port: an external database
+	// host's, where the server has nothing else to do.
+	Port int32
 }
 
 // privateRanges are the address blocks a game server has no business reaching:
@@ -754,6 +757,12 @@ func egressRules(dnsUDP, dnsTCP corev1.Protocol, dnsPort intstr.IntOrString, ext
 		},
 	}
 	for _, p := range extra {
+		var ports []networkingv1.NetworkPolicyPort
+		if p.Port != 0 {
+			tcp := corev1.ProtocolTCP
+			port := intstr.FromInt32(p.Port)
+			ports = []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: &port}}
+		}
 		switch {
 		case p.Namespace != "":
 			rules = append(rules, networkingv1.NetworkPolicyEgressRule{
@@ -762,12 +771,14 @@ func egressRules(dnsUDP, dnsTCP corev1.Protocol, dnsPort intstr.IntOrString, ext
 						MatchLabels: map[string]string{corev1.LabelMetadataName: p.Namespace},
 					},
 				}},
+				Ports: ports,
 			})
 		case p.CIDR != "":
 			rules = append(rules, networkingv1.NetworkPolicyEgressRule{
 				To: []networkingv1.NetworkPolicyPeer{{
 					IPBlock: &networkingv1.IPBlock{CIDR: p.CIDR},
 				}},
+				Ports: ports,
 			})
 		}
 	}
