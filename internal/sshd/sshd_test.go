@@ -274,3 +274,50 @@ func TestSFTPSymlinkConfinement(t *testing.T) {
 		t.Errorf("could not remove the symlink: %v", err)
 	}
 }
+
+// OpenSSH's sftp sends a symlink's target first and the link second, and so
+// does pkg/sftp's client. Taken the other way round, `symlink /etc qa/sftplink`
+// made a link named etc at the root, pointing at qa/sftplink: the feature did
+// nothing useful and left a dangling link behind. The link is where the client
+// said, and what it points at stays inside the root.
+func TestSFTPSymlinkGoesWhereTheClientSaid(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "qa"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "server.properties"), []byte("motd=hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	signer, pub := newKeyPair(t)
+	sc, _, err := startServer(t, root, []ssh.PublicKey{pub}, signer)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer sc.Close()
+
+	for _, c := range []struct{ target, link, want string }{
+		{"/server.properties", "qa/props", "server.properties"},
+		{"/etc", "qa/sftplink", "etc"},
+		{"../server.properties", "/qa/relative", "server.properties"},
+		{"/../../outside", "qa/escape", "outside"},
+	} {
+		if err := sc.Symlink(c.target, c.link); err != nil {
+			t.Errorf("symlink %s -> %s: %v", c.link, c.target, err)
+			continue
+		}
+		got, err := os.Readlink(filepath.Join(root, c.link))
+		if err != nil {
+			t.Errorf("symlink %s -> %s: no link at %s (%v)", c.link, c.target, c.link, err)
+			continue
+		}
+		if want := filepath.Join(root, c.want); got != want {
+			t.Errorf("symlink %s -> %s points at %s, want %s", c.link, c.target, got, want)
+		}
+	}
+	if fi, err := os.Lstat(filepath.Join(root, "server.properties")); err != nil || !fi.Mode().IsRegular() {
+		t.Errorf("the target was touched: %v %v", fi, err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "etc")); err == nil {
+		t.Error("a link named after the target appeared at the root")
+	}
+}

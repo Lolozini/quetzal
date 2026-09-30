@@ -108,6 +108,11 @@ releases may include breaking changes).
   name does not resolve, it refused the keys, the bucket does not exist, the
   password does not open the repository. A custom runner image must be
   restic 0.17 or later.
+- **SFTP's `symlink` makes the link the client asked for.** OpenSSH sends a
+  link's target before the link itself, and the two were read the other way
+  round: `symlink /etc qa/link` made a link named `etc` at the root, pointing
+  at `qa/link`. The link is now where it was asked for, pointing inside the
+  server's files as before.
 
 ### Security
 

@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -391,6 +392,9 @@ func (r *root) Filewrite(req *sftp.Request) (io.WriterAt, error) {
 }
 
 func (r *root) Filecmd(req *sftp.Request) error {
+	if req.Method == "Symlink" {
+		return r.symlink(req.Filepath, req.Target)
+	}
 	// Rename and Remove act on the entry itself and never follow it; the others
 	// would dereference a symlink leaf, so they refuse one.
 	deref := req.Method != "Rename" && req.Method != "Rmdir" && req.Method != "Remove"
@@ -411,13 +415,30 @@ func (r *root) Filecmd(req *sftp.Request) error {
 		return os.Remove(p)
 	case "Mkdir":
 		return os.MkdirAll(p, 0o755)
-	case "Symlink":
-		// The link target is confined to the root, and safe() has already checked
-		// that the link itself is being created inside it.
-		return os.Symlink(r.resolve(req.Target), p)
 	default:
 		return sftp.ErrSSHFxOpUnsupported
 	}
+}
+
+// symlink creates link pointing at target, both as the client wrote them.
+//
+// OpenSSH sends a symlink's target before the link, the reverse of the draft it
+// implements, and pkg/sftp hands them over in that order: Filepath is what the
+// link points at, Target is the link. Read the other way round, `symlink /etc
+// qa/sftplink` made a link named etc at the root, pointing at qa/sftplink.
+//
+// The link must be created inside the root, and what it points at is kept
+// there too: an absolute target is taken from the root the client sees, a
+// relative one from the link's directory, and ".." stops at the root either way.
+func (r *root) symlink(target, link string) error {
+	at, err := r.safe(link, false)
+	if err != nil {
+		return err
+	}
+	if !path.IsAbs(target) {
+		target = path.Join(path.Dir(path.Clean("/"+link)), target)
+	}
+	return os.Symlink(r.resolve(target), at)
 }
 
 func (r *root) setstat(p string, req *sftp.Request) error {
