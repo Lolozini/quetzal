@@ -24,6 +24,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lolozini/quetzal/internal/models"
@@ -49,6 +50,9 @@ type Store interface {
 	ServerIdentity(id uint) (name, slug string, err error)
 	// RecordChannelResult notes how a delivery ended: errMsg empty for success.
 	RecordChannelResult(id uint, at time.Time, errMsg string) error
+	// GetSMTPConfig returns the panel's own SMTP settings, which an email
+	// channel naming no server of its own sends through.
+	GetSMTPConfig() (map[string]string, error)
 }
 
 // Dispatcher delivers events to channels.
@@ -336,6 +340,32 @@ func (d *Dispatcher) DeliverTo(ctx context.Context, c *models.NotificationChanne
 	return nil
 }
 
+// mailConfig is the SMTP an email channel sends through: its own, or the
+// panel's when it names no host. A channel needed a server of its own, the one
+// the panel already sends its password resets through typed in again. The
+// channel's "from", if it sets one, still wins.
+func (d *Dispatcher) mailConfig(cfg map[string]string) (map[string]string, error) {
+	if strings.TrimSpace(cfg["host"]) != "" {
+		return cfg, nil
+	}
+	panel, err := d.Store.GetSMTPConfig()
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(panel["host"]) == "" {
+		return nil, permanent(fmt.Errorf("email: this channel has no SMTP server, and neither has the panel: set one here or in the panel's email settings"))
+	}
+	out := make(map[string]string, len(panel)+1)
+	for k, v := range panel {
+		out[k] = v
+	}
+	out["to"] = cfg["to"]
+	if from := strings.TrimSpace(cfg["from"]); from != "" {
+		out["from"] = from
+	}
+	return out, nil
+}
+
 // deliverTo is DeliverTo with the event's server already resolved.
 func (d *Dispatcher) deliverTo(ctx context.Context, c *models.NotificationChannel, cfg map[string]string, e models.Event, name, slug string) error {
 	ctx, cancel := context.WithTimeout(ctx, d.Timeout)
@@ -346,7 +376,11 @@ func (d *Dispatcher) deliverTo(ctx context.Context, c *models.NotificationChanne
 	case models.ChannelWebhook:
 		return deliverWebhook(ctx, d.Client, cfg, e, name, slug)
 	case models.ChannelEmail:
-		return deliverEmail(ctx, cfg, e, name, slug)
+		mail, err := d.mailConfig(cfg)
+		if err != nil {
+			return err
+		}
+		return deliverEmail(ctx, mail, e, name, slug)
 	default:
 		return errUnknownType(c.Type)
 	}

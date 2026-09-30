@@ -23,6 +23,11 @@ releases may include breaking changes).
   `PATCH /api/servers/{id}` takes `image`, with the rule of the creation form:
   the template's images, or any for an administrator. Like the other
   settings, it restarts a running server.
+- **An email channel can send through the panel's email settings.** It
+  needed an SMTP server and a sender of its own, typed in again although the
+  panel already sends its password resets through one. A channel that names
+  only its recipients now uses the panel's server, and its sender unless it
+  sets one.
 
 ### Changed
 

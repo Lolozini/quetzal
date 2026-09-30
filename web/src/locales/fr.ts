@@ -415,6 +415,8 @@ export const fr: Record<string, string> = {
   URL: "URL",
   "Signing secret (optional)": "Secret de signature (optionnel)",
   "SMTP host": "Hôte SMTP",
+  "SMTP host (blank: the panel's email settings)": "Hôte SMTP (vide : celui des réglages e-mail du panneau)",
+  "From address (blank: the panel's)": "Adresse d'expéditeur (vide : celle du panneau)",
   "To (comma-separated)": "Destinataires (séparés par des virgules)",
   "Username (optional)": "Nom d'utilisateur (optionnel)",
   "Password (optional)": "Mot de passe (optionnel)",

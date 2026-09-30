@@ -111,7 +111,7 @@ func validChannelType(t models.ChannelType) bool {
 }
 
 // validateChannelConfig checks the minimum required keys are present for a type.
-func validateChannelConfig(t models.ChannelType, cfg map[string]string) string {
+func (s *Server) validateChannelConfig(t models.ChannelType, cfg map[string]string) string {
 	switch t {
 	case models.ChannelDiscord, models.ChannelWebhook:
 		raw := strings.TrimSpace(cfg["url"])
@@ -124,11 +124,22 @@ func validateChannelConfig(t models.ChannelType, cfg map[string]string) string {
 			return "url must be an http:// or https:// address"
 		}
 	case models.ChannelEmail:
-		if strings.TrimSpace(cfg["host"]) == "" || strings.TrimSpace(cfg["from"]) == "" || strings.TrimSpace(cfg["to"]) == "" {
-			return "host, from and to are required"
+		if strings.TrimSpace(cfg["to"]) == "" {
+			return "to is required"
 		}
-		if _, err := notify.ParseFrom(cfg["from"]); err != nil {
-			return err.Error()
+		// A channel may send through the panel's own SMTP server, the one its
+		// password resets go through: it needed one typed in again.
+		if strings.TrimSpace(cfg["host"]) == "" {
+			if panel, _ := s.Store.GetSMTPConfig(); strings.TrimSpace(panel["host"]) == "" {
+				return "host and from are required: the panel's email settings have no SMTP server for this channel to use"
+			}
+		} else if strings.TrimSpace(cfg["from"]) == "" {
+			return "from is required with a host of the channel's own"
+		}
+		if from := strings.TrimSpace(cfg["from"]); from != "" {
+			if _, err := notify.ParseFrom(from); err != nil {
+				return err.Error()
+			}
 		}
 	}
 	return ""
@@ -150,7 +161,7 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request) {
 	if req.Config == nil {
 		req.Config = map[string]string{}
 	}
-	if msg := validateChannelConfig(req.Type, req.Config); msg != "" {
+	if msg := s.validateChannelConfig(req.Type, req.Config); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -280,7 +291,7 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
 			}
 			merged[k] = v
 		}
-		if msg := validateChannelConfig(c.Type, merged); msg != "" {
+		if msg := s.validateChannelConfig(c.Type, merged); msg != "" {
 			writeError(w, http.StatusBadRequest, msg)
 			return
 		}

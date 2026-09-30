@@ -21,9 +21,10 @@ const FIELDS: Record<ChannelType, FieldDef[]> = {
     { key: "secret", label: "Signing secret (optional)", secret: true },
   ],
   email: [
-    { key: "host", label: "SMTP host" },
+    // Blank sends through the panel's own email settings.
+    { key: "host", label: "SMTP host (blank: the panel's email settings)" },
     { key: "port", label: "Port", placeholder: "587" },
-    { key: "from", label: "From address", placeholder: "Quetzal <quetzal@example.com>" },
+    { key: "from", label: "From address (blank: the panel's)", placeholder: "Quetzal <quetzal@example.com>" },
     { key: "to", label: "To (comma-separated)" },
     { key: "username", label: "Username (optional)" },
     { key: "password", label: "Password (optional)", secret: true },

@@ -28,7 +28,10 @@ type fakeStore struct {
 	settings map[string]string
 	servers  map[uint][2]string // id -> {displayName, slug}
 	results  []deliveryResult
+	smtp     map[string]string // the panel's email settings
 }
+
+func (f *fakeStore) GetSMTPConfig() (map[string]string, error) { return f.smtp, nil }
 
 type deliveryResult struct {
 	channel uint
