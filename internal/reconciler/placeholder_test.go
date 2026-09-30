@@ -17,11 +17,13 @@ func TestStartupTranslatesWingsPlaceholders(t *testing.T) {
 	s, tmpl := testServerAndTemplate()
 	tmpl.Startup = "java -Xmx{{server.build.memory}}M -jar {{server.build.env.SERVER_JARFILE}} " +
 		"--port {{server.build.default.port}} --host {{server.build.default.ip}} " +
-		"--motd {{env.MOTD}} --name {{ SERVER_NAME }} --keep {{not.a.known.thing}} {{bad name}}"
+		"--motd {{env.MOTD}} --name {{ SERVER_NAME }} --level {{server.environment.LEVEL}} " +
+		"--keep {{not.a.known.thing}} {{bad name}}"
 
 	want := "java -Xmx${SERVER_MEMORY}M -jar ${SERVER_JARFILE} " +
 		"--port ${SERVER_PORT} --host 0.0.0.0 " +
-		"--motd ${MOTD} --name ${SERVER_NAME} --keep {{not.a.known.thing}} {{bad name}}"
+		"--motd ${MOTD} --name ${SERVER_NAME} --level ${LEVEL} " +
+		"--keep {{not.a.known.thing}} {{bad name}}"
 
 	cmd := startupCommand(tmpl)
 	if len(cmd) == 0 || cmd[len(cmd)-1] != want {
@@ -68,10 +70,40 @@ func TestConfigFilesPlaceholders(t *testing.T) {
 		"{{server.allocations.default.ip}}":   "0.0.0.0",
 		"{{server.build.memory_limit}}":       "${SERVER_MEMORY}",
 		"{{server.build.env.bad name}}":       "{{server.build.env.bad name}}",
+		// ... and reach their variables under environment.
+		"{{server.environment.MAX_SLOTS}}":   "${MAX_SLOTS}",
+		"{{ server.environment.LEVEL }}":     "${LEVEL}",
+		"{{server.environment.bad name}}":    "{{server.environment.bad name}}",
+		"{{server.environment.}}":            "{{server.environment.}}",
+		"slots={{server.environment.SLOTS}}": "slots=${SLOTS}",
 	}
 	for in, want := range cases {
 		if got := toShellTemplate(in, 25565); got != want {
 			t.Errorf("%s -> %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Every placeholder form the published egg repositories use in config.files,
+// with how many times each appeared across pelican-eggs in September 2026.
+// {{server.environment.X}} was missing: 327 uses in 51 eggs (Rust, Factorio,
+// ARK, DayZ, Satisfactory...) reached the game as literal text, and Rust
+// failed to load "{{server.environment.LEVEL}}" while Factorio's
+// server-settings.json no longer parsed.
+func TestEveryPublishedPlaceholderFormIsTranslated(t *testing.T) {
+	forms := []string{
+		"{{server.build.env.MAX_PLAYERS}}",    // 955
+		"{{server.environment.MAX_PLAYERS}}",  // 327
+		"{{server.build.default.port}}",       // 248
+		"{{env.MAX_PLAYERS}}",                 // 196
+		"{{server.allocations.default.port}}", // 74
+		"{{config.docker.interface}}",         // 10
+		"{{server.build.default.ip}}",         // 4
+		"{{server.allocations.default.ip}}",   // 2
+	}
+	for _, f := range forms {
+		if got := toShellTemplate(f, 25565); strings.Contains(got, "{{") {
+			t.Errorf("%s is left as %q", f, got)
 		}
 	}
 }

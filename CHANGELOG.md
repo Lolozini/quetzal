@@ -7,6 +7,14 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Pelican eggs that write `{{server.environment.X}}` work.** Quetzal left
+  that placeholder as written, so the game read it literally: Rust failed to
+  load the level `{{server.environment.LEVEL}}` and Factorio's
+  `server-settings.json` no longer parsed. About fifty eggs use it, ARK, DayZ
+  and Satisfactory among them.
+
 ## [0.5.0] - 2026-09-28
 
 Quetzal on ARM, and a chart you can install from a registry. The image now

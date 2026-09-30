@@ -1234,6 +1234,10 @@ func translatePlaceholders(v, port string) string {
 			return "${SERVER_MEMORY}"
 		case strings.HasPrefix(inner, "server.build.env."):
 			return envRef(strings.TrimPrefix(inner, "server.build.env."))
+		case strings.HasPrefix(inner, "server.environment."):
+			// Pelican's path to the same variables: its server configuration
+			// keeps them under environment, where Pterodactyl had build.env.
+			return envRef(strings.TrimPrefix(inner, "server.environment."))
 		case strings.HasPrefix(inner, "env."):
 			return envRef(strings.TrimPrefix(inner, "env."))
 		case identRe.MatchString(inner):
