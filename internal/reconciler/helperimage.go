@@ -11,6 +11,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/lolozini/quetzal/internal/models"
 )
 
 // A server's pods run helpers out of the Quetzal image: the config renderer
@@ -49,6 +51,28 @@ func (r *Reconciler) applyKeepingHelpers(ctx context.Context, want *appsv1.Deplo
 		r.keepLegacyHelperImage(ctx, live, want, systemImage)
 	}
 	return r.apply(ctx, want)
+}
+
+// applyNewHelpers applies want as it is, new helper image included, stamped
+// with its hash as applyKeepingHelpers would: for a pod that takes a new image
+// without anyone noticing.
+func (r *Reconciler) applyNewHelpers(ctx context.Context, want *appsv1.Deployment, systemImage string) error {
+	if want.Annotations == nil {
+		want.Annotations = map[string]string{}
+	}
+	want.Annotations[podSpecAnnotation] = podSpecHash(want, systemImage)
+	return r.apply(ctx, want)
+}
+
+// activatorTakesNewHelpers reports whether a server's activator may take a new
+// image at once, where the game's pods wait for their next restart: while the
+// server sleeps, when nobody goes through it but a player waking it, who at
+// worst tries again. A drop-mode activator only exists then; a proxy runs for
+// as long as its server may sleep, carries every player while the game is up,
+// and otherwise kept the image it started with for good, and with it the wake
+// rules of that version.
+func activatorTakesNewHelpers(s *models.Server) bool {
+	return s.Hibernated
 }
 
 // keepHelperImage stamps want with its pod spec hash and, when live runs the

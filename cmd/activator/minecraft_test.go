@@ -214,14 +214,16 @@ func TestDropIgnoresTheOtherPortsOfAMinecraftServer(t *testing.T) {
 	}
 }
 
-// Other games keep waking on any connection.
+// Other games wake on any connection but a port scan: see
+// TestDropIgnoresPortScans.
 func TestDropWakesOnAnyConnectionForOtherGames(t *testing.T) {
 	ln, port := listen(t)
 	w, wakes := countingWaker()
 	go dropListen(ln, port, w, wakeGate{})
 	c := dial(t, ln.Addr().String())
-	_ = c.Close()
+	_, _ = c.Write([]byte("hello"))
 	eventually(t, func() bool { return wakes.Load() == 1 })
+	_ = c.Close()
 }
 
 // mcBackend is a stand-in game server that records what reaches it.

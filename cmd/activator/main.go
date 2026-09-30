@@ -104,11 +104,18 @@ func dropListen(ln net.Listener, port string, w *waker, gate wakeGate) {
 		}
 		switch {
 		case !gate.minecraft():
-			// Drop the connection first and wake in the background: the callback
-			// can take seconds, and holding the accept loop meanwhile left every
+			// Each connection is looked at in the background: a port scan wakes
+			// nothing (dropAny), and holding the accept loop meanwhile left every
 			// other player's connection hanging behind it. trigger debounces.
-			_ = conn.Close()
-			go w.trigger()
+			select {
+			case slots <- struct{}{}:
+				go func() {
+					defer func() { <-slots }()
+					dropAny(conn, w)
+				}()
+			default:
+				_ = conn.Close()
+			}
 		case port != gate.gamePort:
 			// RCON, query and the like are not a player joining.
 			_ = conn.Close()

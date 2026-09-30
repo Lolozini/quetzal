@@ -70,6 +70,8 @@ type proxy struct {
 	// on the game port wakes the server or counts as activity: a scanner's
 	// server-list ping, a query packet or an RCON probe does neither.
 	gate wakeGate
+	// bedrock answers a Bedrock server list while the server sleeps.
+	bedrock bedrockPong
 }
 
 func runProxy() {
@@ -187,14 +189,32 @@ func (p *proxy) forwardIfUp(client net.Conn, backendAddr string) {
 
 func (p *proxy) handleTCP(client net.Conn, backendAddr string) {
 	defer client.Close()
-	p.waker.trigger()
-	p.activity.inc()
-	defer p.activity.dec()
-	be := p.dialTCP(backendAddr)
-	if be == nil {
-		return // server never came up within the budget; client retries
+	var first []byte
+	be, err := net.DialTimeout("tcp", backendAddr, backendDial)
+	if err == nil {
+		// Awake: straight through, as it always went. The nudge does nothing
+		// unless the server is on its way to sleep, which it then stops.
+		p.waker.trigger()
+	} else {
+		// Asleep: a port scan wakes nothing (firstMove).
+		var ok bool
+		if ok, first = firstMove(client); !ok {
+			return
+		}
+		p.waker.trigger()
+		if be = p.dialTCP(backendAddr); be == nil {
+			return // server never came up within the budget; client retries
+		}
 	}
 	defer be.Close()
+	p.activity.inc()
+	defer p.activity.dec()
+	if len(first) > 0 {
+		if _, err := be.Write(first); err != nil {
+			return
+		}
+		p.activity.touch()
+	}
 	pipe(client, be, p.activity)
 }
 
@@ -249,9 +269,18 @@ func (t touchReader) Read(p []byte) (int, error) {
 type udpFlow struct {
 	backend  net.Conn
 	lastSeen time.Time
+	// player is set by the flow's first player packet (wakeGate.playerPacket):
+	// until then it is a query, which neither wakes the server nor keeps it up.
+	player bool
+	// lastReply is when the server last answered on this flow.
+	lastReply time.Time
 }
 
 const udpIdle = 60 * time.Second
+
+// pongWait is how long a RakNet ping waits for the server's own pong before the
+// activator answers that it sleeps.
+const pongWait = 500 * time.Millisecond
 
 func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 	defer pc.Close()
@@ -267,13 +296,10 @@ func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 			return
 		}
 		key := caddr.String()
+		kind := classifyUDP(buf[:n])
 		mu.Lock()
 		f := flows[key]
-		player := !p.gate.minecraft() // a Minecraft server's UDP is query, not a player
 		if f == nil {
-			if player {
-				p.waker.trigger()
-			}
 			// Resolve + dial per flow so a transient DNS miss at startup (the
 			// backend Service may not be resolvable yet) doesn't kill the handler.
 			be, derr := net.Dial("udp", backendAddr)
@@ -287,12 +313,32 @@ func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 			go p.udpBackToClient(pc, be, caddr, flows, key, &mu)
 		}
 		f.lastSeen = time.Now()
-		if player {
+		// A query neither wakes the server nor keeps it up; the first player
+		// packet of a flow wakes it, whether the flow opened with one or with
+		// a query (a client refreshing the server list before joining).
+		if !f.player && p.gate.playerPacket(kind) {
+			f.player = true
+			p.waker.trigger()
+		}
+		if f.player {
 			p.activity.touch()
 		}
 		data := append([]byte(nil), buf[:n]...) // copy: buf is reused
 		mu.Unlock()
+		sent := time.Now()
 		_, _ = f.backend.Write(data)
+		if kind == packetPing {
+			if pong := p.bedrock.asleep(data); pong != nil {
+				time.AfterFunc(pongWait, func() {
+					mu.Lock()
+					answered := f.lastReply.After(sent)
+					mu.Unlock()
+					if !answered {
+						_, _ = pc.WriteToUDP(pong, caddr)
+					}
+				})
+			}
+		}
 	}
 }
 
@@ -307,14 +353,20 @@ func (p *proxy) udpBackToClient(pc *net.UDPConn, be net.Conn, caddr *net.UDPAddr
 			return
 		}
 		_, _ = pc.WriteToUDP(buf[:n], caddr)
-		if !p.gate.minecraft() {
-			p.activity.touch()
-		}
+		p.bedrock.remember(buf[:n])
 		mu.Lock()
+		player := false
 		if cur := flows[key]; cur != nil {
 			cur.lastSeen = time.Now()
+			if cur.backend == be {
+				cur.lastReply = cur.lastSeen
+				player = cur.player
+			}
 		}
 		mu.Unlock()
+		if player {
+			p.activity.touch()
+		}
 	}
 }
 

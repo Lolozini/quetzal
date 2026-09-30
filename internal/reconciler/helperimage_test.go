@@ -1,12 +1,17 @@
 package reconciler
 
 import (
+	"context"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/models"
 )
 
@@ -132,4 +137,48 @@ func initImage(d *appsv1.Deployment, name string) string {
 		}
 	}
 	return ""
+}
+
+// A proxy activator runs for as long as its server may sleep, so keeping its
+// image until "the next restart" meant keeping it for good, and with it the
+// wake rules of the version it started with. An activator takes the new image
+// while its server sleeps, when nobody goes through it; a proxy, which carries
+// every player while the game is up, waits for that.
+func TestActivatorsTakeTheNewImageWhenNobodyGoesThroughThem(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := appsv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("scheme: %v", err)
+	}
+	s, tmpl := serverWithHelpers()
+	ctx := context.Background()
+	for _, c := range []struct {
+		name              string
+		proxy, hibernated bool
+		want              string
+	}{
+		{"drop mode (only while asleep)", false, true, panelV2},
+		{"proxy, game up", true, false, panelV1},
+		{"proxy, game asleep", true, true, panelV2},
+	} {
+		params := ActivatorParams{Image: panelV1, WakeURL: "http://panel/wake", ActiveURL: "http://panel/active",
+			Token: crypto.WakeToken(nil, s.Slug), Proxy: c.proxy}
+		live := BuildActivatorDeployment(s, tmpl, params)
+		keepHelperImage(nil, live, panelV1) // as first applied
+		cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(live).Build()
+		r := &Reconciler{Client: cl, ActivatorImage: panelV2, WakeURL: params.WakeURL, ActiveURL: params.ActiveURL}
+		s.Hibernated = c.hibernated
+		if err := r.ensureActivator(ctx, s, tmpl, c.proxy, !c.proxy); err != nil {
+			t.Fatalf("%s: ensure: %v", c.name, err)
+		}
+		var got appsv1.Deployment
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(live), &got); err != nil {
+			t.Fatalf("%s: get: %v", c.name, err)
+		}
+		if img := got.Spec.Template.Spec.Containers[0].Image; img != c.want {
+			t.Errorf("%s: activator runs %s, want %s", c.name, img, c.want)
+		}
+		if got.Annotations[podSpecAnnotation] == "" {
+			t.Errorf("%s: the pod spec hash went missing", c.name)
+		}
+	}
 }

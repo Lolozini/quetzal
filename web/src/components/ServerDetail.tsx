@@ -639,6 +639,11 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
                       {t("Only a player joining wakes it: the server list shows it asleep, and port scanners are ignored.")}
                     </div>
                   )}
+                  {!mcWake && (srv.hibernation?.wakeOnConnect || srv.hibernation?.proxy) && (
+                    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                      {t("Port scans and server-list queries do not wake it; any other connection to its ports does.")}
+                    </div>
+                  )}
                 </>
               )}
             </span>

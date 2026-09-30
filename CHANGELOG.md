@@ -7,6 +7,28 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- **A port scan or a server-list query no longer wakes a sleeping server.**
+  Outside Minecraft Java, anything woke one: a scanner's bare TCP connection,
+  a Bedrock client refreshing its server list, a tracker's Steam query. On the
+  internet, that was all the time. A TCP connection that hangs up without
+  sending a byte, and a UDP packet that only asks about the server (Steam's
+  A2S queries, RakNet's ping, the GameSpy query), now wake nothing and do not
+  keep a server awake either; anything else still wakes it, so no game's
+  player is kept out. A sleeping Bedrock server also shows as asleep in the
+  server list, where it looked offline, once it has answered the list at
+  least once. An activator in wake-and-drop mode takes the new rules with
+  the upgrade, and one in proxy mode the next time its server sleeps: until
+  now an activator kept the version it started with for as long as it ran.
+
+### Fixed
+
+- **A Bedrock player coming through Geyser wakes a sleeping Java server.** On
+  a Minecraft Java server nothing on UDP woke it, since that was its query
+  port, so a Bedrock player could not wake it, and a server with only Bedrock
+  players on it could fall asleep under them.
+
 ## [0.6.0] - 2026-09-30
 
 New accounts closed until an administrator opens them, and five security

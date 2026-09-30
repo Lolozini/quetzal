@@ -65,6 +65,11 @@ A server's pods run small helpers out of the Quetzal image: the config file
 renderer, the SFTP server and the wake-on-connect activator. A running pod keeps
 the helper image it started with, and gets the new one the next time it
 restarts for another reason: a stop and start, hibernation, a changed setting.
+The activator is the exception: it takes the new image while its server
+sleeps, when nobody goes through it but a player waking the server, who at
+worst tries again. In wake-and-drop mode it only runs then, so it takes it with
+the upgrade; the transparent proxy carries every player while the game is up,
+and takes it the next time the server sleeps.
 
 ## Rolling back
 

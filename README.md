@@ -106,7 +106,10 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   lightweight TCP "wake-and-drop" mode (no latency, real client IP when awake) or
   an always-in-path TCP+UDP proxy mode (so UDP games can auto-sleep too). A
   Minecraft Java server wakes only for a player joining: the server list shows
-  it asleep, and port scanners wake nothing.
+  it asleep, and port scanners wake nothing. Other games are not woken by a
+  port scan or a server-list query (Steam, Minecraft Bedrock, whose list shows
+  the server asleep) but by any other connection, so a server on the internet
+  still wakes for the odd probe.
 
 ### Console, files & SFTP
 - Live **console** over WebSocket — log stream + stdin via the Kubernetes

@@ -508,13 +508,17 @@ func (r *Reconciler) ensureActivator(ctx context.Context, s *models.Server, t *m
 		}
 		return nil
 	}
-	return r.applyKeepingHelpers(ctx, BuildActivatorDeployment(s, t, ActivatorParams{
+	dep := BuildActivatorDeployment(s, t, ActivatorParams{
 		Image:     r.ActivatorImage,
 		WakeURL:   r.WakeURL,
 		ActiveURL: r.ActiveURL,
 		Token:     crypto.WakeToken(r.WakeKey, s.Slug),
 		Proxy:     proxy,
-	}), r.ActivatorImage)
+	})
+	if activatorTakesNewHelpers(s) {
+		return r.applyNewHelpers(ctx, dep, r.ActivatorImage)
+	}
+	return r.applyKeepingHelpers(ctx, dep, r.ActivatorImage)
 }
 
 // ensureInternalService maintains the proxy's stable backend Service.
