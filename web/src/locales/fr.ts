@@ -83,7 +83,7 @@ export const fr: Record<string, string> = {
   "Ports: {ports}": "Ports : {ports}",
   "Auto-sleep when idle (no players) after": "Mise en veille auto sans joueurs après",
   "Wake when a player connects (TCP; first attempt reconnects)":
-    "Réveiller à la connexion d'un joueur (TCP ; la première tentative se reconnecte)",
+    "Réveiller à la connexion d'un joueur (TCP ; le joueur se reconnecte une fois)",
   "Transparent proxy (TCP+UDP, no reconnect; required for UDP)":
     "Proxy transparent (TCP+UDP, sans reconnexion ; requis pour l'UDP)",
   "Without a limit the server may use all of its node's memory, and a Java server sizes itself from it.":
