@@ -47,6 +47,12 @@ releases may include breaking changes).
   `backup.failed`, `restore.succeeded` and `restore.failed`. They reach the
   channels that take every event and the server's activity log; a channel
   that filters its events needs them ticked.
+- **Writes at the same moment no longer fail on SQLite.** Creating 15
+  servers at once through the API failed 7 of them with "database is locked
+  (SQLITE_BUSY)", despite the busy timeout: a transaction that reads before
+  it writes could not wait for the lock. Write transactions now take it when
+  they begin, and wait for it. A failed node-port allocation is a 409 only
+  when the range is used up, and a 500 answer is written to the log.
 
 ## [0.5.0] - 2026-09-28
 

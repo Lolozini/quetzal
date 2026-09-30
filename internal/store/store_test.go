@@ -925,3 +925,16 @@ func TestWithBusyTimeout(t *testing.T) {
 		}
 	}
 }
+
+func TestWithImmediateWrites(t *testing.T) {
+	cases := map[string]string{
+		"quetzal.db":                            "quetzal.db?_txlock=immediate",
+		"/data/q.db?_pragma=busy_timeout(5000)": "/data/q.db?_pragma=busy_timeout(5000)&_txlock=immediate",
+		"/data/q.db?_txlock=deferred":           "/data/q.db?_txlock=deferred",
+	}
+	for in, want := range cases {
+		if got := withImmediateWrites(in); got != want {
+			t.Errorf("withImmediateWrites(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

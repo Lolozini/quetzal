@@ -524,7 +524,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		allocated, err := s.allocateNodePorts(srv.ID, srv.Ports)
 		if err != nil {
 			_ = s.Store.DeleteServer(srv.ID) // avoid a half-configured record
-			writeError(w, http.StatusConflict, err.Error())
+			writeError(w, nodePortStatus(err), err.Error())
 			return
 		}
 		if err := s.Store.UpdateServerNetworking(srv.ID, req.Expose, allocated); err != nil {
@@ -1057,7 +1057,7 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		}
 		allocated, err := s.allocateNodePorts(srv.ID, newPorts)
 		if err != nil {
-			writeError(w, http.StatusConflict, err.Error())
+			writeError(w, nodePortStatus(err), err.Error())
 			return
 		}
 		ports = allocated
@@ -1258,6 +1258,16 @@ func (s *Server) allocateNodePorts(serverID uint, ports []models.PortSpec) ([]mo
 		out[i].NodePort = np
 	}
 	return out, nil
+}
+
+// nodePortStatus is the status for a failed node-port allocation: a conflict
+// when the range is used up, the panel's own failure otherwise. Every failure
+// used to be a 409, a database error included.
+func nodePortStatus(err error) int {
+	if errors.Is(err, store.ErrNoFreeNodePort) {
+		return http.StatusConflict
+	}
+	return http.StatusInternalServerError
 }
 
 // portAllocKey is a port's key in the node-port pool. It is derived from the

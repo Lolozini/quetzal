@@ -30,6 +30,9 @@ var ErrNotFound = errors.New("not found")
 // server slug collision). Relies on gorm's TranslateError.
 var ErrDuplicate = errors.New("duplicate")
 
+// ErrNoFreeNodePort means the node-port range is used up.
+var ErrNoFreeNodePort = errors.New("no free node port")
+
 // Driver enumerates supported database engines.
 type Driver string
 
@@ -73,7 +76,7 @@ func Open(cfg Config) (*Store, error) {
 		if dsn == "" {
 			dsn = "quetzal.db"
 		}
-		dialector = sqlite.Open(withBusyTimeout(dsn))
+		dialector = sqlite.Open(withImmediateWrites(withBusyTimeout(dsn)))
 	case DriverPostgres:
 		dialector = postgres.Open(cfg.DSN)
 	default:
@@ -104,6 +107,25 @@ func withBusyTimeout(dsn string) string {
 		sep = "&"
 	}
 	return dsn + sep + "_pragma=busy_timeout(5000)"
+}
+
+// withImmediateWrites makes a SQLite DSN begin every write transaction with
+// the write lock (BEGIN IMMEDIATE) unless it says otherwise. A transaction that
+// reads first and writes afterwards, as allocating a node port does, takes the
+// lock only at its first write; if another write lands in between, SQLite
+// fails it at once with SQLITE_BUSY rather than wait, since its reads are
+// stale, and the busy timeout never comes into play. Parallel server creations
+// failed that way, 7 in 15. Taken at BEGIN, the lock is waited for like any
+// other. Reads outside a transaction are unaffected.
+func withImmediateWrites(dsn string) string {
+	if strings.Contains(dsn, "_txlock") {
+		return dsn
+	}
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "_txlock=immediate"
 }
 
 const (
@@ -567,7 +589,7 @@ func (s *Store) AllocateNodePort(serverID uint, name string, min, max int32) (in
 			alloc = models.PortAllocation{NodePort: p, ServerID: serverID, PortName: name}
 			return tx.Create(&alloc).Error
 		}
-		return fmt.Errorf("no free node port in range %d-%d", min, max)
+		return fmt.Errorf("%w in range %d-%d", ErrNoFreeNodePort, min, max)
 	})
 	if err != nil {
 		return 0, err

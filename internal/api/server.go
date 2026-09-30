@@ -544,6 +544,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
+	// A failure of the panel's own (a database error, say) was answered and
+	// forgotten, so the log had nothing to show for it. A 503 is left out: it
+	// answers states the UI polls through, a stopped server's stats for one.
+	if status == http.StatusInternalServerError {
+		log.Printf("answered %d: %s", status, msg)
+	}
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
