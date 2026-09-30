@@ -86,7 +86,9 @@ func TestBuildDeployment(t *testing.T) {
 	if env["STARTUP"] != "echo ${MSG}; sleep 1" {
 		t.Errorf("STARTUP = %q, want the shell-form startup", env["STARTUP"])
 	}
-	if len(c.VolumeMounts) != 1 || c.VolumeMounts[0].MountPath != "/data" {
+	// The data volume, and the passwd that names the egg user (see
+	// TestEggPodKnowsItsUser).
+	if len(c.VolumeMounts) != 3 || c.VolumeMounts[0].MountPath != "/data" {
 		t.Errorf("volumeMounts = %+v", c.VolumeMounts)
 	}
 	if c.SecurityContext == nil || c.SecurityContext.AllowPrivilegeEscalation == nil || *c.SecurityContext.AllowPrivilegeEscalation {

@@ -14,6 +14,12 @@ releases may include breaking changes).
   load the level `{{server.environment.LEVEL}}` and Factorio's
   `server-settings.json` no longer parsed. About fifty eggs use it, ARK, DayZ
   and Satisfactory among them.
+- **Games that look up the user they run as no longer crash.** Quetzal runs
+  imported eggs as uid 988, which their images don't know, so a game that
+  asked found nothing: Valheim segfaulted at every start. The game container
+  now gets an `/etc/passwd` and an `/etc/group` that call it `container`, with
+  the server's directory as its home, as Wings does. Servers from imported
+  eggs restart once after the upgrade to get them.
 
 ## [0.5.0] - 2026-09-28
 

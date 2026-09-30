@@ -185,9 +185,9 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 		Env:       homeEnv(gameEnv(s, t, secretKeys), dataPath),
 		Ports:     buildContainerPorts(serverPorts(s, t)),
 		Resources: buildResources(s.Resources),
-		VolumeMounts: []corev1.VolumeMount{
+		VolumeMounts: append([]corev1.VolumeMount{
 			{Name: dataVolume, MountPath: dataPath},
-		},
+		}, passwdMounts(t)...),
 		SecurityContext: buildContainerSecurityContext(t),
 	}
 
@@ -199,7 +199,7 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 	noAutomount := false
 	initContainers := installInitContainers(s, t, secretKeys)
 	containers := []corev1.Container{container}
-	volumes := []corev1.Volume{buildDataVolume(s)}
+	volumes := append([]corev1.Volume{buildDataVolume(s)}, passwdVolumes(t)...)
 
 	// config.files are rendered at startup by copy+render init containers (the
 	// renderer is copied out of the Quetzal image into a shared volume, then run
@@ -933,9 +933,82 @@ func buildDataVolume(s *models.Server) corev1.Volume {
 }
 
 // defaultEggUID is the uid/gid imported eggs run as when they declare no
-// securityContext. 988 is the "container" user in yolks/Pterodactyl egg images
-// (so HOME=/home/container is owned by it); fsGroup chowns the data volume to it.
+// securityContext: the one Wings runs its containers as on a typical install.
+// fsGroup chowns the data volume to it. The images don't know it (their
+// "container" user is 1000), so the pod is given a passwd that does, see
+// BuildPasswdConfigMap.
 const defaultEggUID = 988
+
+const (
+	// PasswdConfigMap holds the /etc/passwd and /etc/group of a game that runs
+	// as defaultEggUID.
+	PasswdConfigMap = "quetzal-passwd"
+	passwdVolume    = "quetzal-passwd"
+)
+
+// runsAsEggUser reports whether a template's pods run as defaultEggUID: it
+// names no user, as imported eggs don't.
+func runsAsEggUser(t *models.Template) bool {
+	return t.SecurityContext.RunAsUser == nil
+}
+
+// BuildPasswdConfigMap returns the /etc/passwd and /etc/group mounted into a
+// game that runs as defaultEggUID, or nil when the template names its own user.
+//
+// Egg images create their "container" user as 1000, and nothing in them knows
+// 988, so a game that asks who it runs as (getpwuid) gets no answer. Most never
+// ask; Valheim does, in PlayFab's logger, and segfaulted at every start. Java
+// reads user.home the same way. Wings has this problem too and solves it the
+// same way (its passwd option); these are its entries, with the home set to
+// the data directory, which is also where HOME points.
+func BuildPasswdConfigMap(s *models.Server, t *models.Template) *corev1.ConfigMap {
+	if !runsAsEggUser(t) {
+		return nil
+	}
+	home := t.DataPath
+	// A colon or a line break would add fields or entries. The data path can't
+	// hold one in practice, but it is set by whoever edits templates.
+	if home == "" || strings.ContainsAny(home, ":\r\n") {
+		home = "/home/container"
+	}
+	uid := strconv.Itoa(defaultEggUID)
+	return &corev1.ConfigMap{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "ConfigMap"},
+		ObjectMeta: metav1.ObjectMeta{Name: PasswdConfigMap, Namespace: s.Namespace, Labels: labelsFor(s)},
+		Data: map[string]string{
+			"passwd": "root:x:0:0::/root:/bin/sh\n" +
+				"container:x:" + uid + ":" + uid + "::" + home + ":/bin/sh\n" +
+				"nobody:x:65534:65534::/var/empty:/bin/sh\n",
+			"group": "root:x:0:\n" +
+				"container:x:" + uid + ":\n" +
+				"nogroup:x:65534:\n",
+		},
+	}
+}
+
+// passwdMounts puts the passwd ConfigMap over the image's /etc/passwd and
+// /etc/group, for a game that runs as defaultEggUID.
+func passwdMounts(t *models.Template) []corev1.VolumeMount {
+	if !runsAsEggUser(t) {
+		return nil
+	}
+	return []corev1.VolumeMount{
+		{Name: passwdVolume, MountPath: "/etc/passwd", SubPath: "passwd", ReadOnly: true},
+		{Name: passwdVolume, MountPath: "/etc/group", SubPath: "group", ReadOnly: true},
+	}
+}
+
+func passwdVolumes(t *models.Template) []corev1.Volume {
+	if !runsAsEggUser(t) {
+		return nil
+	}
+	return []corev1.Volume{{
+		Name: passwdVolume,
+		VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+			LocalObjectReference: corev1.LocalObjectReference{Name: PasswdConfigMap},
+		}},
+	}}
+}
 
 func buildPodSecurityContext(t *models.Template) *corev1.PodSecurityContext {
 	sc := &corev1.PodSecurityContext{
@@ -945,7 +1018,7 @@ func buildPodSecurityContext(t *models.Template) *corev1.PodSecurityContext {
 	// image's default user — root for most egg images. Default to a non-root uid
 	// and chown the volume to it via fsGroup. Built-in templates set RunAsUser, so
 	// they keep their own context.
-	if t.SecurityContext.RunAsUser == nil {
+	if runsAsEggUser(t) {
 		def := int64(defaultEggUID)
 		yes := true
 		sc.RunAsUser, sc.RunAsGroup, sc.FSGroup = &def, &def, &def

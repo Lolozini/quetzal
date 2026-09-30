@@ -209,6 +209,12 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 			srv.InstallWipe = false
 		}
 	}
+	// The game pod mounts it, so it goes first.
+	if cm := BuildPasswdConfigMap(srv, tmpl); cm != nil {
+		if err := r.apply(ctx, cm); err != nil {
+			return fmt.Errorf("passwd: %w", err)
+		}
+	}
 	if err := r.ensureDeployment(ctx, srv, tmpl, secretKeys); err != nil {
 		return fmt.Errorf("deployment: %w", err)
 	}
