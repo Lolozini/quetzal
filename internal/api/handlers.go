@@ -1004,7 +1004,16 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Hibernation != nil {
-		if err := s.Store.UpdateServerHibernation(srv.ID, *req.Hibernation); err != nil {
+		// Turned on, or changed while on: the idle countdown starts now. It used
+		// to run from the server's last activity, however long ago, and a server
+		// nobody had joined for a day went to sleep seconds after hibernation
+		// was turned on.
+		var rearm *time.Time
+		if req.Hibernation.Enabled && *req.Hibernation != srv.Hibernation {
+			now := time.Now()
+			rearm = &now
+		}
+		if err := s.Store.UpdateServerHibernation(srv.ID, *req.Hibernation, rearm); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

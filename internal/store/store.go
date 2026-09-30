@@ -471,10 +471,15 @@ func (s *Store) StartServer(id uint, when time.Time) error {
 		}).Error
 }
 
-// UpdateServerHibernation persists a server's hibernation policy.
-func (s *Store) UpdateServerHibernation(id uint, h models.Hibernation) error {
+// UpdateServerHibernation persists a server's hibernation policy. A non-nil
+// rearmAt also restarts the idle timer there, in the same write.
+func (s *Store) UpdateServerHibernation(id uint, h models.Hibernation, rearmAt *time.Time) error {
+	fields := []any{"hibernation"}
+	if rearmAt != nil {
+		fields = append(fields, "last_active_at")
+	}
 	return s.db.Model(&models.Server{}).Where("id = ?", id).
-		Select("hibernation").Updates(models.Server{Hibernation: h}).Error
+		Select(fields[0], fields[1:]...).Updates(models.Server{Hibernation: h, LastActiveAt: rearmAt}).Error
 }
 
 // UpdateServerEnv persists the (re-resolved) plain env and sealed secret env,

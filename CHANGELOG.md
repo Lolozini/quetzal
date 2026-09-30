@@ -108,6 +108,11 @@ releases may include breaking changes).
   name does not resolve, it refused the keys, the bucket does not exist, the
   password does not open the repository. A custom runner image must be
   restic 0.17 or later.
+- **Turning hibernation on no longer puts an idle server to sleep at once.**
+  The idle countdown ran from the server's last activity, however long ago,
+  so a server nobody had joined for a day went to sleep seconds after
+  hibernation was turned on. It starts when hibernation is turned on now, and
+  again whenever its settings change.
 - **SFTP's `symlink` makes the link the client asked for.** OpenSSH sends a
   link's target before the link itself, and the two were read the other way
   round: `symlink /etc qa/link` made a link named `etc` at the root, pointing
