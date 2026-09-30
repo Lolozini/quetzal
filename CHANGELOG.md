@@ -31,6 +31,15 @@ releases may include breaking changes).
   least once. An activator in wake-and-drop mode takes the new rules with
   the upgrade, and one in proxy mode the next time its server sleeps: until
   now an activator kept the version it started with for as long as it ran.
+- **A server's page is in tabs, and opens on its console.** It was one page,
+  7,000 to 10,000 pixels high, with the console at the very bottom, below the
+  files, backups, schedules, databases, access and settings. The console now
+  comes first, under the server's address and power buttons, with its resource
+  charts below it; files, backups, schedules, databases, access, settings and
+  activity each have a tab, and an address of their own that a reload or the
+  back button returns to. The server's exposure, hibernation and transfer
+  moved to its Settings tab, and so did deleting it, which sat at the top of
+  the page.
 
 ### Fixed
 

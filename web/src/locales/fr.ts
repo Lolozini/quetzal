@@ -492,6 +492,14 @@ export const fr: Record<string, string> = {
 
   // Console
   Console: "Console",
+  Schedules: "Tâches",
+  Access: "Accès",
+  Settings: "Réglages",
+  Deployment: "Déploiement",
+  "Server sections": "Sections du serveur",
+  "Delete this server": "Supprimer ce serveur",
+  "Its data volume and every backup snapshot it owns go with it. This cannot be undone.":
+    "Son volume de données et toutes ses sauvegardes disparaissent avec lui. C'est irréversible.",
   connected: "connecté",
   disconnected: "déconnecté",
   "— disconnected —": "— déconnecté —",

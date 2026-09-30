@@ -11,11 +11,12 @@ import { Lockup } from "./Brand";
 type View =
   | { name: "list" }
   | { name: "create" }
-  | { name: "detail"; id: number }
+  | { name: "detail"; id: number; tab?: string }
   | { name: "admin" }
   | { name: "account" };
 
-// The current view lives in the URL fragment (#/servers, #/servers/42, …) so a
+// The current view lives in the URL fragment (#/servers, #/servers/42,
+// #/servers/42/files for one of its tabs, …) so a
 // reload — or the browser's back/forward — restores the page instead of dropping
 // the user back on the server list. parseHash/viewToHash are the single mapping.
 function parseHash(): View {
@@ -27,7 +28,7 @@ function parseHash(): View {
       return { name: "account" };
     case "servers":
       if (parts[1] === "new") return { name: "create" };
-      if (parts[1] && /^\d+$/.test(parts[1])) return { name: "detail", id: Number(parts[1]) };
+      if (parts[1] && /^\d+$/.test(parts[1])) return { name: "detail", id: Number(parts[1]), tab: parts[2] };
       return { name: "list" };
     default:
       return { name: "list" };
@@ -39,7 +40,7 @@ function viewToHash(v: View): string {
     case "create":
       return "#/servers/new";
     case "detail":
-      return `#/servers/${v.id}`;
+      return `#/servers/${v.id}` + (v.tab ? `/${v.tab}` : "");
     case "admin":
       return "#/admin";
     case "account":
@@ -99,7 +100,7 @@ export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void
           />
         )}
         {view.name === "detail" && (
-          <ServerDetail id={view.id} user={user} onBack={() => go({ name: "list" })} />
+          <ServerDetail id={view.id} tab={view.tab} user={user} onBack={() => go({ name: "list" })} />
         )}
         {view.name === "admin" && (isAnyAdmin(user) ? <Admin user={user} /> : <ServerList onCreate={() => go({ name: "create" })} onOpen={(id) => go({ name: "detail", id })} />)}
         {view.name === "account" && <Account user={user} />}

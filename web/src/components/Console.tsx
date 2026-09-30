@@ -29,7 +29,9 @@ function saveHistory(id: number, history: string[]) {
   }
 }
 
-export function Console({ id, phase }: { id: number; phase: string }) {
+// visible is false while the console sits behind another tab of the server's
+// page: it stays connected there, and scrolls back to the latest line when shown.
+export function Console({ id, phase, visible = true }: { id: number; phase: string; visible?: boolean }) {
   const { t } = useT();
   const [lines, setLines] = useState<Line[]>([]);
   const [input, setInput] = useState("");
@@ -99,8 +101,8 @@ export function Console({ id, phase }: { id: number; phase: string }) {
 
   useEffect(() => {
     const el = boxRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [lines]);
+    if (el && visible) el.scrollTop = el.scrollHeight;
+  }, [lines, visible]);
 
   useEffect(() => {
     setHistory(loadHistory(id));

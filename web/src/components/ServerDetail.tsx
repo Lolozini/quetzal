@@ -250,7 +250,10 @@ function StatsPanel({ stats, history, phase }: { stats: ServerStats | null; hist
   );
 }
 
-export function ServerDetail({ id, user, onBack }: { id: number; user: User; onBack: () => void }) {
+// The sections of a server's page, one tab each.
+type ServerTab = "console" | "files" | "backups" | "schedules" | "databases" | "access" | "settings" | "activity";
+
+export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: string; user: User; onBack: () => void }) {
   const { t } = useT();
   const [srv, setSrv] = useState<Server | null>(null);
   const [clusters, setClusters] = useState<Cluster[]>([]);
@@ -431,43 +434,34 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
     );
   }
 
+  const phase = srv.status?.phase ?? "";
+  // The page is in tabs, the console first: it is what a server is opened for,
+  // and it used to come last, below everything else on a page 7,000 to 10,000
+  // pixels high. Each tab has its own address, so a reload stays on it.
+  const tabs: { key: ServerTab; label: string }[] = [];
+  if (!frozen) tabs.push({ key: "console", label: t("Console") });
+  if (canManage) tabs.push({ key: "files", label: t("Files") });
+  tabs.push({ key: "backups", label: t("Backups") }, { key: "schedules", label: t("Schedules") });
+  if (canManage) tabs.push({ key: "databases", label: t("Databases") }, { key: "access", label: t("Access") });
+  tabs.push({ key: "settings", label: t("Settings") }, { key: "activity", label: t("Activity") });
+  // An address for a tab this user does not have lands on the first one.
+  const current = tabs.find((x) => x.key === tab)?.key ?? tabs[0].key;
+  // While it installs, or once the install failed, the setup log is what
+  // explains the server; the console has nothing to say yet.
+  const setupFirst = phase === "Installing" || phase === "Error";
+  const hasStats = !!stats || !OFFLINE_PHASES.includes(phase);
+
   return (
     <>
       <div className="card">
-        <div className="row">
-          <button onClick={onBack}>← {t("Back")}</button>
-          <div className="spacer" />
-          {!frozen && (
-            <button className="danger" onClick={remove}>
-              {t("Delete")}
-            </button>
-          )}
-        </div>
-        <h2>
+        <button onClick={onBack}>← {t("Back")}</button>
+        <h2 style={{ marginTop: 12 }}>
           {srv.displayName}{" "}
           <span className={`badge ${srv.status.phase}`}>{t(srv.status.phase)}</span>
         </h2>
         {frozen && (
           <div className="notice warn">
             {t("An administrator has suspended this server. You can look at it, but it cannot be started, changed or deleted until the suspension is lifted.")}
-          </div>
-        )}
-        <div className="kv">
-          <span className="k">{t("Desired state")}</span>
-          <span>{t(srv.desiredState)}</span>
-        </div>
-        <div className="kv">
-          <span className="k">{t("Image")}</span>
-          <span>{srv.image}</span>
-        </div>
-        <div className="kv">
-          <span className="k">{t("Namespace")}</span>
-          <span>{srv.namespace}</span>
-        </div>
-        {clusterName(srv.clusterId) && (
-          <div className="kv">
-            <span className="k">{t("Cluster")}</span>
-            <span>{clusterName(srv.clusterId)}</span>
           </div>
         )}
         {srv.status.address && (
@@ -478,27 +472,6 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
             </span>
           </div>
         )}
-        <div className="kv">
-          <span className="k">{t("Endpoints")}</span>
-          <span>{(srv.status.endpoints || []).join(", ") || "—"}</span>
-        </div>
-        {srv.ports && srv.ports.length > 0 && (
-          <div className="kv">
-            <span className="k">{t("Exposure")}</span>
-            <span>
-              <select
-                value={srv.expose?.type || "ClusterIP"}
-                disabled={frozen}
-                onChange={(e) => changeExpose(e.target.value as ExposeType)}
-              >
-                <option value="ClusterIP">ClusterIP</option>
-                <option value="NodePort">NodePort</option>
-                <option value="LoadBalancer">LoadBalancer</option>
-              </select>
-            </span>
-          </div>
-        )}
-        <StatsPanel stats={stats} history={history} phase={srv.status?.phase ?? ""} />
         {srv.status.message && (
           <div className="kv">
             <span className="k">{t("Message")}</span>
@@ -569,108 +542,181 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
             </>
           )}
         </div>
-        {hasAdminPerm(user, "servers") && clusters.length > 1 && !srv.transfer && (
-          <div className="kv" style={{ marginTop: 12 }}>
-            <span className="k">{t("Transfer")}</span>
-            <span>
-              <select
-                defaultValue=""
-                onChange={(e) => { const v = Number(e.target.value); e.currentTarget.value = ""; if (v) transfer(v); }}
-              >
-                <option value="">{t("move to another cluster…")}</option>
-                {clusters.filter((c) => c.id !== (srv.clusterId || 0)).map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </span>
-          </div>
-        )}
-        {canManage && hasPorts && (
-          <div className="kv" style={{ marginTop: 12 }}>
-            <span className="k">{t("Hibernation")}</span>
-            <span>
-              <label className="row" style={{ width: "auto" }}>
-                <input
-                  type="checkbox"
-                  style={{ width: "auto" }}
-                  checked={!!srv.hibernation?.enabled}
-                  onChange={(e) => saveHib({ enabled: e.target.checked })}
-                />
-                &nbsp;{t("auto-sleep when idle after")}&nbsp;
-              </label>
-              <input
-                type="number"
-                min={1}
-                style={{ width: 70 }}
-                value={srv.hibernation?.idleMinutes || 15}
-                onChange={(e) => saveHib({ idleMinutes: Number(e.target.value) })}
-              />
-              &nbsp;{t("min")}
-              {srv.hibernation?.enabled && (
-                <>
-                  {tcpOnly && (
-                    <label className="row" style={{ width: "auto", marginTop: 4 }}>
-                      <input
-                        type="checkbox"
-                        style={{ width: "auto" }}
-                        checked={!!srv.hibernation?.wakeOnConnect && !srv.hibernation?.proxy}
-                        disabled={!!srv.hibernation?.proxy}
-                        onChange={(e) => saveHib({ wakeOnConnect: e.target.checked })}
-                      />
-                      &nbsp;{t("wake when a player connects (TCP)")}
-                    </label>
-                  )}
-                  <label className="row" style={{ width: "auto", marginTop: 4 }}>
-                    <input
-                      type="checkbox"
-                      style={{ width: "auto" }}
-                      checked={!!srv.hibernation?.proxy}
-                      onChange={(e) => saveHib({ proxy: e.target.checked })}
-                    />
-                    &nbsp;{t("transparent proxy (TCP+UDP, no reconnect)")}
-                  </label>
-                  {!tcpOnly && !srv.hibernation?.proxy && (
-                    <div className="error" style={{ fontSize: 12 }}>
-                      {t("UDP servers need the transparent proxy to auto-sleep.")}
-                    </div>
-                  )}
-                  {mcWake && (srv.hibernation?.wakeOnConnect || srv.hibernation?.proxy) && (
-                    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                      {t("Only a player joining wakes it: the server list shows it asleep, and port scanners are ignored.")}
-                    </div>
-                  )}
-                  {!mcWake && (srv.hibernation?.wakeOnConnect || srv.hibernation?.proxy) && (
-                    <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                      {t("Port scans and server-list queries do not wake it; any other connection to its ports does.")}
-                    </div>
-                  )}
-                </>
-              )}
-            </span>
-          </div>
-        )}
         {notice && <div className="notice">{notice}</div>}
         {error && <div className="error">{error}</div>}
       </div>
-      <Schedules id={id} readOnly={frozen} />
-      {canManage && srv && <ServerSettings server={srv} onSaved={setSrv} />}
-      {canManage && <Files id={id} offline={["Stopped", "Suspended", "Hibernated"].includes(srv?.status?.phase ?? "")} />}
-      {canManage && <SFTPCard id={id} initialEnabled={!!srv?.sftp?.enabled} username={user.username} />}
-      {canManage && <Databases serverId={id} />}
-      <Backups id={id} readOnly={frozen} />
-      {canManage && <Access id={id} />}
-      {canManage && <Notifications serverId={id} />}
-      <ServerActivity id={id} slug={srv?.slug ?? ""} />
-      {/* Same permission as the console below, so the same visibility: a subuser
-          granted "console" may read the setup output, and the API refuses anyone
-          else. Gating this on ownership hid it from exactly the people most
-          likely to be told "it won't start". */}
-      {!frozen && <SetupLog id={id} phase={srv?.status?.phase ?? ""} />}
+
+      <nav className="tabs" aria-label={t("Server sections")}>
+        {tabs.map((x) => (
+          <a key={x.key} href={`#/servers/${id}/${x.key}`} aria-current={x.key === current ? "page" : undefined}>
+            {x.label}
+          </a>
+        ))}
+      </nav>
+
+      {/* The console stays mounted behind the other tabs: coming back to it
+          finds the same session and scrollback, not a reconnect. */}
       {!frozen && (
-        <div className="card">
-          <Console id={id} phase={srv?.status?.phase ?? ""} />
+        <div hidden={current !== "console"}>
+          {setupFirst && <SetupLog id={id} phase={phase} />}
+          <div className="card">
+            <Console id={id} phase={phase} visible={current === "console"} />
+          </div>
+          {hasStats && (
+            <div className="card">
+              <StatsPanel stats={stats} history={history} phase={phase} />
+            </div>
+          )}
+          {!setupFirst && <SetupLog id={id} phase={phase} />}
         </div>
       )}
+      {current === "files" && (
+        <>
+          <Files id={id} offline={["Stopped", "Suspended", "Hibernated"].includes(phase)} />
+          <SFTPCard id={id} initialEnabled={!!srv.sftp?.enabled} username={user.username} />
+        </>
+      )}
+      {current === "backups" && <Backups id={id} readOnly={frozen} />}
+      {current === "schedules" && <Schedules id={id} readOnly={frozen} />}
+      {current === "databases" && <Databases serverId={id} />}
+      {current === "access" && <Access id={id} />}
+      {current === "settings" && (
+        <>
+          <div className="card">
+            <h2>{t("Deployment")}</h2>
+            <div className="kv">
+              <span className="k">{t("Desired state")}</span>
+              <span>{t(srv.desiredState)}</span>
+            </div>
+            <div className="kv">
+              <span className="k">{t("Image")}</span>
+              <span>{srv.image}</span>
+            </div>
+            <div className="kv">
+              <span className="k">{t("Namespace")}</span>
+              <span>{srv.namespace}</span>
+            </div>
+            {clusterName(srv.clusterId) && (
+              <div className="kv">
+                <span className="k">{t("Cluster")}</span>
+                <span>{clusterName(srv.clusterId)}</span>
+              </div>
+            )}
+            <div className="kv">
+              <span className="k">{t("Endpoints")}</span>
+              <span>{(srv.status.endpoints || []).join(", ") || "—"}</span>
+            </div>
+            {hasPorts && (
+              <div className="kv">
+                <span className="k">{t("Exposure")}</span>
+                <span>
+                  <select
+                    value={srv.expose?.type || "ClusterIP"}
+                    disabled={frozen}
+                    onChange={(e) => changeExpose(e.target.value as ExposeType)}
+                  >
+                    <option value="ClusterIP">ClusterIP</option>
+                    <option value="NodePort">NodePort</option>
+                    <option value="LoadBalancer">LoadBalancer</option>
+                  </select>
+                </span>
+              </div>
+            )}
+            {hasAdminPerm(user, "servers") && clusters.length > 1 && !srv.transfer && (
+              <div className="kv">
+                <span className="k">{t("Transfer")}</span>
+                <span>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => { const v = Number(e.target.value); e.currentTarget.value = ""; if (v) transfer(v); }}
+                  >
+                    <option value="">{t("move to another cluster…")}</option>
+                    {clusters.filter((c) => c.id !== (srv.clusterId || 0)).map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </span>
+              </div>
+            )}
+            {canManage && hasPorts && (
+              <div className="kv">
+                <span className="k">{t("Hibernation")}</span>
+                <span>
+                  <label className="row" style={{ width: "auto" }}>
+                    <input
+                      type="checkbox"
+                      style={{ width: "auto" }}
+                      checked={!!srv.hibernation?.enabled}
+                      onChange={(e) => saveHib({ enabled: e.target.checked })}
+                    />
+                    &nbsp;{t("auto-sleep when idle after")}&nbsp;
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    style={{ width: 70 }}
+                    value={srv.hibernation?.idleMinutes || 15}
+                    onChange={(e) => saveHib({ idleMinutes: Number(e.target.value) })}
+                  />
+                  &nbsp;{t("min")}
+                  {srv.hibernation?.enabled && (
+                    <>
+                      {tcpOnly && (
+                        <label className="row" style={{ width: "auto", marginTop: 4 }}>
+                          <input
+                            type="checkbox"
+                            style={{ width: "auto" }}
+                            checked={!!srv.hibernation?.wakeOnConnect && !srv.hibernation?.proxy}
+                            disabled={!!srv.hibernation?.proxy}
+                            onChange={(e) => saveHib({ wakeOnConnect: e.target.checked })}
+                          />
+                          &nbsp;{t("wake when a player connects (TCP)")}
+                        </label>
+                      )}
+                      <label className="row" style={{ width: "auto", marginTop: 4 }}>
+                        <input
+                          type="checkbox"
+                          style={{ width: "auto" }}
+                          checked={!!srv.hibernation?.proxy}
+                          onChange={(e) => saveHib({ proxy: e.target.checked })}
+                        />
+                        &nbsp;{t("transparent proxy (TCP+UDP, no reconnect)")}
+                      </label>
+                      {!tcpOnly && !srv.hibernation?.proxy && (
+                        <div className="error" style={{ fontSize: 12 }}>
+                          {t("UDP servers need the transparent proxy to auto-sleep.")}
+                        </div>
+                      )}
+                      {mcWake && (srv.hibernation?.wakeOnConnect || srv.hibernation?.proxy) && (
+                        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                          {t("Only a player joining wakes it: the server list shows it asleep, and port scanners are ignored.")}
+                        </div>
+                      )}
+                      {!mcWake && (srv.hibernation?.wakeOnConnect || srv.hibernation?.proxy) && (
+                        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                          {t("Port scans and server-list queries do not wake it; any other connection to its ports does.")}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </span>
+              </div>
+            )}
+          </div>
+          {canManage && <ServerSettings server={srv} onSaved={setSrv} />}
+          {canManage && <Notifications serverId={id} />}
+          {!frozen && (
+            <div className="card">
+              <h2>{t("Delete this server")}</h2>
+              <p className="muted">{t("Its data volume and every backup snapshot it owns go with it. This cannot be undone.")}</p>
+              <button className="danger" onClick={remove}>
+                {t("Delete")}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {current === "activity" && <ServerActivity id={id} slug={srv.slug} />}
     </>
   );
 }
