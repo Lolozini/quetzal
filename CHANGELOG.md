@@ -150,6 +150,13 @@ releases may include breaking changes).
   every thirty seconds, and an external host as soon as it is added or
   changed. The list says whether a host is reachable, unreachable (and why,
   on hover) or not checked yet.
+- **A notification channel is checked when it is saved.** A filter on events
+  the panel never records was accepted and then received nothing, and a
+  webhook at `gopher://` or `file://` was refused only when the first event
+  went out. An unknown event type and a url that is not http(s) are refused
+  with a 400 now, and `GET /api/notifications/event-types` lists the types.
+  One of them, `server.stopped`, was offered by the panel and never recorded:
+  a server that goes down now says so.
 - **SFTP's `symlink` makes the link the client asked for.** OpenSSH sends a
   link's target before the link itself, and the two were read the other way
   round: `symlink /etc qa/link` made a link named `etc` at the root, pointing

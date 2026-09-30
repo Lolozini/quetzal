@@ -195,7 +195,7 @@ func TestNotificationChannelUpdateSurvivesReadback(t *testing.T) {
 
 	r := post(t, admin, srv.URL+"/api/notifications/channels", map[string]any{
 		"name": "alerts", "type": "webhook", "enabled": true,
-		"events": []string{"server.started"},
+		"events": []string{"server.running"},
 		"config": map[string]string{"url": "https://hook.test/x"},
 	})
 	if r.StatusCode != http.StatusCreated {

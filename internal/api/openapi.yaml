@@ -1670,6 +1670,18 @@ paths:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/Event" }
+  /api/notifications/event-types:
+    get:
+      tags: [Notifications]
+      summary: The event types a channel can filter on
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: string }
   /api/notifications/channels:
     get:
       tags: [Notifications]
@@ -1696,6 +1708,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/NotificationChannel" }
+        "400": { description: "A setting is missing or invalid: an unknown event type, a url that is not http(s)" }
   /api/notifications/channels/{nid}:
     parameters:
       - { name: nid, in: path, required: true, schema: { type: integer } }
@@ -2747,11 +2760,15 @@ components:
         events:
           type: array
           items: { type: string }
+          description: >-
+            Event types to receive, from GET /api/notifications/event-types
+            (another is refused); empty receives them all.
         config:
           type: object
           additionalProperties: { type: string }
           description: >
-            Type-specific settings. discord: url. webhook: url, secret.
+            Type-specific settings. discord: url. webhook: url, secret. A url
+            is http:// or https://.
             email: host, port, username, password, from, to, tls.
             tls is "starttls" (the default, and required: a server that does
             not offer STARTTLS is refused), "tls" (implicit TLS, usually port

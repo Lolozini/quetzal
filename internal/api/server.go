@@ -372,6 +372,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Notification channels (Discord/webhook/email) + activity feed. Global
 	// channels are admin-only; server-scoped ones need PermSettings on the server.
+	mux.Handle("GET /api/notifications/event-types", s.auth(s.handleEventTypes))
 	mux.Handle("GET /api/notifications/channels", s.auth(s.handleListChannels))
 	mux.Handle("POST /api/notifications/channels", s.auth(s.handleCreateChannel))
 	mux.Handle("GET /api/notifications/channels/{nid}", s.auth(s.handleGetChannel))

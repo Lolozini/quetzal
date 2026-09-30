@@ -788,6 +788,14 @@ func (r *Reconciler) emitTransition(s *models.Server, old models.Phase, st model
 		r.emitEvent(s, models.EventServerCrashed, msg)
 	case models.PhaseHibernated:
 		r.emitEvent(s, models.EventServerHibernated, "hibernated after inactivity")
+	case models.PhaseStopped:
+		// The panel offered server.stopped as a filter and nothing recorded it.
+		// A server that was never started reads Stopped from the outset, which
+		// is not news: only one that was up, or on its way, goes down.
+		switch old {
+		case models.PhaseRunning, models.PhaseStarting, models.PhaseStopping, models.PhaseCrashed, models.PhaseHibernated:
+			r.emitEvent(s, models.EventServerStopped, "is stopped")
+		}
 	}
 }
 

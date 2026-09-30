@@ -153,3 +153,30 @@ func TestInspectPodsSeesACrashBetweenRestarts(t *testing.T) {
 		}
 	}
 }
+
+// A channel could filter on server.stopped, which nothing recorded. A server
+// that goes down says so; one that was never started does not.
+func TestAServerThatStopsSaysSo(t *testing.T) {
+	st := reconStore(t)
+	r := &Reconciler{Store: st}
+	s := &models.Server{ID: 1, Slug: "srv"}
+	events := func() []string {
+		es, err := st.ListEventsForServer(s.ID, 0, 100)
+		if err != nil {
+			t.Fatalf("list events: %v", err)
+		}
+		var out []string
+		for _, e := range es {
+			out = append(out, e.Type)
+		}
+		return out
+	}
+	r.emitTransition(s, "", models.Status{Phase: models.PhaseStopped})
+	if got := events(); len(got) != 0 {
+		t.Errorf("a new server that was never started: %v, want nothing", got)
+	}
+	r.emitTransition(s, models.PhaseStopping, models.Status{Phase: models.PhaseStopped})
+	if got := events(); len(got) != 1 || got[0] != models.EventServerStopped {
+		t.Errorf("a server that went down: %v, want %s", got, models.EventServerStopped)
+	}
+}

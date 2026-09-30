@@ -55,6 +55,49 @@ const (
 	EventClusterDelete    = "cluster.delete"
 )
 
+// EventTypes is every event a channel can filter on: the controller's
+// lifecycle transitions and the panel's audited actions. A filter naming
+// anything else never matches, and one on backup.succeeded, before that event
+// existed, was accepted without a word and never received anything.
+// TestEveryEmittedEventIsInTheCatalog keeps the list in step with the code.
+var EventTypes = []string{
+	// Seen by the controller.
+	EventServerRunning, EventServerStopped, EventServerCrashed, EventServerRestarted,
+	EventServerOOMKilled, EventServerInstallFailed, EventServerHibernated, EventServerTransfer,
+	EventBackupSucceeded, EventBackupFailed, EventRestoreSucceeded, EventRestoreFailed,
+	// Done through the panel.
+	"server.create", "server.delete", "server.power", "server.update", "server.rename",
+	"server.env", "server.resources", "server.image", "server.hibernation", "server.sftp",
+	"server.reaches", "server.eula", "server.reinstall", "server.import", "server.suspend",
+	"server.unsuspend", "server.wake",
+	"backup.create", "backup.restore", "backup.delete", "backup.settings.update",
+	"schedule.create", "schedule.update", "schedule.delete",
+	"files.write", "files.delete", "files.rename", "files.move", "files.copy", "files.mkdir",
+	"files.compress", "files.decompress", "files.extract",
+	"database.create", "database.rotate", "database.delete",
+	"dbhost.create", "dbhost.update", "dbhost.delete",
+	"access.grant", "access.revoke",
+	"user.create", "user.update", "user.delete", "user.email", "user.password",
+	"user.password-reset", "user.adminrole",
+	"2fa.enable", "2fa.disable", "2fa.admin-reset", "settings.require-2fa",
+	"adminrole.create", "adminrole.update", "adminrole.delete",
+	"apikey.create", "apikey.delete", "sshkey.add", "sshkey.delete",
+	"cluster.create", "cluster.update", "cluster.delete",
+	"template.import", "template.import-url", "template.update", "template.delete",
+	"notification.create", "notification.update", "notification.delete",
+	"email.settings.update", "email.settings.clear", "network.settings.update",
+}
+
+// KnownEventType reports whether t is one of EventTypes.
+func KnownEventType(t string) bool {
+	for _, k := range EventTypes {
+		if k == t {
+			return true
+		}
+	}
+	return false
+}
+
 // NotificationChannel is a configured outbound sink. Its type-specific settings
 // (webhook URLs, signing secrets, SMTP credentials) are encrypted at rest; the
 // DB only ever holds ciphertext in ConfigEnc.

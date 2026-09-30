@@ -1,8 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -112,8 +114,14 @@ func validChannelType(t models.ChannelType) bool {
 func validateChannelConfig(t models.ChannelType, cfg map[string]string) string {
 	switch t {
 	case models.ChannelDiscord, models.ChannelWebhook:
-		if strings.TrimSpace(cfg["url"]) == "" {
+		raw := strings.TrimSpace(cfg["url"])
+		if raw == "" {
 			return "url is required"
+		}
+		// gopher:// and file:// were taken here, and refused only when the
+		// first event was sent.
+		if u, err := url.Parse(raw); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return "url must be an http:// or https:// address"
 		}
 	case models.ChannelEmail:
 		if strings.TrimSpace(cfg["host"]) == "" || strings.TrimSpace(cfg["from"]) == "" || strings.TrimSpace(cfg["to"]) == "" {
@@ -143,6 +151,10 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request) {
 		req.Config = map[string]string{}
 	}
 	if msg := validateChannelConfig(req.Type, req.Config); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	if msg := checkEvents(cleanEvents(req.Events)); msg != "" {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -239,6 +251,10 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	if patch.Events != nil {
 		c.Events = cleanEvents(*patch.Events)
+		if msg := checkEvents(c.Events); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
 	}
 
 	// Merge config: keep stored secrets unless a new non-empty value is supplied;
@@ -368,6 +384,22 @@ func eventPageSize(limit int) int {
 		return 500
 	}
 	return limit
+}
+
+// checkEvents refuses a filter naming an event the panel never records: the
+// channel would receive nothing, and nothing said so.
+func checkEvents(events []string) string {
+	for _, e := range events {
+		if !models.KnownEventType(e) {
+			return fmt.Sprintf("unknown event type %q: GET /api/notifications/event-types lists them", e)
+		}
+	}
+	return ""
+}
+
+// handleEventTypes lists the event types a channel can filter on.
+func (s *Server) handleEventTypes(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, models.EventTypes)
 }
 
 // cleanEvents trims and drops empty event-type filters.
