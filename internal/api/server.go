@@ -22,6 +22,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/lolozini/quetzal/internal/cluster"
+	"github.com/lolozini/quetzal/internal/dbprovision"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/objectstore"
@@ -88,6 +89,10 @@ type Server struct {
 	// CheckBucket confirms a backup target exists before it is stored. Defaults
 	// to objectstore.CheckBucket; overridable in tests so they need no network.
 	CheckBucket BucketChecker
+	// CheckDatabaseHost records whether an external database host answers, as
+	// soon as it is added or changed, so the list shows it without waiting for
+	// the controller's next check. Defaults to dbprovision's Prober.Check.
+	CheckDatabaseHost func(ctx context.Context, h *models.DatabaseHost)
 	// PteroHTTP is the client for Pterodactyl imports. Nil means the
 	// SSRF-guarded default; tests point it at a local fake panel.
 	PteroHTTP *http.Client
@@ -151,6 +156,7 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 		CheckBucket: func(ctx context.Context, t objectstore.Target) error {
 			return objectstore.CheckBucket(ctx, t, nil)
 		},
+		CheckDatabaseHost: dbprovision.NewProber(st).Check,
 	}
 	s.upgrader = websocket.Upgrader{CheckOrigin: s.checkOrigin}
 	return s

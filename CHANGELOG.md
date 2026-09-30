@@ -142,6 +142,14 @@ releases may include breaking changes).
   administrator who deletes it, while the confirmation only said they were
   not deleted. It now counts them and names who they go to; the user list
   carries each account's number of servers (`servers`).
+- **A database host's state is checked without anyone asking.** It was
+  checked only when an administrator pressed "test": a managed host whose
+  MariaDB had been ready for minutes read unreachable, and an external host
+  that went down read reachable until somebody looked. The controller now
+  checks every host, a reachable one every five minutes and one that is not
+  every thirty seconds, and an external host as soon as it is added or
+  changed. The list says whether a host is reachable, unreachable (and why,
+  on hover) or not checked yet.
 - **SFTP's `symlink` makes the link the client asked for.** OpenSSH sends a
   link's target before the link itself, and the two were read the other way
   round: `symlink /etc qa/link` made a link named `etc` at the root, pointing

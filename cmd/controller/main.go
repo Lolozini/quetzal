@@ -36,6 +36,7 @@ import (
 	"github.com/lolozini/quetzal/internal/cluster"
 	"github.com/lolozini/quetzal/internal/console"
 	"github.com/lolozini/quetzal/internal/crypto"
+	"github.com/lolozini/quetzal/internal/dbprovision"
 	"github.com/lolozini/quetzal/internal/hibernate"
 	"github.com/lolozini/quetzal/internal/metrics"
 	"github.com/lolozini/quetzal/internal/models"
@@ -133,6 +134,9 @@ func main() {
 
 	run := func(ctx context.Context) {
 		log.Printf("quetzal-controller reconciling (db=%s, resync=%s)", dbDriver, resync)
+		// Database hosts are checked on their own clock: a host that does not
+		// answer costs its timeout, which the reconcile loop should not wait on.
+		go dbprovision.NewProber(st).Run(ctx, 30*time.Second)
 		ticker := time.NewTicker(resync)
 		defer ticker.Stop()
 		// A game printing its done line kicks a reconcile, so "Running" shows

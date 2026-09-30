@@ -319,6 +319,7 @@ export const fr: Record<string, string> = {
   remote: "distant",
   reachable: "joignable",
   unreachable: "injoignable",
+  "not checked yet": "pas encore vérifié",
   Test: "Tester",
   Hide: "Masquer",
   Remove: "Supprimer",

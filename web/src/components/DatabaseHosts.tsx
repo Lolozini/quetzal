@@ -94,7 +94,15 @@ export function DatabaseHosts() {
                   <td><code>{h.host}:{h.port}</code></td>
                   <td>{h.databases ?? 0}{h.maxDatabases ? ` / ${h.maxDatabases}` : ""}</td>
                   <td>
-                    {h.reachable ? <span className="badge Running">{t("reachable")}</span> : <span className="muted" title={h.statusMessage}>{t("unknown")}</span>}
+                    {/* Checked by the controller every few minutes, and at once for an
+                        external host when it is added or changed. */}
+                    {h.reachable ? (
+                      <span className="badge Running">{t("reachable")}</span>
+                    ) : h.lastCheckedAt ? (
+                      <span className="badge Error" title={h.statusMessage}>{t("unreachable")}</span>
+                    ) : (
+                      <span className="muted">{t("not checked yet")}</span>
+                    )}
                   </td>
                   <td style={{ whiteSpace: "nowrap" }}>
                     <button onClick={() => test(h)}>{t("Test")}</button>{" "}

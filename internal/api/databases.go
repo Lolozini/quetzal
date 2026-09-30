@@ -147,7 +147,21 @@ func (s *Server) handleCreateDatabaseHost(w http.ResponseWriter, r *http.Request
 		_ = s.Store.UpdateDatabaseHost(h, nil)
 	}
 	s.audit(r, 0, "dbhost.create", h.Name)
-	writeJSON(w, http.StatusCreated, h)
+	writeJSON(w, http.StatusCreated, s.checkedHost(r, h))
+}
+
+// checkedHost checks an external host at once and returns it as stored, status
+// included. A managed one is not up yet when it is created: the controller
+// checks it on each pass until it answers.
+func (s *Server) checkedHost(r *http.Request, h *models.DatabaseHost) *models.DatabaseHost {
+	if h.Kind != models.DBHostExternal || s.CheckDatabaseHost == nil {
+		return h
+	}
+	s.CheckDatabaseHost(r.Context(), h)
+	if got, err := s.Store.GetDatabaseHost(h.ID); err == nil {
+		return got
+	}
+	return h
 }
 
 func (s *Server) handleUpdateDatabaseHost(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +210,7 @@ func (s *Server) handleUpdateDatabaseHost(w http.ResponseWriter, r *http.Request
 		return
 	}
 	s.audit(r, 0, "dbhost.update", h.Name)
-	writeJSON(w, http.StatusOK, h)
+	writeJSON(w, http.StatusOK, s.checkedHost(r, h))
 }
 
 func (s *Server) handleDeleteDatabaseHost(w http.ResponseWriter, r *http.Request) {
