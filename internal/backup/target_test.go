@@ -116,3 +116,55 @@ func TestManagerKnowsWhereABackupWent(t *testing.T) {
 		t.Error("a backup of another target waits on a snapshot deletion that cannot run")
 	}
 }
+
+// An unreachable target reached users as restic's own line: "Fatal: create
+// repository ... dial tcp 10.96.39.25:9000: connect: connection refused",
+// which says nothing of where to look, and names the object store's address,
+// which a backup's message may not (anyone who can see the server reads it).
+// Each cause is now said as what to check, with neither address nor bucket.
+// The lines are restic 0.17.3's, against a real object store.
+func TestFailureMessageSaysWhatToCheck(t *testing.T) {
+	repo := "s3:http://10.96.39.25:9000/ops-backups/mc-a1b2"
+	for _, c := range []struct{ line, want string }{
+		{`Fatal: create repository at s3:http://10.96.39.25:9000/ops-backups/mc-a1b2 failed: Fatal: unable to open repository at s3:http://10.96.39.25:9000/ops-backups/mc-a1b2: client.BucketExists: Head "http://10.96.39.25:9000/ops-backups/": dial tcp 10.96.39.25:9000: connect: connection refused`,
+			"refused the connection"},
+		{`Fatal: unable to open config file: Stat: Get "http://10.96.39.25:9000/ops-backups/?location=": dial tcp 10.96.39.25:9000: i/o timeout`,
+			"did not answer"},
+		{`Fatal: unable to open config file: Stat: Get "http://s3.lan:9000/ops-backups/?location=": dial tcp: lookup s3.lan on 10.96.0.10:53: no such host`,
+			"does not resolve"},
+		{`Fatal: unable to open config file: Stat: Get "https://10.96.39.25:9000/ops-backups/?location=": http: server gave HTTP response to HTTPS client`,
+			"plain HTTP"},
+		{`Fatal: unable to open config file: Stat: Get "https://s3.lan/ops-backups/?location=": tls: failed to verify certificate: x509: certificate signed by unknown authority`,
+			"TLS certificate"},
+		{`Fatal: unable to open config file: Stat: The request signature we calculated does not match the signature you provided. Check your key and signing method.`,
+			"refused the backup keys"},
+		{`Fatal: create key in repository at s3:http://10.96.39.25:9000/ops-backups/mc-a1b2 failed: Stat: Access Denied`,
+			"refused the backup keys"},
+		{`Fatal: unable to open config file: Stat: The specified bucket does not exist.`,
+			"bucket does not exist"},
+		{`Fatal: wrong password or no key found`,
+			"repository password"},
+	} {
+		got := failureMessage(c.line+"\nIs there a repository at the following location?\n"+repo+"\n", repo)
+		if !strings.Contains(got, c.want) {
+			t.Errorf("%s\n  said %q, want %q", c.line, got, c.want)
+		}
+		if strings.Contains(got, "10.96") || strings.Contains(got, "ops-backups") || strings.Contains(got, "s3.lan") {
+			t.Errorf("the message gives the object store away: %q", got)
+		}
+	}
+}
+
+// An error no cause matches keeps restic's line, and that line may name the
+// object store by its URL and address rather than the repository's: those go
+// too.
+func TestFailureMessageHidesTheObjectStore(t *testing.T) {
+	repo := "s3:http://10.96.39.25:9000/ops-backups/mc-a1b2"
+	got := failureMessage(`Fatal: unable to open config file: Stat: Get "http://10.96.39.25:9000/ops-backups/?location=": read tcp 10.244.1.7:51820->10.96.39.25:9000: read: connection reset by peer`, repo)
+	if strings.Contains(got, "10.96.39.25") || strings.Contains(got, "ops-backups") {
+		t.Errorf("message = %q", got)
+	}
+	if !strings.Contains(got, "connection reset by peer") {
+		t.Errorf("message = %q, want what went wrong kept", got)
+	}
+}

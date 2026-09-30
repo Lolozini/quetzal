@@ -97,6 +97,17 @@ releases may include breaking changes).
   of a new install was an empty picker that said nothing. It now explains
   that servers are made from imported eggs, and takes an administrator
   straight to the import; the README and the install guide say so too.
+- **A backup that cannot reach its target says why, and fails sooner.** The
+  error of the job's first command was thrown away, the job then tried to
+  create the repository, and it failed with restic's "create repository ...
+  failed" whatever was wrong: a refused connection, a refused key, a wrong
+  password, a missing bucket. A target that dropped the traffic was waited
+  for twice, 90 seconds each time. The repository is now created only when
+  restic says there is none, and any other failure ends the run, said as what
+  to check: the object store refused the connection or did not answer, its
+  name does not resolve, it refused the keys, the bucket does not exist, the
+  password does not open the repository. A custom runner image must be
+  restic 0.17 or later.
 
 ### Security
 
@@ -105,6 +116,11 @@ releases may include breaking changes).
   on it reach every port of that address, the cloud metadata endpoint
   included had a host been pointed at it. It is the database port only now,
   and link-local and loopback addresses never get through.
+- **A failed backup no longer gives away the object store's address.** A
+  backup's message is readable by anyone who can see the server, and the
+  backup target by administrators only. The repository's URL was taken out of
+  it, but not the object store's own URL and address, which restic gives when
+  it cannot reach the bucket.
 
 ## [0.6.0] - 2026-09-30
 

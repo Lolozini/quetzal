@@ -234,8 +234,20 @@ chown "$(stat -c %%u:%%g %s)" "$marker" 2>/dev/null || true
 		if keep <= 0 {
 			keep = 7
 		}
+		// The first backup of a server creates its repository, and restic says
+		// when there is none: exit 10. Any other failure is the answer, with its
+		// own error. This used to be "snapshots || init", which hid the error of
+		// the first command, then waited again for the second on a target that
+		// never answered, and reported "create repository ... failed" whatever
+		// had gone wrong -- a refused key, a wrong password, a missing bucket.
 		script = fmt.Sprintf(`set -e
-restic snapshots >/dev/null 2>&1 || restic init
+rc=0
+restic snapshots >/dev/null || rc=$?
+if [ "$rc" = 10 ]; then
+  restic init
+elif [ "$rc" != 0 ]; then
+  exit "$rc"
+fi
 restic backup %s --host %q --tag quetzal --tag %q --json
 restic forget --host %q --keep-last %d --prune
 `, mountPath, p.Slug, tag, p.Slug, keep)

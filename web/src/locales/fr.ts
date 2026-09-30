@@ -479,7 +479,7 @@ export const fr: Record<string, string> = {
   "Prefix (optional)": "Préfixe (optionnel)",
   "Region (optional)": "Région (optionnel)",
   "Keep last (snapshots)": "Conserver les derniers (snapshots)",
-  "Runner image (optional)": "Image du runner (optionnel)",
+  "Runner image (optional, restic 0.17 or later)": "Image du runner (facultative, restic 0.17 ou plus récent)",
   "Use TLS (https)": "Utiliser TLS (https)",
   "Access key": "Clé d'accès",
   "Secret key": "Clé secrète",

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -201,7 +203,9 @@ func (m *Manager) processRunning(ctx context.Context) {
 			}
 			cleanup(ctx, cs, srv.Namespace, b.JobName)
 		case failed:
-			msg := failureMessage(podLogs(ctx, cs, srv.Namespace, b.JobName), Repository(cfg, srv.Slug))
+			logs := podLogs(ctx, cs, srv.Namespace, b.JobName)
+			log.Printf("backup: %s #%d of %s failed: %s", b.Direction, b.ID, srv.Slug, failureLine(logs, Repository(cfg, srv.Slug)))
+			msg := failureMessage(logs, Repository(cfg, srv.Slug))
 			if msg == "" {
 				msg = "backup job failed"
 			}
@@ -308,7 +312,9 @@ func (m *Manager) processDeleting(ctx context.Context) {
 				log.Printf("backup: delete %d: %v", b.ID, err)
 			}
 		case failed:
-			msg := failureMessage(podLogs(ctx, cs, srv.Namespace, b.JobName), Repository(cfg, srv.Slug))
+			logs := podLogs(ctx, cs, srv.Namespace, b.JobName)
+			log.Printf("backup: removing #%d of %s failed: %s", b.ID, srv.Slug, failureLine(logs, Repository(cfg, srv.Slug)))
+			msg := failureMessage(logs, Repository(cfg, srv.Slug))
 			if msg == "" {
 				msg = "the snapshot could not be removed"
 			}
@@ -521,31 +527,91 @@ func redactRepository(msg, repo string) string {
 	}
 	msg = strings.ReplaceAll(msg, repo, "the backup repository")
 	// restic also prints the URL without its "s3:" scheme prefix in places.
-	if bare := strings.TrimPrefix(repo, "s3:"); bare != repo {
+	bare := strings.TrimPrefix(repo, "s3:")
+	if bare != repo {
 		msg = strings.ReplaceAll(msg, bare, "the backup repository")
+	}
+	// And an error about the bucket names the object store by its own URL and
+	// address, which this missed: Get "http://10.96.39.25:9000/bucket/?location=":
+	// dial tcp 10.96.39.25:9000: connection refused.
+	if u, err := url.Parse(bare); err == nil && u.Host != "" {
+		origin := u.Scheme + "://" + u.Host
+		msg = regexp.MustCompile(regexp.QuoteMeta(origin)+`[^\s"]*`).ReplaceAllString(msg, "the object store")
+		msg = strings.ReplaceAll(msg, u.Host, "the object store")
 	}
 	return msg
 }
 
-// failureMessage picks, from a failed restic run's output, the line that says
-// what went wrong, with the repository's location redacted: the last "Fatal:"
-// line when there is one, else the last line that is not restic pointing at the
-// repository. restic ends a missing-repository error with "Is there a
-// repository at the following location?" and the URL; redacted, the URL was all
-// a failed restore used to say ("the backup repository").
+// failureMessage says why a restic run failed, for the backup's record: what
+// to check when the cause is one restic's error only hints at, the error line
+// itself, with the repository's location redacted, otherwise.
 func failureMessage(logs, repo string) string {
+	line := failureLine(logs, repo)
+	if cause := failureCause(line); cause != "" {
+		return cause
+	}
+	return redactRepository(line, repo)
+}
+
+// failureLine picks, from a failed restic run's output, the line that says what
+// went wrong: the last "Fatal:" line when there is one, else the last line that
+// is not restic pointing at the repository. restic ends a missing-repository
+// error with "Is there a repository at the following location?" and the URL;
+// redacted, the URL was all a failed restore used to say ("the backup
+// repository").
+func failureLine(logs, repo string) string {
 	bare := strings.TrimPrefix(repo, "s3:")
 	lines := strings.Split(strings.TrimRight(logs, "\n"), "\n")
 	fallback := ""
 	for i := len(lines) - 1; i >= 0; i-- {
 		l := strings.TrimSpace(lines[i])
 		if strings.HasPrefix(l, "Fatal:") {
-			return redactRepository(l, repo)
+			return l
 		}
 		pointer := l == repo || (repo != "" && l == bare) || strings.HasPrefix(l, "Is there a repository at the following location")
 		if fallback == "" && l != "" && !pointer {
 			fallback = l
 		}
 	}
-	return redactRepository(fallback, repo)
+	return fallback
+}
+
+// failureCauses turn a failed run's error into what to check. restic's own
+// line names the object store's address and bucket, which a backup's message
+// must not (it is readable by anyone who can see the server, the target by
+// administrators only), and a refused connection or a timeout said nothing of
+// where to look: an unreachable target reached users as "Fatal: create
+// repository ... dial tcp ...: connection refused". The controller logs the
+// line itself.
+var failureCauses = []struct {
+	signs []string
+	cause string
+}{
+	{[]string{"connection refused"},
+		"the object store refused the connection: it is not running, or the backup settings give the wrong address or port"},
+	{[]string{"i/o timeout", "no route to host", "network is unreachable", "TLS handshake timeout"},
+		"the object store did not answer: a firewall or a network policy between the cluster and it may drop the traffic, or the backup settings give the wrong address"},
+	{[]string{"no such host", "server misbehaving"},
+		"the object store's name does not resolve from the cluster: check the endpoint in the backup settings"},
+	{[]string{"server gave HTTP response to HTTPS client", "does not look like a TLS handshake"},
+		"the object store answers in plain HTTP while the backup settings ask for TLS"},
+	{[]string{"x509:"},
+		"the backup job does not trust the object store's TLS certificate"},
+	{[]string{"signature we calculated does not match", "InvalidAccessKeyId", "Access Key Id you provided does not exist", "Access Denied", "AccessDenied"},
+		"the object store refused the backup keys: check the access key and secret key in the backup settings"},
+	{[]string{"bucket does not exist", "NoSuchBucket"},
+		"the bucket does not exist: create it on the object store, or correct its name in the backup settings"},
+	{[]string{"wrong password or no key found"},
+		"the repository password does not open this server's backups: they were made with another one"},
+}
+
+func failureCause(line string) string {
+	for _, c := range failureCauses {
+		for _, sign := range c.signs {
+			if strings.Contains(line, sign) {
+				return c.cause
+			}
+		}
+	}
+	return ""
 }
