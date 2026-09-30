@@ -21,6 +21,9 @@ Deployments, a Service, and an optional Ingress.
 - [Helm](https://helm.sh/) v3.
 - A storage class for persistent volumes. Single-node / homelab setups can use a
   local provisioner such as [local-path](https://github.com/rancher/local-path-provisioner).
+  A local volume ties each server to the node that holds it: if that node goes
+  down, its servers can neither start nor show their files until it is back
+  (the panel says so). Networked storage lets them start elsewhere.
 - For per-server CPU/RAM graphs: [metrics-server](https://github.com/kubernetes-sigs/metrics-server)
   (optional; the panel degrades gracefully without it).
 

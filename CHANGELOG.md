@@ -38,6 +38,11 @@ releases may include breaking changes).
 - **Saving a backup target the panel cannot reach now says so.** It is still
   saved, since the backup jobs may reach what the panel cannot, but with a
   warning where it used to be accepted without a word.
+- **When a node goes down, the panel says so.** A server whose data is on it
+  used to show "Hibernated", or "Starting" forever once started, without a
+  message; its status now names the node that is not responding, or says that
+  no node can take the server and why. The file manager answers at once with
+  that reason, where it waited two minutes and then blamed a restore.
 
 ## [0.5.1] - 2026-09-30
 

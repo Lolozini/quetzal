@@ -150,11 +150,59 @@ func (s *Server) fileContext(w http.ResponseWriter, r *http.Request) (srv *model
 		}
 	}
 	pod, err = s.dataPodName(r.Context(), cs, srv.Namespace, srv.Slug)
-	if err != nil {
+	var unavailable errDataUnavailable
+	switch {
+	case errors.As(err, &unavailable):
+		writeError(w, http.StatusServiceUnavailable, "file management is unavailable: "+unavailable.msg)
+		return nil, "", nil, nil, "", false
+	case err != nil:
 		writeError(w, http.StatusConflict, "file management is temporarily unavailable (the data manager is starting, or a restore is in progress)")
 		return nil, "", nil, nil, "", false
 	}
 	return srv, root, cs, cfg, pod, true
+}
+
+// errDataUnavailable is file access refused for a reason waiting will not fix,
+// and worth saying. A node that stopped answering used to cost two minutes of
+// waiting and end in "the data manager is starting, or a restore is in
+// progress".
+type errDataUnavailable struct{ msg string }
+
+func (e errDataUnavailable) Error() string { return e.msg }
+
+// unschedulableGrace is how long a data-manager pod may stay unschedulable
+// before that counts as an answer: a new server's pod can be refused for a
+// moment while its volume is provisioned.
+const unschedulableGrace = 20 * time.Second
+
+// dataPodTrouble says why none of pods can serve files when waiting will not
+// change it: the node they are on is not responding, or no node can take them.
+func dataPodTrouble(ctx context.Context, cs kubernetes.Interface, pods []corev1.Pod) string {
+	for i := range pods {
+		p := &pods[i]
+		if p.DeletionTimestamp != nil {
+			continue
+		}
+		if c := reconciler.PodCondition(p, corev1.PodScheduled); reconciler.Unschedulable(p) != "" && time.Since(c.LastTransitionTime.Time) > unschedulableGrace {
+			return "no node can mount this server's files right now (" + reconciler.Unschedulable(p) + ")"
+		}
+		if p.Spec.NodeName == "" || !podNotReady(p) {
+			continue
+		}
+		if n, err := cs.CoreV1().Nodes().Get(ctx, p.Spec.NodeName, metav1.GetOptions{}); err == nil && !reconciler.NodeReady(n) {
+			return fmt.Sprintf("the node %s, which holds this server's files, is not responding", n.Name)
+		}
+	}
+	return ""
+}
+
+// podNotReady reports whether a pod is known not to be ready. The node
+// controller marks the pods of a node that stopped answering that way, while
+// their containers still read "running", since the kubelet that would say
+// otherwise is gone.
+func podNotReady(p *corev1.Pod) bool {
+	c := reconciler.PodCondition(p, corev1.PodReady)
+	return c != nil && c.Status == corev1.ConditionFalse
 }
 
 // dataPodName returns the name of the server's running data-manager pod, waiting
@@ -172,9 +220,12 @@ func (s *Server) dataPodName(ctx context.Context, cs kubernetes.Interface, ns, s
 		if err == nil {
 			for i := range pods.Items {
 				p := &pods.Items[i]
-				if p.DeletionTimestamp == nil && p.Status.Phase == corev1.PodRunning && containerRunning(p, reconciler.WorkloadName) {
+				if p.DeletionTimestamp == nil && p.Status.Phase == corev1.PodRunning && containerRunning(p, reconciler.WorkloadName) && !podNotReady(p) {
 					return p.Name, nil
 				}
+			}
+			if why := dataPodTrouble(ctx, cs, pods.Items); why != "" {
+				return "", errDataUnavailable{why}
 			}
 		}
 		if ctx.Err() != nil || time.Now().After(deadline) {

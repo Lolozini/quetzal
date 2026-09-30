@@ -640,8 +640,11 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 		st.Phase = models.PhaseSuspended
 	case s.DesiredState == models.StateStopped:
 		st.Phase = models.PhaseStopped
+		st.Message = r.placementProblem(ctx, s, "")
 	case s.Hibernated:
+		// It will have to wake where its data is.
 		st.Phase = models.PhaseHibernated
+		st.Message = r.placementProblem(ctx, s, "")
 	default: // Running
 		h := r.inspectPods(ctx, s.Namespace, s.Slug)
 		st.CrashCount = h.restarts
@@ -666,6 +669,7 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 			st.Message = "running " + h.installStep
 		default:
 			st.Phase = models.PhaseStarting
+			st.Message = r.placementProblem(ctx, s, h.unscheduled)
 		}
 		r.emitRestartEvents(s, s.Status, h, st.CrashCount)
 	}
@@ -879,6 +883,9 @@ type podHealth struct {
 	gamePod       string
 	gameContainer string
 	gameStarted   time.Time
+
+	// unscheduled is why no node can take the game pod, while it cannot.
+	unscheduled string
 }
 
 // inspectPods sums container restarts, detects CrashLoopBackOff, and records the
@@ -906,6 +913,9 @@ func (r *Reconciler) inspectPods(ctx context.Context, ns, slug string) podHealth
 		// A pod on its way out (a stop, a restart, a new spec) or done for
 		// (evicted) had its game killed, which is no crash.
 		current := p.DeletionTimestamp == nil && p.Status.Phase != corev1.PodFailed && p.Status.Phase != corev1.PodSucceeded
+		if why := Unschedulable(p); current && why != "" {
+			h.unscheduled = why
+		}
 		for _, cs := range p.Status.ContainerStatuses {
 			h.restarts += int(cs.RestartCount)
 			if cs.State.Waiting != nil && cs.State.Waiting.Reason == "CrashLoopBackOff" {
