@@ -998,7 +998,7 @@ func (r *Reconciler) endpointsFor(ctx context.Context, s *models.Server, t *mode
 
 	switch s.Expose.ServiceType() {
 	case models.ExposeNodePort:
-		host := r.endpointHost(ctx)
+		host := r.endpointHost(ctx, s)
 		if host == "" {
 			host = "<node-ip>"
 		}
@@ -1029,13 +1029,45 @@ func (r *Reconciler) endpointsFor(ctx context.Context, s *models.Server, t *mode
 
 // endpointHost is the host published in a server's external NodePort endpoints:
 // this cluster's own hostname if it has one, else the panel-wide setting, else
-// the detected node address. Letting the admin pin a hostname means players see
-// a stable, memorable address instead of the raw node IP.
-func (r *Reconciler) endpointHost(ctx context.Context) string {
+// a node address. Letting the admin pin a hostname means players see a stable,
+// memorable address instead of the raw node IP.
+//
+// Which node is not indifferent when the Service keeps the player's address
+// (externalTrafficPolicy: Local, the default): only a node running one of its
+// pods answers. The first node of the list was published, and on a cluster of
+// several the address shown to players often led nowhere. The game and the
+// activator run on the data-manager's node, so that is the one.
+func (r *Reconciler) endpointHost(ctx context.Context, s *models.Server) string {
 	if h := store.EndpointHostFor(r.Store, r.ClusterID); h != "" {
 		return h
 	}
+	if localTraffic(s) {
+		if a := r.dataNodeAddress(ctx, s); a != "" {
+			return a
+		}
+	}
 	return r.firstNodeAddress(ctx)
+}
+
+// dataNodeAddress is the address of the node the server's data-manager runs
+// on, or "" while it has none (not yet scheduled, or scaled down for a restore).
+func (r *Reconciler) dataNodeAddress(ctx context.Context, s *models.Server) string {
+	var pods corev1.PodList
+	if err := r.Client.List(ctx, &pods, client.InNamespace(s.Namespace), client.MatchingLabels{DataLabel: s.Slug}); err != nil {
+		return ""
+	}
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		if p.Spec.NodeName == "" || p.DeletionTimestamp != nil {
+			continue
+		}
+		var node corev1.Node
+		if err := r.Client.Get(ctx, client.ObjectKey{Name: p.Spec.NodeName}, &node); err != nil {
+			return ""
+		}
+		return NodeAddress([]corev1.Node{node})
+	}
+	return ""
 }
 
 // firstNodeAddress returns a usable node address, preferring an ExternalIP and

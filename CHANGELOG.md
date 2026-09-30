@@ -53,6 +53,14 @@ releases may include breaking changes).
   it writes could not wait for the lock. Write transactions now take it when
   they begin, and wait for it. A failed node-port allocation is a 409 only
   when the range is used up, and a 500 answer is written to the log.
+- **On a cluster of several nodes, a server's node-port address answers.**
+  A Service that keeps the player's address, the default, answers only on the
+  nodes running its pods, and the panel showed the first node's address
+  wherever the pods ran. It now shows the address of the node the server runs
+  on. The activator of a sleeping server moves to that node too, so the
+  address still answers once the game wakes; activators restart once after
+  the upgrade to get there. A hostname set in the settings is still shown as
+  it is.
 
 ### Security
 

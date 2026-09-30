@@ -412,10 +412,17 @@ func BuildService(s *models.Server, t *models.Template, activator bool) *corev1.
 	}
 	// Preserve the client source IP for published game traffic (bans/geo).
 	// Invalid for ClusterIP, so only set it when externally exposed.
-	if s.Expose.External() && s.Expose.LocalTraffic() {
+	if localTraffic(s) {
 		svc.Spec.ExternalTrafficPolicy = corev1.ServiceExternalTrafficPolicyLocal
 	}
 	return svc
+}
+
+// localTraffic reports whether a server's Service keeps the player's address
+// (externalTrafficPolicy: Local). Only the nodes running one of its pods then
+// answer, which decides where the activator runs and which address is shown.
+func localTraffic(s *models.Server) bool {
+	return s.Expose.External() && s.Expose.LocalTraffic()
 }
 
 // systemPullPolicy is the pull policy for the Quetzal image the helper
@@ -500,6 +507,15 @@ func BuildActivatorDeployment(s *models.Server, t *models.Template, p ActivatorP
 		)
 	}
 
+	// The Service selects the activator while the game sleeps (always, in proxy
+	// mode) and the game once it is up. When only the nodes running its pods
+	// answer, both must be on one node, or the address players were given stops
+	// answering as the game wakes: the data-manager's, where the game runs too.
+	var affinity *corev1.Affinity
+	if localTraffic(s) {
+		affinity = dataPodAffinity(s)
+	}
+
 	return &appsv1.Deployment{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: metav1.ObjectMeta{Name: ActivatorName, Namespace: s.Namespace, Labels: labels},
@@ -509,6 +525,7 @@ func BuildActivatorDeployment(s *models.Server, t *models.Template, p ActivatorP
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels},
 				Spec: corev1.PodSpec{
+					Affinity: affinity,
 					// The activator authenticates to the apiserver with an HMAC
 					// token over HTTP; it needs no Kubernetes API access.
 					AutomountServiceAccountToken: &no,
