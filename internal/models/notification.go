@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -88,6 +89,50 @@ var EventTypes = []string{
 	"email.settings.update", "email.settings.clear", "network.settings.update",
 }
 
+// eventTitles names the events people read about, in a mail's subject or a
+// Discord embed's title. The others read from their type (EventTitle).
+var eventTitles = map[string]string{
+	EventServerRunning:       "Server is up",
+	EventServerStopped:       "Server stopped",
+	EventServerCrashed:       "Server crashed",
+	EventServerRestarted:     "Server restarted",
+	EventServerOOMKilled:     "Server ran out of memory",
+	EventServerInstallFailed: "Install failed",
+	EventServerHibernated:    "Server went to sleep",
+	EventServerTransfer:      "Server transfer",
+	EventBackupSucceeded:     "Backup done",
+	EventBackupFailed:        "Backup failed",
+	EventRestoreSucceeded:    "Restore done",
+	EventRestoreFailed:       "Restore failed",
+	"server.create":          "Server created",
+	"server.delete":          "Server deleted",
+	"server.power":           "Power action",
+	"server.wake":            "Server woken",
+	"backup.create":          "Backup started",
+	"backup.restore":         "Restore started",
+}
+
+// EventTitle is an event type as a person reads it: "Server crashed", where
+// mail subjects said server.crashed. A type without a title of its own reads
+// from its words: "Notification create" for notification.create.
+func EventTitle(t string) string {
+	if title, ok := eventTitles[t]; ok {
+		return title
+	}
+	words := strings.Join(strings.FieldsFunc(t, func(r rune) bool { return r == '.' || r == '-' }), " ")
+	if words == "" {
+		return t
+	}
+	return strings.ToUpper(words[:1]) + words[1:]
+}
+
+// quietByDefault reports whether a channel receives an event of type t only
+// when it asks for it. A channel's own changes are the panel's bookkeeping:
+// creating one notified every other channel of it, which was noise.
+func quietByDefault(t string) bool {
+	return strings.HasPrefix(t, "notification.")
+}
+
 // KnownEventType reports whether t is one of EventTypes.
 func KnownEventType(t string) bool {
 	for _, k := range EventTypes {
@@ -115,7 +160,8 @@ type NotificationChannel struct {
 	// its channels.
 	ServerID uint `gorm:"index" json:"serverId"`
 
-	// Events is the allow-list of event types this channel receives. Empty = all.
+	// Events is the allow-list of event types this channel receives. Empty is
+	// all of them but notification.*, which a channel gets when it lists them.
 	Events EventList `json:"events"`
 
 	// ConfigEnc is the encrypted JSON of the type-specific settings map. Never
@@ -208,7 +254,7 @@ func (c NotificationChannel) Matches(eventType string, serverID uint) bool {
 		return false
 	}
 	if len(c.Events) == 0 {
-		return true
+		return !quietByDefault(eventType)
 	}
 	for _, e := range c.Events {
 		if e == eventType {

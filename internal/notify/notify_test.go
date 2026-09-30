@@ -241,7 +241,10 @@ func TestDiscordSendsContent(t *testing.T) {
 			Title       string `json:"title"`
 			Description string `json:"description"`
 			Color       int    `json:"color"`
-			Fields      []struct {
+			Footer      struct {
+				Text string `json:"text"`
+			} `json:"footer"`
+			Fields []struct {
 				Name  string `json:"name"`
 				Value string `json:"value"`
 			} `json:"fields"`
@@ -261,8 +264,9 @@ func TestDiscordSendsContent(t *testing.T) {
 		t.Fatalf("want one embed, got %+v", payload)
 	}
 	em := payload.Embeds[0]
-	if em.Title != models.EventServerRunning {
-		t.Errorf("embed title = %q, want %q", em.Title, models.EventServerRunning)
+	// A title people read, with the type itself below for whoever filters on it.
+	if em.Title != "Server is up" || em.Footer.Text != models.EventServerRunning {
+		t.Errorf("embed title %q, footer %q; want \"Server is up\" and %q", em.Title, em.Footer.Text, models.EventServerRunning)
 	}
 	// The slug prefix is stripped from the body since the server is its own field.
 	if em.Description != "is up" {

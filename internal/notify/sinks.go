@@ -124,7 +124,7 @@ func deliverDiscord(ctx context.Context, client *http.Client, cfg map[string]str
 }
 
 // discordEmbed renders an event as a Discord embed carrying the same fields as
-// the activity log: the event type as the title, the message as the body, the
+// the activity log: the event's title as the title, the message as the body, the
 // server (its friendly name), the actor and the time as fields, and a colour
 // keyed to severity so trouble stands out.
 func discordEmbed(e models.Event, name, slug string) map[string]any {
@@ -134,10 +134,12 @@ func discordEmbed(e models.Event, name, slug string) map[string]any {
 	}
 	fields = append(fields, map[string]any{"name": "User", "value": eventUser(e), "inline": true})
 	embed := map[string]any{
-		"title":     e.Type,
+		"title":     models.EventTitle(e.Type),
 		"color":     discordColor(e.Type),
 		"timestamp": eventTime(e).UTC().Format(time.RFC3339),
 		"fields":    fields,
+		// The type itself, for whoever filters on it.
+		"footer": map[string]any{"text": e.Type},
 	}
 	if msg := stripSlug(e.Message, slug); msg != "" {
 		embed["description"] = msg
@@ -227,7 +229,7 @@ func deliverEmail(ctx context.Context, cfg map[string]string, e models.Event, na
 	if label != "" {
 		subject += label + " — "
 	}
-	subject += e.Type
+	subject += models.EventTitle(e.Type)
 	return SendMail(ctx, cfg, to, subject, emailBody(e, label, slug))
 }
 

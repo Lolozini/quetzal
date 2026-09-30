@@ -65,6 +65,12 @@ releases may include breaking changes).
   server's backups, schedules and activity, while its console, files and
   databases each need their own. Nothing changes in what they allow; the
   install guide lists them too.
+- **Notifications say what happened.** A mail's subject and a Discord
+  embed's title were the event's type, "Terraria — server.power"; they read
+  "Terraria — Power action" or "Server crashed" now, with the type still in
+  the mail's body and under the Discord embed. A channel is no longer told
+  when another channel is created, changed or deleted, unless it lists
+  `notification.*` events: setting channels up pinged all the others.
 - **Importing an egg no longer replaces a template of the same name without
   asking.** Two different eggs can share a name, and so a slug: Pterodactyl's
   Paper imported over Pelican's replaced it, and the servers created
