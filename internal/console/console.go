@@ -49,6 +49,9 @@ type Message struct {
 	Data string `json:"data"`
 }
 
+// ErrNoPod is FindRunningPod's answer for a server that has no pod at all.
+var ErrNoPod = errors.New("no pod found")
+
 // FindRunningPod returns the name of a running pod for the given server slug,
 // falling back to any non-terminating pod. Used by best-effort callers (graceful
 // stop, stats); the interactive console uses runningContainerPod instead.
@@ -75,7 +78,7 @@ func FindRunningPod(ctx context.Context, cs kubernetes.Interface, ns, slug strin
 	if fallback != "" {
 		return fallback, nil
 	}
-	return "", fmt.Errorf("no pod found for server %q (is it running?)", slug)
+	return "", fmt.Errorf("%w for server %q (is it running?)", ErrNoPod, slug)
 }
 
 // SetupContainers are the init containers, in the order Kubernetes runs them:

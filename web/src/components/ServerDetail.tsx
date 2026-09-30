@@ -185,18 +185,24 @@ function DiskBar({ used, total }: { used: number; total: number }) {
   );
 }
 
-// A server with no pod has no resource stats — that is absence, not an error.
-// Show a neutral placeholder then, and a soft generic note (never a raw "no pod
-// found" / crashloop message, which belongs in the activity log) when a running
-// server's metrics are momentarily unavailable.
-function StatsPanel({ stats, history, phase }: { stats: ServerStats | null; history: Sample[]; phase: string }) {
+// A server with no usage to show -- no pod yet, or no metrics on its cluster --
+// still has the limits it is set to, and those are shown. It used to say
+// "Resources —" while 1536Mi and one CPU were set further down the page. The
+// note next to them stays generic: a raw "no pod found" or a crashloop belongs
+// in the activity log.
+function StatsPanel({ stats, history, phase, limits }: { stats: ServerStats | null; history: Sample[]; phase: string; limits?: { memory?: string; cpu?: string } }) {
   const { t } = useT();
-  if (!stats) {
-    const offline = OFFLINE_PHASES.includes(phase);
+  if (!stats || stats.available === false) {
+    const mem = parseMemBytes(limits?.memory);
+    const cpu = parseCpuMillis(limits?.cpu);
+    const set = [mem ? formatMem(mem) : "", cpu ? `${formatCores(cpu)} ${t("cores")}` : ""].filter(Boolean).join(" · ");
     return (
       <div className="kv">
         <span className="k">{t("Resources")}</span>
-        <span className="muted">{offline ? "—" : t("Resources unavailable")}</span>
+        <span>
+          {set || t("no limit")}{" "}
+          <span className="muted">— {OFFLINE_PHASES.includes(phase) ? t("not running") : t("usage unavailable")}</span>
+        </span>
       </div>
     );
   }
@@ -222,13 +228,15 @@ function StatsPanel({ stats, history, phase }: { stats: ServerStats | null; hist
   // limit is set, usage vs. limit with a percentage — like the memory and disk
   // readouts.
   const cpuLimM = parseCpuMillis(stats.cpuLimit);
+  const cpuUsed = stats.cpuMillicores ?? 0;
   const cpuVal = cpuLimM
-    ? `${formatCores(stats.cpuMillicores)} / ${formatCores(cpuLimM)} ${t("cores")} (${Math.min(100, Math.round((stats.cpuMillicores / cpuLimM) * 100))}%)`
-    : `${formatCores(stats.cpuMillicores)} ${t("cores")}`;
+    ? `${formatCores(cpuUsed)} / ${formatCores(cpuLimM)} ${t("cores")} (${Math.min(100, Math.round((cpuUsed / cpuLimM) * 100))}%)`
+    : `${formatCores(cpuUsed)} ${t("cores")}`;
   const memLimB = parseMemBytes(stats.memoryLimit);
+  const memUsed = stats.memoryBytes ?? 0;
   const memVal = memLimB
-    ? `${formatMem(stats.memoryBytes)} / ${formatMem(memLimB)} (${Math.min(100, Math.round((stats.memoryBytes / memLimB) * 100))}%)`
-    : formatMem(stats.memoryBytes);
+    ? `${formatMem(memUsed)} / ${formatMem(memLimB)} (${Math.min(100, Math.round((memUsed / memLimB) * 100))}%)`
+    : formatMem(memUsed);
   return (
     <div className="charts">
       <Chart
@@ -299,9 +307,11 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
         const st = await api.stats(id);
         if (active) {
           setStats(st);
-          setHistory((h) =>
-            [...h, { t: Date.now(), cpu: st.cpuMillicores, mem: st.memoryBytes, rx: st.rxBytes, tx: st.txBytes }].slice(-MAX_SAMPLES),
-          );
+          if (st.available !== false) {
+            setHistory((h) =>
+              [...h, { t: Date.now(), cpu: st.cpuMillicores ?? 0, mem: st.memoryBytes ?? 0, rx: st.rxBytes, tx: st.txBytes }].slice(-MAX_SAMPLES),
+            );
+          }
         }
       } catch {
         // A running server whose metrics are momentarily unavailable: leave the
@@ -449,7 +459,6 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
   // While it installs, or once the install failed, the setup log is what
   // explains the server; the console has nothing to say yet.
   const setupFirst = phase === "Installing" || phase === "Error";
-  const hasStats = !!stats || !OFFLINE_PHASES.includes(phase);
 
   return (
     <>
@@ -562,11 +571,9 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
           <div className="card">
             <Console id={id} phase={phase} visible={current === "console"} />
           </div>
-          {hasStats && (
-            <div className="card">
-              <StatsPanel stats={stats} history={history} phase={phase} />
-            </div>
-          )}
+          <div className="card">
+            <StatsPanel stats={stats} history={history} phase={phase} limits={srv.resources} />
+          </div>
           {!setupFirst && <SetupLog id={id} phase={phase} />}
         </div>
       )}

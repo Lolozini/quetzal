@@ -355,8 +355,12 @@ export interface InstallLog {
 }
 
 export interface ServerStats {
-  cpuMillicores: number;
-  memoryBytes: number;
+  // false when there is nothing to measure (no pod, no metrics on the cluster):
+  // reason says why, and usage is absent.
+  available?: boolean;
+  reason?: string;
+  cpuMillicores?: number;
+  memoryBytes?: number;
   cpuLimit?: string;
   memoryLimit?: string;
   // Cumulative network counters (client derives a rate) + disk usage. Present

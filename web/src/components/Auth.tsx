@@ -64,12 +64,15 @@ export function Auth({
         {!twoFactor && (
           <>
             <label>{t("Username")}</label>
-            <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+            <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus />
             <label>{t("Password")}</label>
+            {/* Says to a password manager which password this is: the one to
+                fill in, or a new one to save on the setup screen. */}
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete={setupNeeded ? "new-password" : "current-password"}
             />
             {setupNeeded && (
               <>
@@ -78,6 +81,7 @@ export function Auth({
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
                   placeholder="you@example.com"
                 />
               </>
@@ -148,7 +152,7 @@ function Forgot({ onBack }: { onBack: () => void }) {
           <>
             <p className="muted">{t("Reset your password")}</p>
             <label>{t("Username or email")}</label>
-            <input value={identifier} onChange={(e) => setIdentifier(e.target.value)} autoFocus />
+            <input value={identifier} onChange={(e) => setIdentifier(e.target.value)} autoComplete="username" autoFocus />
             <button className="primary" style={{ marginTop: 16, width: "100%" }} disabled={busy || !identifier.trim()}>
               {busy ? "…" : t("Send reset link")}
             </button>

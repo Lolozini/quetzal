@@ -970,12 +970,17 @@ paths:
     get:
       tags: [Servers]
       summary: Live CPU/memory (metrics-server) + network/disk (pod exec)
+      description: >-
+        A server with nothing to measure -- no pod, or no metrics-server on its
+        cluster -- answers 200 with `available: false` and a `reason`, next to
+        the limits it is set to.
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ServerStats" }
+        "503": { description: The server's cluster or its pods cannot be read }
   /api/servers/{id}/console:
     parameters:
       - $ref: "#/components/parameters/ServerId"
@@ -2430,6 +2435,8 @@ components:
     ServerStats:
       type: object
       properties:
+        available: { type: boolean, description: "false when there is no usage to read; cpuMillicores and memoryBytes are then absent" }
+        reason: { type: string, description: Why there is no usage to read (when available is false) }
         cpuMillicores: { type: integer }
         memoryBytes: { type: integer, format: int64 }
         cpuLimit: { type: string }

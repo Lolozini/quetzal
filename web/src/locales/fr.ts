@@ -274,7 +274,9 @@ export const fr: Record<string, string> = {
   Event: "Événement",
   system: "système",
   Detail: "Détail",
-  "Resources unavailable": "Ressources indisponibles",
+  "no limit": "sans limite",
+  "not running": "à l'arrêt",
+  "usage unavailable": "utilisation indisponible",
 
   // Eggs / templates
   "Eggs / templates": "Eggs / modèles",

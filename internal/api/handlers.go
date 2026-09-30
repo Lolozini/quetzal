@@ -1935,25 +1935,37 @@ func (s *Server) handleServerStats(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "target cluster unavailable: "+err.Error())
 		return
 	}
+	// A server with nothing to measure -- stopped, installing, just started, or
+	// on a cluster without metrics-server -- is not an error: it answers
+	// available: false and why, next to the limits it is set to. It used to be
+	// a 409 or a 503, which the panel, polling every four seconds, turned into
+	// a red line in the browser console each time.
+	resp := map[string]any{
+		"available":   false,
+		"cpuLimit":    srv.Resources.CPU,
+		"memoryLimit": srv.Resources.Memory,
+	}
 	pod, err := console.FindRunningPod(r.Context(), cs, srv.Namespace, srv.Slug)
-	if err != nil {
-		writeError(w, http.StatusConflict, err.Error())
+	switch {
+	case errors.Is(err, console.ErrNoPod):
+		resp["reason"] = "the server is not running"
+		writeJSON(w, http.StatusOK, resp)
+		return
+	case err != nil:
+		writeError(w, http.StatusServiceUnavailable, "could not read the server's pods: "+err.Error())
 		return
 	}
 	u, err := stats.PodUsage(r.Context(), cs, srv.Namespace, pod)
-	if err != nil {
-		if errors.Is(err, stats.ErrUnavailable) {
-			writeError(w, http.StatusServiceUnavailable, err.Error())
-			return
-		}
+	switch {
+	case errors.Is(err, stats.ErrUnavailable):
+		resp["reason"] = err.Error()
+	case err != nil:
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
-	}
-	resp := map[string]any{
-		"cpuMillicores": u.CPUMillicores,
-		"memoryBytes":   u.MemoryBytes,
-		"cpuLimit":      srv.Resources.CPU,
-		"memoryLimit":   srv.Resources.Memory,
+	default:
+		resp["available"] = true
+		resp["cpuMillicores"] = u.CPUMillicores
+		resp["memoryBytes"] = u.MemoryBytes
 	}
 	// Network + disk aren't in metrics-server, so read them from the pod in one
 	// exec: cumulative net counters (the client derives a rate) and df of the

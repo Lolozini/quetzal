@@ -45,6 +45,14 @@ releases may include breaking changes).
   created without touching the form was one no player could join. It starts
   on NodePort now, and an administrator who leaves the memory limit blank is
   told the server may then take all of its node's memory.
+- **A server with nothing to measure answers its stats with 200.** A
+  stopped, installing or sleeping server, or one on a cluster without
+  metrics-server, answered `GET /api/servers/{id}/stats` with a 409 or a
+  503, which the panel, polling every four seconds, turned into a red error
+  in the browser console each time. It answers 200 now, with `available:
+  false`, a `reason` and the server's limits. The panel shows those limits
+  when there is no usage to show next to them, where it said "Resources —",
+  and the sign-in form tells password managers which password it wants.
 - **Importing an egg no longer replaces a template of the same name without
   asking.** Two different eggs can share a name, and so a slug: Pterodactyl's
   Paper imported over Pelican's replaced it, and the servers created
