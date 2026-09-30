@@ -311,3 +311,9 @@ pre.log {
   th, td { padding: 8px; }
   .hide-narrow, .files-tree { display: none; }
 }
+
+/* A server's permissions, one per line with what it allows. */
+.perm-list { display: grid; gap: 8px; margin-top: 4px; }
+.perm-list label { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: baseline; margin: 0; }
+.perm-list input[type="checkbox"] { width: auto; margin: 0; }
+.perm-list .muted { font-size: 13px; }

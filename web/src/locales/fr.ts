@@ -596,6 +596,17 @@ export const fr: Record<string, string> = {
   "Public key": "Clé publique",
   "Add key": "Ajouter la clé",
   'Delete SSH key "{name}"?': "Supprimer la clé SSH « {name} » ?",
+  "its page: state, address, usage, backups, schedules and activity":
+    "sa fiche : état, adresse, utilisation, sauvegardes, tâches planifiées et activité",
+  "start, stop, restart and kill it": "le démarrer, l'arrêter, le redémarrer et le tuer",
+  "its live console and setup log, commands included": "sa console en direct et son journal d'installation, commandes comprises",
+  "its scheduled tasks, within the other permissions": "ses tâches planifiées, dans la limite des autres permissions",
+  "take, restore and delete backups": "faire, restaurer et supprimer des sauvegardes",
+  "its files, from the panel and over SFTP": "ses fichiers, depuis le panneau et en SFTP",
+  "its variables, resources, ports, exposure, hibernation, reinstall":
+    "ses variables, ressources, ports, exposition, hibernation, réinstallation",
+  "its databases and their passwords": "ses bases de données et leurs mots de passe",
+  "delete it": "le supprimer",
   'This key is already on your account, as "{name}".': "Cette clé est déjà sur votre compte, sous le nom « {name} ».",
   "API keys": "Clés d'API",
   "Use as a bearer token:": "À utiliser comme jeton bearer :",

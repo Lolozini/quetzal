@@ -53,6 +53,11 @@ releases may include breaking changes).
   false`, a `reason` and the server's limits. The panel shows those limits
   when there is no usage to show next to them, where it said "Resources —",
   and the sign-in form tells password managers which password it wants.
+- **A server's Access tab says what each permission allows.** It listed
+  their names alone, which left it to guess that `view` also shows the
+  server's backups, schedules and activity, while its console, files and
+  databases each need their own. Nothing changes in what they allow; the
+  install guide lists them too.
 - **Importing an egg no longer replaces a template of the same name without
   asking.** Two different eggs can share a name, and so a slug: Pterodactyl's
   Paper imported over Pelican's replaced it, and the servers created

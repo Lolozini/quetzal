@@ -2,6 +2,32 @@ import { FormEvent, useEffect, useState } from "react";
 import { ALL_PERMISSIONS, api, ApiError, ServerAccess } from "../api";
 import { useT } from "../i18n";
 
+// What each permission allows. The names alone left it to guess that "view"
+// also lists the server's backups and schedules, while its files, console and
+// databases each need their own.
+function permissionHelp(t: ReturnType<typeof useT>["t"], p: (typeof ALL_PERMISSIONS)[number]): string {
+  switch (p) {
+    case "view":
+      return t("its page: state, address, usage, backups, schedules and activity");
+    case "power":
+      return t("start, stop, restart and kill it");
+    case "console":
+      return t("its live console and setup log, commands included");
+    case "schedules":
+      return t("its scheduled tasks, within the other permissions");
+    case "backups":
+      return t("take, restore and delete backups");
+    case "files":
+      return t("its files, from the panel and over SFTP");
+    case "settings":
+      return t("its variables, resources, ports, exposure, hibernation, reinstall");
+    case "databases":
+      return t("its databases and their passwords");
+    case "delete":
+      return t("delete it");
+  }
+}
+
 export function Access({ id }: { id: number }) {
   const { t } = useT();
   const [list, setList] = useState<ServerAccess[]>([]);
@@ -72,11 +98,13 @@ export function Access({ id }: { id: number }) {
         <label>{t("Username")}</label>
         <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t("existing account")} required />
         <label>{t("Permissions")}</label>
-        <div className="row" style={{ flexWrap: "wrap", gap: 12 }}>
+        <div className="perm-list">
           {ALL_PERMISSIONS.map((p) => (
-            <label key={p} className="row" style={{ width: "auto" }}>
-              <input type="checkbox" style={{ width: "auto" }} checked={perms.includes(p)} onChange={() => toggle(p)} />
-              &nbsp;{p}
+            <label key={p}>
+              <input type="checkbox" checked={perms.includes(p)} onChange={() => toggle(p)} />
+              <span>
+                <b>{p}</b> <span className="muted">{permissionHelp(t, p)}</span>
+              </span>
             </label>
           ))}
         </div>

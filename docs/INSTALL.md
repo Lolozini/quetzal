@@ -359,6 +359,17 @@ people do when they believe a session was stolen, so it has to be the thing that
 works. API keys are separate credentials and survive it: delete them too if they
 may be compromised.
 
+**What each of a server's permissions allows.** `view` is its page: its state,
+address and resource usage, and the lists of its backups, schedules and
+activity -- a backup's message says what failed, never where the backups go.
+Everything else needs its own permission: `power` to start, stop, restart or
+kill it; `console` for the live console and the setup log, commands included;
+`schedules` to manage its scheduled tasks; `backups` to take, restore and
+delete backups; `files` for its files, in the panel and over SFTP; `settings`
+for its variables, resources, ports, exposure, hibernation and reinstall;
+`databases` for its databases and their passwords; `delete` to delete it. The
+server's Access tab says the same next to each one.
+
 **A subuser's permissions bound what their schedules may do.** A scheduled task
 is checked against the permission the action itself needs — `console` for a
 command, `power` for start/stop/restart, `backups` for a backup — so `schedules`

@@ -1559,9 +1559,16 @@ paths:
                 username: { type: string }
                 permissions:
                   type: array
+                  description: >-
+                    view: the server's page, its usage and the lists of its backups,
+                    schedules and activity; power: start/stop/restart/kill; console:
+                    live console and setup log; schedules: manage scheduled tasks;
+                    backups: take, restore, delete; files: files and SFTP; settings:
+                    variables, resources, ports, exposure, hibernation, reinstall;
+                    databases: databases and their passwords; delete: delete it.
                   items:
                     type: string
-                    enum: [view, power, console, schedules, backups, files, settings, delete]
+                    enum: [view, power, console, schedules, backups, files, settings, databases, delete]
       responses:
         "204": { description: Granted }
   /api/servers/{id}/access/{uid}:
