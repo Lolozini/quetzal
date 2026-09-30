@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, Cluster, CreateServerRequest, ExposeType, PterodactylInspect, Template } from "../api";
+import { api, ApiError, Cluster, CreateServerRequest, ExposeType, PterodactylInspect, Template, wakesOnMinecraftLogin } from "../api";
 import { useT } from "../i18n";
 import { Combobox } from "./Combobox";
-import { PortsEditor, rowsToPorts } from "./PortsEditor";
+import { PortRow, PortsEditor, portsToRows, PROTO_BOTH, rowsToPorts } from "./PortsEditor";
 
 export function CreateServer({
   memoryRequired = false,
@@ -23,7 +23,9 @@ export function CreateServer({
   const [memory, setMemory] = useState("");
   const [cpu, setCpu] = useState("");
   const [size, setSize] = useState("10Gi");
-  const [expose, setExpose] = useState<ExposeType>("ClusterIP");
+  // Players reach a server on a node port unless told otherwise: ClusterIP,
+  // the default until now, made a server nobody outside the cluster could join.
+  const [expose, setExpose] = useState<ExposeType>("NodePort");
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [cluster, setCluster] = useState("");
   const [hibernate, setHibernate] = useState(false);
@@ -38,6 +40,8 @@ export function CreateServer({
   ]);
   // Which custom-ports row is the primary (the port players connect to).
   const [primaryIdx, setPrimaryIdx] = useState(0);
+  // The primary row is the game's port and blank: the form asks for it.
+  const [gamePortRequired, setGamePortRequired] = useState(false);
   const [start, setStart] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -78,22 +82,40 @@ export function CreateServer({
     // Pre-fill the ports editor: templates that declare no ports (imported eggs)
     // expose extra ports as variables (QUERY_PORT, RCON_PORT…). Seed those so the
     // user starts from the egg's ports instead of a blank row.
-    const sugg = t.ports?.length ? [] : t.suggestedPorts ?? [];
+    let rows: PortRow[] = [];
+    let primary = 0;
+    let required = false;
     if (!t.ports?.length && from?.draft.ports?.length) {
       // The source's allocations, default first.
-      setCustomPorts(from.draft.ports.map((p) => ({ port: p.port, protocol: p.protocol })));
-      setPrimaryIdx(0);
-    } else if (sugg.length > 0) {
-      setCustomPorts(sugg.map((p) => ({ port: String(p.port), protocol: (p.protocol || "TCP").toUpperCase() })));
-      const pi = sugg.findIndex((p) => p.primary);
-      setPrimaryIdx(pi >= 0 ? pi : 0);
-    } else {
-      setCustomPorts([{ port: "25565", protocol: "TCP" }]);
-      setPrimaryIdx(0);
+      rows = from.draft.ports.map((p) => ({ port: p.port, protocol: p.protocol }));
+    } else if (!t.ports?.length) {
+      const sugg = portsToRows(t.suggestedPorts ?? []);
+      const mc = wakesOnMinecraftLogin(t);
+      if (sugg.primaryIdx >= 0) {
+        // A variable holds the game's port.
+        rows = sugg.rows;
+        primary = sugg.primaryIdx;
+      } else if (t.allocatedPort || mc) {
+        // The game listens on the port it is given, which no variable holds:
+        // 25565 for Minecraft Java; for another game the form asks, on TCP and
+        // UDP as Wings exposes an allocation. Guessing it from a variable put
+        // Counter-Strike 2 on its SourceTV port, on TCP only.
+        rows = [mc ? { port: "25565", protocol: "TCP" } : { port: "", protocol: PROTO_BOTH }, ...sugg.rows];
+        required = !mc;
+      } else {
+        // No port the egg knows of (a chat bot, say): a blank row, dropped
+        // if it stays blank.
+        rows = [{ port: "", protocol: PROTO_BOTH }];
+      }
     }
+    if (rows.length > 0) {
+      setCustomPorts(rows);
+      setPrimaryIdx(primary);
+    }
+    setGamePortRequired(required);
     // UDP servers can only auto-sleep via the transparent proxy, so default it on.
     setProxy(
-      [...(t.ports ?? []), ...sugg].some((p) => p.protocol.toUpperCase() === "UDP"),
+      [...(t.ports ?? []).map((p) => p.protocol), ...rows.map((r) => r.protocol)].some((p) => p.toUpperCase() !== "TCP"),
     );
   }
 
@@ -310,6 +332,11 @@ export function CreateServer({
               placeholder={memoryRequired ? t("e.g. 4Gi") : t("e.g. 4Gi (optional)")}
               onChange={(e) => setMemory(e.target.value)}
             />
+            {!memoryRequired && !memory.trim() && (
+              <div className="muted" style={{ fontSize: 12 }}>
+                {t("Without a limit the server may use all of its node's memory, and a Java server sizes itself from it.")}
+              </div>
+            )}
           </div>
           <div>
             <label>{t("CPU limit")}</label>
@@ -325,11 +352,14 @@ export function CreateServer({
           <>
             <label>{t("Ports")}</label>
             <div className="muted" style={{ fontSize: 12 }}>
-              {t("This template declares no ports; define them here and pick the primary (the port players connect to).")}
+              {tpl?.allocatedPort
+                ? t("The primary port is the one the game listens on: the egg hands it to the game as SERVER_PORT, so enter the game's usual port. The others come from the egg's variables.")
+                : t("This template declares no ports; define them here and pick the primary (the port players connect to).")}
             </div>
             <PortsEditor
               ports={customPorts}
               primaryIdx={primaryIdx}
+              requirePrimary={gamePortRequired}
               onChange={(p, i) => {
                 setCustomPorts(p);
                 setPrimaryIdx(i);
@@ -342,12 +372,12 @@ export function CreateServer({
           <>
             <label>{t("Network exposure")}</label>
             <select value={expose} onChange={(e) => setExpose(e.target.value as ExposeType)}>
-              <option value="ClusterIP">ClusterIP (in-cluster only)</option>
-              <option value="NodePort">NodePort (node IP : allocated port)</option>
-              <option value="LoadBalancer">LoadBalancer (external IP)</option>
+              <option value="NodePort">{t("NodePort (node IP : allocated port)")}</option>
+              <option value="LoadBalancer">{t("LoadBalancer (external IP)")}</option>
+              <option value="ClusterIP">{t("ClusterIP (in-cluster only)")}</option>
             </select>
             <div className="muted" style={{ fontSize: 12 }}>
-              Ports: {effPorts.map((p) => `${p.port}/${p.protocol}`).join(", ")}
+              {t("Ports: {ports}", { ports: effPorts.map((p) => `${p.port}/${p.protocol}`).join(", ") })}
             </div>
             <label className="row" style={{ marginTop: 8 }}>
               <input
@@ -356,7 +386,7 @@ export function CreateServer({
                 checked={hibernate}
                 onChange={(e) => setHibernate(e.target.checked)}
               />
-              &nbsp;Auto-sleep when idle (no players) after&nbsp;
+              &nbsp;{t("Auto-sleep when idle (no players) after")}&nbsp;
               <input
                 type="number"
                 min={1}
@@ -364,7 +394,7 @@ export function CreateServer({
                 value={idleMin}
                 onChange={(e) => setIdleMin(Number(e.target.value))}
               />
-              &nbsp;min
+              &nbsp;{t("min")}
             </label>
             {hibernate && (
               <>
@@ -377,7 +407,7 @@ export function CreateServer({
                       disabled={proxy}
                       onChange={(e) => setWakeOnConnect(e.target.checked)}
                     />
-                    &nbsp;Wake when a player connects (TCP; first attempt reconnects)
+                    &nbsp;{t("Wake when a player connects (TCP; first attempt reconnects)")}
                   </label>
                 )}
                 <label className="row" style={{ marginTop: 4 }}>
@@ -387,11 +417,11 @@ export function CreateServer({
                     checked={proxy}
                     onChange={(e) => setProxy(e.target.checked)}
                   />
-                  &nbsp;Transparent proxy (TCP+UDP, no reconnect; required for UDP)
+                  &nbsp;{t("Transparent proxy (TCP+UDP, no reconnect; required for UDP)")}
                 </label>
                 {!tcpOnly && !proxy && (
                   <div className="error" style={{ fontSize: 12 }}>
-                    UDP servers need the transparent proxy to auto-sleep.
+                    {t("UDP servers need the transparent proxy to auto-sleep.")}
                   </div>
                 )}
               </>
@@ -420,13 +450,11 @@ export function CreateServer({
                     ))}
                   </select>
                 ) : v.type === "bool" ? (
-                  <select
-                    value={env[v.envVariable] ?? "false"}
-                    onChange={(e) => setEnv({ ...env, [v.envVariable]: e.target.value })}
-                  >
-                    <option value="true">true</option>
-                    <option value="false">false</option>
-                  </select>
+                  <BoolSelect
+                    value={env[v.envVariable]}
+                    fallback={v.default}
+                    onChange={(val) => setEnv({ ...env, [v.envVariable]: val })}
+                  />
                 ) : (
                   <input
                     type={v.secret ? "password" : "text"}
@@ -480,5 +508,19 @@ export function CreateServer({
         </button>
       </form>
     </div>
+  );
+}
+
+// BoolSelect is an egg's boolean variable. Eggs write one as 1/0 as often as
+// true/false, and their scripts test for the form they use, so the choice keeps
+// that form: a true/false choice showed "true" for a 0, and its "false" read as
+// on to a script testing for "0" (Counter-Strike 2's RCON switch).
+function BoolSelect({ value, fallback, onChange }: { value?: string; fallback?: string; onChange: (v: string) => void }) {
+  const [on, off] = /^[01]$/.test(value || fallback || "") ? ["1", "0"] : ["true", "false"];
+  return (
+    <select value={value || off} onChange={(e) => onChange(e.target.value)}>
+      <option value={on}>true</option>
+      <option value={off}>false</option>
+    </select>
   );
 }

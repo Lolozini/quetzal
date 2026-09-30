@@ -36,6 +36,26 @@ export function rowsToPorts(rows: PortRow[], primaryIdx: number): PortIO[] {
   return out;
 }
 
+// portsToRows is the inverse of rowsToPorts, for suggested ports: a TCP and a
+// UDP port on the same number become one "TCP / UDP" row. primaryIdx is the row
+// of the primary port, -1 when none is.
+export function portsToRows(ports: { port: number; protocol: string; primary?: boolean }[]): { rows: PortRow[]; primaryIdx: number } {
+  const rows: PortRow[] = [];
+  let primaryIdx = -1;
+  for (const p of ports) {
+    const protocol = (p.protocol || "TCP").toUpperCase();
+    let i = rows.findIndex((r) => r.port === String(p.port));
+    if (i < 0) {
+      rows.push({ port: String(p.port), protocol });
+      i = rows.length - 1;
+    } else if (rows[i].protocol !== protocol) {
+      rows[i] = { ...rows[i], protocol: PROTO_BOTH };
+    }
+    if (p.primary) primaryIdx = i;
+  }
+  return { rows, primaryIdx };
+}
+
 /**
  * PortsEditor is the per-server ports editor (number + TCP/UDP + a "primary"
  * radio, add/remove rows). Controlled: the parent owns the rows and the primary
@@ -45,10 +65,13 @@ export function rowsToPorts(rows: PortRow[], primaryIdx: number): PortIO[] {
 export function PortsEditor({
   ports,
   primaryIdx,
+  requirePrimary = false,
   onChange,
 }: {
   ports: PortRow[];
   primaryIdx: number;
+  // The form cannot be sent with the primary port blank.
+  requirePrimary?: boolean;
   onChange: (ports: PortRow[], primaryIdx: number) => void;
 }) {
   const { t } = useT();
@@ -76,7 +99,9 @@ export function PortsEditor({
             max={65535}
             style={{ width: 120 }}
             value={p.port}
-            placeholder="25565"
+            required={requirePrimary && i === primaryIdx}
+            placeholder={i === primaryIdx ? t("game port") : ""}
+            aria-label={i === primaryIdx ? t("game port") : t("Port")}
             onChange={(e) => setRow(i, { port: e.target.value })}
           />
           <select

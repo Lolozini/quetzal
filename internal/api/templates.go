@@ -27,7 +27,8 @@ func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
 	// Pre-fill hint for the create form: when the template declares no ports
 	// (imported eggs), suggest ports inferred from its port-like variables.
 	if len(t.Ports) == 0 {
-		t.SuggestedPorts = models.DetectPorts(t.Variables)
+		t.SuggestedPorts = models.DetectPorts(t)
+		t.AllocatedPort = t.UsesAllocation()
 	}
 	writeJSON(w, http.StatusOK, t)
 }

@@ -40,6 +40,11 @@ releases may include breaking changes).
   back button returns to. The server's exposure, hibernation and transfer
   moved to its Settings tab, and so did deleting it, which sat at the top of
   the page.
+- **A new server is exposed on a node port by default.** The create form
+  offered ClusterIP, which only the cluster itself reaches, so a server
+  created without touching the form was one no player could join. It starts
+  on NodePort now, and an administrator who leaves the memory limit blank is
+  told the server may then take all of its node's memory.
 
 ### Fixed
 
@@ -62,6 +67,18 @@ releases may include breaking changes).
   below it from its ⋯ button, and on a narrow screen the top bar takes two
   lines, the folder tree and modification dates give way, and paired fields
   stack.
+- **The create form no longer takes a port variable for an egg's game port.**
+  An egg that hands the game its allocation (`-port {{SERVER_PORT}}`) has no
+  variable for the game's port, and the first port variable was taken for it:
+  Counter-Strike 2's SourceTV port, 27020, where SourceTV also listens, on TCP
+  only, so nobody could join. The form now asks for the game's port, on TCP
+  and UDP as Wings exposes an allocation, suggests the egg's port variables
+  the same way, and fills in 25565 on TCP for Minecraft Java only. An egg with
+  no port, a chat bot say, gets none.
+- **An egg's yes/no variable keeps the egg's 1/0.** The create form offered
+  true/false for every boolean variable: one set to 0 showed "true", and
+  choosing "false" sent a value that a script testing for "0" took as on, so
+  Counter-Strike 2's RCON came on when turned off.
 
 ### Security
 

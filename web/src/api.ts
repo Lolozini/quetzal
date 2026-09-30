@@ -205,8 +205,12 @@ export interface Template {
   variables: TemplateVariable[];
   ports?: { name: string; port: number; protocol: string }[];
   // Ports inferred from port-like variables when the template declares none
-  // (imported eggs); used to pre-fill the create form's ports editor.
+  // (imported eggs), each on TCP and UDP; used to pre-fill the create form's
+  // ports editor. One is primary only when the game's port is a variable.
   suggestedPorts?: { name: string; port: number; protocol: string; primary?: boolean }[];
+  // The egg hands the game its allocation (SERVER_PORT): the game listens on
+  // the primary port it is given, which the create form asks for.
+  allocatedPort?: boolean;
   install?: { image?: string; entrypoint?: string; script?: string };
   features?: string[];
   // How a sleeping server tells a player from a scanner: "minecraft", "any",

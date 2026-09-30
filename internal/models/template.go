@@ -84,6 +84,9 @@ type Template struct {
 	// inferred from the template's port-like variables when the template declares
 	// none (imported eggs allocate ports per server). See DetectPorts.
 	SuggestedPorts []PortSpec `gorm:"-" json:"suggestedPorts,omitempty"`
+	// AllocatedPort, computed like SuggestedPorts, says the game listens on the
+	// port its server is given (UsesAllocation): the create form asks for it.
+	AllocatedPort bool `gorm:"-" json:"allocatedPort,omitempty"`
 
 	// SecurityContext defaults for the workload (overridable per server).
 	SecurityContext SecurityContext `gorm:"serializer:json" json:"securityContext"`
@@ -140,19 +143,27 @@ func (t *Template) DoneLines() []string {
 	return out
 }
 
-// DetectPorts infers per-server ports from a template's port-like variables.
-// Imported eggs declare no ports (Pterodactyl allocates them per server) but
-// expose extra ports as variables (QUERY_PORT, RCON_PORT, STEAM_PORT…). A
-// variable whose name ends in PORT and whose default is a valid port number is
-// surfaced as a suggestion to pre-fill the create form's ports editor. The first
-// match is flagged primary as a default — the main game port is usually the
-// allocation, not a variable, so the user confirms which is primary. A blank/0/
-// non-numeric default means the port is unset or disabled, and is skipped.
-// Returns nil when nothing matches (the editor stays manual).
-func DetectPorts(vars []TemplateVariable) []PortSpec {
+// DetectPorts suggests the ports of a template that declares none: an imported
+// egg, whose ports Pterodactyl allocates per server. They are its port-like
+// variables (QUERY_PORT, RCON_PORT, TV_PORT…): a variable whose name ends in
+// PORT and whose default is a valid port number. A blank/0/non-numeric default
+// means the port is unset or disabled, and is skipped.
+//
+// Each is suggested on TCP and on UDP, as Wings exposes an allocation: an egg
+// does not say which one a port speaks, and a game's port on TCP only is a game
+// nobody can join.
+//
+// None is primary when the egg hands the game its allocation (UsesAllocation):
+// the game's port is that one, which no variable holds. Taking a variable for
+// it instead put Counter-Strike 2 on its SourceTV port, 27020, next to SourceTV
+// itself, and on TCP only. An egg that does not use its allocation has its
+// first port variable as primary.
+// Returns nil when nothing matches.
+func DetectPorts(t *Template) []PortSpec {
+	primary := !t.UsesAllocation()
 	var out []PortSpec
 	seen := map[int32]bool{}
-	for _, v := range vars {
+	for _, v := range t.Variables {
 		name := strings.ToUpper(v.EnvVariable)
 		// Wings globals Quetzal sets itself are not user-allocatable ports.
 		if name == "SERVER_PORT" || name == "SERVER_IP" || name == "SERVER_MEMORY" {
@@ -170,14 +181,29 @@ func DetectPorts(vars []TemplateVariable) []PortSpec {
 			continue
 		}
 		seen[p] = true
-		out = append(out, PortSpec{
-			Name:     portVarName(v.EnvVariable),
-			Port:     p,
-			Protocol: "TCP",
-			Primary:  len(out) == 0,
-		})
+		out = append(out,
+			PortSpec{Name: portVarName(v.EnvVariable), Port: p, Protocol: "TCP", Primary: primary && len(out) == 0},
+			PortSpec{Name: portVarName(v.EnvVariable), Port: p, Protocol: "UDP"},
+		)
 	}
 	return out
+}
+
+// UsesAllocation reports whether an egg hands the game its Pterodactyl
+// allocation: SERVER_PORT in its startup, or server.build.default.port in its
+// config files. The game then listens on whatever port its server is given.
+func (t *Template) UsesAllocation() bool {
+	if strings.Contains(t.Startup, "SERVER_PORT") {
+		return true
+	}
+	for _, f := range t.ConfigFiles {
+		for _, v := range f.Find {
+			if strings.Contains(v, "SERVER_PORT") || strings.Contains(v, "server.build.default.port") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // portVarName derives a short, DNS-friendly Service port name from a port

@@ -270,7 +270,8 @@ func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 	// the create form can pre-fill the per-server ports editor.
 	for i := range ts {
 		if len(ts[i].Ports) == 0 {
-			ts[i].SuggestedPorts = models.DetectPorts(ts[i].Variables)
+			ts[i].SuggestedPorts = models.DetectPorts(&ts[i])
+			ts[i].AllocatedPort = ts[i].UsesAllocation()
 		}
 	}
 	writeJSON(w, http.StatusOK, ts)

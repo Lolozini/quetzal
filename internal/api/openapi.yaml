@@ -2436,8 +2436,18 @@ components:
           description: >-
             Computed (not persisted) port suggestions inferred from the
             template's port-like variables, returned only when the template
-            declares no ports. Used to pre-fill the create form's ports editor.
+            declares no ports. Each variable's port comes on TCP and on UDP, as
+            Wings exposes an allocation; one is primary only when the template
+            does not use its allocation (see allocatedPort). Used to pre-fill
+            the create form's ports editor.
           items: { $ref: "#/components/schemas/Port" }
+        allocatedPort:
+          type: boolean
+          description: >-
+            Computed, and returned only when the template declares no ports:
+            the egg hands the game its allocation (SERVER_PORT in its startup,
+            server.build.default.port in its config files), so the game listens
+            on the primary port its server is given, which no variable holds.
     ScheduleTask:
       type: object
       required: [action]

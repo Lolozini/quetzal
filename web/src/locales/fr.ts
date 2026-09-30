@@ -72,6 +72,20 @@ export const fr: Record<string, string> = {
   "Volume size": "Taille du volume",
   "Host path": "Chemin hôte",
   "Network exposure": "Exposition réseau",
+  "NodePort (node IP : allocated port)": "NodePort (IP du nœud : port attribué)",
+  "LoadBalancer (external IP)": "LoadBalancer (IP externe)",
+  "ClusterIP (in-cluster only)": "ClusterIP (dans le cluster seulement)",
+  "Ports: {ports}": "Ports : {ports}",
+  "Auto-sleep when idle (no players) after": "Mise en veille auto sans joueurs après",
+  "Wake when a player connects (TCP; first attempt reconnects)":
+    "Réveiller à la connexion d'un joueur (TCP ; la première tentative se reconnecte)",
+  "Transparent proxy (TCP+UDP, no reconnect; required for UDP)":
+    "Proxy transparent (TCP+UDP, sans reconnexion ; requis pour l'UDP)",
+  "Without a limit the server may use all of its node's memory, and a Java server sizes itself from it.":
+    "Sans limite, le serveur peut prendre toute la mémoire de son nœud, et un serveur Java se dimensionne d'après elle.",
+  "The primary port is the one the game listens on: the egg hands it to the game as SERVER_PORT, so enter the game's usual port. The others come from the egg's variables.":
+    "Le port principal est celui où le jeu écoute : l'egg le lui transmet en SERVER_PORT, indiquez donc le port habituel du jeu. Les autres viennent des variables de l'egg.",
+  "game port": "port du jeu",
   Variables: "Variables",
   "Start immediately": "Démarrer immédiatement",
 
