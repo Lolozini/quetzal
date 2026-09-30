@@ -40,6 +40,13 @@ releases may include breaking changes).
   that word, and the server stayed "Starting" for five minutes. The message
   now says how the game ended ("the game exited with code 1", or that it ran
   out of memory) instead of repeating the kubelet's back-off line.
+- **Backups and restores notify when they end.** Only the request that
+  started one was an event, so a scheduled backup failing every night, on an
+  expired key or a full bucket, was told to no one. Four events now say how
+  they ended, with the error when there is one: `backup.succeeded`,
+  `backup.failed`, `restore.succeeded` and `restore.failed`. They reach the
+  channels that take every event and the server's activity log; a channel
+  that filters its events needs them ticked.
 
 ## [0.5.0] - 2026-09-28
 

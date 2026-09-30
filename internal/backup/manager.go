@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sort"
 	"strings"
@@ -440,7 +441,55 @@ func (m *Manager) finish(b *models.Backup, phase models.BackupPhase, size int64,
 	b.CompletedAt = &now
 	if err := m.Store.UpdateBackup(b); err != nil {
 		log.Printf("backup: finish %d: %v", b.ID, err)
+		return
 	}
+	m.announce(b)
+}
+
+// announce records how an operation ended as an event, which the notification
+// channels and the server's activity log both read. Nothing did: a scheduled
+// backup that failed every night, on an expired key or a full bucket, failed
+// in silence. An operation whose server is gone is not announced.
+func (m *Manager) announce(b *models.Backup) {
+	srv, err := m.Store.GetServer(b.ServerID)
+	if err != nil {
+		return
+	}
+	var typ, text string
+	switch {
+	case b.Direction == models.DirRestore && b.Phase == models.BackupSucceeded:
+		typ, text = models.EventRestoreSucceeded, fmt.Sprintf("restored backup #%d", b.SourceID)
+	case b.Direction == models.DirRestore:
+		typ, text = models.EventRestoreFailed, fmt.Sprintf("restoring backup #%d failed: %s", b.SourceID, b.Message)
+	case b.Phase == models.BackupSucceeded:
+		typ, text = models.EventBackupSucceeded, fmt.Sprintf("backup #%d completed", b.ID)
+		if b.SizeBytes > 0 {
+			text += fmt.Sprintf(" (%s)", byteSize(b.SizeBytes))
+		}
+	default:
+		typ, text = models.EventBackupFailed, fmt.Sprintf("backup #%d failed: %s", b.ID, b.Message)
+	}
+	if err := m.Store.AddEvent(&models.Event{ServerID: srv.ID, Type: typ, Message: srv.Slug + ": " + text}); err != nil {
+		log.Printf("backup: announce %d: %v", b.ID, err)
+	}
+}
+
+// byteSize writes a size the way the panel shows one: 1.4 GiB, 292 MiB.
+func byteSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	v := float64(n) / float64(div)
+	if v >= 100 {
+		return fmt.Sprintf("%.0f %ciB", v, "KMGTPE"[exp])
+	}
+	return fmt.Sprintf("%.1f %ciB", v, "KMGTPE"[exp])
 }
 
 // redactRepository removes the restic repository URL from a message destined for

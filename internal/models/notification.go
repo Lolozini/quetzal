@@ -38,14 +38,21 @@ const (
 	EventServerTransfer      = "server.transfer"   // controller: cross-cluster move
 	EventBackupCreate        = "backup.create"
 	EventBackupRestore       = "backup.restore"
-	EventScheduleCreate      = "schedule.create"
-	EventScheduleDelete      = "schedule.delete"
-	EventUserCreate          = "user.create"
-	EventUserUpdate          = "user.update"
-	EventUserDelete          = "user.delete"
-	EventClusterCreate       = "cluster.create"
-	EventClusterUpdate       = "cluster.update"
-	EventClusterDelete       = "cluster.delete"
+	// How a backup or a restore ended, scheduled or not. The two above are the
+	// requests that start one, so a nightly backup failing used to be told to
+	// no one.
+	EventBackupSucceeded  = "backup.succeeded"
+	EventBackupFailed     = "backup.failed"
+	EventRestoreSucceeded = "restore.succeeded"
+	EventRestoreFailed    = "restore.failed"
+	EventScheduleCreate   = "schedule.create"
+	EventScheduleDelete   = "schedule.delete"
+	EventUserCreate       = "user.create"
+	EventUserUpdate       = "user.update"
+	EventUserDelete       = "user.delete"
+	EventClusterCreate    = "cluster.create"
+	EventClusterUpdate    = "cluster.update"
+	EventClusterDelete    = "cluster.delete"
 )
 
 // NotificationChannel is a configured outbound sink. Its type-specific settings

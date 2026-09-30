@@ -559,6 +559,10 @@ export const EVENT_TYPES = [
   "server.delete",
   "backup.create",
   "backup.restore",
+  "backup.succeeded",
+  "backup.failed",
+  "restore.succeeded",
+  "restore.failed",
   "schedule.create",
   "server.transfer",
 ] as const;
