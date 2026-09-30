@@ -7,6 +7,32 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-30
+
+New accounts closed until an administrator opens them, and five security
+fixes. An account created without quotas could create as many servers as it
+liked; a new one now creates none until it is given some. Someone guessing at
+the administrator's password no longer locks them out of the panel, a
+suspended server is frozen for its owner, who could delete it before anyone
+looked into it, and requiring a second factor no longer locks out the
+superadmin who requires it. Backups record where they went, and the panel says
+when a node goes down.
+
+**Upgrading from 0.5.1** — four things behave differently. Game servers keep
+running through the upgrade.
+
+- In a quota, `0` now means none and `-1` unlimited, and a new account may own
+  no server until an administrator gives it some. Existing accounts are
+  converted once and keep what they could do; a script that sets quotas
+  through the API must send `-1` where it sent 0. See *Changed*.
+- A server created by anyone but an administrator needs a memory limit. See
+  *Changed*.
+- The owner and subusers of a suspended server can only look at it: anything
+  else answers 409, file requests included, which answered 403. See
+  *Security*.
+- A superadmin needs a second factor of their own before requiring one. See
+  *Security*.
+
 ### Changed
 
 - **A new account creates no server until an administrator allows it.** An
@@ -46,6 +72,15 @@ releases may include breaking changes).
 
 ### Security
 
+- **Failed sign-ins no longer lock an account's owner out.** Ten wrong
+  passwords for an account, from anywhere, blocked it for everyone for fifteen
+  minutes, so anyone who could reach the panel could keep its administrator
+  out with forty requests an hour. A browser that has signed in to an account
+  now keeps a cookie that gives it a count of its own; the others still share
+  the account's, so guessing from many addresses gets no further than before.
+  Signing in also stopped clearing the per-address count, which let someone
+  with an account of their own reset it between two volleys at others, and an
+  IPv6 address now counts with the rest of its /64.
 - **A suspended server is frozen for its owner and subusers.** Suspension
   refused them power and files and nothing else, so the owner of a server
   suspended for abuse could still delete it, data and all, before anyone
@@ -76,15 +111,6 @@ releases may include breaking changes).
   now do: a backup target's entry names where it points and which secrets
   changed, never their values, and a schedule's entries show the commands it
   sends.
-- **Failed sign-ins no longer lock an account's owner out.** Ten wrong
-  passwords for an account, from anywhere, blocked it for everyone for fifteen
-  minutes, so anyone who could reach the panel could keep its administrator
-  out with forty requests an hour. A browser that has signed in to an account
-  now keeps a cookie that gives it a count of its own; the others still share
-  the account's, so guessing from many addresses gets no further than before.
-  Signing in also stopped clearing the per-address count, which let someone
-  with an account of their own reset it between two volleys at others, and an
-  IPv6 address now counts with the rest of its /64.
 
 ## [0.5.1] - 2026-09-30
 
@@ -1105,7 +1131,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/lolozini/quetzal/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/lolozini/quetzal/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/lolozini/quetzal/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lolozini/quetzal/compare/v0.3.1...v0.4.0
