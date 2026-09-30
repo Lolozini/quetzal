@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, Template } from "../api";
+import { api, ApiError, ImportConflict, ImportIfExists, Template } from "../api";
 import { useT } from "../i18n";
 import { Collapsible } from "./Collapsible";
 
@@ -15,6 +15,9 @@ export function Templates() {
   const [importUrl, setImportUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<{ slug: string; json: string } | null>(null);
+  // An import refused because its slug is taken: what the panel said, and the
+  // same import again with the admin's answer.
+  const [conflict, setConflict] = useState<{ message: string; retry: (ifExists: ImportIfExists) => void } | null>(null);
 
   async function load() {
     try {
@@ -27,29 +30,45 @@ export function Templates() {
     load();
   }, []);
 
-  async function importFrom(promise: Promise<Template>, ok: (t: Template) => string) {
+  // importFrom runs an import. One whose slug another template has is refused
+  // rather than replacing it, a different egg sharing its name included: the
+  // admin is asked whether to replace that template or to add this one.
+  async function importFrom(run: (ifExists?: ImportIfExists) => Promise<Template>, ok: (t: Template) => string, ifExists?: ImportIfExists) {
     setBusy(true);
     setError("");
     setMsg("");
+    setConflict(null);
     try {
-      setMsg(ok(await promise));
+      setMsg(ok(await run(ifExists)));
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      const taken = e instanceof ApiError && e.status === 409 && !ifExists ? (e.data as ImportConflict | undefined)?.existing : undefined;
+      if (taken) {
+        setConflict({
+          message: tr('A template "{name}" ({slug}, version {version}) already exists, used by {servers} server(s).', {
+            name: taken.name, slug: taken.slug, version: taken.version, servers: taken.servers,
+          }),
+          retry: (mode) => importFrom(run, ok, mode),
+        });
+      } else {
+        setError(e instanceof ApiError ? e.message : String(e));
+      }
     } finally {
       setBusy(false);
     }
   }
 
   async function doImportUrl() {
-    await importFrom(api.importEggUrl(importUrl.trim()), (t) => {
+    const url = importUrl.trim();
+    await importFrom((ifExists) => api.importEggUrl(url, ifExists), (t) => {
       setImportUrl("");
       return tr('Imported "{name}".', { name: t.name });
     });
   }
 
   async function doImport() {
-    await importFrom(api.importEgg(importJson), (t) => {
+    const json = importJson;
+    await importFrom((ifExists) => api.importEgg(json, ifExists), (t) => {
       setImportJson("");
       return tr('Imported "{name}".', { name: t.name });
     });
@@ -142,7 +161,7 @@ export function Templates() {
       ) : (
         <div style={{ marginTop: 12 }}>
           <h3>{tr("Import an egg")}</h3>
-          <p className="muted">{tr("Paste a Pterodactyl/Pelican egg, or a template exported from another install. Importing one whose name matches an existing template updates it.")}</p>
+          <p className="muted">{tr("Paste a Pterodactyl/Pelican egg, or a template exported from another install. If a template already has its name, you choose whether to replace it or to add this one beside it.")}</p>
           <textarea
             value={importJson}
             onChange={(e) => setImportJson(e.target.value)}
@@ -173,6 +192,16 @@ export function Templates() {
 
           {/* Feedback sits with the import controls: this panel scrolls, so a
               message at the bottom of the card would be missed. */}
+          {conflict && (
+            <div className="notice warn" style={{ marginTop: 8 }}>
+              <div>{conflict.message}</div>
+              <div className="row" style={{ marginTop: 8 }}>
+                <button className="danger" disabled={busy} onClick={() => conflict.retry("replace")}>{tr("Replace it")}</button>
+                <button disabled={busy} onClick={() => conflict.retry("copy")}>{tr("Import as a new template")}</button>
+                <button disabled={busy} onClick={() => setConflict(null)}>{tr("Cancel")}</button>
+              </div>
+            </div>
+          )}
           {msg && <div className="notice" style={{ marginTop: 8 }}>{msg}</div>}
           {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
         </div>

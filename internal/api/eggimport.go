@@ -38,13 +38,7 @@ func (s *Server) handleImportEggURL(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, eggParseError(data, err))
 		return
 	}
-	saved, err := s.Store.UpsertTemplate(t)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	s.audit(r, 0, "template.import-url", saved.Slug)
-	writeJSON(w, http.StatusCreated, saved)
+	s.saveImport(w, r, t, "template.import-url")
 }
 
 // rawFileURL rewrites a repository *page* URL into the raw-file URL that serves

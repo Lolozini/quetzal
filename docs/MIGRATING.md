@@ -47,8 +47,13 @@ curl -X POST https://quetzal.example.com/api/templates/import-url \
 
 Things to know:
 
-- Importing an egg whose name matches an existing template **updates** that
-  template (and bumps its version) instead of adding a second one.
+- An egg whose name matches an existing template is **not** imported over it:
+  two different eggs can share a name (Pelican's and Pterodactyl's Paper).
+  The panel says which template is in the way and asks whether to replace it
+  or to add the egg beside it (as `paper-2`). Through the API, the import
+  answers 409 and takes `?ifExists=replace` (update that template, bumping
+  its version) or `?ifExists=copy`; re-importing an egg to update it needs
+  `?ifExists=replace`.
 - The two files of one egg are not always identical: the YAML is usually the
   newer one (it may list more images, e.g. a newer Java).
 - The first image the egg lists is the template's default, as in Pterodactyl.

@@ -591,9 +591,11 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   });
   if (!res.ok) {
     let msg = res.statusText;
+    let data: unknown;
     try {
-      const data = await res.json();
-      if (data?.error) msg = data.error;
+      data = await res.json();
+      const e = (data as { error?: string } | null)?.error;
+      if (e) msg = e;
     } catch {
       /* ignore */
     }
@@ -601,7 +603,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     if (res.status === 401) {
       window.dispatchEvent(new Event("quetzal:unauthorized"));
     }
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, data);
   }
   // Any success may legitimately carry no body — 204 on a delete, 202 when the
   // work was only accepted — so parse only what is actually there. Calling
@@ -620,10 +622,20 @@ export interface PolicyImpact {
   apiKeys: number;
 }
 
+// What an egg import does when its template's slug is taken.
+export type ImportIfExists = "replace" | "copy";
+
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  // data is the error's JSON body, for the errors that say more than a message
+  // (an egg import's 409 describes the template in the way).
+  constructor(public status: number, message: string, public data?: unknown) {
     super(message);
   }
+}
+
+// ImportConflict is the body of an egg import refused because its slug is taken.
+export interface ImportConflict {
+  existing: { slug: string; name: string; version: number; servers: number };
 }
 
 // rawTemplate sends a raw JSON string body (the egg / native template), not a
@@ -637,13 +649,15 @@ async function rawTemplate(method: string, path: string, body: string): Promise<
   });
   if (!res.ok) {
     let msg = res.statusText;
+    let data: unknown;
     try {
-      msg = (await res.json()).error || msg;
+      data = await res.json();
+      msg = (data as { error?: string } | null)?.error || msg;
     } catch {
       /* ignore */
     }
     if (res.status === 401) window.dispatchEvent(new Event("quetzal:unauthorized"));
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, data);
   }
   return (await res.json()) as Template;
 }
@@ -683,13 +697,17 @@ export const api = {
 
   templates: () => req<Template[]>("GET", "/api/templates"),
   template: (slug: string) => req<Template>("GET", `/api/templates/${slug}`),
-  // Egg/template management (admin). Import/update send raw JSON bodies.
-  importEgg: async (eggJson: string): Promise<Template> => rawTemplate("POST", "/api/templates/import", eggJson),
+  // Egg/template management (admin). Import/update send raw JSON bodies. An
+  // import whose slug is taken is refused (409) unless ifExists says to replace
+  // that template or to add a copy beside it.
+  importEgg: async (eggJson: string, ifExists?: ImportIfExists): Promise<Template> =>
+    rawTemplate("POST", `/api/templates/import${ifExists ? `?ifExists=${ifExists}` : ""}`, eggJson),
   updateTemplate: async (slug: string, templateJson: string): Promise<Template> =>
     rawTemplate("PUT", `/api/templates/${slug}`, templateJson),
   deleteTemplate: (slug: string) => req<void>("DELETE", `/api/templates/${slug}`),
   templateExportUrl: (slug: string) => `/api/templates/${slug}/export`,
-  importEggUrl: (url: string) => req<Template>("POST", "/api/templates/import-url", { url }),
+  importEggUrl: (url: string, ifExists?: ImportIfExists) =>
+    req<Template>("POST", `/api/templates/import-url${ifExists ? `?ifExists=${ifExists}` : ""}`, { url }),
   // q narrows by slug or display name, filtered in the database rather than
   // after shipping every server to the browser.
   servers: (q?: string) =>

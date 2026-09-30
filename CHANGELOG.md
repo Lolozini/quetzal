@@ -45,6 +45,14 @@ releases may include breaking changes).
   created without touching the form was one no player could join. It starts
   on NodePort now, and an administrator who leaves the memory limit blank is
   told the server may then take all of its node's memory.
+- **Importing an egg no longer replaces a template of the same name without
+  asking.** Two different eggs can share a name, and so a slug: Pterodactyl's
+  Paper imported over Pelican's replaced it, and the servers created
+  afterwards lost Java 25. Such an import is now refused with a 409 that
+  names the template in the way and the servers using it; the panel asks
+  whether to replace it or to add the egg beside it (`paper-2`), and the API
+  takes `?ifExists=replace` or `?ifExists=copy`. A script that re-imports an
+  egg to update it needs `?ifExists=replace`.
 
 ### Fixed
 

@@ -162,3 +162,28 @@ func TestImportEggHTMLGivesActionableError(t *testing.T) {
 		t.Errorf("error should explain the page/raw mistake: %s", rr.Body.String())
 	}
 }
+
+// The import from a URL follows the same rule: an egg whose slug is taken is
+// refused, unless the request says to replace it.
+func TestImportEggURLDoesNotSilentlyReplace(t *testing.T) {
+	s := eggTestServer(t)
+	s.Fetch = func(_ context.Context, _ string, _ int64) ([]byte, error) { return []byte(eggJSON), nil }
+	imp := func(query string) int {
+		rr := httptest.NewRecorder()
+		s.handleImportEggURL(rr, asUser(httptest.NewRequest(http.MethodPost, "/api/templates/import-url"+query,
+			strings.NewReader(`{"url":"https://eggs.example/catalog-egg.json"}`)), admin))
+		return rr.Code
+	}
+	if code := imp(""); code != http.StatusCreated {
+		t.Fatalf("first import = %d", code)
+	}
+	if code := imp(""); code != http.StatusConflict {
+		t.Errorf("the same slug again = %d, want 409", code)
+	}
+	if code := imp("?ifExists=replace"); code != http.StatusCreated {
+		t.Errorf("replace = %d, want 201", code)
+	}
+	if tpl, _ := s.Store.GetTemplateBySlug("catalog-egg"); tpl == nil || tpl.Version != 2 {
+		t.Errorf("replacing did not update the template: %+v", tpl)
+	}
+}

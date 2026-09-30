@@ -34,8 +34,9 @@ func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleImportEgg imports a Pterodactyl/Pelican egg JSON as a template (admin).
-// The request body is the raw egg JSON. Importing an egg whose name slugifies to
-// an existing template updates it (and bumps its version).
+// The request body is the raw egg JSON. An egg whose name slugifies to an
+// existing template's slug is refused unless the request says what to do: see
+// saveImport.
 func (s *Server) handleImportEgg(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPerm(w, r, models.AdminPermTemplates) {
 		return
@@ -50,13 +51,66 @@ func (s *Server) handleImportEgg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, eggParseError(data, err))
 		return
 	}
+	s.saveImport(w, r, t, "template.import")
+}
+
+// saveImport saves an imported template. An import whose slug another template
+// already had replaced that template without a word, a different egg sharing
+// its name included: Pterodactyl's Paper imported over Pelican's took Java 25
+// from the servers created afterwards. Such an import is now refused with a
+// 409 that says what is there, unless the request asks, with ifExists=replace
+// to update that template (bumping its version), or with ifExists=copy to add
+// this one beside it under the next free slug (paper-2, "Paper (2)").
+func (s *Server) saveImport(w http.ResponseWriter, r *http.Request, t *models.Template, action string) {
+	ifExists := r.URL.Query().Get("ifExists")
+	if ifExists != "" && ifExists != "replace" && ifExists != "copy" {
+		writeError(w, http.StatusBadRequest, `ifExists must be "replace" or "copy"`)
+		return
+	}
+	detail := t.Slug
+	existing, err := s.Store.GetTemplateBySlug(t.Slug)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	case ifExists == "replace":
+		detail += fmt.Sprintf(" (replaced version %d)", existing.Version)
+	case ifExists == "copy":
+		if !s.copySlug(t) {
+			writeError(w, http.StatusConflict, "no free slug for a copy of "+t.Slug)
+			return
+		}
+		detail = t.Slug + " (copy of " + existing.Slug + ")"
+	default:
+		n, _ := s.Store.CountServersByTemplate(existing.ID)
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": fmt.Sprintf("a template %q (%s, version %d) already exists, used by %d server(s): replace it, or import this one as a new template",
+				existing.Name, existing.Slug, existing.Version, n),
+			"existing": map[string]any{"slug": existing.Slug, "name": existing.Name, "version": existing.Version, "servers": n},
+		})
+		return
+	}
 	saved, err := s.Store.UpsertTemplate(t)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit(r, 0, "template.import", saved.Slug)
+	s.audit(r, 0, action, detail)
 	writeJSON(w, http.StatusCreated, saved)
+}
+
+// copySlug gives an imported template the first free slug after its own, and
+// numbers its name the same way.
+func (s *Server) copySlug(t *models.Template) bool {
+	for i := 2; i < 100; i++ {
+		slug := fmt.Sprintf("%s-%d", t.Slug, i)
+		if _, err := s.Store.GetTemplateBySlug(slug); errors.Is(err, store.ErrNotFound) {
+			t.Slug, t.Name = slug, fmt.Sprintf("%s (%d)", t.Name, i)
+			return true
+		}
+	}
+	return false
 }
 
 // handleUpdateTemplate replaces a template from native Quetzal template JSON

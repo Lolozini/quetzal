@@ -37,8 +37,9 @@ function localeKeys(file) {
 }
 
 // A template literal with a ${...} hole is a runtime-built key, not a literal
-// one, so it can't be looked up here.
-const call = /\bt\(\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/g;
+// one, so it can't be looked up here. Templates.tsx calls its translator tr, t
+// being a template there.
+const call = /\b(?:t|tr)\(\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)/g;
 const used = new Map();
 for (const file of walk(srcRoot)) {
   for (const m of readFileSync(file, "utf8").matchAll(call)) {
