@@ -987,3 +987,42 @@ func TestQuotaMigrationRunsOnce(t *testing.T) {
 		t.Errorf("a new closed account was reopened by a later start: %v", got)
 	}
 }
+
+// A database from before the unique index may hold a key twice for one user.
+// The upgrade keeps the oldest row of each and puts the index in place, where
+// creating it over the duplicates would have failed the migration.
+func TestMigrationDropsDuplicateSSHKeys(t *testing.T) {
+	st := newTestStore(t)
+	if err := st.db.Migrator().DropIndex(&models.SSHKey{}, models.SSHKeyUniqueIndex); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []models.SSHKey{
+		{UserID: 1, Name: "laptop", PublicKey: "ssh-ed25519 AAAA1", Fingerprint: "fp1"},
+		{UserID: 1, Name: "laptop again", PublicKey: "ssh-ed25519 AAAA1", Fingerprint: "fp1"},
+		{UserID: 1, Name: "desktop", PublicKey: "ssh-ed25519 AAAA2", Fingerprint: "fp2"},
+		{UserID: 2, Name: "the same laptop key", PublicKey: "ssh-ed25519 AAAA1", Fingerprint: "fp1"},
+	} {
+		if err := st.AddSSHKey(&k); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.Migrate(); err != nil {
+		t.Fatalf("migrate over duplicates: %v", err)
+	}
+	var names []string
+	for _, uid := range []uint{1, 2} {
+		ks, err := st.ListSSHKeysForUser(uid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, k := range ks {
+			names = append(names, k.Name)
+		}
+	}
+	if got := strings.Join(names, ", "); got != "laptop, desktop, the same laptop key" {
+		t.Errorf("keys after the upgrade: %s", got)
+	}
+	if err := st.AddSSHKey(&models.SSHKey{UserID: 1, Name: "third", PublicKey: "ssh-ed25519 AAAA1", Fingerprint: "fp1"}); !errors.Is(err, ErrDuplicate) {
+		t.Errorf("adding the key again after the upgrade = %v, want ErrDuplicate", err)
+	}
+}

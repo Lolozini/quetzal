@@ -8,9 +8,35 @@ import (
 	"github.com/lolozini/quetzal/internal/models"
 )
 
-// AddSSHKey stores a user's SSH public key.
+// AddSSHKey stores a user's SSH public key: ErrDuplicate when they already hold
+// it.
 func (s *Store) AddSSHKey(k *models.SSHKey) error {
-	return s.db.Create(k).Error
+	err := s.db.Create(k).Error
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return ErrDuplicate
+	}
+	return err
+}
+
+// SSHKeyByFingerprint returns the user's key with that fingerprint.
+func (s *Store) SSHKeyByFingerprint(userID uint, fingerprint string) (*models.SSHKey, error) {
+	var k models.SSHKey
+	err := s.db.Where("user_id = ? AND fingerprint = ?", userID, fingerprint).First(&k).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	return &k, err
+}
+
+// dedupSSHKeys keeps one row per key a user registered more than once, the
+// oldest, before autoMigrate adds the index that forbids it again: with two
+// rows for one key, deleting either left the key working through the other.
+func (s *Store) dedupSSHKeys() error {
+	m := s.db.Migrator()
+	if !m.HasTable(&models.SSHKey{}) || m.HasIndex(&models.SSHKey{}, models.SSHKeyUniqueIndex) {
+		return nil
+	}
+	return s.db.Exec("DELETE FROM ssh_keys WHERE id NOT IN (SELECT MIN(id) FROM ssh_keys GROUP BY user_id, fingerprint)").Error
 }
 
 // ListSSHKeysForUser returns a user's keys.

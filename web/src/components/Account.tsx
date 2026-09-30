@@ -265,7 +265,9 @@ function SSHKeys() {
       setPub("");
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      const existing = err instanceof ApiError && err.status === 409 ? (err.data as { existing?: { name: string } })?.existing : undefined;
+      if (existing) setError(t('This key is already on your account, as "{name}".', { name: existing.name }));
+      else setError(err instanceof ApiError ? err.message : String(err));
     }
   }
 

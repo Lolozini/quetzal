@@ -126,6 +126,13 @@ releases may include breaking changes).
   on it reach every port of that address, the cloud metadata endpoint
   included had a host been pointed at it. It is the database port only now,
   and link-local and loopback addresses never get through.
+- **Deleting an SSH key revokes it.** The same public key could be added to
+  an account twice, and deleting one of the two left the key working through
+  the other: an SFTP session stayed open after its key was deleted. A key is
+  on an account once now, and adding it again is refused with a 409 that
+  names it. The upgrade keeps the oldest of a key an account holds twice and
+  removes the others. Another account may still add the same key: SFTP logs
+  into the account its username names.
 - **A failed backup no longer gives away the object store's address.** A
   backup's message is readable by anyone who can see the server, and the
   backup target by administrators only. The repository's URL was taken out of

@@ -190,6 +190,9 @@ func (s *Store) OpenSecrets(blob string) (map[string]string, error) {
 // correct either way — so retry on exactly that error: once the other process
 // finishes, AutoMigrate is a no-op and succeeds.
 func (s *Store) Migrate() error {
+	if err := s.dedupSSHKeys(); err != nil {
+		return err
+	}
 	var err error
 	for attempt := 0; attempt < 5; attempt++ {
 		if err = s.autoMigrate(); err == nil || !isConcurrentMigrationError(err) {

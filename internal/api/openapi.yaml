@@ -546,6 +546,20 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SSHKey" }
         "400": { description: Invalid SSH public key }
+        "409":
+          description: The key is already on your account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  existing:
+                    type: object
+                    description: The key already registered
+                    properties:
+                      id: { type: integer }
+                      name: { type: string }
   /api/me/sshkeys/{kid}:
     parameters:
       - { name: kid, in: path, required: true, schema: { type: integer } }

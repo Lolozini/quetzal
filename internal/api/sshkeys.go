@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -10,6 +12,7 @@ import (
 
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
+	"github.com/lolozini/quetzal/internal/store"
 )
 
 func (s *Server) handleListSSHKeys(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +53,20 @@ func (s *Server) handleAddSSHKey(w http.ResponseWriter, r *http.Request) {
 		PublicKey:   strings.TrimSpace(string(ssh.MarshalAuthorizedKey(pub))),
 		Fingerprint: ssh.FingerprintSHA256(pub),
 	}
+	// Once per account: with two rows for one key, deleting either left the key
+	// working through the other, so "revoke" revoked nothing.
+	if old, err := s.Store.SSHKeyByFingerprint(u.ID, key.Fingerprint); err == nil {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":    fmt.Sprintf("this key is already on your account, as %q", old.Name),
+			"existing": map[string]any{"id": old.ID, "name": old.Name},
+		})
+		return
+	}
 	if err := s.Store.AddSSHKey(key); err != nil {
+		if errors.Is(err, store.ErrDuplicate) {
+			writeError(w, http.StatusConflict, "this key is already on your account")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "could not store key")
 		return
 	}

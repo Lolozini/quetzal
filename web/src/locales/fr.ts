@@ -593,6 +593,7 @@ export const fr: Record<string, string> = {
   "Public key": "Clé publique",
   "Add key": "Ajouter la clé",
   'Delete SSH key "{name}"?': "Supprimer la clé SSH « {name} » ?",
+  'This key is already on your account, as "{name}".': "Cette clé est déjà sur votre compte, sous le nom « {name} ».",
   "API keys": "Clés d'API",
   "Use as a bearer token:": "À utiliser comme jeton bearer :",
   "A key inherits your permissions.": "Une clé hérite de vos permissions.",
