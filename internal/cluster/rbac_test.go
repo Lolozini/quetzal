@@ -1,13 +1,18 @@
 package cluster
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/lolozini/quetzal/internal/models"
 )
 
 // The manifest handed to an operator registering a remote cluster grants the
@@ -124,5 +129,65 @@ func TestRemoteManifestIsValidYAML(t *testing.T) {
 		if strings.Contains(d, "kind: ClusterRoleBinding") && strings.Contains(d, RemoteServiceAccount+"-namespaced") {
 			t.Error("the namespaced role is bound cluster-wide, which undoes the split")
 		}
+	}
+}
+
+// The control plane binds a role to itself in each namespace it creates. On a
+// remote cluster that has to be the role the manifest creates there, and one
+// its account may bind. 0.5.0 bound the chart's role on every cluster; a remote
+// one refused ("attempting to grant RBAC permissions not currently held"), and
+// no server ran on a cluster registered as documented.
+func TestRemoteClustersBindTheManifestRole(t *testing.T) {
+	type doc struct {
+		Kind     string `yaml:"kind"`
+		Metadata struct {
+			Name string `yaml:"name"`
+		} `yaml:"metadata"`
+		Rules   []PolicyRule `yaml:"rules"`
+		RoleRef struct {
+			Name string `yaml:"name"`
+		} `yaml:"roleRef"`
+	}
+	roles := map[string][]PolicyRule{}
+	var boundClusterWide []string
+	dec := yaml.NewDecoder(strings.NewReader(RemoteManifest()))
+	for {
+		var d doc
+		err := dec.Decode(&d)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("parse manifest: %v", err)
+		}
+		switch d.Kind {
+		case "ClusterRole":
+			roles[d.Metadata.Name] = d.Rules
+		case "ClusterRoleBinding":
+			boundClusterWide = append(boundClusterWide, d.RoleRef.Name)
+		}
+	}
+
+	remote := NamespacedRole(&models.Cluster{Slug: "remote"}, "quetzal-namespaced")
+	if _, ok := roles[remote]; !ok {
+		t.Fatalf("a remote cluster binds %q, which the manifest does not create", remote)
+	}
+	if slices.Contains(boundClusterWide, remote) {
+		t.Errorf("the manifest binds %q across the cluster; it is meant for the namespaces Quetzal creates only", remote)
+	}
+	mayBind := false
+	for _, name := range boundClusterWide {
+		for _, r := range roles[name] {
+			if slices.Contains(r.Verbs, "bind") && slices.Contains(r.Resources, "clusterroles") && slices.Contains(r.ResourceNames, remote) {
+				mayBind = true
+			}
+		}
+	}
+	if !mayBind {
+		t.Errorf("the manifest's account may not bind %q", remote)
+	}
+
+	if got := NamespacedRole(&models.Cluster{InCluster: true}, "quetzal-namespaced"); got != "quetzal-namespaced" {
+		t.Errorf("the local cluster binds %q, want the chart's role", got)
 	}
 }

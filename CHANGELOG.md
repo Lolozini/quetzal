@@ -20,6 +20,13 @@ releases may include breaking changes).
   now gets an `/etc/passwd` and an `/etc/group` that call it `container`, with
   the server's directory as its home, as Wings does. Servers from imported
   eggs restart once after the upgrade to get them.
+- **Servers run on a cluster registered with the setup manifest.** In each
+  namespace it created there, the control plane bound the role of its own
+  chart, which the account the manifest creates is not allowed to hand out:
+  the namespace appeared and nothing else, with nothing said in the panel, and
+  a transfer to that cluster stalled the same way. It now binds the role the
+  manifest creates. A cluster registered with an administrator's kubeconfig
+  was not affected.
 
 ## [0.5.0] - 2026-09-28
 

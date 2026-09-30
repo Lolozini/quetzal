@@ -375,7 +375,7 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 		rec.NodePortMin = actCfg.nodePortMin
 		rec.NodePortMax = actCfg.nodePortMax
 		rec.ExtraEgressCIDRs = egressAllow
-		rec.NamespacedRole = namespacedRole
+		rec.NamespacedRole = cluster.NamespacedRole(c, namespacedRole)
 		// Read straight from the environment rather than reusing `namespace`,
 		// which carries a default: a managed database's ingress policy has to
 		// name the real namespace, and guessing wrong would lock the control

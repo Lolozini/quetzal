@@ -3,6 +3,8 @@ package cluster
 import (
 	"fmt"
 	"strings"
+
+	"github.com/lolozini/quetzal/internal/models"
 )
 
 // Registering a remote cluster means handing Quetzal a kubeconfig, and the
@@ -22,6 +24,23 @@ const RemoteNamespace = "quetzal-system"
 
 // RemoteServiceAccount is the account the generated kubeconfig authenticates as.
 const RemoteServiceAccount = "quetzal-remote"
+
+// RemoteNamespacedRole is the role the manifest creates for the control plane
+// to bind to itself in each namespace it makes on that cluster, and the only
+// one the account may bind.
+const RemoteNamespacedRole = RemoteServiceAccount + "-namespaced"
+
+// NamespacedRole names the ClusterRole the control plane binds to itself in the
+// namespaces it creates on c: the chart's own (local) on the cluster it runs
+// in, the manifest's on any other. It used to be the chart's everywhere, which
+// a remote cluster refuses — the account there may bind only its own role — so
+// no server could run on a cluster registered with the manifest.
+func NamespacedRole(c *models.Cluster, local string) string {
+	if c.InCluster {
+		return local
+	}
+	return RemoteNamespacedRole
+}
 
 // PolicyRule is one RBAC rule, in the shape the manifest and the drift test both
 // read. It deliberately mirrors rbacv1.PolicyRule without depending on it: this
@@ -48,7 +67,7 @@ var RemoteClusterRules = []PolicyRule{
 	{APIGroups: []string{"rbac.authorization.k8s.io"}, Resources: []string{"rolebindings"},
 		Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
 	{APIGroups: []string{"rbac.authorization.k8s.io"}, Resources: []string{"clusterroles"},
-		ResourceNames: []string{RemoteServiceAccount + "-namespaced"}, Verbs: []string{"bind"}},
+		ResourceNames: []string{RemoteNamespacedRole}, Verbs: []string{"bind"}},
 	{APIGroups: []string{"authentication.k8s.io"}, Resources: []string{"selfsubjectreviews"}, Verbs: []string{"create"}},
 }
 
@@ -112,7 +131,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: ` + RemoteServiceAccount + `-namespaced
+  name: ` + RemoteNamespacedRole + `
 rules:
 `)
 	writeRules(&b, RemoteNamespacedRules)
