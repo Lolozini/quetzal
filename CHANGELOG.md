@@ -62,6 +62,13 @@ releases may include breaking changes).
   until you have a second factor, and the Two-factor policy card says how
   many accounts a policy would hold to enrolment and how many of their API
   keys it would stop, before you save.
+- **The audit log records the changes it missed.** Pointing the backups at
+  another target, which decides where every server's data goes, editing a
+  schedule, changing an account's email or password (a reset through the
+  emailed link included), and revoking an API or SSH key left no entry. They
+  now do: a backup target's entry names where it points and which secrets
+  changed, never their values, and a schedule's entries show the commands it
+  sends.
 - **Failed sign-ins no longer lock an account's owner out.** Ten wrong
   passwords for an account, from anywhere, blocked it for everyone for fifteen
   minutes, so anyone who could reach the panel could keep its administrator

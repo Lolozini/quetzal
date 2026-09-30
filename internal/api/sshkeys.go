@@ -74,6 +74,7 @@ func (s *Server) handleDeleteSSHKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not delete key")
 		return
 	}
+	s.audit(r, 0, "sshkey.delete", key.Fingerprint)
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -77,6 +77,26 @@ type backupConfigRequest struct {
 	RepoPassword string `json:"repoPassword"` // optional on update
 }
 
+// describeBackupTarget says where a backup target points and which of its
+// secrets a change replaced, for the audit log.
+func describeBackupTarget(cfg *models.BackupConfig, req backupConfigRequest) string {
+	d := strings.TrimSpace(cfg.Endpoint) + "/" + strings.TrimSpace(cfg.Bucket)
+	if p := strings.Trim(strings.TrimSpace(cfg.Prefix), "/"); p != "" {
+		d += "/" + p
+	}
+	var replaced []string
+	if req.AccessKey != "" || req.SecretKey != "" {
+		replaced = append(replaced, "new credentials")
+	}
+	if req.RepoPassword != "" {
+		replaced = append(replaced, "new repository password")
+	}
+	if len(replaced) > 0 {
+		d += " (" + strings.Join(replaced, ", ") + ")"
+	}
+	return d
+}
+
 func (s *Server) handleSetBackupConfig(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPerm(w, r, models.AdminPermSettings) {
 		return
@@ -121,6 +141,10 @@ func (s *Server) handleSetBackupConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Where every server's backups go, and with them its data: whoever can set
+	// it could send them to a bucket of their own, so the change is recorded
+	// with the place it points to (never the secrets).
+	s.audit(r, 0, "backup.settings.update", describeBackupTarget(cfg, req))
 	if warning != "" {
 		writeJSON(w, http.StatusOK, map[string]string{"warning": warning})
 		return

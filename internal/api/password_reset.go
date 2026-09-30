@@ -152,5 +152,10 @@ func (s *Server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = s.Store.DeletePasswordResetsForUser(pr.UserID)
 	_ = s.Store.DeleteSessionsForUser(pr.UserID)
+	// There is no session here: the link stood for the account, so the entry
+	// goes under it.
+	if u, err := s.Store.GetUser(pr.UserID); err == nil {
+		s.audit(r.WithContext(context.WithValue(r.Context(), userCtxKey, u)), 0, "user.password-reset", u.Username)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

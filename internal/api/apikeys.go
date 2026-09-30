@@ -96,5 +96,6 @@ func (s *Server) handleDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.audit(r, 0, "apikey.delete", key.Name)
 	w.WriteHeader(http.StatusNoContent)
 }

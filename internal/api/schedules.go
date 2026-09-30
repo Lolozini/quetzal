@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -165,6 +166,11 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	detail := sc.Name + " (" + summarizeTasks(tasks) + " @ " + sc.Cron + ")"
+	if !sc.Enabled {
+		detail += ", disabled"
+	}
+	s.audit(r, sc.ServerID, "schedule.update", detail)
 	writeJSON(w, http.StatusOK, sc)
 }
 
@@ -299,13 +305,28 @@ func validateSchedule(req scheduleRequest) ([]models.ScheduleTask, error) {
 }
 
 // summarizeTasks renders a chain for audit/log lines.
+//
+// A command is shown with what it sends: a schedule edited to run "op mallory"
+// every night reads as just "command" otherwise.
 func summarizeTasks(tasks []models.ScheduleTask) string {
-	if len(tasks) == 1 {
-		return string(tasks[0].Action)
-	}
 	parts := make([]string, len(tasks))
 	for i, t := range tasks {
 		parts[i] = string(t.Action)
+		if t.Action == models.SchedCommand {
+			parts[i] += " " + strconv.Quote(clip(t.Payload, 80))
+		}
+	}
+	if len(parts) == 1 {
+		return parts[0]
 	}
 	return fmt.Sprintf("%d tasks: %s", len(tasks), strings.Join(parts, "→"))
+}
+
+// clip shortens s to at most n runes, marking the cut.
+func clip(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }

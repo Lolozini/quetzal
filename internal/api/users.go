@@ -306,6 +306,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	// stolen, so every other login ends here. The caller's own session is kept
 	// so they aren't signed out of the page they just used.
 	_ = s.Store.DeleteSessionsForUserExcept(u.ID, sessionHash(r))
+	s.audit(r, 0, "user.password", u.Username)
 	// The new password also retires every browser known to the account
 	// (deviceMAC), this one included: it stays known under the new one.
 	changed := *u
@@ -333,6 +334,13 @@ func (s *Server) handleSetMyEmail(w http.ResponseWriter, r *http.Request) {
 	if err := s.Store.UpdateUserEmail(u.ID, email); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// The address password resets go to: changing it and then asking for a
+	// reset is how a stolen session becomes a stolen account.
+	if email == "" {
+		s.audit(r, 0, "user.email", "cleared")
+	} else {
+		s.audit(r, 0, "user.email", email)
 	}
 	updated, _ := s.Store.GetUser(u.ID)
 	writeJSON(w, http.StatusOK, updated)
