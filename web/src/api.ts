@@ -607,6 +607,13 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   return JSON.parse(text) as T;
 }
 
+// PolicyImpact is what a two-factor policy would hold back: the accounts it
+// covers that have no second factor, and the API keys they hold.
+export interface PolicyImpact {
+  accounts: number;
+  apiKeys: number;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -768,7 +775,7 @@ export const api = {
 
   // Two-factor authentication (opt-in TOTP).
   securitySettings: () =>
-    req<{ requireTwoFactor: string; options: string[] }>("GET", "/api/security-settings"),
+    req<{ requireTwoFactor: string; options: string[]; impact?: Record<string, PolicyImpact> }>("GET", "/api/security-settings"),
   setSecuritySettings: (requireTwoFactor: string) =>
     req<{ requireTwoFactor: string }>("PUT", "/api/security-settings", { requireTwoFactor }),
   setup2FA: () => req<{ secret: string; uri: string }>("POST", "/api/me/2fa/setup"),

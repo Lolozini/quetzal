@@ -319,12 +319,15 @@ picks the mail relay reads every password reset link the panel sends, which
 would otherwise be a way to take the superadmin's account.
 
 **You can require a second factor.** Admin → Two-factor policy sets it to off,
-administrators only, or everyone. Turning it on locks nobody out, including the
-superadmin who turns it on: a covered account still logs in and keeps its
-session, but reaches only its own profile, the enrolment endpoints and logout
-until it has a factor, and the panel shows the enrolment page rather than a wall
-of refusals. Changing the policy is superadmin-only, for the same reason as the
-mail relay — it decides who gets in.
+administrators only, or everyone. Turning it on locks nobody out: a covered
+account still logs in and keeps its session, but reaches only its own profile,
+the enrolment endpoints and logout until it has a factor, and the panel shows
+the enrolment page rather than a wall of refusals. Its API keys are refused
+meanwhile, so automation running under an account without a second factor stops
+until that account enrols; the card says how many accounts and keys a policy
+would hold back before you save it. You need a second factor yourself before you
+can require one. Changing the policy is superadmin-only, for the same reason as
+the mail relay — it decides who gets in.
 
 **Changing a password ends the account's other sessions.** Both the self-service
 change and an admin reset, keeping only the client that asked. It is the thing

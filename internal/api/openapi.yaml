@@ -254,14 +254,26 @@ paths:
                 properties:
                   requireTwoFactor: { type: string, enum: [off, admins, all] }
                   options: { type: array, items: { type: string } }
+                  impact:
+                    type: object
+                    description: >
+                      For each policy, what it would hold back today: the
+                      accounts it covers that have no second factor, and the
+                      API keys those accounts hold.
+                    additionalProperties:
+                      type: object
+                      properties:
+                        accounts: { type: integer }
+                        apiKeys: { type: integer }
         "403": { $ref: "#/components/responses/Forbidden" }
     put:
       tags: [Servers]
       summary: Set who must hold a second factor (superadmin)
       description: >
         Accounts the policy covers keep their session but reach only `/api/me`,
-        the enrolment endpoints and logout until they have a second factor, so
-        turning it on locks nobody out — including the superadmin setting it.
+        the enrolment endpoints and logout until they have a second factor, and
+        their API keys are refused meanwhile. A policy that covers the caller is
+        refused (409) until the caller has a second factor of their own.
       requestBody:
         required: true
         content:
@@ -281,6 +293,7 @@ paths:
                   requireTwoFactor: { type: string }
         "400": { $ref: "#/components/responses/BadRequest" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: The policy covers the caller, who has no second factor }
 
   /api/network-settings:
     get:

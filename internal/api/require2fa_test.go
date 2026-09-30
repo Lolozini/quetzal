@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 )
 
 func setRequire2FA(t *testing.T, admin *http.Client, base, mode string) int {
@@ -25,12 +26,14 @@ func TestRequireTwoFactorGatesUntilEnrolled(t *testing.T) {
 		t.Fatalf("precondition: servers = %d", r.StatusCode)
 	}
 
+	// Whoever requires a second factor holds one (TestRequiringTwoFactorNeedsOneFirst).
+	enrollTOTP(t, ts.URL, admin, uint64(time.Now().Unix())/totpStep)
 	if code := setRequire2FA(t, admin, ts.URL, "all"); code != http.StatusOK {
 		t.Fatalf("set policy = %d", code)
 	}
 
 	// The existing session survives — otherwise turning this on strands every
-	// account at once, the superadmin included.
+	// account at once.
 	r, _ := alice.Get(ts.URL + "/api/me")
 	if r.StatusCode != http.StatusOK {
 		t.Fatalf("/api/me under the requirement = %d, want 200", r.StatusCode)
@@ -81,6 +84,7 @@ func TestRequireTwoFactorForAdminsOnly(t *testing.T) {
 	alice := loginAs(t, ts.URL, "alice", "alicepw12")
 	mel := loginAs(t, ts.URL, "mel", "melpw12345")
 
+	enrollTOTP(t, ts.URL, admin, uint64(time.Now().Unix())/totpStep)
 	if code := setRequire2FA(t, admin, ts.URL, "admins"); code != http.StatusOK {
 		t.Fatalf("set policy = %d", code)
 	}
@@ -91,9 +95,88 @@ func TestRequireTwoFactorForAdminsOnly(t *testing.T) {
 	if rr, _ := mel.Get(ts.URL + "/api/servers"); rr.StatusCode != http.StatusForbidden {
 		t.Errorf("a scoped admin = %d, want 403", rr.StatusCode)
 	}
-	// And so does the superadmin, who is not exempt from their own policy.
-	if rr, _ := admin.Get(ts.URL + "/api/servers"); rr.StatusCode != http.StatusForbidden {
-		t.Errorf("the superadmin = %d, want 403", rr.StatusCode)
+}
+
+// A superadmin without a second factor who required one, of everyone or of
+// administrators, was covered by their own policy the moment it was saved: the
+// enrolment page and nothing else, their API keys refused, turning it back off
+// included, and nothing said so beforehand. Whoever requires a second factor
+// now holds one first.
+func TestRequiringTwoFactorNeedsOneFirst(t *testing.T) {
+	ts, admin, _ := newTestServerStore(t)
+	post(t, admin, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+	var key struct{ Token string }
+	r := post(t, admin, ts.URL+"/api/apikeys", map[string]string{"name": "automation"})
+	json.NewDecoder(r.Body).Decode(&key)
+	r.Body.Close()
+	withKey := func() int {
+		req, _ := http.NewRequest(http.MethodGet, ts.URL+"/api/servers", nil)
+		req.Header.Set("Authorization", "Bearer "+key.Token)
+		rr, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rr.Body.Close()
+		return rr.StatusCode
+	}
+
+	for _, mode := range []string{"all", "admins"} {
+		if code := setRequire2FA(t, admin, ts.URL, mode); code != http.StatusConflict {
+			t.Errorf("%q without a second factor of one's own = %d, want 409", mode, code)
+		}
+	}
+	if code := withKey(); code != http.StatusOK {
+		t.Errorf("the superadmin's API key = %d, want 200: the policy went through", code)
+	}
+	if code := setRequire2FA(t, admin, ts.URL, "off"); code != http.StatusOK {
+		t.Errorf("off = %d, want 200", code)
+	}
+
+	enrollTOTP(t, ts.URL, admin, uint64(time.Now().Unix())/totpStep)
+	if code := setRequire2FA(t, admin, ts.URL, "all"); code != http.StatusOK {
+		t.Errorf("with a second factor = %d, want 200", code)
+	}
+	if code := withKey(); code != http.StatusOK {
+		t.Errorf("the superadmin's API key under their own policy = %d, want 200", code)
+	}
+}
+
+// What a policy will hold back is shown before it is turned on: the accounts it
+// covers that have no second factor, and the API keys they hold, which stop
+// working until those accounts enrol.
+func TestTwoFactorPolicyShowsWhoItHoldsBack(t *testing.T) {
+	ts, admin, _ := newTestServerStore(t)
+	post(t, admin, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+	enrollTOTP(t, ts.URL, admin, uint64(time.Now().Unix())/totpStep)
+	createUser(t, admin, ts.URL, map[string]any{"username": "alice", "password": "alicepw12"})
+	createUser(t, admin, ts.URL, map[string]any{"username": "mel", "password": "melpw12345"})
+	roleID := createRole(t, admin, ts.URL, "ops", []string{"servers"})
+	if rr := setUserRole(t, admin, ts.URL, userID(t, admin, ts.URL, "mel"), &roleID); rr.StatusCode != http.StatusOK {
+		t.Fatalf("assign role = %d", rr.StatusCode)
+	}
+	alice := loginAs(t, ts.URL, "alice", "alicepw12")
+	mel := loginAs(t, ts.URL, "mel", "melpw12345")
+	for c, n := range map[*http.Client]int{alice: 2, mel: 1, admin: 1} {
+		for i := 0; i < n; i++ {
+			if rr := post(t, c, ts.URL+"/api/apikeys", map[string]string{"name": "k"}); rr.StatusCode != http.StatusCreated {
+				t.Fatalf("create key = %d", rr.StatusCode)
+			}
+		}
+	}
+
+	var got struct {
+		Impact map[string]struct{ Accounts, APIKeys int }
+	}
+	getJSON(t, admin, ts.URL+"/api/security-settings", &got)
+	want := map[string]struct{ Accounts, APIKeys int }{
+		"off":    {0, 0},
+		"admins": {1, 1}, // mel; the superadmin has a second factor
+		"all":    {2, 3}, // alice and mel
+	}
+	for mode, w := range want {
+		if got.Impact[mode] != w {
+			t.Errorf("impact of %q = %+v, want %+v", mode, got.Impact[mode], w)
+		}
 	}
 }
 

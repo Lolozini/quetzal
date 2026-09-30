@@ -1387,6 +1387,22 @@ func (s *Store) ListAPIKeysForUser(userID uint) ([]models.APIKey, error) {
 	return ks, err
 }
 
+// CountAPIKeysByUser returns how many API keys each user holds.
+func (s *Store) CountAPIKeysByUser() (map[uint]int, error) {
+	var rows []struct {
+		UserID uint
+		N      int
+	}
+	if err := s.db.Model(&models.APIKey{}).Select("user_id, count(*) AS n").Group("user_id").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[uint]int, len(rows))
+	for _, r := range rows {
+		out[r.UserID] = r.N
+	}
+	return out, nil
+}
+
 // GetAPIKey returns an API key by ID.
 func (s *Store) GetAPIKey(id uint) (*models.APIKey, error) {
 	var k models.APIKey

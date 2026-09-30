@@ -112,8 +112,14 @@ export const fr: Record<string, string> = {
   "This panel requires a second factor. Set one up to carry on — nothing else is available until you do.":
     "Ce panel exige un second facteur. Configurez-en un pour continuer — rien d'autre n'est accessible d'ici là.",
   "Two-factor policy": "Politique deux facteurs",
-  "Accounts covered by this keep their session but can only reach the enrolment page until they have a second factor, so turning it on locks nobody out.":
-    "Les comptes concernés gardent leur session mais n'atteignent que la page d'inscription tant qu'ils n'ont pas de second facteur : l'activer n'enferme personne dehors.",
+  "Accounts covered by this keep their session but reach only the enrolment page until they have a second factor, and their API keys are refused meanwhile.":
+    "Les comptes concernés gardent leur session mais n'atteignent que la page d'inscription tant qu'ils n'ont pas de second facteur, et leurs clés API sont refusées d'ici là.",
+  "Accounts it covers without a second factor: {accounts}. Until they add one, they reach only the enrolment page, and their API keys ({keys}) are refused.":
+    "Comptes concernés sans second facteur : {accounts}. Tant qu'ils n'en ont pas ajouté un, ils n'atteignent que la page d'inscription, et leurs clés API ({keys}) sont refusées.",
+  "Every account it covers already has a second factor.": "Tous les comptes concernés ont déjà un second facteur.",
+  "This covers you, and your account has no second factor: enable one in Account first.":
+    "Ce réglage vous concerne et votre compte n'a pas de second facteur : activez-en un d'abord dans Compte.",
+  "Require a second factor?": "Exiger un second facteur ?",
   "Not required": "Non obligatoire",
   "Administrators only": "Administrateurs seulement",
   Everyone: "Tout le monde",

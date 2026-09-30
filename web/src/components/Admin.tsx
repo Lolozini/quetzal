@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { AdminPermInfo, AdminRole, api, ApiError, AuditEntry, EmailSettingsInput, hasAdminPerm, NetworkSettings, User } from "../api";
+import { AdminPermInfo, AdminRole, api, ApiError, AuditEntry, EmailSettingsInput, hasAdminPerm, NetworkSettings, PolicyImpact, User } from "../api";
 import { useT } from "../i18n";
 import { Collapsible } from "./Collapsible";
 import { Clusters } from "./Clusters";
@@ -14,7 +14,7 @@ export function Admin({ user }: { user: User }) {
       {can("users") && <Users me={user} />}
       {user.isAdmin && <Roles />}
       {can("templates") && <Templates />}
-      {can("settings") && <SecuritySettingsCard isSuperadmin={user.isAdmin} />}
+      {can("settings") && <SecuritySettingsCard isSuperadmin={user.isAdmin} hasTwoFactor={!!user.twoFactorEnabled} />}
       {can("settings") && <NetworkSettingsCard />}
       {can("settings") && <EmailSettingsCard />}
       {can("database-hosts") && <DatabaseHosts />}
@@ -383,20 +383,34 @@ function Roles() {
 // SecuritySettingsCard sets who must hold a second factor. Readable by any
 // settings-admin, writable only by a superadmin: the policy decides who gets in,
 // which is the same reason the email relay is superadmin-only.
-function SecuritySettingsCard({ isSuperadmin }: { isSuperadmin: boolean }) {
+function SecuritySettingsCard({ isSuperadmin, hasTwoFactor }: { isSuperadmin: boolean; hasTwoFactor: boolean }) {
   const { t } = useT();
   const [mode, setMode] = useState("off");
   const [saved, setSaved] = useState("off");
+  const [impact, setImpact] = useState<Record<string, PolicyImpact>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     api.securitySettings()
-      .then((s) => { setMode(s.requireTwoFactor); setSaved(s.requireTwoFactor); })
+      .then((s) => { setMode(s.requireTwoFactor); setSaved(s.requireTwoFactor); setImpact(s.impact ?? {}); })
       .catch(() => {});
   }, []);
 
+  // A policy covers the superadmin who sets it, and the API refuses it until
+  // they have a second factor of their own.
+  const coversMe = mode !== "off" && !hasTwoFactor;
+  const held = impact[mode];
+  const heldBack =
+    held && held.accounts > 0
+      ? t("Accounts it covers without a second factor: {accounts}. Until they add one, they reach only the enrolment page, and their API keys ({keys}) are refused.", {
+          accounts: String(held.accounts),
+          keys: String(held.apiKeys),
+        })
+      : "";
+
   async function save() {
+    if (heldBack && !window.confirm(`${t("Require a second factor?")}\n\n${heldBack}`)) return;
     setError("");
     setBusy(true);
     try {
@@ -418,16 +432,24 @@ function SecuritySettingsCard({ isSuperadmin }: { isSuperadmin: boolean }) {
     <div className="card">
       <h3>{t("Two-factor policy")}</h3>
       <p className="muted">
-        {t("Accounts covered by this keep their session but can only reach the enrolment page until they have a second factor, so turning it on locks nobody out.")}
+        {t("Accounts covered by this keep their session but reach only the enrolment page until they have a second factor, and their API keys are refused meanwhile.")}
       </p>
       <select value={mode} onChange={(e) => setMode(e.target.value)} disabled={!isSuperadmin}>
         {["off", "admins", "all"].map((m) => (
           <option key={m} value={m}>{labels[m]}</option>
         ))}
       </select>
+      {mode !== "off" && held && (
+        <p className={heldBack ? "notice warn" : "muted"}>
+          {heldBack || t("Every account it covers already has a second factor.")}
+        </p>
+      )}
+      {isSuperadmin && coversMe && (
+        <p className="error">{t("This covers you, and your account has no second factor: enable one in Account first.")}</p>
+      )}
       {!isSuperadmin && <p className="muted">{t("Only a superadmin can change this.")}</p>}
       {isSuperadmin && (
-        <button className="primary" style={{ marginTop: 8 }} onClick={save} disabled={busy || mode === saved}>
+        <button className="primary" style={{ marginTop: 8 }} onClick={save} disabled={busy || mode === saved || coversMe}>
           {busy ? t("Saving…") : t("Save")}
         </button>
       )}

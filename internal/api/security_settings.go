@@ -16,10 +16,49 @@ func (s *Server) handleGetSecuritySettings(w http.ResponseWriter, r *http.Reques
 	if !s.requireAdminPerm(w, r, models.AdminPermSettings) {
 		return
 	}
+	impact, err := s.twoFactorImpact()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"requireTwoFactor": s.requireTwoFactorPolicy(),
 		"options":          []string{store.Require2FAOff, store.Require2FAAdmins, store.Require2FAAll},
+		"impact":           impact,
 	})
+}
+
+// policyImpact is what a policy would hold back today: the accounts it covers
+// that have no second factor, which reach only enrolment until they add one,
+// and the API keys those accounts hold, refused meanwhile.
+type policyImpact struct {
+	Accounts int `json:"accounts"`
+	APIKeys  int `json:"apiKeys"`
+}
+
+// twoFactorImpact gives each policy's impact, so it can be shown before the
+// policy is turned on rather than discovered after.
+func (s *Server) twoFactorImpact() (map[string]policyImpact, error) {
+	us, err := s.Store.ListUsers()
+	if err != nil {
+		return nil, err
+	}
+	keys, err := s.Store.CountAPIKeysByUser()
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]policyImpact{}
+	for _, p := range []string{store.Require2FAOff, store.Require2FAAdmins, store.Require2FAAll} {
+		var imp policyImpact
+		for i := range us {
+			if u := &us[i]; !u.TOTPEnabled && policyCovers(p, u) {
+				imp.Accounts++
+				imp.APIKeys += keys[u.ID]
+			}
+		}
+		out[p] = imp
+	}
+	return out, nil
 }
 
 type securitySettingsRequest struct {
@@ -47,8 +86,17 @@ func (s *Server) handleSetSecuritySettings(w http.ResponseWriter, r *http.Reques
 	}
 	// Turning the requirement on locks nobody out: a user without a second
 	// factor keeps a session, but it only reaches the enrolment endpoints until
-	// they have one (see twoFactorGate). Refusing the login instead would strand
-	// every account at once, the superadmin included.
+	// they have one (see auth). Refusing the login instead would strand every
+	// account at once.
+	//
+	// Its author is the exception. A superadmin without a second factor who
+	// required one was left the enrolment page and nothing else, their API keys
+	// refused, including for turning it back off. Whoever requires a second
+	// factor holds one first.
+	if u := userFrom(r.Context()); policyCovers(v, u) && !u.TOTPEnabled {
+		writeError(w, http.StatusConflict, "enable two-factor authentication on your own account before requiring it")
+		return
+	}
 	if err := s.Store.SetSetting(store.SettingRequire2FA, v); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -72,10 +120,12 @@ func (s *Server) requireTwoFactorPolicy() string {
 // twoFactorMissing reports whether the policy applies to this user and they have
 // not enrolled yet.
 func (s *Server) twoFactorMissing(u *models.User) bool {
-	if u == nil || u.TOTPEnabled {
-		return false
-	}
-	switch s.requireTwoFactorPolicy() {
+	return u != nil && !u.TOTPEnabled && policyCovers(s.requireTwoFactorPolicy(), u)
+}
+
+// policyCovers reports whether a two-factor policy applies to u.
+func policyCovers(policy string, u *models.User) bool {
+	switch policy {
 	case store.Require2FAAll:
 		return true
 	case store.Require2FAAdmins:

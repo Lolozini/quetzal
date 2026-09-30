@@ -55,6 +55,13 @@ releases may include breaking changes).
   can now only look at it: everything else answers 409, its schedules do not
   run, and the panel shows why. File requests on a suspended server answer
   409 rather than 403, like the rest.
+- **Requiring a second factor no longer catches the superadmin who requires
+  it.** One without a second factor who set the policy was left the
+  enrolment page and nothing else, their API keys refused, turning it back off
+  included, with no warning. The panel now refuses a policy that covers you
+  until you have a second factor, and the Two-factor policy card says how
+  many accounts a policy would hold to enrolment and how many of their API
+  keys it would stop, before you save.
 - **Failed sign-ins no longer lock an account's owner out.** Ten wrong
   passwords for an account, from anywhere, blocked it for everyone for fifteen
   minutes, so anyone who could reach the panel could keep its administrator
