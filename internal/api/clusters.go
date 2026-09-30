@@ -103,6 +103,10 @@ func (s *Server) handleCreateCluster(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.EndpointHost != nil {
 		c.EndpointHost = strings.TrimSpace(*req.EndpointHost)
+		if err := checkEndpointHost(c.EndpointHost); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	if err := s.Store.CreateCluster(c, req.Kubeconfig); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -146,6 +150,12 @@ func (s *Server) handleUpdateCluster(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, err := cluster.Build(req.Kubeconfig); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid kubeconfig: "+err.Error())
+			return
+		}
+	}
+	if req.EndpointHost != nil {
+		if err := checkEndpointHost(strings.TrimSpace(*req.EndpointHost)); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}

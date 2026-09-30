@@ -1177,6 +1177,20 @@ func (s *Store) CountServersOwnedBy(userID uint) (int64, error) {
 	return n, err
 }
 
+// CountServersByOwner returns how many servers each account owns.
+func (s *Store) CountServersByOwner() (map[uint]int64, error) {
+	var rows []struct {
+		OwnerID uint
+		N       int64
+	}
+	err := s.db.Model(&models.Server{}).Select("owner_id, count(*) AS n").Group("owner_id").Scan(&rows).Error
+	out := make(map[uint]int64, len(rows))
+	for _, r := range rows {
+		out[r.OwnerID] = r.N
+	}
+	return out, err
+}
+
 // CountAdmins returns the number of admin users (to protect the last admin).
 func (s *Store) CountAdmins() (int64, error) {
 	var n int64

@@ -143,7 +143,15 @@ function Users({ me }: { me: User }) {
   }
 
   async function remove(u: User) {
-    if (!window.confirm(t('Delete user "{name}"? Their servers are NOT deleted.', { name: u.username }))) return;
+    // Their servers outlive them: they go to whoever deletes the account.
+    const question = u.servers
+      ? t('Delete user "{name}"? Their {count} server(s) are not deleted: they will be yours, {me}.', {
+          name: u.username,
+          count: u.servers,
+          me: me.username,
+        })
+      : t('Delete user "{name}"?', { name: u.username });
+    if (!window.confirm(question)) return;
     try {
       await api.deleteUser(u.id);
       await load();

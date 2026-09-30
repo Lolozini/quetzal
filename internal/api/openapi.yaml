@@ -323,9 +323,10 @@ paths:
           application/json:
             schema:
               type: object
-              properties: { endpointHost: { type: string, description: "Hostname, or empty to fall back to the node address" } }
+              properties: { endpointHost: { type: string, description: "A DNS name or an IP address, without scheme or port; empty falls back to the node address" } }
       responses:
         "204": { description: Saved }
+        "400": { description: Not a DNS name or an IP address }
         "403": { $ref: "#/components/responses/Forbidden" }
   /api/email-settings:
     get:
@@ -1730,7 +1731,14 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { $ref: "#/components/schemas/User" }
+                items:
+                  allOf:
+                    - $ref: "#/components/schemas/User"
+                    - type: object
+                      properties:
+                        servers:
+                          type: integer
+                          description: How many servers the account owns, which deleting it hands over
     post:
       tags: [Users]
       summary: Create a user (admin)
@@ -2615,7 +2623,7 @@ components:
         name: { type: string }
         inCluster: { type: boolean }
         defaultStorageClass: { type: string, description: "empty = the cluster's own default storageClass" }
-        endpointHost: { type: string, description: "hostname published for this cluster's servers; empty = the panel-wide setting" }
+        endpointHost: { type: string, description: "DNS name or IP address published for this cluster's servers (400 otherwise); empty = the panel-wide setting" }
         reachable: { type: boolean }
         version: { type: string }
         nodeCount: { type: integer }

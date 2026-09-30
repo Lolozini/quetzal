@@ -23,7 +23,22 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, us)
+	owned, err := s.Store.CountServersByOwner()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// Deleting an account hands its servers to whoever deletes it, which the
+	// panel says before it asks for confirmation: it has to know how many.
+	type userView struct {
+		models.User
+		Servers int64 `json:"servers"`
+	}
+	out := make([]userView, 0, len(us))
+	for i := range us {
+		out = append(out, userView{User: us[i], Servers: owned[us[i].ID]})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 type createUserRequest struct {

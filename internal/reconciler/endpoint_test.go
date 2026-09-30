@@ -90,3 +90,23 @@ func TestActivatorFollowsTheGameWhenTrafficStaysLocal(t *testing.T) {
 		}
 	}
 }
+
+// A published IPv6 address was glued to its port as "fd00::1:30150", which
+// reads as another address altogether. It is bracketed, as clients expect.
+func TestAnIPv6AddressIsBracketed(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("scheme: %v", err)
+	}
+	s, tmpl := testServerAndTemplate()
+	s.Expose = models.Expose{Type: models.ExposeNodePort}
+	s.Ports = []models.PortSpec{{Name: "game", Port: 25565, Protocol: "TCP", Primary: true, NodePort: 30150}}
+	st := reconStore(t)
+	if err := st.SetSetting(store.SettingEndpointHost, "fd00::1"); err != nil {
+		t.Fatal(err)
+	}
+	r := &Reconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), Store: st}
+	if _, addr := r.endpointsFor(context.Background(), s, tmpl); addr != "[fd00::1]:30150" {
+		t.Errorf("address = %q, want [fd00::1]:30150", addr)
+	}
+}

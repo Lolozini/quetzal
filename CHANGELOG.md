@@ -113,6 +113,15 @@ releases may include breaking changes).
   so a server nobody had joined for a day went to sleep seconds after
   hibernation was turned on. It starts when hibernation is turned on now, and
   again whenever its settings change.
+- **The published host must be one players can reach.** Anything was saved
+  as the host shown in front of every server's port, and "bad host!" gave
+  players "bad host!:30158". The panel-wide and per-cluster hosts are a DNS
+  name or an IP address now, and an IPv6 address is shown in brackets
+  (`[fd00::1]:30158`), where it read as another address.
+- **Deleting an account says who gets its servers.** They go to the
+  administrator who deletes it, while the confirmation only said they were
+  not deleted. It now counts them and names who they go to; the user list
+  carries each account's number of servers (`servers`).
 - **SFTP's `symlink` makes the link the client asked for.** OpenSSH sends a
   link's target before the link itself, and the two were read the other way
   round: `symlink /etc qa/link` made a link named `etc` at the root, pointing

@@ -193,8 +193,9 @@ export const fr: Record<string, string> = {
     "0 serveur : le compte n'en crée aucun tant que vous ne le changez pas. Vide : sans limite. Un serveur créé par un utilisateur demande toujours une limite mémoire.",
   Quotas: "Quotas",
   "Administrator (superadmin)": "Administrateur (superadmin)",
-  'Delete user "{name}"? Their servers are NOT deleted.':
-    "Supprimer l'utilisateur « {name} » ? Ses serveurs ne sont PAS supprimés.",
+  'Delete user "{name}"? Their {count} server(s) are not deleted: they will be yours, {me}.':
+    "Supprimer l'utilisateur « {name} » ? Ses {count} serveur(s) ne sont pas supprimés : ils vous reviennent, {me}.",
+  'Delete user "{name}"?': "Supprimer l'utilisateur « {name} » ?",
   'Reset two-factor authentication for "{name}"? They will sign in with just their password until they re-enable it.':
     "Réinitialiser l'authentification à deux facteurs pour « {name} » ? Il se connectera avec seulement son mot de passe jusqu'à ce qu'il la réactive.",
 

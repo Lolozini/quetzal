@@ -16,6 +16,8 @@ export interface User {
   // session reaches only enrolment until it does.
   twoFactorRequired?: boolean;
   createdAt?: string;
+  // How many servers the account owns (in the admin's user list).
+  servers?: number;
 }
 
 export interface AdminRole {

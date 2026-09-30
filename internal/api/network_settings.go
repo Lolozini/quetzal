@@ -2,11 +2,14 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/lolozini/quetzal/internal/models"
@@ -44,12 +47,35 @@ func (s *Server) handleSetNetworkSettings(w http.ResponseWriter, r *http.Request
 		return
 	}
 	host := strings.TrimSpace(req.EndpointHost)
+	if err := checkEndpointHost(host); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := s.Store.SetSetting(store.SettingEndpointHost, host); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.audit(r, 0, "network.settings.update", host)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// checkEndpointHost refuses a published host players could not connect to. It
+// goes in front of ":<port>" in every address the panel shows, and anything was
+// taken: "bad host!" became "bad host!:30158" on every server. A DNS name or an
+// IP address, without scheme or port; blank clears the setting.
+func checkEndpointHost(host string) error {
+	if host == "" || net.ParseIP(host) != nil {
+		return nil
+	}
+	name := strings.TrimSuffix(host, ".")
+	ok := name != "" && len(name) <= 253
+	for _, label := range strings.Split(name, ".") {
+		ok = ok && len(validation.IsDNS1123Label(strings.ToLower(label))) == 0
+	}
+	if !ok {
+		return fmt.Errorf("%q is not a host name or an IP address: give the name or address players connect to, without scheme or port (play.example.com)", host)
+	}
+	return nil
 }
 
 // detectedNodeAddress returns a best-effort local node address (ExternalIP,

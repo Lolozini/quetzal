@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1015,7 +1017,7 @@ func (r *Reconciler) endpointsFor(ctx context.Context, s *models.Server, t *mode
 			if p.NodePort == 0 {
 				continue
 			}
-			add(p, fmt.Sprintf("%s:%d", host, p.NodePort))
+			add(p, net.JoinHostPort(host, strconv.Itoa(int(p.NodePort))))
 		}
 	case models.ExposeLoadBalancer:
 		host := r.loadBalancerAddress(ctx, s.Namespace)
@@ -1023,7 +1025,7 @@ func (r *Reconciler) endpointsFor(ctx context.Context, s *models.Server, t *mode
 			break // not yet provisioned
 		}
 		for _, p := range ports {
-			add(p, fmt.Sprintf("%s:%d", host, p.Port))
+			add(p, net.JoinHostPort(host, strconv.Itoa(int(p.Port))))
 		}
 	default: // ClusterIP
 		for _, p := range ports {
