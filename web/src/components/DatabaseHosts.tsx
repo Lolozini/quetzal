@@ -81,28 +81,30 @@ export function DatabaseHosts() {
         {t("MySQL/MariaDB servers the panel provisions databases on. Register an external server, or have Quetzal deploy and manage a MariaDB in-cluster.")}
       </p>
       {hosts.length > 0 && (
-        <table>
-          <thead>
-            <tr><th>{t("Name")}</th><th>{t("Kind")}</th><th>{t("Address")}</th><th>{t("DBs")}</th><th>{t("Status")}</th><th></th></tr>
-          </thead>
-          <tbody>
-            {hosts.map((h) => (
-              <tr key={h.id}>
-                <td>{h.name}</td>
-                <td>{h.kind}</td>
-                <td><code>{h.host}:{h.port}</code></td>
-                <td>{h.databases ?? 0}{h.maxDatabases ? ` / ${h.maxDatabases}` : ""}</td>
-                <td>
-                  {h.reachable ? <span className="badge Running">{t("reachable")}</span> : <span className="muted" title={h.statusMessage}>{t("unknown")}</span>}
-                </td>
-                <td style={{ whiteSpace: "nowrap" }}>
-                  <button onClick={() => test(h)}>{t("Test")}</button>{" "}
-                  <button className="danger" onClick={() => remove(h)}>{t("Delete")}</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr><th>{t("Name")}</th><th>{t("Kind")}</th><th>{t("Address")}</th><th>{t("DBs")}</th><th>{t("Status")}</th><th></th></tr>
+            </thead>
+            <tbody>
+              {hosts.map((h) => (
+                <tr key={h.id}>
+                  <td>{h.name}</td>
+                  <td>{h.kind}</td>
+                  <td><code>{h.host}:{h.port}</code></td>
+                  <td>{h.databases ?? 0}{h.maxDatabases ? ` / ${h.maxDatabases}` : ""}</td>
+                  <td>
+                    {h.reachable ? <span className="badge Running">{t("reachable")}</span> : <span className="muted" title={h.statusMessage}>{t("unknown")}</span>}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    <button onClick={() => test(h)}>{t("Test")}</button>{" "}
+                    <button className="danger" onClick={() => remove(h)}>{t("Delete")}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <form onSubmit={add} style={{ marginTop: 12 }}>

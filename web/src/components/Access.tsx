@@ -53,18 +53,20 @@ export function Access({ id }: { id: number }) {
       {list.length === 0 ? (
         <p className="muted">{t("No subusers. Grant another account scoped access below.")}</p>
       ) : (
-        <table>
-          <thead><tr><th>{t("User")}</th><th>{t("Permissions")}</th><th></th></tr></thead>
-          <tbody>
-            {list.map((a) => (
-              <tr key={a.id}>
-                <td>{a.username}</td>
-                <td>{a.permissions.join(", ")}</td>
-                <td><button className="danger" onClick={() => revoke(a)}>{t("Revoke")}</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>{t("User")}</th><th>{t("Permissions")}</th><th></th></tr></thead>
+            <tbody>
+              {list.map((a) => (
+                <tr key={a.id}>
+                  <td>{a.username}</td>
+                  <td>{a.permissions.join(", ")}</td>
+                  <td><button className="danger" onClick={() => revoke(a)}>{t("Revoke")}</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       <form onSubmit={grant} style={{ marginTop: 12 }}>
         <label>{t("Username")}</label>

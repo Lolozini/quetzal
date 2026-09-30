@@ -144,59 +144,63 @@ export function Clusters() {
       <p className="muted">
         {t("Deploy targets. The local cluster is the one the control plane runs in; add remote clusters by registering their kubeconfig (stored encrypted).")}
       </p>
-      <table>
-        <thead>
-          <tr><th>{t("Name")}</th><th>{t("Type")}</th><th>{t("Status")}</th><th>{t("Nodes")}</th><th>{t("Storage class")}</th><th>{t("Hostname")}</th><th></th></tr>
-        </thead>
-        <tbody>
-          {clusters.map((c) => (
-            <tr key={c.id}>
-              <td>{c.name}<div className="muted" style={{ fontSize: 12 }}>{c.slug}</div></td>
-              <td>{c.inCluster ? t("local") : t("remote")}</td>
-              <td>
-                <span className={`badge ${c.reachable ? "Running" : "Crashed"}`}>
-                  {c.reachable ? t("reachable") : t("unreachable")}
-                </span>
-                {c.version && <span className="muted" style={{ fontSize: 12 }}> {c.version}</span>}
-                {c.statusMessage && <div className="muted" style={{ fontSize: 12 }} title={c.statusMessage}>{c.statusMessage.slice(0, 60)}</div>}
-              </td>
-              <td>{c.nodeCount ?? "—"}</td>
-              <td>{c.defaultStorageClass || <span className="muted">{t("(cluster default)")}</span>}</td>
-              <td>{c.endpointHost || <span className="muted">{t("(panel default)")}</span>}</td>
-              <td style={{ whiteSpace: "nowrap" }}>
-                <button onClick={() => test(c)}>{t("Test")}</button>{" "}
-                <button onClick={() => showNodes(c)}>{nodesFor === c.id ? t("Hide") : t("Nodes")}</button>{" "}
-                <button onClick={() => showStorageClasses(c)}>{scFor === c.id ? t("Hide") : t("Storage class")}</button>{" "}
-                <button onClick={() => showEndpointHost(c)}>{ehFor === c.id ? t("Hide") : t("Hostname")}</button>{" "}
-                {!c.inCluster && <button className="danger" onClick={() => remove(c)}>{t("Remove")}</button>}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {nodesFor !== null && (
-        <table style={{ marginTop: 8 }}>
+      <div className="table-scroll">
+        <table>
           <thead>
-            <tr><th>{t("Node")}</th><th>{t("Ready")}</th><th>{t("Version")}</th><th>{t("CPU")}</th><th>{t("Memory")}</th><th>{t("IP")}</th></tr>
+            <tr><th>{t("Name")}</th><th>{t("Type")}</th><th>{t("Status")}</th><th>{t("Nodes")}</th><th>{t("Storage class")}</th><th>{t("Hostname")}</th><th></th></tr>
           </thead>
           <tbody>
-            {nodes.length === 0 ? (
-              <tr><td colSpan={6} className="muted">{t("No nodes (or not listable).")}</td></tr>
-            ) : (
-              nodes.map((n) => (
-                <tr key={n.name}>
-                  <td>{n.name}</td>
-                  <td>{n.ready ? "✓" : "✗"}</td>
-                  <td>{n.version}</td>
-                  <td>{n.cpu}</td>
-                  <td>{n.memory}</td>
-                  <td>{n.internalIP || "—"}</td>
-                </tr>
-              ))
-            )}
+            {clusters.map((c) => (
+              <tr key={c.id}>
+                <td>{c.name}<div className="muted" style={{ fontSize: 12 }}>{c.slug}</div></td>
+                <td>{c.inCluster ? t("local") : t("remote")}</td>
+                <td>
+                  <span className={`badge ${c.reachable ? "Running" : "Crashed"}`}>
+                    {c.reachable ? t("reachable") : t("unreachable")}
+                  </span>
+                  {c.version && <span className="muted" style={{ fontSize: 12 }}> {c.version}</span>}
+                  {c.statusMessage && <div className="muted" style={{ fontSize: 12 }} title={c.statusMessage}>{c.statusMessage.slice(0, 60)}</div>}
+                </td>
+                <td>{c.nodeCount ?? "—"}</td>
+                <td>{c.defaultStorageClass || <span className="muted">{t("(cluster default)")}</span>}</td>
+                <td>{c.endpointHost || <span className="muted">{t("(panel default)")}</span>}</td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  <button onClick={() => test(c)}>{t("Test")}</button>{" "}
+                  <button onClick={() => showNodes(c)}>{nodesFor === c.id ? t("Hide") : t("Nodes")}</button>{" "}
+                  <button onClick={() => showStorageClasses(c)}>{scFor === c.id ? t("Hide") : t("Storage class")}</button>{" "}
+                  <button onClick={() => showEndpointHost(c)}>{ehFor === c.id ? t("Hide") : t("Hostname")}</button>{" "}
+                  {!c.inCluster && <button className="danger" onClick={() => remove(c)}>{t("Remove")}</button>}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
+      </div>
+
+      {nodesFor !== null && (
+        <div className="table-scroll">
+          <table style={{ marginTop: 8 }}>
+            <thead>
+              <tr><th>{t("Node")}</th><th>{t("Ready")}</th><th>{t("Version")}</th><th>{t("CPU")}</th><th>{t("Memory")}</th><th>{t("IP")}</th></tr>
+            </thead>
+            <tbody>
+              {nodes.length === 0 ? (
+                <tr><td colSpan={6} className="muted">{t("No nodes (or not listable).")}</td></tr>
+              ) : (
+                nodes.map((n) => (
+                  <tr key={n.name}>
+                    <td>{n.name}</td>
+                    <td>{n.ready ? "✓" : "✗"}</td>
+                    <td>{n.version}</td>
+                    <td>{n.cpu}</td>
+                    <td>{n.memory}</td>
+                    <td>{n.internalIP || "—"}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {scFor !== null && (

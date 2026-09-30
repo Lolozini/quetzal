@@ -284,18 +284,20 @@ function SSHKeys() {
       {keys.length === 0 ? (
         <p className="muted">{t("No SSH keys.")}</p>
       ) : (
-        <table>
-          <thead><tr><th>{t("Name")}</th><th>{t("Fingerprint")}</th><th></th></tr></thead>
-          <tbody>
-            {keys.map((k) => (
-              <tr key={k.id}>
-                <td>{k.name}</td>
-                <td><code style={{ fontSize: 12 }}>{k.fingerprint}</code></td>
-                <td><button className="danger" onClick={() => remove(k)}>{t("Delete")}</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>{t("Name")}</th><th>{t("Fingerprint")}</th><th></th></tr></thead>
+            <tbody>
+              {keys.map((k) => (
+                <tr key={k.id}>
+                  <td>{k.name}</td>
+                  <td><code style={{ fontSize: 12 }}>{k.fingerprint}</code></td>
+                  <td><button className="danger" onClick={() => remove(k)}>{t("Delete")}</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       <form onSubmit={add} style={{ marginTop: 12 }}>
         <h3>{t("Add a key")}</h3>
@@ -367,19 +369,21 @@ function APIKeys() {
       {keys.length === 0 ? (
         <p className="muted">{t("No API keys.")}</p>
       ) : (
-        <table>
-          <thead><tr><th>{t("Name")}</th><th>{t("Prefix")}</th><th>{t("Last used")}</th><th></th></tr></thead>
-          <tbody>
-            {keys.map((k) => (
-              <tr key={k.id}>
-                <td>{k.name}</td>
-                <td><code>{k.prefix}…</code></td>
-                <td>{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : t("never")}</td>
-                <td><button className="danger" onClick={() => remove(k)}>{t("Revoke")}</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>{t("Name")}</th><th>{t("Prefix")}</th><th>{t("Last used")}</th><th></th></tr></thead>
+            <tbody>
+              {keys.map((k) => (
+                <tr key={k.id}>
+                  <td>{k.name}</td>
+                  <td><code>{k.prefix}…</code></td>
+                  <td>{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : t("never")}</td>
+                  <td><button className="danger" onClick={() => remove(k)}>{t("Revoke")}</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       <form onSubmit={create} className="row" style={{ marginTop: 12 }}>
         <input value={name} placeholder={t("key name (e.g. ci)")} onChange={(e) => setName(e.target.value)} required />

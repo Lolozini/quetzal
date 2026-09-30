@@ -492,6 +492,8 @@ export const fr: Record<string, string> = {
 
   // Console
   Console: "Console",
+  Actions: "Actions",
+  "Actions for {name}": "Actions pour {name}",
   Schedules: "Tâches",
   Access: "Accès",
   Settings: "Réglages",

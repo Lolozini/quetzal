@@ -179,6 +179,19 @@ button.link:hover { background: none; color: var(--accent); }
 .notice.warn { background: var(--warn-soft); color: var(--warn); }
 
 table { width: 100%; border-collapse: collapse; }
+/* A table wider than the screen scrolls sideways inside its card instead of
+   widening the page. Not around a table in a Collapsible: its body scrolls
+   already, and its sticky header needs that body as the scroller. */
+.table-scroll { overflow-x: auto; }
+/* A row's actions, on a line of their own that its ⋯ button opens below it. */
+.row-toggle { padding: 2px 10px; line-height: 1.2; }
+/* Game files have long names without a space (world_the_end_…): break them
+   anywhere rather than let them set the table's width. */
+.file-name { overflow-wrap: anywhere; }
+.row-menu td { background: var(--surface-sunken); }
+.row-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+.row-actions button { padding: 4px 10px; font-size: 13px; }
+.row-actions a { margin-right: 6px; font-size: 13px; }
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 td { font-variant-numeric: tabular-nums; }
 th { color: var(--ink-muted); font-weight: 600; font-size: 13px; }
@@ -223,6 +236,8 @@ pre.log {
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .kv { display: grid; grid-template-columns: 140px 1fr; gap: 6px; margin: 4px 0; font-variant-numeric: tabular-nums; }
 .kv .k { color: var(--ink-muted); }
+/* A long address or image reference wraps instead of pushing the page wider. */
+.kv > * { min-width: 0; overflow-wrap: anywhere; }
 
 /* Combobox: a text input that behaves like a filterable dropdown. */
 .combobox { position: relative; }
@@ -278,3 +293,21 @@ pre.log {
   vertical-align: middle; white-space: nowrap;
 }
 .restart-hint::before { content: "↻"; font-size: 13px; }
+
+/* Phones (360 to 430 pixels wide). Nothing may make the page wider than the
+   screen: the top bar goes on two lines, margins shrink, pairs of fields stack,
+   and what only helps on a large screen goes. */
+@media (max-width: 600px) {
+  .topbar { flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
+  .lockup { height: 32px; }
+  .topnav { width: 100%; gap: 6px; }
+  .topnav .who { display: none; }
+  .topnav button, .topnav select { padding: 6px 10px; }
+  .container { padding: 16px 12px; }
+  .card { padding: 14px; }
+  .kv { grid-template-columns: 96px minmax(0, 1fr); }
+  .grid2 { grid-template-columns: 1fr; }
+  .charts { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  th, td { padding: 8px; }
+  .hide-narrow, .files-tree { display: none; }
+}

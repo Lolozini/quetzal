@@ -168,31 +168,33 @@ export function Notifications({ serverId }: { serverId: number }) {
       {channels.length === 0 ? (
         <p className="muted">{t("No channels yet.")}</p>
       ) : (
-        <table>
-          <thead>
-            <tr><th>{t("Name")}</th><th>{t("Type")}</th><th>{t("Events")}</th><th>{t("Status")}</th><th></th></tr>
-          </thead>
-          <tbody>
-            {channels.map((c) => (
-              <tr key={c.id}>
-                <td>{c.name}</td>
-                <td><code>{c.type}</code></td>
-                <td>{c.events && c.events.length ? c.events.join(", ") : <span className="muted">{t("all")}</span>}</td>
-                <td>
-                  {c.enabled ? t("enabled") : <span className="muted">{t("disabled")}</span>}
-                  <DeliveryHealth c={c} />
-                  {status[c.id] && <div className="muted">{status[c.id]}</div>}
-                </td>
-                <td style={{ whiteSpace: "nowrap" }}>
-                  <button onClick={() => test(c)}>{t("Test")}</button>{" "}
-                  <button onClick={() => toggle(c)}>{c.enabled ? t("Disable") : t("Enable")}</button>{" "}
-                  <button onClick={() => edit(c)}>{t("Edit")}</button>{" "}
-                  <button className="danger" onClick={() => remove(c)}>{t("Delete")}</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr><th>{t("Name")}</th><th>{t("Type")}</th><th>{t("Events")}</th><th>{t("Status")}</th><th></th></tr>
+            </thead>
+            <tbody>
+              {channels.map((c) => (
+                <tr key={c.id}>
+                  <td>{c.name}</td>
+                  <td><code>{c.type}</code></td>
+                  <td>{c.events && c.events.length ? c.events.join(", ") : <span className="muted">{t("all")}</span>}</td>
+                  <td>
+                    {c.enabled ? t("enabled") : <span className="muted">{t("disabled")}</span>}
+                    <DeliveryHealth c={c} />
+                    {status[c.id] && <div className="muted">{status[c.id]}</div>}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    <button onClick={() => test(c)}>{t("Test")}</button>{" "}
+                    <button onClick={() => toggle(c)}>{c.enabled ? t("Disable") : t("Enable")}</button>{" "}
+                    <button onClick={() => edit(c)}>{t("Edit")}</button>{" "}
+                    <button className="danger" onClick={() => remove(c)}>{t("Delete")}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <form onSubmit={submit} style={{ marginTop: 12 }}>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, FileEntry } from "../api";
 import { useT } from "../i18n";
 
@@ -25,6 +25,10 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
   const [mut, setMut] = useState(0); // bumped on changes so the tree refreshes
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "name", desc: false });
+  // The entry whose actions are shown, on a line of their own below it: as
+  // buttons at the end of every row they made the table wider than the page,
+  // on a desktop too.
+  const [actionsFor, setActionsFor] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const archiveRef = useRef<HTMLInputElement>(null);
 
@@ -48,6 +52,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
 
   function nav(p: string) {
     setEditing(null);
+    setActionsFor(null);
     setPath(p);
   }
   function changed() {
@@ -270,69 +275,89 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
 
       <div className="row" style={{ alignItems: "flex-start", gap: 12, marginTop: 8 }}>
         {/* Tree sidebar */}
-        <div style={{ width: 240, minWidth: 200, maxHeight: 420, overflow: "auto", borderRight: "1px solid var(--line)", paddingRight: 8 }}>
+        <div className="files-tree" style={{ width: 240, minWidth: 200, maxHeight: 420, overflow: "auto", borderRight: "1px solid var(--line)", paddingRight: 8 }}>
           <DirTree id={id} current={path} onNavigate={nav} reload={mut} />
         </div>
 
         {/* Current directory */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <table>
-            <thead>
-              <tr>
-                <th style={{ width: 24 }}>
-                  <input
-                    type="checkbox"
-                    style={{ width: "auto" }}
-                    aria-label={t("Select all")}
-                    checked={allSelected}
-                    onChange={() => setSelected(allSelected ? new Set() : new Set(entries.map((e) => e.name)))}
-                  />
-                </th>
-                <th style={{ cursor: "pointer" }} onClick={() => sortBy("name")}>{t("Name")}{arrow("name")}</th>
-                <th style={{ cursor: "pointer" }} onClick={() => sortBy("size")}>{t("Size")}{arrow("size")}</th>
-                <th style={{ cursor: "pointer" }} onClick={() => sortBy("mtime")}>{t("Modified")}{arrow("mtime")}</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((e) => (
-                  <tr key={e.name}>
-                    <td>
-                      <input
-                        type="checkbox"
-                        style={{ width: "auto" }}
-                        aria-label={e.name}
-                        checked={selected.has(e.name)}
-                        onChange={() => toggle(e.name)}
-                      />
-                    </td>
-                    <td>
-                      <a href="#" onClick={(ev) => { ev.preventDefault(); open(e); }}>
-                        {e.dir ? "📁 " : "📄 "}{e.name}
-                      </a>
-                    </td>
-                    <td>{e.dir ? "" : humanSize(e.size)}</td>
-                    <td className="muted" style={{ whiteSpace: "nowrap" }}>
-                      {e.mtime ? new Date(e.mtime * 1000).toLocaleString() : ""}
-                    </td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      <a href={e.dir ? api.fileArchiveUrl(id, join(path, e.name)) : api.fileDownloadUrl(id, join(path, e.name))}>{t("Download")}</a>{" "}
-                      <button onClick={() => rename(e)}>{t("Rename")}</button>{" "}
-                      <button onClick={() => copy(e)} disabled={busy}>{t("Copy")}</button>{" "}
-                      {!e.dir && ARCHIVE_RE.test(e.name) && (
-                        <>
-                          <button onClick={() => extract(e)} disabled={busy}>{t("Extract")}</button>{" "}
-                        </>
-                      )}
-                      <button className="danger" onClick={() => remove(e)}>{t("Delete")}</button>
-                    </td>
-                  </tr>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: 24 }}>
+                    <input
+                      type="checkbox"
+                      style={{ width: "auto" }}
+                      aria-label={t("Select all")}
+                      checked={allSelected}
+                      onChange={() => setSelected(allSelected ? new Set() : new Set(entries.map((e) => e.name)))}
+                    />
+                  </th>
+                  <th style={{ cursor: "pointer" }} onClick={() => sortBy("name")}>{t("Name")}{arrow("name")}</th>
+                  <th style={{ cursor: "pointer" }} onClick={() => sortBy("size")}>{t("Size")}{arrow("size")}</th>
+                  <th className="hide-narrow" style={{ cursor: "pointer" }} onClick={() => sortBy("mtime")}>{t("Modified")}{arrow("mtime")}</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((e) => (
+                  <Fragment key={e.name}>
+                    <tr>
+                      <td>
+                        <input
+                          type="checkbox"
+                          style={{ width: "auto" }}
+                          aria-label={e.name}
+                          checked={selected.has(e.name)}
+                          onChange={() => toggle(e.name)}
+                        />
+                      </td>
+                      <td className="file-name">
+                        <a href="#" onClick={(ev) => { ev.preventDefault(); open(e); }}>
+                          {e.dir ? "📁 " : "📄 "}{e.name}
+                        </a>
+                      </td>
+                      <td style={{ whiteSpace: "nowrap" }}>{e.dir ? "" : humanSize(e.size)}</td>
+                      <td className="muted hide-narrow" style={{ whiteSpace: "nowrap" }}>
+                        {e.mtime ? new Date(e.mtime * 1000).toLocaleString() : ""}
+                      </td>
+                      <td style={{ width: 1 }}>
+                        <button
+                          type="button"
+                          className="row-toggle"
+                          aria-expanded={actionsFor === e.name}
+                          aria-label={t("Actions for {name}", { name: e.name })}
+                          title={t("Actions")}
+                          onClick={() => setActionsFor(actionsFor === e.name ? null : e.name)}
+                        >
+                          ⋯
+                        </button>
+                      </td>
+                    </tr>
+                    {actionsFor === e.name && (
+                      <tr className="row-menu">
+                        <td colSpan={5}>
+                          <div className="row-actions">
+                            <a href={e.dir ? api.fileArchiveUrl(id, join(path, e.name)) : api.fileDownloadUrl(id, join(path, e.name))}>{t("Download")}</a>
+                            <button onClick={() => rename(e)}>{t("Rename")}</button>
+                            <button onClick={() => copy(e)} disabled={busy}>{t("Copy")}</button>
+                            {!e.dir && ARCHIVE_RE.test(e.name) && (
+                              <button onClick={() => extract(e)} disabled={busy}>{t("Extract")}</button>
+                            )}
+                            <button className="danger" onClick={() => remove(e)}>{t("Delete")}</button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
-              {entries.length === 0 && !error && (
-                <tr><td colSpan={5} className="muted">{t("Empty directory.")}</td></tr>
-              )}
-            </tbody>
-          </table>
+                {entries.length === 0 && !error && (
+                  <tr><td colSpan={5} className="muted">{t("Empty directory.")}</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
           {editing && (
             <div style={{ marginTop: 12 }}>

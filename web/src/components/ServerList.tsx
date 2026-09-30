@@ -60,30 +60,32 @@ export function ServerList({
           {search ? t("No server matches that search.") : t("No servers yet. Create one to get started.")}
         </p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>{t("Name")}</th>
-              <th>{t("Desired")}</th>
-              <th>{t("Phase")}</th>
-              <th>{t("Endpoints")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {servers.map((s) => (
-              <tr key={s.id} className="clickable" onClick={() => onOpen(s.id)}>
-                <td>{s.displayName}</td>
-                <td>
-                  <span className={`badge ${s.desiredState}`}>{t(s.desiredState)}</span>
-                </td>
-                <td>
-                  <span className={`badge ${s.status.phase}`}>{t(s.status.phase)}</span>
-                </td>
-                <td className="muted">{(s.status.endpoints || []).join(", ") || "—"}</td>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>{t("Name")}</th>
+                <th>{t("Desired")}</th>
+                <th>{t("Phase")}</th>
+                <th>{t("Endpoints")}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {servers.map((s) => (
+                <tr key={s.id} className="clickable" onClick={() => onOpen(s.id)}>
+                  <td>{s.displayName}</td>
+                  <td>
+                    <span className={`badge ${s.desiredState}`}>{t(s.desiredState)}</span>
+                  </td>
+                  <td>
+                    <span className={`badge ${s.status.phase}`}>{t(s.status.phase)}</span>
+                  </td>
+                  <td className="muted">{(s.status.endpoints || []).join(", ") || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

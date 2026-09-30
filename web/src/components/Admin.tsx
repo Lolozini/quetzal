@@ -161,69 +161,71 @@ function Users({ me }: { me: User }) {
   return (
     <div className="card">
       <h2>{t("Users")}</h2>
-      <table>
-        <thead>
-          <tr><th>{t("User")}</th><th>{t("Role")}</th><th>{t("2FA")}</th><th>{t("Quota (servers / mem MB)")}</th><th></th></tr>
-        </thead>
-        <tbody>
-          {users.map((u) => (
-            <tr key={u.id}>
-              <td>{u.username}</td>
-              <td>
-                {roleLabel(u)}
-                {/* Superadmins assign scoped admin roles to non-superadmin users. */}
-                {me.isAdmin && !u.isAdmin && (
-                  <>
-                    {" "}
-                    <select
-                      value={u.adminRoleId ?? ""}
-                      onChange={(e) => setAdminRole(u, e.target.value ? Number(e.target.value) : null)}
-                      style={{ width: "auto" }}
-                    >
-                      <option value="">{t("user (no admin)")}</option>
-                      {roles.map((r) => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
-                      ))}
-                    </select>
-                  </>
-                )}
-              </td>
-              <td>{u.twoFactorEnabled ? t("on") : <span className="muted">{t("off")}</span>}</td>
-              <td>
-                {quotaOf === u.id ? (
-                  <form onSubmit={saveQuotas} className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-                    <input
-                      type="number" min={0} value={editServers} placeholder="∞" style={{ width: 70 }}
-                      aria-label={t("Max servers")} onChange={(e) => setEditServers(e.target.value)}
-                    />
-                    <input
-                      type="number" min={0} value={editMemory} placeholder="∞" style={{ width: 90 }}
-                      aria-label={t("Max memory MB")} onChange={(e) => setEditMemory(e.target.value)}
-                    />
-                    <button className="primary">{t("Save")}</button>
-                    <button type="button" onClick={() => setQuotaOf(null)}>{t("Cancel")}</button>
-                  </form>
-                ) : u.isAdmin ? (
-                  <span className="muted">—</span>
-                ) : (
-                  quotaText(u.maxServers) + " / " + quotaText(u.maxMemoryMB)
-                )}
-              </td>
-              <td style={{ whiteSpace: "nowrap" }}>
-                {/* Admins are exempt from quotas; a scoped users-admin can't edit an admin's account. */}
-                {!u.isAdmin && (me.isAdmin || u.adminRoleId == null) && quotaOf !== u.id && (
-                  <><button onClick={() => editQuotas(u)}>{t("Quotas")}</button>{" "}</>
-                )}
-                {me.isAdmin && (
-                  <><button onClick={() => toggleAdmin(u)}>{u.isAdmin ? t("Demote") : t("Make admin")}</button>{" "}</>
-                )}
-                {u.twoFactorEnabled && <><button onClick={() => reset2FA(u)}>{t("Reset 2FA")}</button>{" "}</>}
-                <button className="danger" onClick={() => remove(u)}>{t("Delete")}</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr><th>{t("User")}</th><th>{t("Role")}</th><th>{t("2FA")}</th><th>{t("Quota (servers / mem MB)")}</th><th></th></tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.id}>
+                <td>{u.username}</td>
+                <td>
+                  {roleLabel(u)}
+                  {/* Superadmins assign scoped admin roles to non-superadmin users. */}
+                  {me.isAdmin && !u.isAdmin && (
+                    <>
+                      {" "}
+                      <select
+                        value={u.adminRoleId ?? ""}
+                        onChange={(e) => setAdminRole(u, e.target.value ? Number(e.target.value) : null)}
+                        style={{ width: "auto" }}
+                      >
+                        <option value="">{t("user (no admin)")}</option>
+                        {roles.map((r) => (
+                          <option key={r.id} value={r.id}>{r.name}</option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                </td>
+                <td>{u.twoFactorEnabled ? t("on") : <span className="muted">{t("off")}</span>}</td>
+                <td>
+                  {quotaOf === u.id ? (
+                    <form onSubmit={saveQuotas} className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                      <input
+                        type="number" min={0} value={editServers} placeholder="∞" style={{ width: 70 }}
+                        aria-label={t("Max servers")} onChange={(e) => setEditServers(e.target.value)}
+                      />
+                      <input
+                        type="number" min={0} value={editMemory} placeholder="∞" style={{ width: 90 }}
+                        aria-label={t("Max memory MB")} onChange={(e) => setEditMemory(e.target.value)}
+                      />
+                      <button className="primary">{t("Save")}</button>
+                      <button type="button" onClick={() => setQuotaOf(null)}>{t("Cancel")}</button>
+                    </form>
+                  ) : u.isAdmin ? (
+                    <span className="muted">—</span>
+                  ) : (
+                    quotaText(u.maxServers) + " / " + quotaText(u.maxMemoryMB)
+                  )}
+                </td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  {/* Admins are exempt from quotas; a scoped users-admin can't edit an admin's account. */}
+                  {!u.isAdmin && (me.isAdmin || u.adminRoleId == null) && quotaOf !== u.id && (
+                    <><button onClick={() => editQuotas(u)}>{t("Quotas")}</button>{" "}</>
+                  )}
+                  {me.isAdmin && (
+                    <><button onClick={() => toggleAdmin(u)}>{u.isAdmin ? t("Demote") : t("Make admin")}</button>{" "}</>
+                  )}
+                  {u.twoFactorEnabled && <><button onClick={() => reset2FA(u)}>{t("Reset 2FA")}</button>{" "}</>}
+                  <button className="danger" onClick={() => remove(u)}>{t("Delete")}</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <form onSubmit={add} style={{ marginTop: 12 }}>
         <h3>{t("New user")}</h3>
@@ -334,24 +336,26 @@ function Roles() {
       <p className="muted">
         {t("Bundles of admin permissions you can assign to users for scoped admin access. Assign a role to a user in the Users card above.")}
       </p>
-      <table>
-        <thead>
-          <tr><th>{t("Name")}</th><th>{t("Permissions")}</th><th></th></tr>
-        </thead>
-        <tbody>
-          {roles.map((r) => (
-            <tr key={r.id}>
-              <td>{r.name}{r.description && <div className="muted" style={{ fontSize: 12 }}>{r.description}</div>}</td>
-              <td>{r.permissions.length ? r.permissions.join(", ") : <span className="muted">{t("none")}</span>}</td>
-              <td style={{ whiteSpace: "nowrap" }}>
-                <button onClick={() => startEdit(r)}>{t("Edit")}</button>{" "}
-                <button className="danger" onClick={() => remove(r)}>{t("Delete")}</button>
-              </td>
-            </tr>
-          ))}
-          {roles.length === 0 && <tr><td colSpan={3} className="muted">{t("No roles yet.")}</td></tr>}
-        </tbody>
-      </table>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr><th>{t("Name")}</th><th>{t("Permissions")}</th><th></th></tr>
+          </thead>
+          <tbody>
+            {roles.map((r) => (
+              <tr key={r.id}>
+                <td>{r.name}{r.description && <div className="muted" style={{ fontSize: 12 }}>{r.description}</div>}</td>
+                <td>{r.permissions.length ? r.permissions.join(", ") : <span className="muted">{t("none")}</span>}</td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  <button onClick={() => startEdit(r)}>{t("Edit")}</button>{" "}
+                  <button className="danger" onClick={() => remove(r)}>{t("Delete")}</button>
+                </td>
+              </tr>
+            ))}
+            {roles.length === 0 && <tr><td colSpan={3} className="muted">{t("No roles yet.")}</td></tr>}
+          </tbody>
+        </table>
+      </div>
 
       <form onSubmit={save} style={{ marginTop: 12 }}>
         <h3>{editing != null ? t("Edit role") : t("New role")}</h3>

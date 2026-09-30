@@ -73,11 +73,11 @@ export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void
         <div className="brand" onClick={() => go({ name: "list" })}>
           <Lockup />
         </div>
-        <div className="row">
+        <div className="row topnav">
           <button onClick={() => go({ name: "list" })}>{t("Servers")}</button>
           {isAnyAdmin(user) && <button onClick={() => go({ name: "admin" })}>{t("Admin")}</button>}
           <button onClick={() => go({ name: "account" })}>{t("Account")}</button>
-          <span className="muted">
+          <span className="muted who">
             {user.username}
             {user.isAdmin ? ` ${t("(admin)")}` : isAnyAdmin(user) ? ` ${t("(scoped admin)")}` : ""}
           </span>

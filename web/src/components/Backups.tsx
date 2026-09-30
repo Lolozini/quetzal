@@ -97,53 +97,55 @@ export function Backups({ id, readOnly = false }: { id: number; readOnly?: boole
       {list.length === 0 ? (
         <p className="muted">{t("No backups yet.")}</p>
       ) : (
-        <table>
-          <thead>
-            <tr><th>#</th><th>{t("Type")}</th><th>{t("Status")}</th><th>{t("Size")}</th><th>{t("When")}</th><th></th></tr>
-          </thead>
-          <tbody>
-            {list.map((b) => (
-              <tr key={b.id}>
-                <td>{b.id}</td>
-                <td>{b.direction}{b.direction === "restore" && b.sourceId ? ` ←#${b.sourceId}` : ""}</td>
-                <td title={b.message}>
-                  <span className={`badge ${phaseClass(b.phase)}`}>{t(b.phase)}</span>
-                  {b.message && (
-                    <div className={b.phase === "Failed" || b.message.startsWith("delete failed") ? "error" : "muted"} style={{ fontSize: 11, marginTop: 2, maxWidth: 260 }}>
-                      {b.message}
-                    </div>
-                  )}
-                  {b.otherTarget && (
-                    <div className="muted" style={{ fontSize: 11, marginTop: 2, maxWidth: 260 }}>
-                      {t("Made to a previous backup target: it can't be restored from the current one.")}
-                    </div>
-                  )}
-                </td>
-                <td>{b.sizeBytes ? fmtBytes(b.sizeBytes) : "—"}</td>
-                <td>{new Date(b.createdAt).toLocaleString()}</td>
-                <td style={{ whiteSpace: "nowrap" }}>
-                  {!readOnly && (
-                    <>
-                  {b.direction === "backup" && b.phase === "Succeeded" && !b.otherTarget && (
-                    <button onClick={() => restore(b)}>{t("Restore")}</button>
-                  )}{" "}
-                  {/* An operation in flight owns a Job (and, for a restore, the
-                      exclusive write mount); the API refuses to drop it. */}
-                  <button
-                    className="danger"
-                    disabled={IN_FLIGHT.includes(b.phase)}
-                    title={IN_FLIGHT.includes(b.phase) ? t("Wait for this operation to finish.") : ""}
-                    onClick={() => remove(b)}
-                  >
-                    {b.phase === "Deleting" ? t("Deleting…") : t("Delete")}
-                  </button>
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr><th>#</th><th>{t("Type")}</th><th>{t("Status")}</th><th>{t("Size")}</th><th>{t("When")}</th><th></th></tr>
+            </thead>
+            <tbody>
+              {list.map((b) => (
+                <tr key={b.id}>
+                  <td>{b.id}</td>
+                  <td>{b.direction}{b.direction === "restore" && b.sourceId ? ` ←#${b.sourceId}` : ""}</td>
+                  <td title={b.message}>
+                    <span className={`badge ${phaseClass(b.phase)}`}>{t(b.phase)}</span>
+                    {b.message && (
+                      <div className={b.phase === "Failed" || b.message.startsWith("delete failed") ? "error" : "muted"} style={{ fontSize: 11, marginTop: 2, maxWidth: 260 }}>
+                        {b.message}
+                      </div>
+                    )}
+                    {b.otherTarget && (
+                      <div className="muted" style={{ fontSize: 11, marginTop: 2, maxWidth: 260 }}>
+                        {t("Made to a previous backup target: it can't be restored from the current one.")}
+                      </div>
+                    )}
+                  </td>
+                  <td>{b.sizeBytes ? fmtBytes(b.sizeBytes) : "—"}</td>
+                  <td>{new Date(b.createdAt).toLocaleString()}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {!readOnly && (
+                      <>
+                    {b.direction === "backup" && b.phase === "Succeeded" && !b.otherTarget && (
+                      <button onClick={() => restore(b)}>{t("Restore")}</button>
+                    )}{" "}
+                    {/* An operation in flight owns a Job (and, for a restore, the
+                        exclusive write mount); the API refuses to drop it. */}
+                    <button
+                      className="danger"
+                      disabled={IN_FLIGHT.includes(b.phase)}
+                      title={IN_FLIGHT.includes(b.phase) ? t("Wait for this operation to finish.") : ""}
+                      onClick={() => remove(b)}
+                    >
+                      {b.phase === "Deleting" ? t("Deleting…") : t("Delete")}
+                    </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {error && <div className="error">{error}</div>}
     </div>

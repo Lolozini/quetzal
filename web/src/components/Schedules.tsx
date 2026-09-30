@@ -102,39 +102,41 @@ export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boo
       {list.length === 0 ? (
         <p className="muted">{t("No schedules yet.")}</p>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>{t("Name")}</th>
-              <th>{t("Cron")}</th>
-              <th>{t("Time zone")}</th>
-              <th>{t("Tasks")}</th>
-              <th>{t("Next run")}</th>
-              <th>{t("Last")}</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((s) => (
-              <tr key={s.id}>
-                <td>{s.name}</td>
-                <td><code>{s.cron}</code></td>
-                <td className="muted">{s.timezone || t("UTC (default)")}</td>
-                <td><TaskChain tasks={chainOf(s)} /></td>
-                <td>{s.enabled ? fmt(s.nextRun) : "—"}</td>
-                <td title={s.lastStatus}>{s.lastRun ? fmt(s.lastRun) : t("never")}</td>
-                <td style={{ whiteSpace: "nowrap" }}>
-                  {!readOnly && (
-                    <>
-                      <button onClick={() => toggle(s)}>{s.enabled ? t("Disable") : t("Enable")}</button>{" "}
-                      <button className="danger" onClick={() => remove(s)}>{t("Delete")}</button>
-                    </>
-                  )}
-                </td>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>{t("Name")}</th>
+                <th>{t("Cron")}</th>
+                <th>{t("Time zone")}</th>
+                <th>{t("Tasks")}</th>
+                <th>{t("Next run")}</th>
+                <th>{t("Last")}</th>
+                <th></th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {list.map((s) => (
+                <tr key={s.id}>
+                  <td>{s.name}</td>
+                  <td><code>{s.cron}</code></td>
+                  <td className="muted">{s.timezone || t("UTC (default)")}</td>
+                  <td><TaskChain tasks={chainOf(s)} /></td>
+                  <td>{s.enabled ? fmt(s.nextRun) : "—"}</td>
+                  <td title={s.lastStatus}>{s.lastRun ? fmt(s.lastRun) : t("never")}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {!readOnly && (
+                      <>
+                        <button onClick={() => toggle(s)}>{s.enabled ? t("Disable") : t("Enable")}</button>{" "}
+                        <button className="danger" onClick={() => remove(s)}>{t("Delete")}</button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {readOnly ? (

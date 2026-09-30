@@ -55,6 +55,13 @@ releases may include breaking changes).
   a Minecraft Java server nothing on UDP woke it, since that was its query
   port, so a Bedrock player could not wake it, and a server with only Bedrock
   players on it could fall asleep under them.
+- **The panel fits a phone.** At 390 pixels wide nearly every page scrolled
+  sideways: a table set the width of the page, the file manager's buttons ran
+  off its card (on a desktop too), and the top bar stacked its buttons on
+  three lines. Tables now scroll inside their card, a file's actions open
+  below it from its ⋯ button, and on a narrow screen the top bar takes two
+  lines, the folder tree and modification dates give way, and paired fields
+  stack.
 
 ### Security
 
