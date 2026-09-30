@@ -79,6 +79,11 @@ releases may include breaking changes).
   true/false for every boolean variable: one set to 0 showed "true", and
   choosing "false" sent a value that a script testing for "0" took as on, so
   Counter-Strike 2's RCON came on when turned off.
+- **A sender written "Name <address>" sends.** The email settings and email
+  channels saved one without a word, then the relay refused every message,
+  password resets included: the whole string went into the SMTP envelope.
+  The envelope takes the address now, and the From header keeps the name. A
+  sender that is not an address at all is refused when it is saved.
 
 ### Security
 

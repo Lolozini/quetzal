@@ -364,11 +364,17 @@ paths:
                 port: { type: string }
                 username: { type: string }
                 password: { type: string, format: password }
-                from: { type: string }
+                from:
+                  type: string
+                  description: >-
+                    The sender: an address, or a name and one as
+                    `Quetzal <quetzal@example.com>`. Required with a host;
+                    anything else is refused with a 400.
                 tls: { type: string, enum: [starttls, tls, none] }
                 publicUrl: { type: string }
       responses:
         "204": { description: Saved }
+        "400": { $ref: "#/components/responses/BadRequest" }
         "403": { $ref: "#/components/responses/Forbidden" }
   /api/email-settings/test:
     post:

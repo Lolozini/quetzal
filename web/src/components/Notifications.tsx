@@ -23,7 +23,7 @@ const FIELDS: Record<ChannelType, FieldDef[]> = {
   email: [
     { key: "host", label: "SMTP host" },
     { key: "port", label: "Port", placeholder: "587" },
-    { key: "from", label: "From address" },
+    { key: "from", label: "From address", placeholder: "Quetzal <quetzal@example.com>" },
     { key: "to", label: "To (comma-separated)" },
     { key: "username", label: "Username (optional)" },
     { key: "password", label: "Password (optional)", secret: true },

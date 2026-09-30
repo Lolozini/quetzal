@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/store"
 )
 
@@ -72,6 +73,16 @@ func (s *Server) handleSetEmailSettings(w http.ResponseWriter, r *http.Request) 
 		}
 		s.audit(r, 0, "email.settings.clear", "")
 		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	// Refused here rather than by the relay on every send, password resets
+	// included, which nobody sees until someone needs one.
+	if strings.TrimSpace(req.From) == "" {
+		writeError(w, http.StatusBadRequest, "from is required: the email address the panel's mail comes from")
+		return
+	}
+	if _, err := notify.ParseFrom(req.From); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	// Preserve the stored password when the form leaves it blank.

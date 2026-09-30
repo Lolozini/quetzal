@@ -602,7 +602,7 @@ function EmailSettingsCard() {
           </div>
         </div>
         <div className="grid2">
-          <div><label>{t("From address")}</label><input value={form.from} onChange={set("from")} placeholder="quetzal@example.com" /></div>
+          <div><label>{t("From address")}</label><input value={form.from} onChange={set("from")} placeholder="Quetzal <quetzal@example.com>" /></div>
           <div>
             <label>{t("TLS")}</label>
             <select value={form.tls} onChange={set("tls")}>

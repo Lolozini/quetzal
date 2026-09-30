@@ -10,7 +10,9 @@ import (
 )
 
 // fakeSMTP serves one SMTP conversation on loopback, advertising exts after
-// EHLO, and reports every command line it received once the client is done.
+// EHLO, and reports every command line it received once the client is done,
+// and the message's lines after a "| ". Like a real relay, it refuses a MAIL
+// or RCPT whose argument is anything but <address>.
 // It never speaks TLS: the point is what a client does when TLS is not on offer
 // -- which is exactly what an attacker who strips STARTTLS from the EHLO reply
 // arranges.
@@ -45,6 +47,8 @@ func fakeSMTP(t *testing.T, exts ...string) (host, port string, got <-chan []str
 				if l == "." {
 					inData = false
 					say("250 queued")
+				} else {
+					lines = append(lines, "| "+l)
 				}
 				continue
 			}
@@ -61,6 +65,11 @@ func fakeSMTP(t *testing.T, exts ...string) (host, port string, got <-chan []str
 			case "AUTH":
 				say("235 ok")
 			case "MAIL", "RCPT":
+				arg := strings.SplitN(strings.TrimSpace(l[strings.Index(l, ":")+1:]), " ", 2)[0]
+				if !strings.HasPrefix(arg, "<") || !strings.HasSuffix(arg, ">") || strings.ContainsAny(arg[1:len(arg)-1], "<> ") {
+					say("501 5.5.4 invalid " + cmd + " parameter")
+					continue
+				}
 				say("250 ok")
 			case "DATA":
 				inData = true

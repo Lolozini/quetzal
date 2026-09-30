@@ -13,6 +13,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/mail"
 	"net/smtp"
 	"strconv"
 	"strings"
@@ -262,6 +263,19 @@ func encodeHeader(s string) string {
 	return mime.QEncoding.Encode("utf-8", stripCRLF(s))
 }
 
+// ParseFrom reads a sender as people write one: an address, or a name and an
+// address as "Quetzal <quetzal@example.com>". SMTP wants the address alone in
+// its envelope (MAIL FROM): handed the whole string, the relay refused every
+// message ("invalid FROM parameter"), password resets included, while the
+// settings had been saved without a word.
+func ParseFrom(from string) (*mail.Address, error) {
+	a, err := mail.ParseAddress(strings.TrimSpace(from))
+	if err != nil {
+		return nil, fmt.Errorf("the sender %q is neither an email address nor a name and one, as Quetzal <quetzal@example.com>", from)
+	}
+	return a, nil
+}
+
 // SendMail sends a plain-text email to the given recipients using the SMTP
 // settings in cfg (host, port, username, password, from, tls). It is used both
 // for notification email channels and for system mail such as password reset.
@@ -273,6 +287,16 @@ func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, 
 	if host == "" || from == "" || len(to) == 0 {
 		return permanent(fmt.Errorf("email: host, from and to are required"))
 	}
+	sender, err := ParseFrom(from)
+	if err != nil {
+		return permanent(fmt.Errorf("email: %w", err))
+	}
+	// The header keeps the name, encoded if it is not ASCII; a bare address
+	// stays as it was written.
+	fromHeader := sender.Address
+	if sender.Name != "" {
+		fromHeader = sender.String()
+	}
 	port := cfg["port"]
 	if port == "" {
 		port = "587"
@@ -280,7 +304,7 @@ func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, 
 	addr := net.JoinHostPort(host, port)
 	mode := strings.ToLower(strings.TrimSpace(cfg["tls"]))
 
-	msg := buildMessage(from, to, subject, body)
+	msg := buildMessage(fromHeader, to, subject, body)
 
 	var auth smtp.Auth
 	if u := cfg["username"]; u != "" {
@@ -332,7 +356,7 @@ func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, 
 			return err
 		}
 	}
-	if err := client.Mail(from); err != nil {
+	if err := client.Mail(sender.Address); err != nil {
 		return err
 	}
 	for _, rcpt := range to {

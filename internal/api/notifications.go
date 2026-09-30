@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/notify"
 )
 
 // channelDTO is the API view of a channel: secret config values are never
@@ -117,6 +118,9 @@ func validateChannelConfig(t models.ChannelType, cfg map[string]string) string {
 	case models.ChannelEmail:
 		if strings.TrimSpace(cfg["host"]) == "" || strings.TrimSpace(cfg["from"]) == "" || strings.TrimSpace(cfg["to"]) == "" {
 			return "host, from and to are required"
+		}
+		if _, err := notify.ParseFrom(cfg["from"]); err != nil {
+			return err.Error()
 		}
 	}
 	return ""
