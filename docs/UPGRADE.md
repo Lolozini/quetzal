@@ -58,7 +58,13 @@ curl https://<panel>/api/version    # should report the new commit
 
 Game servers are reconciled from the database, so they are re-applied to match
 the new controller without manual steps. Running game pods are not restarted by
-an upgrade unless their desired spec changed.
+an upgrade unless their desired spec changed; the release notes say when a
+version changes it.
+
+A server's pods run small helpers out of the Quetzal image: the config file
+renderer, the SFTP server and the wake-on-connect activator. A running pod keeps
+the helper image it started with, and gets the new one the next time it
+restarts for another reason: a stop and start, hibernation, a changed setting.
 
 ## Rolling back
 

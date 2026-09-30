@@ -27,6 +27,13 @@ releases may include breaking changes).
   a transfer to that cluster stalled the same way. It now binds the role the
   manifest creates. A cluster registered with an administrator's kubeconfig
   was not affected.
+- **Upgrading Quetzal no longer restarts the game servers.** Their pods run
+  helpers out of the panel's image (the config file renderer, the SFTP server,
+  the proxy activator), whose tag changes with each release, and the new tag
+  alone made Kubernetes replace every such pod at once, kicking the players. A
+  running pod now keeps its helper image until it restarts for another reason,
+  as [the upgrade guide](docs/UPGRADE.md) always said it would. This holds
+  from this upgrade on.
 
 ## [0.5.0] - 2026-09-28
 

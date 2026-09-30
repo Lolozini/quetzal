@@ -440,7 +440,7 @@ func (r *Reconciler) ensureDataDeployment(ctx context.Context, s *models.Server,
 	} else if active {
 		replicas = 0
 	}
-	return r.apply(ctx, BuildDataDeployment(s, t, r.ActivatorImage, replicas))
+	return r.applyKeepingHelpers(ctx, BuildDataDeployment(s, t, r.ActivatorImage, replicas), r.ActivatorImage)
 }
 
 func (r *Reconciler) ensurePVC(ctx context.Context, want *corev1.PersistentVolumeClaim) error {
@@ -464,7 +464,7 @@ func (r *Reconciler) apply(ctx context.Context, obj client.Object) error {
 }
 
 func (r *Reconciler) ensureDeployment(ctx context.Context, s *models.Server, t *models.Template, secretKeys []string) error {
-	return r.apply(ctx, BuildDeployment(s, t, r.ActivatorImage, secretKeys))
+	return r.applyKeepingHelpers(ctx, BuildDeployment(s, t, r.ActivatorImage, secretKeys), r.ActivatorImage)
 }
 
 func (r *Reconciler) ensureService(ctx context.Context, s *models.Server, t *models.Template, activator bool) error {
@@ -508,13 +508,13 @@ func (r *Reconciler) ensureActivator(ctx context.Context, s *models.Server, t *m
 		}
 		return nil
 	}
-	return r.apply(ctx, BuildActivatorDeployment(s, t, ActivatorParams{
+	return r.applyKeepingHelpers(ctx, BuildActivatorDeployment(s, t, ActivatorParams{
 		Image:     r.ActivatorImage,
 		WakeURL:   r.WakeURL,
 		ActiveURL: r.ActiveURL,
 		Token:     crypto.WakeToken(r.WakeKey, s.Slug),
 		Proxy:     proxy,
-	}))
+	}), r.ActivatorImage)
 }
 
 // ensureInternalService maintains the proxy's stable backend Service.
