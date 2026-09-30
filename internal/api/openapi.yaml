@@ -827,6 +827,13 @@ paths:
                   additionalProperties: { type: string }
                   description: Startup variable values (editable variables only)
                 resources: { $ref: "#/components/schemas/Resources" }
+                reaches:
+                  type: array
+                  items: { type: string }
+                  description: >-
+                    Slugs of the servers this one may reach inside the cluster
+                    (replaces the list). The caller must be able to change each
+                    of them, and they must run on the same cluster.
       responses:
         "200":
           description: Updated
@@ -2239,6 +2246,10 @@ components:
           type: object
           properties: { enabled: { type: boolean } }
         eulaAccepted: { type: boolean, description: "Minecraft EULA acceptance (templates with the \"eula\" egg feature)" }
+        reaches:
+          type: array
+          items: { type: string }
+          description: Slugs of the servers this one may reach inside the cluster
         clusterId: { type: integer }
         transfer:
           $ref: "#/components/schemas/TransferState"

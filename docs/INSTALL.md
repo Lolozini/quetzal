@@ -278,7 +278,11 @@ stay as they were for whoever looks into why it was suspended.
 token, run with every capability dropped and no privilege escalation, and their
 NetworkPolicy allows DNS and the public internet only — not the cluster network,
 not the node, not your LAN. A managed database is reachable because it is
-granted explicitly; anything else on a private address needs `egressAllow`.
+granted explicitly; anything else on a private address needs `egressAllow`. So
+are the servers a server was given to reach (its settings, *Reachable
+servers*): a proxy and the servers behind it, which then need not be exposed.
+Only someone who may change both servers can link them, on one cluster, and a
+server reached this way still admits nothing but its game ports.
 
 **The `templates` admin permission is the powerful one.** An install script runs
 as root, because that is what Pterodactyl egg scripts expect (they run `apt` and

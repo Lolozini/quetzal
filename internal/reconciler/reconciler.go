@@ -538,8 +538,8 @@ func (r *Reconciler) ensureNetworkPolicy(ctx context.Context, s *models.Server, 
 }
 
 // egressPeersFor lists what this server may reach inside the private address
-// space the default policy denies: the managed databases it has been given, plus
-// whatever the operator allowed cluster-wide.
+// space the default policy denies: the managed databases it has been given, the
+// servers it was given to reach, plus whatever the operator allowed cluster-wide.
 //
 // An external database named by DNS cannot be expressed here — a NetworkPolicy
 // has no notion of hostnames — so one on a private address needs its range in
@@ -577,6 +577,17 @@ func (r *Reconciler) egressPeersFor(s *models.Server) []EgressPeer {
 				peers = append(peers, EgressPeer{CIDR: c})
 			}
 		}
+	}
+	// The servers it was given to reach, a proxy's backends: their namespaces,
+	// where their own policy admits only their game ports. One deleted since,
+	// or moved to another cluster, is reached no more.
+	for _, slug := range s.Reaches {
+		t, err := r.Store.GetServerBySlug(slug)
+		if err != nil || t.ClusterID != s.ClusterID || t.Namespace == "" || seen[t.Namespace] {
+			continue
+		}
+		seen[t.Namespace] = true
+		peers = append(peers, EgressPeer{Namespace: t.Namespace})
 	}
 	return peers
 }

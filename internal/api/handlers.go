@@ -969,6 +969,9 @@ type updateServerRequest struct {
 	// editor for imported eggs). Reallocates pool node ports as needed and rolls
 	// the pod on the next reconcile.
 	Ports *[]models.PortSpec `json:"ports"`
+	// Reaches, when present, replaces the servers this one may reach inside the
+	// cluster (models.Server.Reaches), by slug.
+	Reaches *[]string `json:"reaches"`
 }
 
 func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
@@ -1021,6 +1024,19 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		}
 		srv.SFTP = *req.SFTP
 		s.audit(r, srv.ID, "server.sftp", strconv.FormatBool(req.SFTP.Enabled))
+	}
+	if req.Reaches != nil {
+		slugs, herr := s.checkReaches(r, srv, *req.Reaches)
+		if herr != nil {
+			writeError(w, herr.code, herr.msg)
+			return
+		}
+		if err := s.Store.UpdateServerReaches(srv.ID, slugs); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		srv.Reaches = slugs
+		s.audit(r, srv.ID, "server.reaches", strings.Join(slugs, ", "))
 	}
 	if req.EULAAccepted != nil {
 		if err := s.Store.UpdateServerEULA(srv.ID, *req.EULAAccepted); err != nil {

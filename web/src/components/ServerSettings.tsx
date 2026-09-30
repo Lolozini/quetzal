@@ -20,6 +20,7 @@ export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (
   return (
     <>
     <RenameForm server={server} onSaved={onSaved} />
+    <ReachesForm server={server} onSaved={onSaved} />
     <div className="card">
       <h2>{t("Startup & resources")}</h2>
       <p className="muted">{t("Edit this server's configuration. A ↻ marker appears on a pending change that will restart the server.")}</p>
@@ -70,6 +71,91 @@ function RenameForm({ server, onSaved }: { server: Server; onSaved: (s: Server) 
       {msg && <div className="notice">{msg}</div>}
       {error && <div className="error">{error}</div>}
     </form>
+  );
+}
+
+// internalAddress is where another server of the cluster reaches this one.
+function internalAddress(s: Server): string {
+  const port = (s.ports ?? []).find((p) => p.primary) ?? (s.ports ?? [])[0];
+  return port ? `server.${s.namespace}.svc.cluster.local:${port.port}` : "";
+}
+
+// ReachesForm chooses the servers this one may reach inside the cluster, which
+// a game server otherwise cannot: the servers behind a Velocity or BungeeCord
+// proxy, which then need not be on the internet at all.
+function ReachesForm({ server, onSaved }: { server: Server; onSaved: (s: Server) => void }) {
+  const { t } = useT();
+  const [others, setOthers] = useState<Server[]>([]);
+  const [chosen, setChosen] = useState<string[]>(server.reaches ?? []);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api.servers()
+      .then((ss) => setOthers(ss.filter((s) => s.id !== server.id && (s.clusterId ?? 0) === (server.clusterId ?? 0))))
+      .catch(() => {});
+  }, [server.id, server.clusterId]);
+  useEffect(() => setChosen(server.reaches ?? []), [server.reaches]);
+
+  const saved = server.reaches ?? [];
+  const dirty = chosen.length !== saved.length || chosen.some((s) => !saved.includes(s));
+  // A server reached before it was deleted is still listed, to be let go.
+  const gone = saved.filter((slug) => !others.some((s) => s.slug === slug));
+
+  function toggle(slug: string, on: boolean) {
+    setChosen((c) => (on ? [...c, slug] : c.filter((s) => s !== slug)));
+  }
+
+  async function save() {
+    setMsg("");
+    setError("");
+    setBusy(true);
+    try {
+      onSaved(await api.setServerReaches(server.id, chosen));
+      setMsg(t("Saved: it applies within a few seconds, without a restart."));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2>{t("Reachable servers")}</h2>
+      <p className="muted">
+        {t("A game server cannot reach the others inside the cluster. Choose the ones this server may reach, such as the servers behind a Velocity or BungeeCord proxy: they then need not be exposed at all, and the proxy uses the address shown next to each.")}
+      </p>
+      {others.length === 0 && gone.length === 0 ? (
+        <p className="muted">{t("No other server runs on this cluster.")}</p>
+      ) : (
+        <>
+          {others.map((s) => (
+            <label key={s.id} className="row" style={{ gap: 6, width: "auto" }}>
+              <input
+                type="checkbox"
+                style={{ width: "auto" }}
+                checked={chosen.includes(s.slug)}
+                onChange={(e) => toggle(s.slug, e.target.checked)}
+              />
+              {s.displayName}
+              {internalAddress(s) && <code className="muted">{internalAddress(s)}</code>}
+            </label>
+          ))}
+          {gone.map((slug) => (
+            <label key={slug} className="row" style={{ gap: 6, width: "auto" }}>
+              <input type="checkbox" style={{ width: "auto" }} checked={chosen.includes(slug)} onChange={(e) => toggle(slug, e.target.checked)} />
+              <span className="muted">{t("{slug} (deleted)", { slug })}</span>
+            </label>
+          ))}
+          <button className="primary" style={{ marginTop: 8 }} onClick={save} disabled={busy || !dirty}>
+            {busy ? t("Saving…") : t("Save")}
+          </button>
+        </>
+      )}
+      {msg && <div className="notice">{msg}</div>}
+      {error && <div className="error">{error}</div>}
+    </div>
   );
 }
 

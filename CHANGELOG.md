@@ -7,6 +7,16 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **A server can reach the servers it is given.** A game server cannot reach
+  the others inside the cluster, so a Velocity or BungeeCord proxy could be
+  joined to its servers only through the internet, where the servers behind
+  it, which trust the proxy to have checked the players, could be joined
+  directly. A server's settings now list the servers it may reach, with the
+  address to give the proxy for each; they need not be exposed at all. Only
+  someone who may change both servers can link them, and only on one cluster.
+
 ### Changed
 
 - **A port scan or a server-list query no longer wakes a sleeping server.**

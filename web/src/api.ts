@@ -266,6 +266,8 @@ export interface Server {
   hibernation?: Hibernation;
   hibernated?: boolean;
   sftp?: { enabled: boolean };
+  // Slugs of the servers this one may reach inside the cluster.
+  reaches?: string[];
   eulaAccepted?: boolean;
   clusterId?: number;
   transfer?: TransferState;
@@ -703,6 +705,7 @@ export const api = {
   setServerEnv: (id: number, env: Record<string, string>) =>
     req<Server>("PATCH", `/api/servers/${id}`, { env }),
   renameServer: (id: number, name: string) => req<Server>("PATCH", `/api/servers/${id}`, { name }),
+  setServerReaches: (id: number, reaches: string[]) => req<Server>("PATCH", `/api/servers/${id}`, { reaches }),
   setServerResources: (id: number, resources: { memory: string; cpu: string }) =>
     req<Server>("PATCH", `/api/servers/${id}`, { resources }),
   setServerPorts: (id: number, ports: { port: number; protocol: string; primary: boolean }[]) =>

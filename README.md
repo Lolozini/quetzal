@@ -131,6 +131,9 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   players and SFTP clients get a stable, memorable address.
 - A port can serve **TCP and UDP on the same number** (a Minecraft query, a
   Source RCON), sharing one external port.
+- **Proxies and their servers**: a server can be given others to reach inside
+  the cluster, so a Velocity or BungeeCord proxy reaches the servers behind it
+  while they stay off the internet.
 
 ### Data & backups
 - **Backups & restore** to any S3-compatible target via **restic** (dedup,

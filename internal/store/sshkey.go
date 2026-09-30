@@ -90,6 +90,12 @@ func (s *Store) UpdateServerSFTP(id uint, cfg models.SFTPConfig) error {
 		Updates(models.Server{SFTP: cfg}).Error
 }
 
+// UpdateServerReaches persists the servers a server may reach (models.Server.Reaches).
+func (s *Store) UpdateServerReaches(id uint, slugs []string) error {
+	return s.db.Model(&models.Server{ID: id}).Select("reaches").
+		Updates(models.Server{Reaches: slugs}).Error
+}
+
 // UpdateServerEULA persists a server's Minecraft EULA acceptance. The column is
 // selected explicitly so a false value is written (GORM skips zero-value struct
 // fields otherwise).

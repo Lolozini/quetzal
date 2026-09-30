@@ -191,6 +191,12 @@ type Server struct {
 	// SFTP, when enabled, adds a key-only SFTP sidecar exposing the data volume.
 	SFTP SFTPConfig `gorm:"serializer:json" json:"sftp"`
 
+	// Reaches names, by slug, the servers of the same cluster this one may
+	// reach inside it, which a game server otherwise cannot: a proxy
+	// (Velocity, BungeeCord) and the servers behind it, kept off the internet.
+	// A slug rather than an id, which a server created later may be given.
+	Reaches []string `gorm:"serializer:json" json:"reaches,omitempty"`
+
 	// EULAAccepted records the user's acceptance of the Minecraft EULA for
 	// templates that declare the "eula" egg feature. When true, the controller
 	// renders eula.txt=true into the data volume at startup; when false it writes
