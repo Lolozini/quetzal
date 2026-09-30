@@ -109,11 +109,16 @@ export function Backups({ id }: { id: number }) {
                       {b.message}
                     </div>
                   )}
+                  {b.otherTarget && (
+                    <div className="muted" style={{ fontSize: 11, marginTop: 2, maxWidth: 260 }}>
+                      {t("Made to a previous backup target: it can't be restored from the current one.")}
+                    </div>
+                  )}
                 </td>
                 <td>{b.sizeBytes ? fmtBytes(b.sizeBytes) : "—"}</td>
                 <td>{new Date(b.createdAt).toLocaleString()}</td>
                 <td style={{ whiteSpace: "nowrap" }}>
-                  {b.direction === "backup" && b.phase === "Succeeded" && (
+                  {b.direction === "backup" && b.phase === "Succeeded" && !b.otherTarget && (
                     <button onClick={() => restore(b)}>{t("Restore")}</button>
                   )}{" "}
                   {/* An operation in flight owns a Job (and, for a restore, the
@@ -150,6 +155,7 @@ function BackupConfigForm({ cfg, onSaved }: { cfg: BackupConfig | null; onSaved:
   });
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [warning, setWarning] = useState("");
   const [busy, setBusy] = useState(false);
   const set = (k: keyof BackupConfigInput, v: string | number | boolean) => setF({ ...f, [k]: v });
 
@@ -158,9 +164,11 @@ function BackupConfigForm({ cfg, onSaved }: { cfg: BackupConfig | null; onSaved:
     setBusy(true);
     setError("");
     setSaved(false);
+    setWarning("");
     try {
-      await api.setBackupConfig(f);
+      const res = await api.setBackupConfig(f);
       setSaved(true);
+      setWarning(res?.warning ?? "");
       onSaved();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -199,7 +207,13 @@ function BackupConfigForm({ cfg, onSaved }: { cfg: BackupConfig | null; onSaved:
       <label>{t("Repository password")} {cfg?.hasPassword ? t("(set — leave blank to keep)") : t("(restic encryption key)")}</label>
       <input type="password" value={f.repoPassword ?? ""} autoComplete="new-password" onChange={(e) => set("repoPassword", e.target.value)} />
       {error && <div className="error">{error}</div>}
-      {saved && <div className="notice">{t("Backup target saved.")}</div>}
+      {saved && !warning && <div className="notice">{t("Backup target saved.")}</div>}
+      {warning && (
+        <div className="notice warn">
+          {t("Saved without being checked: the panel could not reach the object store. If the backup jobs cannot reach it either, the first backup will fail.")}
+          <div style={{ fontSize: 11, marginTop: 4 }}>{warning}</div>
+        </div>
+      )}
       <button className="primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? t("Saving…") : t("Save target")}</button>
     </form>
   );

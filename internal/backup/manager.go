@@ -101,6 +101,14 @@ func (m *Manager) processPending(ctx context.Context) {
 			m.finish(b, models.BackupFailed, 0, "server not found")
 			continue
 		}
+		// The API refuses to restore a backup made to another target, but the
+		// target can change between the request and this tick.
+		if b.Direction == models.DirRestore {
+			if src, err := m.Store.GetBackup(b.SourceID); err == nil && src.Target != "" && src.Target != TargetID(cfg) {
+				m.finish(b, models.BackupFailed, 0, OtherTargetMessage)
+				continue
+			}
+		}
 		clients, err := m.Reg.For(srv.ClusterID)
 		if err != nil {
 			log.Printf("backup %d: cluster unreachable, retrying: %v", b.ID, err)
@@ -136,6 +144,9 @@ func (m *Manager) processPending(ctx context.Context) {
 		}
 		b.Phase = models.BackupRunning
 		b.JobName = JobName(p)
+		if b.Direction == models.DirBackup {
+			b.Target = TargetID(cfg)
+		}
 		if err := m.Store.UpdateBackup(b); err != nil {
 			log.Printf("backup: update %d: %v", b.ID, err)
 		}
@@ -190,8 +201,7 @@ func (m *Manager) processRunning(ctx context.Context) {
 			}
 			cleanup(ctx, cs, srv.Namespace, b.JobName)
 		case failed:
-			msg := redactRepository(lastLogLine(podLogs(ctx, cs, srv.Namespace, b.JobName)),
-				Repository(cfg, srv.Slug))
+			msg := failureMessage(podLogs(ctx, cs, srv.Namespace, b.JobName), Repository(cfg, srv.Slug))
 			if msg == "" {
 				msg = "backup job failed"
 			}
@@ -244,6 +254,13 @@ func (m *Manager) processDeleting(ctx context.Context) {
 		if err != nil {
 			continue // transient store error; retry next tick rather than drop the row
 		}
+		// Its snapshot is in a target the panel no longer reaches: a forget run
+		// against the current one would fail and keep the row forever.
+		if b.Target != "" && b.Target != TargetID(cfg) && b.JobName == "" {
+			log.Printf("backup: dropping record %d without forgetting its snapshot (made to a previous backup target)", b.ID)
+			_ = m.Store.DeleteBackup(b.ID)
+			continue
+		}
 		clients, err := m.Reg.For(srv.ClusterID)
 		if err != nil {
 			continue // cluster unreachable; retry next tick
@@ -291,8 +308,7 @@ func (m *Manager) processDeleting(ctx context.Context) {
 				log.Printf("backup: delete %d: %v", b.ID, err)
 			}
 		case failed:
-			msg := redactRepository(lastLogLine(podLogs(ctx, cs, srv.Namespace, b.JobName)),
-				Repository(cfg, srv.Slug))
+			msg := failureMessage(podLogs(ctx, cs, srv.Namespace, b.JobName), Repository(cfg, srv.Slug))
 			if msg == "" {
 				msg = "the snapshot could not be removed"
 			}
@@ -511,14 +527,25 @@ func redactRepository(msg, repo string) string {
 	return msg
 }
 
-// lastLogLine returns the last non-empty line of a log blob (best-effort error
-// message for a failed job).
-func lastLogLine(logs string) string {
+// failureMessage picks, from a failed restic run's output, the line that says
+// what went wrong, with the repository's location redacted: the last "Fatal:"
+// line when there is one, else the last line that is not restic pointing at the
+// repository. restic ends a missing-repository error with "Is there a
+// repository at the following location?" and the URL; redacted, the URL was all
+// a failed restore used to say ("the backup repository").
+func failureMessage(logs, repo string) string {
+	bare := strings.TrimPrefix(repo, "s3:")
 	lines := strings.Split(strings.TrimRight(logs, "\n"), "\n")
+	fallback := ""
 	for i := len(lines) - 1; i >= 0; i-- {
-		if s := strings.TrimSpace(lines[i]); s != "" {
-			return s
+		l := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(l, "Fatal:") {
+			return redactRepository(l, repo)
+		}
+		pointer := l == repo || (repo != "" && l == bare) || strings.HasPrefix(l, "Is there a repository at the following location")
+		if fallback == "" && l != "" && !pointer {
+			fallback = l
 		}
 	}
-	return ""
+	return redactRepository(fallback, repo)
 }

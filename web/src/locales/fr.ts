@@ -453,6 +453,10 @@ export const fr: Record<string, string> = {
   "(set — leave blank to keep)": "(défini — laisser vide pour garder)",
   "Repository password": "Mot de passe du dépôt",
   "(restic encryption key)": "(clé de chiffrement restic)",
+  "Made to a previous backup target: it can't be restored from the current one.":
+    "Faite vers une ancienne cible de sauvegarde : elle ne peut pas être restaurée depuis la cible actuelle.",
+  "Saved without being checked: the panel could not reach the object store. If the backup jobs cannot reach it either, the first backup will fail.":
+    "Enregistrée sans vérification : le panel n'a pas pu joindre le stockage objet. Si les tâches de sauvegarde ne le peuvent pas non plus, la première sauvegarde échouera.",
   "Backup target saved.": "Cible de sauvegarde enregistrée.",
   "Save target": "Enregistrer la cible",
   Succeeded: "Réussi",

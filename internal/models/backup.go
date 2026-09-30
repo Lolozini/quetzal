@@ -66,4 +66,12 @@ type Backup struct {
 	SizeBytes int64  `json:"sizeBytes,omitempty"`
 	Message   string `json:"message,omitempty"`
 	JobName   string `json:"jobName,omitempty"`
+	// Target fingerprints the backup target its snapshot went to (see
+	// backup.TargetID), so that changing the target does not leave backups
+	// listed as restorable from a repository that does not hold them. Empty
+	// for a backup made before targets were recorded and not yet stamped.
+	Target string `gorm:"size:32" json:"-"`
+	// OtherTarget is set in API answers for a backup made to a target the
+	// panel no longer uses: it cannot be restored from the current one.
+	OtherTarget bool `gorm:"-" json:"otherTarget,omitempty"`
 }

@@ -161,6 +161,7 @@ button.link:hover { background: none; color: var(--accent); }
   margin: 8px 0; padding: 8px 12px; border-radius: var(--radius-sm);
   background: var(--accent-soft); color: var(--accent);
 }
+.notice.warn { background: var(--warn-soft); color: var(--warn); }
 
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); }

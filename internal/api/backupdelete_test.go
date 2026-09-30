@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -226,12 +227,103 @@ func TestBackupTargetIsVerifiedBeforeItIsStored(t *testing.T) {
 	// being wrong: refusing here would leave an operator unable to configure
 	// backups because the panel briefly could not connect.
 	answer = fmt.Errorf("%w: dial tcp: i/o timeout", objectstore.ErrIndeterminate)
-	if code := save(); code != http.StatusNoContent {
-		t.Errorf("an unreachable object store blocked the configuration: %d", code)
+	if code := save(); code != http.StatusOK {
+		t.Errorf("an unreachable object store blocked the configuration, or passed without a warning: %d", code)
 	}
 
 	answer = nil
 	if code := save(); code != http.StatusNoContent {
 		t.Errorf("a good target was refused: %d", code)
+	}
+}
+
+// A target the panel cannot reach is saved, and the admin is now told so: it
+// used to go into the log alone, and "unreachable.invalid" was accepted
+// without a word.
+func TestAnUncheckedBackupTargetComesWithAWarning(t *testing.T) {
+	srv, admin, _, apiSrv, _ := newTestServerFull(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+	apiSrv.CheckBucket = func(context.Context, objectstore.Target) error {
+		return fmt.Errorf("%w: dial tcp: lookup unreachable.invalid: no such host", objectstore.ErrIndeterminate)
+	}
+	r := put(t, admin, srv.URL+"/api/backup-config", map[string]any{
+		"endpoint": "unreachable.invalid:9000", "bucket": "b", "useSSL": false,
+		"accessKey": "ak", "secretKey": "sk", "repoPassword": "rp",
+	})
+	defer r.Body.Close()
+	var body struct{ Warning string }
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	if r.StatusCode != http.StatusOK || !strings.Contains(body.Warning, "could not reach") || !strings.Contains(body.Warning, "no such host") {
+		t.Errorf("saving an unreachable target = %d %q, want 200 and a warning that says why", r.StatusCode, body.Warning)
+	}
+	if cfg, err := apiSrv.Store.GetBackupConfig(); err != nil || cfg.Endpoint != "unreachable.invalid:9000" {
+		t.Errorf("the target was not saved: %+v, %v", cfg, err)
+	}
+}
+
+// Changing the backup target left the old backups listed as restorable, and
+// restoring one failed with "the backup repository" and nothing else: the
+// panel did not know where each backup went. It records that now, and a backup
+// made to a previous target is marked, cannot be restored, and is deleted
+// without a snapshot deletion that could only fail.
+func TestBackupsFromAPreviousTargetAreNotRestorable(t *testing.T) {
+	srv, admin, st, _, _ := newTestServerFull(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+	target := func(bucket string) {
+		t.Helper()
+		if r := put(t, admin, srv.URL+"/api/backup-config", map[string]any{
+			"endpoint": "s3.example", "bucket": bucket, "useSSL": true,
+			"accessKey": "ak", "secretKey": "sk", "repoPassword": "rp",
+		}); r.StatusCode != http.StatusNoContent {
+			t.Fatalf("set target %s = %d", bucket, r.StatusCode)
+		}
+	}
+	target("old-bucket")
+	var created struct{ ID uint }
+	json.NewDecoder(post(t, admin, srv.URL+"/api/servers", map[string]any{"name": "w", "template": "generic-process"}).Body).Decode(&created)
+	base := srv.URL + "/api/servers/" + itoa(created.ID) + "/backups"
+	// A backup from before targets were recorded, and one that knows it.
+	legacy := &models.Backup{ServerID: created.ID, Direction: models.DirBackup, Phase: models.BackupSucceeded}
+	if err := st.CreateBackup(legacy); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	listed := func() map[uint]bool {
+		t.Helper()
+		var bs []models.Backup
+		getJSON(t, admin, base, &bs)
+		out := map[uint]bool{}
+		for _, b := range bs {
+			out[b.ID] = b.OtherTarget
+		}
+		return out
+	}
+	if listed()[legacy.ID] {
+		t.Fatal("a backup of the current target is marked as from another")
+	}
+
+	target("new-bucket")
+	if !listed()[legacy.ID] {
+		t.Fatal("after the target changed, its old backup is not marked")
+	}
+	r := post(t, admin, base+"/"+itoa(legacy.ID)+"/restore", nil)
+	var e struct{ Error string }
+	_ = json.NewDecoder(r.Body).Decode(&e)
+	if r.StatusCode != http.StatusConflict || !strings.Contains(e.Error, "no longer uses") {
+		t.Errorf("restoring a backup from the previous target = %d %q, want 409 saying why", r.StatusCode, e.Error)
+	}
+
+	// Back to the old target: the backup is restorable again.
+	target("old-bucket")
+	if listed()[legacy.ID] {
+		t.Error("back on its target, the backup is still marked as from another")
+	}
+
+	target("new-bucket")
+	if code := deleteAs(t, admin, base+"/"+itoa(legacy.ID)); code != http.StatusNoContent {
+		t.Errorf("deleting a backup from the previous target = %d, want 204 at once", code)
+	}
+	if _, err := st.GetBackup(legacy.ID); err == nil {
+		t.Error("the record is still there, waiting on a snapshot deletion that cannot run")
 	}
 }

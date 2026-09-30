@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lolozini/quetzal/internal/backup"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/objectstore"
 	"github.com/lolozini/quetzal/internal/store"
@@ -103,12 +104,25 @@ func (s *Server) handleSetBackupConfig(w http.ResponseWriter, r *http.Request) {
 		Endpoint: req.Endpoint, Bucket: req.Bucket, Prefix: req.Prefix, Region: req.Region,
 		UseSSL: req.UseSSL, KeepLast: req.KeepLast, RunnerImage: req.RunnerImage,
 	}
-	if err := s.checkBackupTarget(r.Context(), cfg, existing, req); err != nil {
+	warning, err := s.checkBackupTarget(r.Context(), cfg, existing, req)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Backups made before targets were recorded went to the one being left:
+	// say so on them, or they stay listed as restorable from the new one.
+	if existing != nil && backup.TargetID(existing) != backup.TargetID(cfg) {
+		if err := s.Store.StampBackupTargets(backup.TargetID(existing)); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 	if err := s.Store.SaveBackupConfig(cfg, req.AccessKey, req.SecretKey, req.RepoPassword); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if warning != "" {
+		writeJSON(w, http.StatusOK, map[string]string{"warning": warning})
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -126,14 +140,16 @@ func (s *Server) handleSetBackupConfig(w http.ResponseWriter, r *http.Request) {
 // Being unable to reach the object store is not a rejection. The panel failing
 // to connect does not mean the backup Jobs will, and refusing the configuration
 // over a transient fault would leave the operator unable to set backups up at
-// all — so an indeterminate result is logged and allowed through.
-func (s *Server) checkBackupTarget(ctx context.Context, cfg *models.BackupConfig, existing *models.BackupConfig, req backupConfigRequest) error {
+// all — so an indeterminate result is allowed through, with a warning for the
+// operator: it used to be written to the log alone, and a target no one could
+// reach was saved without a word.
+func (s *Server) checkBackupTarget(ctx context.Context, cfg *models.BackupConfig, existing *models.BackupConfig, req backupConfigRequest) (warning string, err error) {
 	access, secret := req.AccessKey, req.SecretKey
 	if (access == "" || secret == "") && existing != nil {
 		// An update that leaves the credentials blank keeps the stored ones.
 		a, sec, _, err := s.Store.BackupSecrets(existing)
 		if err != nil {
-			return nil // cannot check without credentials; the save itself still works
+			return "", nil // cannot check without credentials; the save itself still works
 		}
 		if access == "" {
 			access = a
@@ -143,25 +159,26 @@ func (s *Server) checkBackupTarget(ctx context.Context, cfg *models.BackupConfig
 		}
 	}
 	if access == "" || secret == "" {
-		return nil
+		return "", nil
 	}
 	if s.CheckBucket == nil {
-		return nil
+		return "", nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	err := s.CheckBucket(ctx, objectstore.Target{
+	err = s.CheckBucket(ctx, objectstore.Target{
 		Endpoint: cfg.Endpoint, Region: cfg.Region, Bucket: cfg.Bucket,
 		UseSSL: cfg.UseSSL, Access: access, Secret: secret,
 	})
 	if err == nil {
-		return nil
+		return "", nil
 	}
 	if errors.Is(err, objectstore.ErrIndeterminate) {
 		log.Printf("backup target %s/%s saved without being verified: %v", cfg.Endpoint, cfg.Bucket, err)
-		return nil
+		return "saved, but the panel could not reach the object store to check the bucket and the keys (" + err.Error() +
+			"); if the backup jobs cannot reach it either, the first backup will fail", nil
 	}
-	return err
+	return "", err
 }
 
 // ---- per-server backups ----
@@ -176,7 +193,17 @@ func (s *Server) handleListBackups(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if cfg, err := s.Store.GetBackupConfig(); err == nil {
+		for i := range bs {
+			bs[i].OtherTarget = otherTarget(&bs[i], cfg)
+		}
+	}
 	writeJSON(w, http.StatusOK, bs)
+}
+
+// otherTarget reports whether b's snapshot went to a target other than cfg's.
+func otherTarget(b *models.Backup, cfg *models.BackupConfig) bool {
+	return b.Target != "" && b.Target != backup.TargetID(cfg)
 }
 
 func (s *Server) handleCreateBackup(w http.ResponseWriter, r *http.Request) {
@@ -204,6 +231,10 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	if src.Direction != models.DirBackup || src.Phase != models.BackupSucceeded {
 		writeError(w, http.StatusBadRequest, "can only restore from a succeeded backup")
+		return
+	}
+	if cfg, err := s.Store.GetBackupConfig(); err == nil && otherTarget(src, cfg) {
+		writeError(w, http.StatusConflict, backup.OtherTargetMessage)
 		return
 	}
 	// A restore overwrites the data volume in place. If the server is running, its
@@ -260,8 +291,12 @@ func (s *Server) handleDeleteBackup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Only a succeeded backup has a snapshot to forget; failed operations and
-	// restore records are just history and can go straight away.
-	if b.Direction == models.DirBackup && b.Phase == models.BackupSucceeded {
+	// restore records are just history and can go straight away. So does a
+	// backup made to a previous target: the panel cannot reach its snapshot,
+	// and a forget run against the current target would fail for good.
+	cfg, cfgErr := s.Store.GetBackupConfig()
+	elsewhere := cfgErr == nil && otherTarget(b, cfg)
+	if b.Direction == models.DirBackup && b.Phase == models.BackupSucceeded && !elsewhere {
 		if err := s.Store.MarkBackupDeleting(b.ID); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

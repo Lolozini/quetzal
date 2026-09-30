@@ -448,6 +448,8 @@ export interface Backup {
   message?: string;
   createdAt: string;
   completedAt?: string;
+  // Made to a backup target the panel no longer uses: it can't be restored.
+  otherTarget?: boolean;
 }
 
 export interface ClusterSetup {
@@ -719,7 +721,9 @@ export const api = {
     req<void>("DELETE", `/api/servers/${id}/schedules/${sid}`),
 
   backupConfig: () => req<BackupConfig>("GET", "/api/backup-config"),
-  setBackupConfig: (body: BackupConfigInput) => req<void>("PUT", "/api/backup-config", body),
+  // A warning comes back when the target was saved without being checked.
+  setBackupConfig: (body: BackupConfigInput) =>
+    req<{ warning?: string } | undefined>("PUT", "/api/backup-config", body),
   backups: (id: number) => req<Backup[]>("GET", `/api/servers/${id}/backups`),
   createBackup: (id: number) => req<Backup>("POST", `/api/servers/${id}/backups`),
   restoreBackup: (id: number, bid: number) =>

@@ -23,6 +23,22 @@ releases may include breaking changes).
   memory, and Java takes 95% of it. The same goes for removing a server's
   limit.
 
+### Fixed
+
+- **Changing the backup target no longer leaves backups that cannot be
+  restored listed as if they could.** The panel did not record where each
+  backup went, so after a change the old ones were still offered for restore,
+  and a restore failed with "the backup repository" and nothing else. Backups
+  now record their target: those made to a previous one are marked in the
+  Backups tab, their restore is refused with the reason, and deleting one
+  removes it at once instead of waiting on a snapshot deletion that could only
+  fail. Backups made before this version are marked the next time the target
+  changes. Failed backups and restores also say what went wrong, where they
+  used to quote only the repository's (hidden) location.
+- **Saving a backup target the panel cannot reach now says so.** It is still
+  saved, since the backup jobs may reach what the panel cannot, but with a
+  warning where it used to be accepted without a word.
+
 ## [0.5.1] - 2026-09-30
 
 The fixes from a full test of 0.5.0 on three clusters: eight serious bugs and a

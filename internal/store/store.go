@@ -906,8 +906,17 @@ func (s *Store) UpdateBackup(b *models.Backup) error {
 	return s.db.Model(&models.Backup{}).Where("id = ?", b.ID).
 		Updates(map[string]any{
 			"phase": b.Phase, "size_bytes": b.SizeBytes, "message": b.Message,
-			"job_name": b.JobName, "completed_at": b.CompletedAt,
+			"job_name": b.JobName, "completed_at": b.CompletedAt, "target": b.Target,
 		}).Error
+}
+
+// StampBackupTargets records target on every succeeded backup that has none,
+// before the backup target changes: those were made to the target being left.
+func (s *Store) StampBackupTargets(target string) error {
+	return s.db.Model(&models.Backup{}).
+		Where("target = '' OR target IS NULL").
+		Where("direction = ? AND phase = ?", models.DirBackup, models.BackupSucceeded).
+		Update("target", target).Error
 }
 
 // DeleteBackup removes a backup record.

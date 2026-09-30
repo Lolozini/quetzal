@@ -6,6 +6,8 @@
 package backup
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -81,6 +83,23 @@ func Repository(cfg *models.BackupConfig, slug string) string {
 	}
 	return repo
 }
+
+// TargetID fingerprints where a backup target keeps its snapshots: the
+// endpoint, bucket and prefix that every server's repository URL is built
+// from. Each backup records it, so a backup made to a target the panel has
+// since left is known as such. A fingerprint rather than the location itself:
+// a backup's record is readable by anyone who can view its server, and where
+// the target is stays the administrators' business.
+func TargetID(cfg *models.BackupConfig) string {
+	loc := strings.ToLower(strings.TrimSpace(cfg.Endpoint)) + "\x00" +
+		strings.TrimSpace(cfg.Bucket) + "\x00" + strings.Trim(strings.TrimSpace(cfg.Prefix), "/")
+	sum := sha256.Sum256([]byte(loc))
+	return hex.EncodeToString(sum[:8])
+}
+
+// OtherTargetMessage explains why a backup made to another target cannot be
+// restored.
+const OtherTargetMessage = "this backup was made to a backup target the panel no longer uses; it can be restored once that target is set again"
 
 // Image returns the runner image, defaulting when unset.
 func Image(cfg *models.BackupConfig) string {
