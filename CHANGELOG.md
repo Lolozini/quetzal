@@ -16,6 +16,13 @@ releases may include breaking changes).
   directly. A server's settings now list the servers it may reach, with the
   address to give the proxy for each; they need not be exposed at all. Only
   someone who may change both servers can link them, and only on one cluster.
+- **A server's image can be changed from its settings.** Going from Java 21
+  to Java 25 took a reinstall, which ran the install script again and
+  downloaded the game once more; Pterodactyl makes it a choice in the startup
+  settings. A server's Settings tab now offers its template's images, and
+  `PATCH /api/servers/{id}` takes `image`, with the rule of the creation form:
+  the template's images, or any for an administrator. Like the other
+  settings, it restarts a running server.
 
 ### Changed
 

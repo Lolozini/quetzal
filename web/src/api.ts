@@ -733,6 +733,7 @@ export const api = {
   setServerEnv: (id: number, env: Record<string, string>) =>
     req<Server>("PATCH", `/api/servers/${id}`, { env }),
   renameServer: (id: number, name: string) => req<Server>("PATCH", `/api/servers/${id}`, { name }),
+  setServerImage: (id: number, image: string) => req<Server>("PATCH", `/api/servers/${id}`, { image }),
   setServerReaches: (id: number, reaches: string[]) => req<Server>("PATCH", `/api/servers/${id}`, { reaches }),
   setServerResources: (id: number, resources: { memory: string; cpu: string }) =>
     req<Server>("PATCH", `/api/servers/${id}`, { resources }),

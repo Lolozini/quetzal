@@ -554,6 +554,9 @@ export const fr: Record<string, string> = {
   "CPU (blank = unlimited)": "CPU (vide = illimité)",
   "Resources saved.": "Ressources enregistrées.",
   "Save resources": "Enregistrer les ressources",
+  "Image saved.": "Image enregistrée.",
+  "Save image": "Enregistrer l'image",
+  current: "actuelle",
 
   // Access (subusers)
   Subusers: "Sous-utilisateurs",

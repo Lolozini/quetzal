@@ -492,6 +492,11 @@ func (s *Store) UpdateServerEnv(id uint, env map[string]string, secretEnc string
 		Select("env", "secret_env_enc").Updates(models.Server{Env: env, SecretEnvEnc: secretEnc}).Error
 }
 
+// UpdateServerImage switches the image a server runs.
+func (s *Store) UpdateServerImage(id uint, image string) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).Update("image", image).Error
+}
+
 // UpdateServerResources persists only the CPU/memory limits.
 func (s *Store) UpdateServerResources(id uint, r models.Resources) error {
 	return s.db.Model(&models.Server{}).Where("id = ?", id).

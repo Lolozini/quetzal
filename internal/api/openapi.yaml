@@ -827,11 +827,11 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
     patch:
       tags: [Servers]
-      summary: Update settings (name, exposure, hibernation, SFTP, startup variables, resources)
+      summary: Update settings (name, exposure, hibernation, SFTP, startup variables, resources, image)
       description: >-
         All fields are optional; only the present ones change. A rename changes
-        the displayed name only, never the slug. Editing env or
-        resources is applied on the next reconcile, which restarts the server.
+        the displayed name only, never the slug. Editing env, resources or the
+        image is applied on the next reconcile, which restarts the server.
         env is validated against the template's variable contract; a blank
         secret variable keeps the stored value. resources are re-checked against
         the owner's quota.
@@ -856,6 +856,12 @@ paths:
                   additionalProperties: { type: string }
                   description: Startup variable values (editable variables only)
                 resources: { $ref: "#/components/schemas/Resources" }
+                image:
+                  type: string
+                  description: >-
+                    The image to run, one of the template's (400 otherwise)
+                    unless the caller is an administrator. Nothing is
+                    reinstalled.
                 reaches:
                   type: array
                   items: { type: string }

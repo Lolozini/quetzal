@@ -860,6 +860,33 @@ func resolveEnvUpdate(tmpl *models.Template, current, reqEnv map[string]string) 
 	return env, nil
 }
 
+// updateServerImage switches the image a server runs to another of its
+// template's, as Pterodactyl's startup settings do. It took a reinstall, which
+// re-ran the install script -- downloading the game again -- to go from Java 21
+// to Java 25. The rule is the creation's: the template's list is the operator's
+// curation, and only an administrator goes off it.
+func (s *Server) updateServerImage(r *http.Request, srv *models.Server, image string) *httpErr {
+	if image == "" {
+		return &httpErr{http.StatusBadRequest, "image is empty"}
+	}
+	if image == srv.Image {
+		return nil
+	}
+	tmpl, err := s.Store.GetTemplate(srv.TemplateID)
+	if err != nil {
+		return &httpErr{http.StatusInternalServerError, "could not load template"}
+	}
+	if u := userFrom(r.Context()); u == nil || (!u.HasAdminPerm(models.AdminPermServers) && !templateOffersImage(tmpl, image)) {
+		return &httpErr{http.StatusBadRequest, "image is not one of the template's"}
+	}
+	if err := s.Store.UpdateServerImage(srv.ID, image); err != nil {
+		return &httpErr{http.StatusInternalServerError, err.Error()}
+	}
+	s.audit(r, srv.ID, "server.image", srv.Image+" -> "+image)
+	srv.Image = image
+	return nil
+}
+
 // updateServerResources validates and persists new CPU/memory limits, enforcing
 // the owner's quota (admins bypass).
 func (s *Server) updateServerResources(r *http.Request, srv *models.Server, rsc models.Resources) *httpErr {
@@ -973,6 +1000,10 @@ type updateServerRequest struct {
 	// Reaches, when present, replaces the servers this one may reach inside the
 	// cluster (models.Server.Reaches), by slug.
 	Reaches *[]string `json:"reaches"`
+	// Image, when present, switches the image the server runs (one of its
+	// template's, unless an administrator names another). Applied on the next
+	// reconcile, which restarts the pod.
+	Image *string `json:"image"`
 }
 
 func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
@@ -1064,6 +1095,12 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Resources != nil {
 		if err := s.updateServerResources(r, srv, *req.Resources); err != nil {
+			writeError(w, err.code, err.msg)
+			return
+		}
+	}
+	if req.Image != nil {
+		if err := s.updateServerImage(r, srv, strings.TrimSpace(*req.Image)); err != nil {
 			writeError(w, err.code, err.msg)
 			return
 		}

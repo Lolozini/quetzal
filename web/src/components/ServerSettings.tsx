@@ -25,6 +25,7 @@ export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (
       <h2>{t("Startup & resources")}</h2>
       <p className="muted">{t("Edit this server's configuration. A ↻ marker appears on a pending change that will restart the server.")}</p>
       {editable.length > 0 && <Variables serverId={server.id} vars={editable} env={server.env ?? {}} onSaved={onSaved} />}
+      {tmpl && <ImageForm server={server} template={tmpl} onSaved={onSaved} />}
       <ResourcesForm server={server} onSaved={onSaved} />
       {tmpl && (tmpl.ports?.length ?? 0) === 0 && <ServerPorts server={server} onSaved={onSaved} />}
       {tmpl?.features?.includes("eula") && <EULAToggle server={server} onSaved={onSaved} />}
@@ -455,6 +456,55 @@ function Variables({
       {msg && <div className="notice">{msg}</div>}
       {error && <div className="error">{error}</div>}
       <button className="primary" style={{ marginTop: 8 }} disabled={busy}>{busy ? t("Saving…") : t("Save variables")}</button>
+    </form>
+  );
+}
+
+// ImageForm switches the image the server runs among its template's, as
+// Pterodactyl's startup settings do: going from Java 21 to Java 25 took a
+// reinstall, and the game was downloaded again. Shown when there is a choice.
+function ImageForm({ server, template, onSaved }: { server: Server; template: Template; onSaved: (s: Server) => void }) {
+  const { t } = useT();
+  const [image, setImage] = useState(server.image);
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setImage(server.image), [server.image]);
+  // An image an administrator set off the list stays selectable as it is.
+  const options = template.images.some((i) => i.ref === server.image)
+    ? template.images
+    : [{ displayName: t("current"), ref: server.image }, ...template.images];
+  if (options.length < 2) return null;
+  const dirty = image !== server.image;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setMsg("");
+    setError("");
+    setBusy(true);
+    try {
+      onSaved(await api.setServerImage(server.id, image));
+      setMsg(t("Image saved."));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} style={{ marginTop: 12 }}>
+      <h3>{t("Image")} {dirty && <RestartHint />}</h3>
+      <select value={image} onChange={(e) => setImage(e.target.value)}>
+        {options.map((i) => (
+          <option key={i.ref} value={i.ref}>
+            {i.displayName} ({i.ref})
+          </option>
+        ))}
+      </select>
+      {msg && <div className="notice">{msg}</div>}
+      {error && <div className="error">{error}</div>}
+      <button className="primary" style={{ marginTop: 8 }} disabled={busy || !dirty}>{busy ? t("Saving…") : t("Save image")}</button>
     </form>
   );
 }
