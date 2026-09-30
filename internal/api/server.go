@@ -65,10 +65,13 @@ type Server struct {
 	// recorded for the activity feed).
 	Dispatch *notify.Dispatcher
 
-	// Rate limiters (per-process). LoginLimiter is keyed by username, AuthIPLimiter
-	// and InternalLimiter by client IP, ForgotLimiter by reset identifier.
+	// Rate limiters (per-process). LoginLimiter is keyed by username and counts
+	// the browsers that never signed in to the account, DeviceLimiter by device
+	// cookie and counts those that did (see device.go), AuthIPLimiter by client
+	// address, InternalLimiter by client IP, ForgotLimiter by reset identifier.
 	// Replaceable in tests.
 	LoginLimiter    *ratelimit.Limiter
+	DeviceLimiter   *ratelimit.Limiter
 	AuthIPLimiter   *ratelimit.Limiter
 	InternalLimiter *ratelimit.Limiter
 	ForgotLimiter   *ratelimit.Limiter
@@ -96,6 +99,8 @@ type Server struct {
 	TrustProxy bool
 
 	upgrader websocket.Upgrader
+	// processKey signs device cookies when there is no secret key (deviceKey).
+	processKey []byte
 
 	// diskUsageMu guards diskUsage, a short-TTL cache of per-server data-volume
 	// usage (du) so the 4s stats poll doesn't walk the whole volume every time.
@@ -129,16 +134,19 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 		RestConfig: cfg,
 		Registry:   cluster.New(st, cluster.Clients{Clientset: cs, Config: cfg}),
 		SessionTTL: 7 * 24 * time.Hour,
-		// Brute-force defaults: 10 login attempts / 15 min per username (covers
-		// password and TOTP-code guessing), a broader per-IP cap, and a generous
-		// cap on the in-cluster wake/active callbacks.
+		// Brute-force defaults: 10 login attempts / 15 min per username from
+		// unknown browsers, and as many per browser that signed in before
+		// (covers password and TOTP-code guessing), a broader per-address cap,
+		// and a generous cap on the in-cluster wake/active callbacks.
 		LoginLimiter:    ratelimit.New(10, 15*time.Minute),
+		DeviceLimiter:   ratelimit.New(10, 15*time.Minute),
 		AuthIPLimiter:   ratelimit.New(60, 15*time.Minute),
 		InternalLimiter: ratelimit.New(120, time.Minute),
 		// Password-reset requests: cap per identifier to avoid emailing-bombing a
 		// victim and to blunt account enumeration via repeated probing.
 		ForgotLimiter: ratelimit.New(3, time.Hour),
 		Mailer:        notify.SendMail,
+		processKey:    newProcessKey(),
 		Fetch:         safefetch.Get,
 		CheckBucket: func(ctx context.Context, t objectstore.Target) error {
 			return objectstore.CheckBucket(ctx, t, nil)
@@ -161,6 +169,7 @@ type BucketChecker func(ctx context.Context, t objectstore.Target) error
 // GCRateLimiters drops expired counters from all limiters; call periodically.
 func (s *Server) GCRateLimiters() {
 	s.LoginLimiter.GC()
+	s.DeviceLimiter.GC()
 	s.AuthIPLimiter.GC()
 	s.InternalLimiter.GC()
 	s.ForgotLimiter.GC()

@@ -36,7 +36,11 @@ export function Auth({
         onAuthed(res);
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      if (err instanceof ApiError && err.status === 429) {
+        setError(t("Too many sign-in attempts. Try again in a few minutes."));
+      } else {
+        setError(err instanceof ApiError ? err.message : String(err));
+      }
     } finally {
       setBusy(false);
     }

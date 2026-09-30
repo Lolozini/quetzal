@@ -30,7 +30,7 @@ func (s *Server) publicURL() string {
 // identifier matched, and the email (if any) is sent asynchronously so the
 // response time doesn't reveal a hit. Requires SMTP + public URL configured.
 func (s *Server) handleForgotPassword(w http.ResponseWriter, r *http.Request) {
-	ip := s.clientIP(r)
+	ip := s.authAddress(r)
 	if !s.AuthIPLimiter.Allow(ip) {
 		tooManyRequests(w, s.AuthIPLimiter.RetryAfter(ip))
 		return
@@ -115,7 +115,7 @@ func (s *Server) sendResetEmail(cfg map[string]string, u *models.User, link stri
 // password, then invalidates the token and all the user's sessions so a stolen
 // session can't ride along after the password changes.
 func (s *Server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
-	ip := s.clientIP(r)
+	ip := s.authAddress(r)
 	if !s.AuthIPLimiter.Allow(ip) {
 		tooManyRequests(w, s.AuthIPLimiter.RetryAfter(ip))
 		return

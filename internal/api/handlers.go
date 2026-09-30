@@ -155,7 +155,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	ip := s.clientIP(r)
+	ip := s.authAddress(r)
 	if !s.AuthIPLimiter.Allow(ip) {
 		tooManyRequests(w, s.AuthIPLimiter.RetryAfter(ip))
 		return
@@ -165,14 +165,20 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	// Per-account brute-force throttle (bounds password and TOTP-code guessing);
-	// cleared on a fully successful login below.
-	userKey := strings.ToLower(strings.TrimSpace(req.Username))
-	if !s.LoginLimiter.Allow(userKey) {
-		tooManyRequests(w, s.LoginLimiter.RetryAfter(userKey))
+	u, err := s.Store.GetUserByUsername(req.Username)
+	// Brute-force throttle (bounds password and TOTP-code guessing): a browser
+	// that signed in to this account before counts on its own, any other
+	// against the account (device.go). Cleared on a fully successful login.
+	limiter, key := s.LoginLimiter, strings.ToLower(strings.TrimSpace(req.Username))
+	if err == nil {
+		if dev := s.knownDevice(r, u); dev != "" {
+			limiter, key = s.DeviceLimiter, dev
+		}
+	}
+	if !limiter.Allow(key) {
+		tooManyRequests(w, limiter.RetryAfter(key))
 		return
 	}
-	u, err := s.Store.GetUserByUsername(req.Username)
 	if err != nil {
 		// Spend the same argon2 work an existing account would, so the answer
 		// does not say whether the username exists.
@@ -204,9 +210,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	// Successful login: don't hold earlier failures against this user/IP.
-	s.LoginLimiter.Reset(userKey)
-	s.AuthIPLimiter.Reset(ip)
+	// Earlier failures of this browser, or against this account, stop counting.
+	// The address's do not: someone with an account of their own would sign in
+	// to it between two volleys to clear the count that holds back their
+	// guesses at everyone else's.
+	limiter.Reset(key)
 	writeJSON(w, http.StatusOK, u)
 }
 
@@ -246,6 +254,7 @@ func (s *Server) startSession(w http.ResponseWriter, u *models.User) error {
 		return err
 	}
 	s.setSessionCookie(w, token, exp)
+	s.rememberDevice(w, u)
 	return nil
 }
 

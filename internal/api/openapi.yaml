@@ -122,7 +122,11 @@ paths:
         On success a session cookie is set and the user is returned. If the
         account has 2FA enabled and no `code` was supplied, the response is
         `{ "twoFactorRequired": true }` with no session; resubmit with a TOTP or
-        recovery code.
+        recovery code. A successful login also sets a long-lived device cookie
+        for the account: failed attempts from a client that holds one count
+        against that client alone, those from any other against the account
+        (10 per 15 minutes), so failures elsewhere do not lock the account's
+        owner out.
       security: []
       requestBody:
         required: true

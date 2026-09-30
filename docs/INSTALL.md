@@ -291,6 +291,18 @@ shared by every replica: the configured limit is the limit, not the limit times
 the number of pods. If the database is unreachable the limiter falls back to
 counting in memory — still limited, just per-process.
 
+**Someone guessing at an account does not lock its owner out.** Ten failed
+sign-ins in fifteen minutes hold an account back, but only for browsers that
+have never signed in to it: one that has keeps a cookie saying so, and ten
+attempts of its own. Whoever hammers `admin` from the Internet blocks
+themselves and every other stranger, not the administrator at their usual
+browser; a first sign-in from a new one waits out the window. A new password
+makes every other browser a stranger again. Each address also gets sixty
+attempts per fifteen minutes across all accounts, an IPv6 address counting with
+the rest of its /64, and signing in does not reset that count. The cookie is
+signed with the secret key; without one, a restart forgets which browsers were
+known.
+
 **Delegated admin roles stop short of the privilege system.** A scoped admin
 never reaches an account that outranks it: granting admin status, assigning
 roles, and resetting, deleting or clearing the two-factor of any account with

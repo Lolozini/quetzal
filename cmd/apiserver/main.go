@@ -73,6 +73,7 @@ func main() {
 	// upgrade would otherwise hand out a fresh budget) and are shared, so the
 	// configured limit stays the limit however many replicas run.
 	apiSrv.LoginLimiter.Share(st, "login:")
+	apiSrv.DeviceLimiter.Share(st, "device:")
 	apiSrv.AuthIPLimiter.Share(st, "ip:")
 	apiSrv.ForgotLimiter.Share(st, "forgot:")
 	apiSrv.Secure = env("QUETZAL_SECURE_COOKIES", "") == "true"

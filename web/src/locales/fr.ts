@@ -31,6 +31,8 @@ export const fr: Record<string, string> = {
   "Create the admin account": "Créer le compte administrateur",
   "Create admin": "Créer l'admin",
   "Enter your authentication code": "Saisissez votre code d'authentification",
+  "Too many sign-in attempts. Try again in a few minutes.":
+    "Trop de tentatives de connexion. Réessayez dans quelques minutes.",
   "Authentication code": "Code d'authentification",
   "6-digit code or recovery code": "Code à 6 chiffres ou code de secours",
   "From your authenticator app, or a recovery code.": "Depuis votre application d'authentification, ou un code de secours.",

@@ -44,6 +44,18 @@ releases may include breaking changes).
   no node can take the server and why. The file manager answers at once with
   that reason, where it waited two minutes and then blamed a restore.
 
+### Security
+
+- **Failed sign-ins no longer lock an account's owner out.** Ten wrong
+  passwords for an account, from anywhere, blocked it for everyone for fifteen
+  minutes, so anyone who could reach the panel could keep its administrator
+  out with forty requests an hour. A browser that has signed in to an account
+  now keeps a cookie that gives it a count of its own; the others still share
+  the account's, so guessing from many addresses gets no further than before.
+  Signing in also stopped clearing the per-address count, which let someone
+  with an account of their own reset it between two volleys at others, and an
+  IPv6 address now counts with the rest of its /64.
+
 ## [0.5.1] - 2026-09-30
 
 The fixes from a full test of 0.5.0 on three clusters: eight serious bugs and a

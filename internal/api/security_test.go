@@ -64,6 +64,9 @@ func TestLoginRateLimit(t *testing.T) {
 		s.AuthIPLimiter = ratelimit.New(100, time.Minute) // don't let the IP cap interfere
 	})
 	post(t, c, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+	// The browser the account was set up in has a count of its own
+	// (TestLockoutSparesBrowsersThatSignedInBefore); this is any other.
+	c = browser()
 
 	bad := func() int {
 		r := post(t, c, ts.URL+"/api/login", map[string]string{"username": "admin", "password": "wrong"})
@@ -94,14 +97,16 @@ func TestLoginRateLimitResetsOnSuccess(t *testing.T) {
 	})
 	post(t, c, ts.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
 
-	// Two failures, then a success that clears the counter.
+	// Two failures, then a success that clears the counter, from browsers that
+	// never signed in to the account (see TestLoginRateLimit).
+	c = browser()
 	post(t, c, ts.URL+"/api/login", map[string]string{"username": "admin", "password": "wrong"})
 	post(t, c, ts.URL+"/api/login", map[string]string{"username": "admin", "password": "wrong"})
 	if r := post(t, c, ts.URL+"/api/login", map[string]string{"username": "admin", "password": "supersecret"}); r.StatusCode != http.StatusOK {
 		t.Fatalf("login = %d, want 200", r.StatusCode)
 	}
 	// The budget is fresh again: another failure is 401, not 429.
-	if r := post(t, c, ts.URL+"/api/login", map[string]string{"username": "admin", "password": "wrong"}); r.StatusCode != http.StatusUnauthorized {
+	if r := post(t, browser(), ts.URL+"/api/login", map[string]string{"username": "admin", "password": "wrong"}); r.StatusCode != http.StatusUnauthorized {
 		t.Errorf("post-reset failure = %d, want 401 (counter cleared)", r.StatusCode)
 	}
 }

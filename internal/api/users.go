@@ -306,6 +306,11 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	// stolen, so every other login ends here. The caller's own session is kept
 	// so they aren't signed out of the page they just used.
 	_ = s.Store.DeleteSessionsForUserExcept(u.ID, sessionHash(r))
+	// The new password also retires every browser known to the account
+	// (deviceMAC), this one included: it stays known under the new one.
+	changed := *u
+	changed.PasswordHash = hash
+	s.rememberDevice(w, &changed)
 	w.WriteHeader(http.StatusNoContent)
 }
 
