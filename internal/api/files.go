@@ -140,15 +140,6 @@ func (s *Server) fileContext(w http.ResponseWriter, r *http.Request) (srv *model
 		writeError(w, http.StatusServiceUnavailable, "target cluster unavailable: "+err.Error())
 		return nil, "", nil, nil, "", false
 	}
-	// Suspension is an admin-enforced freeze: owners and subusers lose file
-	// access just like power (matching Pterodactyl). Admins may still inspect the
-	// files (e.g. to investigate why it was suspended).
-	if srv.DesiredState == models.StateSuspended {
-		if u := userFrom(r.Context()); u == nil || !u.HasAdminPerm(models.AdminPermServers) {
-			writeError(w, http.StatusForbidden, "server is suspended")
-			return nil, "", nil, nil, "", false
-		}
-	}
 	pod, err = s.dataPodName(r.Context(), cs, srv.Namespace, srv.Slug)
 	var unavailable errDataUnavailable
 	switch {

@@ -256,6 +256,13 @@ bound. Whatever the quotas, a server created by anyone but an administrator
 needs a memory limit: without one its pod may take all of its node's memory,
 at the expense of every other server there.
 
+**A suspended server is frozen for everyone but administrators.** Suspending
+one stops it, and until an administrator lifts the suspension its owner and
+subusers can look at it and nothing more: they cannot start, change, back up,
+restore or delete it, reach its files, databases or console, or change who has
+access to it. Its schedules do not run. The server, its data and its backups
+stay as they were for whoever looks into why it was suspended.
+
 **Game servers themselves are confined.** Their pods mount no service account
 token, run with every capability dropped and no privilege escalation, and their
 NetworkPolicy allows DNS and the public internet only — not the cluster network,

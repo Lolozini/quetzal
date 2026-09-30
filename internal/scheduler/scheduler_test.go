@@ -165,6 +165,36 @@ func TestTickSkipsPowerActionsOnSuspendedServer(t *testing.T) {
 	}
 }
 
+// A suspended server is frozen until an administrator looks into it. Its
+// scheduled backups used to go on, and each one's retention pushed out a
+// snapshot from before the suspension: a nightly schedule emptied the history
+// in a week.
+func TestTickRunsNothingOnSuspendedServer(t *testing.T) {
+	st := testStore(t)
+	srv := &models.Server{Slug: "s", Namespace: "ns", DesiredState: models.StateSuspended}
+	_ = st.CreateServer(srv)
+	past := time.Now().Add(-time.Minute)
+	sc := &models.Schedule{
+		ServerID: srv.ID, Name: "nightly", Cron: "* * * * *", Enabled: true, NextRun: &past,
+		Tasks: []models.ScheduleTask{
+			{Action: models.SchedCommand, Payload: "save-all"},
+			{Action: models.SchedBackup},
+		},
+	}
+	_ = st.CreateSchedule(sc)
+
+	m := &mockExec{}
+	runTick(New(st, m), context.Background())
+
+	if m.backedup != 0 || len(m.commands) != 0 {
+		t.Errorf("on a suspended server: %d backups, commands %q; want none", m.backedup, m.commands)
+	}
+	got, _ := st.GetSchedule(sc.ID)
+	if strings.Count(got.LastStatus, "skipped (server suspended)") != 2 {
+		t.Errorf("LastStatus = %q, want both tasks skipped (server suspended)", got.LastStatus)
+	}
+}
+
 func TestChainRunsTasksInOrder(t *testing.T) {
 	st := testStore(t)
 	srv := &models.Server{Slug: "s", Namespace: "ns", DesiredState: models.StateRunning}

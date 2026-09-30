@@ -968,8 +968,7 @@ paths:
                     size: { type: integer, format: int64 }
                     mtime: { type: integer, format: int64, description: Last modification in Unix seconds (absent when the image has no stat) }
                     dir: { type: boolean }
-        "403": { description: Server is suspended (owners/subusers are blocked; admins may still inspect) }
-        "409": { description: Server is mid-start (not yet running and not fully stopped); retry once it settles }
+        "409": { description: Server is mid-start (not yet running and not fully stopped), retry once it settles; or it is suspended (owners/subusers are blocked, admins may still inspect) }
     delete:
       tags: [Files]
       summary: Delete a file or directory (recursive)
@@ -1355,8 +1354,12 @@ paths:
     post:
       tags: [Servers]
       summary: Suspend a server (admin)
+      description: >
+        Stops the server and freezes it until it is unsuspended: its owner and
+        subusers can still view it, and every other request they make about it
+        answers 409. Its schedules do not run. Administrators keep every right.
       responses:
-        "204": { description: Suspended }
+        "200": { description: Suspended }
         "403": { $ref: "#/components/responses/Forbidden" }
   /api/servers/{id}/unsuspend:
     parameters:
@@ -1365,7 +1368,7 @@ paths:
       tags: [Servers]
       summary: Unsuspend a server (admin)
       responses:
-        "204": { description: Unsuspended }
+        "200": { description: Unsuspended }
         "403": { $ref: "#/components/responses/Forbidden" }
   /api/import/pterodactyl/inspect:
     post:

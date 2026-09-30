@@ -24,7 +24,8 @@ func (s *Server) can(u *models.User, srv *models.Server, perm string) bool {
 
 // requireServer loads the server in the path and checks the current user holds
 // `perm` on it. To avoid leaking existence, a user with no access at all gets
-// 404; one who can view but lacks the specific permission gets 403.
+// 404; one who can view but lacks the specific permission gets 403, and 409
+// for anything but viewing while the server is suspended.
 func (s *Server) requireServer(w http.ResponseWriter, r *http.Request, perm string) (*models.Server, bool) {
 	srv, ok := s.lookupServer(w, r)
 	if !ok {
@@ -32,6 +33,9 @@ func (s *Server) requireServer(w http.ResponseWriter, r *http.Request, perm stri
 	}
 	u := userFrom(r.Context())
 	if s.can(u, srv, perm) {
+		if perm != models.PermView && refuseSuspended(w, u, srv) {
+			return nil, false
+		}
 		return srv, true
 	}
 	if s.can(u, srv, models.PermView) {
@@ -40,6 +44,20 @@ func (s *Server) requireServer(w http.ResponseWriter, r *http.Request, perm stri
 		writeError(w, http.StatusNotFound, "server not found")
 	}
 	return nil, false
+}
+
+// refuseSuspended answers 409 and returns true when an administrator has
+// suspended srv and u is not one. A suspended server is frozen for its owner and
+// subusers until the suspension is lifted: they may look at it and nothing more.
+// Only power and files used to be refused, so the owner of a server suspended
+// for abuse could still delete it, data and all, before anyone looked into it,
+// or rotate its backups out one "Backup now" at a time.
+func refuseSuspended(w http.ResponseWriter, u *models.User, srv *models.Server) bool {
+	if srv.DesiredState != models.StateSuspended || u.HasAdminPerm(models.AdminPermServers) {
+		return false
+	}
+	writeError(w, http.StatusConflict, "server is suspended by an administrator")
+	return true
 }
 
 // requireAdmin gates an action to superadmins (User.IsAdmin). Reserved for

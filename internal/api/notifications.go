@@ -92,8 +92,8 @@ func (s *Server) authorizeChannelScope(w http.ResponseWriter, r *http.Request, s
 		writeError(w, http.StatusNotFound, "server not found")
 		return false
 	}
-	if s.can(userFrom(r.Context()), srv, models.PermSettings) {
-		return true
+	if u := userFrom(r.Context()); s.can(u, srv, models.PermSettings) {
+		return !refuseSuspended(w, u, srv)
 	}
 	writeError(w, http.StatusForbidden, "insufficient permissions")
 	return false

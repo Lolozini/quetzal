@@ -87,6 +87,8 @@ export const fr: Record<string, string> = {
   Wake: "Réveiller",
   Suspend: "Suspendre",
   Unsuspend: "Réactiver",
+  "An administrator has suspended this server. You can look at it, but it cannot be started, changed or deleted until the suspension is lifted.":
+    "Un administrateur a suspendu ce serveur. Vous pouvez le consulter, mais il ne peut être ni démarré, ni modifié, ni supprimé tant que la suspension n'est pas levée.",
   Back: "Retour",
   "Desired state": "État souhaité",
   Namespace: "Namespace",

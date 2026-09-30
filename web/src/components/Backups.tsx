@@ -2,7 +2,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, Backup, BackupConfig, BackupConfigInput } from "../api";
 import { useT } from "../i18n";
 
-export function Backups({ id }: { id: number }) {
+// readOnly lists the backups without the means to make, restore or delete one,
+// for a server an administrator has suspended.
+export function Backups({ id, readOnly = false }: { id: number; readOnly?: boolean }) {
   const { t } = useT();
   const [cfg, setCfg] = useState<BackupConfig | null>(null);
   const [list, setList] = useState<Backup[]>([]);
@@ -75,9 +77,11 @@ export function Backups({ id }: { id: number }) {
         {cfg?.editable && (
           <button onClick={() => setShowCfg((v) => !v)}>{showCfg ? t("Hide target") : t("Backup target")}</button>
         )}
-        <button className="primary" disabled={busy !== "" || !cfg?.configured} onClick={backupNow}>
-          {busy === "backup" ? t("Queuing…") : t("Backup now")}
-        </button>
+        {!readOnly && (
+          <button className="primary" disabled={busy !== "" || !cfg?.configured} onClick={backupNow}>
+            {busy === "backup" ? t("Queuing…") : t("Backup now")}
+          </button>
+        )}
       </div>
 
       {cfg && !cfg.configured && (
@@ -118,6 +122,8 @@ export function Backups({ id }: { id: number }) {
                 <td>{b.sizeBytes ? fmtBytes(b.sizeBytes) : "—"}</td>
                 <td>{new Date(b.createdAt).toLocaleString()}</td>
                 <td style={{ whiteSpace: "nowrap" }}>
+                  {!readOnly && (
+                    <>
                   {b.direction === "backup" && b.phase === "Succeeded" && !b.otherTarget && (
                     <button onClick={() => restore(b)}>{t("Restore")}</button>
                   )}{" "}
@@ -131,6 +137,8 @@ export function Backups({ id }: { id: number }) {
                   >
                     {b.phase === "Deleting" ? t("Deleting…") : t("Delete")}
                   </button>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}

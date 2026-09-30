@@ -9,7 +9,7 @@ import (
 // TestSuspendedServerBlocksOfflineFilesForOwner verifies that suspension (an
 // admin-enforced freeze) also blocks file management for the owner — otherwise
 // the data-manager pod (which is always up) would let an owner edit files of a
-// server an admin deliberately suspended. The 403 is returned before any pod is
+// server an admin deliberately suspended. The 409 is returned before any pod is
 // touched, so this exercises the gate without needing a cluster.
 func TestSuspendedServerBlocksOfflineFilesForOwner(t *testing.T) {
 	srv, admin := newTestServer(t)
@@ -36,7 +36,7 @@ func TestSuspendedServerBlocksOfflineFilesForOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET files: %v", err)
 	}
-	if rr.StatusCode != http.StatusForbidden {
-		t.Fatalf("owner files on suspended server = %d, want 403", rr.StatusCode)
+	if rr.StatusCode != http.StatusConflict {
+		t.Fatalf("owner files on suspended server = %d, want 409", rr.StatusCode)
 	}
 }

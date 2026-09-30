@@ -205,11 +205,12 @@ func (s *Scheduler) runChain(ctx context.Context, sc *models.Schedule) string {
 }
 
 // runTask performs a single task and reports whether it succeeded plus a short
-// message. A power action on a suspended server is skipped (not a failure) so a
-// cron can't silently lift an admin suspension.
+// message. Nothing runs on a suspended server, which its owner's schedules must
+// not touch any more than they can: a power action would lift the suspension,
+// and each backup's retention pushes out a snapshot from before it (skipped,
+// not a failure).
 func (s *Scheduler) runTask(ctx context.Context, srv *models.Server, t models.ScheduleTask) (bool, string) {
-	if srv.DesiredState == models.StateSuspended &&
-		(t.Action == models.SchedStart || t.Action == models.SchedStop || t.Action == models.SchedRestart) {
+	if srv.DesiredState == models.StateSuspended {
 		return true, "skipped (server suspended)"
 	}
 	// Starting a server whose data is still being imported would run the egg's

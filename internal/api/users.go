@@ -375,6 +375,9 @@ func (s *Server) requireOwnerOrAdmin(w http.ResponseWriter, r *http.Request) (*m
 	}
 	u := userFrom(r.Context())
 	if u != nil && (u.HasAdminPerm(models.AdminPermServers) || srv.OwnerID == u.ID) {
+		if refuseSuspended(w, u, srv) {
+			return nil, false
+		}
 		return srv, true
 	}
 	// Hide existence from users who can't even view it.

@@ -16,7 +16,9 @@ function newTask(): ScheduleTask {
   return { action: "restart", timeOffset: 0 };
 }
 
-export function Schedules({ id }: { id: number }) {
+// readOnly shows the schedules without the means to change them, for a server
+// an administrator has suspended.
+export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boolean }) {
   const { t } = useT();
   const [list, setList] = useState<Schedule[]>([]);
   const [error, setError] = useState("");
@@ -122,8 +124,12 @@ export function Schedules({ id }: { id: number }) {
                 <td>{s.enabled ? fmt(s.nextRun) : "—"}</td>
                 <td title={s.lastStatus}>{s.lastRun ? fmt(s.lastRun) : t("never")}</td>
                 <td style={{ whiteSpace: "nowrap" }}>
-                  <button onClick={() => toggle(s)}>{s.enabled ? t("Disable") : t("Enable")}</button>{" "}
-                  <button className="danger" onClick={() => remove(s)}>{t("Delete")}</button>
+                  {!readOnly && (
+                    <>
+                      <button onClick={() => toggle(s)}>{s.enabled ? t("Disable") : t("Enable")}</button>{" "}
+                      <button className="danger" onClick={() => remove(s)}>{t("Delete")}</button>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}
@@ -131,6 +137,9 @@ export function Schedules({ id }: { id: number }) {
         </table>
       )}
 
+      {readOnly ? (
+        error && <div className="error" style={{ marginTop: 8 }}>{error}</div>
+      ) : (
       <form onSubmit={add} style={{ marginTop: 12 }}>
         <div className="grid2">
           <div>
@@ -192,6 +201,7 @@ export function Schedules({ id }: { id: number }) {
           </button>
         </div>
       </form>
+      )}
     </div>
   );
 }

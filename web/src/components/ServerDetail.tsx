@@ -372,7 +372,10 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
     }
   }
 
-  const canManage = !!srv && (hasAdminPerm(user, "servers") || srv.ownerId === user.id);
+  // A server an administrator suspended is frozen for everyone else: they may
+  // look at it, and the API refuses the rest.
+  const frozen = !!srv && srv.desiredState === "Suspended" && !hasAdminPerm(user, "servers");
+  const canManage = !!srv && !frozen && (hasAdminPerm(user, "servers") || srv.ownerId === user.id);
   // A running import blocks power like a transfer does (the API answers 409).
   const importing = !!srv?.import && (srv.import.phase === "Preparing" || srv.import.phase === "Downloading");
   const transferring = !!srv?.transfer || importing;
@@ -434,14 +437,21 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
         <div className="row">
           <button onClick={onBack}>← {t("Back")}</button>
           <div className="spacer" />
-          <button className="danger" onClick={remove}>
-            {t("Delete")}
-          </button>
+          {!frozen && (
+            <button className="danger" onClick={remove}>
+              {t("Delete")}
+            </button>
+          )}
         </div>
         <h2>
           {srv.displayName}{" "}
           <span className={`badge ${srv.status.phase}`}>{t(srv.status.phase)}</span>
         </h2>
+        {frozen && (
+          <div className="notice warn">
+            {t("An administrator has suspended this server. You can look at it, but it cannot be started, changed or deleted until the suspension is lifted.")}
+          </div>
+        )}
         <div className="kv">
           <span className="k">{t("Desired state")}</span>
           <span>{t(srv.desiredState)}</span>
@@ -478,6 +488,7 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
             <span>
               <select
                 value={srv.expose?.type || "ClusterIP"}
+                disabled={frozen}
                 onChange={(e) => changeExpose(e.target.value as ExposeType)}
               >
                 <option value="ClusterIP">ClusterIP</option>
@@ -532,20 +543,20 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
           />
         )}
         <div className="row" style={{ marginTop: 12 }}>
-          <button className="primary" disabled={busy !== "" || transferring} onClick={() => power("start")}>
+          <button className="primary" disabled={busy !== "" || transferring || frozen} onClick={() => power("start")}>
             {busy === "start" ? t("Starting…") : t("Start")}
           </button>
-          <button disabled={busy !== "" || transferring} onClick={() => power("stop")}>
+          <button disabled={busy !== "" || transferring || frozen} onClick={() => power("stop")}>
             {busy === "stop" ? t("Stopping…") : t("Stop")}
           </button>
-          <button disabled={busy !== "" || transferring} onClick={() => power("restart")}>
+          <button disabled={busy !== "" || transferring || frozen} onClick={() => power("restart")}>
             {busy === "restart" ? t("Restarting…") : t("Restart")}
           </button>
-          <button className="danger" disabled={busy !== "" || transferring} onClick={() => power("kill")}>
+          <button className="danger" disabled={busy !== "" || transferring || frozen} onClick={() => power("kill")}>
             {busy === "kill" ? t("Killing…") : t("Kill")}
           </button>
           {srv.hibernated && (
-            <button className="primary" disabled={busy !== "" || transferring} onClick={() => power("start")}>{t("Wake")}</button>
+            <button className="primary" disabled={busy !== "" || transferring || frozen} onClick={() => power("start")}>{t("Wake")}</button>
           )}
           {hasAdminPerm(user, "servers") && (
             <>
@@ -636,12 +647,12 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
         {notice && <div className="notice">{notice}</div>}
         {error && <div className="error">{error}</div>}
       </div>
-      <Schedules id={id} />
+      <Schedules id={id} readOnly={frozen} />
       {canManage && srv && <ServerSettings server={srv} onSaved={setSrv} />}
       {canManage && <Files id={id} offline={["Stopped", "Suspended", "Hibernated"].includes(srv?.status?.phase ?? "")} />}
       {canManage && <SFTPCard id={id} initialEnabled={!!srv?.sftp?.enabled} username={user.username} />}
       {canManage && <Databases serverId={id} />}
-      <Backups id={id} />
+      <Backups id={id} readOnly={frozen} />
       {canManage && <Access id={id} />}
       {canManage && <Notifications serverId={id} />}
       <ServerActivity id={id} slug={srv?.slug ?? ""} />
@@ -649,10 +660,12 @@ export function ServerDetail({ id, user, onBack }: { id: number; user: User; onB
           granted "console" may read the setup output, and the API refuses anyone
           else. Gating this on ownership hid it from exactly the people most
           likely to be told "it won't start". */}
-      <SetupLog id={id} phase={srv?.status?.phase ?? ""} />
-      <div className="card">
-        <Console id={id} phase={srv?.status?.phase ?? ""} />
-      </div>
+      {!frozen && <SetupLog id={id} phase={srv?.status?.phase ?? ""} />}
+      {!frozen && (
+        <div className="card">
+          <Console id={id} phase={srv?.status?.phase ?? ""} />
+        </div>
+      )}
     </>
   );
 }

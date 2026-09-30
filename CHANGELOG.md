@@ -46,6 +46,15 @@ releases may include breaking changes).
 
 ### Security
 
+- **A suspended server is frozen for its owner and subusers.** Suspension
+  refused them power and files and nothing else, so the owner of a server
+  suspended for abuse could still delete it, data and all, before anyone
+  looked into it, rename or reinstall it, or queue backup after backup until
+  retention had pushed out every snapshot from before; its scheduled backups
+  did the same on their own. Until an administrator lifts the suspension, they
+  can now only look at it: everything else answers 409, its schedules do not
+  run, and the panel shows why. File requests on a suspended server answer
+  409 rather than 403, like the rest.
 - **Failed sign-ins no longer lock an account's owner out.** Ten wrong
   passwords for an account, from anywhere, blocked it for everyone for fifteen
   minutes, so anyone who could reach the panel could keep its administrator

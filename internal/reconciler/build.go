@@ -328,7 +328,7 @@ func BuildDataDeployment(s *models.Server, t *models.Template, systemImage strin
 
 	// Suspension is an admin-enforced freeze: drop SFTP so a suspended server's
 	// owner/subusers can't reach files over SFTP (the HTTP file API already
-	// returns 403 for non-admins). Admins can still inspect via the HTTP API,
+	// refuses them). Admins can still inspect via the HTTP API,
 	// which uses the always-on exec container, so the data-manager stays up.
 	if systemImage != "" && s.SFTP.Enabled && s.DesiredState != models.StateSuspended {
 		initContainers = append(initContainers, sftpCopyInitContainer(systemImage, t))
