@@ -17,6 +17,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 
 	"github.com/lolozini/quetzal/internal/crypto"
@@ -442,6 +443,72 @@ func (s *Store) UpdateServerEnv(id uint, env map[string]string, secretEnc string
 func (s *Store) UpdateServerResources(id uint, r models.Resources) error {
 	return s.db.Model(&models.Server{}).Where("id = ?", id).
 		Select("resources").Updates(models.Server{Resources: r}).Error
+}
+
+// CreateServerChecked inserts srv once check approves of the servers its owner
+// already has; a nil check is a plain CreateServer. Check and insert share one
+// transaction that holds the owner's row, so creations racing for the last
+// place in a quota cannot all find it free: five sent at once by an account
+// allowed one server used to make two. check's error is returned as is.
+func (s *Store) CreateServerChecked(srv *models.Server, check func(owned []models.Server) error) error {
+	if check == nil {
+		return s.CreateServer(srv)
+	}
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		owned, err := lockOwnerServers(tx, srv.OwnerID)
+		if err != nil {
+			return err
+		}
+		if err := check(owned); err != nil {
+			return err
+		}
+		return tx.Create(srv).Error
+	})
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return ErrDuplicate
+	}
+	return err
+}
+
+// UpdateServerResourcesChecked is UpdateServerResources for a server whose
+// owner has a quota: check sees the owner's other servers, in the transaction
+// that writes the new limits, for the same reason as CreateServerChecked.
+func (s *Store) UpdateServerResourcesChecked(id, ownerID uint, r models.Resources, check func(others []models.Server) error) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		owned, err := lockOwnerServers(tx, ownerID)
+		if err != nil {
+			return err
+		}
+		others := owned[:0]
+		for _, o := range owned {
+			if o.ID != id {
+				others = append(others, o)
+			}
+		}
+		if err := check(others); err != nil {
+			return err
+		}
+		return tx.Model(&models.Server{}).Where("id = ?", id).
+			Select("resources").Updates(models.Server{Resources: r}).Error
+	})
+}
+
+// lockOwnerServers locks a user's row for the rest of tx, which serializes
+// every quota decision about them (SQLite already runs one write transaction at
+// a time), and returns the servers they own.
+func lockOwnerServers(tx *gorm.DB, ownerID uint) ([]models.Server, error) {
+	var u models.User
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&u, ownerID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	var owned []models.Server
+	if err := tx.Where("owner_id = ?", ownerID).Find(&owned).Error; err != nil {
+		return nil, err
+	}
+	return owned, nil
 }
 
 // BumpInstallGeneration increments a server's install generation (triggering a

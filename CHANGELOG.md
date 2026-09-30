@@ -54,6 +54,15 @@ releases may include breaking changes).
   they begin, and wait for it. A failed node-port allocation is a 409 only
   when the range is used up, and a 500 answer is written to the log.
 
+### Security
+
+- **A quota holds when requests arrive together.** An account could exceed
+  the quotas an administrator set by sending its requests at once: five
+  servers created together by an account allowed one made two, since each
+  request checked the quota before any had created its server. The check and
+  the creation are now one transaction, and so are the check and the change
+  when a server's memory or CPU is raised.
+
 ## [0.5.0] - 2026-09-28
 
 Quetzal on ARM, and a chart you can install from a registry. The image now

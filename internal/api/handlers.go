@@ -465,7 +465,8 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	owner := userFrom(r.Context())
-	if err := s.checkQuota(owner, req.Memory, req.CPU); err != nil {
+	withinQuota, err := creationQuota(owner, req.Memory, req.CPU)
+	if err != nil {
 		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
@@ -502,13 +503,18 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		srv.ID = 0
 		srv.Slug = slugBase + "-" + randSlugSuffix()
 		srv.Namespace = reconciler.NamespaceFor(srv.Slug)
-		err := s.Store.CreateServer(srv)
+		err := s.Store.CreateServerChecked(srv, withinQuota)
 		if err == nil {
 			created = true
 			break
 		}
 		if errors.Is(err, store.ErrDuplicate) {
 			continue
+		}
+		var refused *quotaError
+		if errors.As(err, &refused) {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
 		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -603,40 +609,71 @@ func resolveEnv(tmpl *models.Template, reqEnv map[string]string) (map[string]str
 	return env, nil
 }
 
-// checkQuota enforces a user's per-user quotas (admins are exempt). It sums the
-// user's existing owned servers plus the new request against their limits.
-func (s *Server) checkQuota(u *models.User, memory, cpu string) error {
+// quotaError is a refusal under a quota, answered 403; failing to check one is
+// the panel's own error.
+type quotaError struct{ msg string }
+
+func (e *quotaError) Error() string { return e.msg }
+
+func quotaErrorf(format string, a ...any) error { return &quotaError{fmt.Sprintf(format, a...)} }
+
+// creationQuota returns what the servers u owns must satisfy for u to create
+// one more with these limits, or nil when u has no quota to respect (admins are
+// exempt). The limits a quota requires are checked here; the totals are left to
+// the returned check, which the store runs in the transaction that creates the
+// server, so that parallel requests cannot all fit in the same room.
+func creationQuota(u *models.User, memory, cpu string) (func(owned []models.Server) error, error) {
 	if u.HasAdminPerm(models.AdminPermServers) || (u.MaxServers == 0 && u.MaxMemoryMB == 0 && u.MaxCPUMilli == 0) {
-		return nil
+		return nil, nil
 	}
 	// A memory/CPU quota only means something if every server it covers declares
 	// a limit; otherwise an unlimited server counts as 0 and trivially bypasses
 	// the quota while consuming unbounded resources. Require the matching limit.
 	if u.MaxMemoryMB > 0 && strings.TrimSpace(memory) == "" {
-		return errors.New("a memory limit is required (your account has a memory quota)")
+		return nil, &quotaError{"a memory limit is required (your account has a memory quota)"}
 	}
 	if u.MaxCPUMilli > 0 && strings.TrimSpace(cpu) == "" {
-		return errors.New("a CPU limit is required (your account has a CPU quota)")
+		return nil, &quotaError{"a CPU limit is required (your account has a CPU quota)"}
 	}
-	owned, err := s.Store.ListServersByOwner(u.ID)
-	if err != nil {
-		return err
+	return func(owned []models.Server) error {
+		if u.MaxServers > 0 && len(owned)+1 > u.MaxServers {
+			return quotaErrorf("quota exceeded: at most %d servers", u.MaxServers)
+		}
+		return withinResourceQuota(u, owned, memory, cpu)
+	}, nil
+}
+
+// resourceQuota is creationQuota for new limits on a server u owns: the count
+// of servers does not change, and the check is given u's other servers (the
+// edited one's old limits are being replaced).
+func resourceQuota(u *models.User, memory, cpu string) (func(others []models.Server) error, error) {
+	if u.HasAdminPerm(models.AdminPermServers) || (u.MaxMemoryMB == 0 && u.MaxCPUMilli == 0) {
+		return nil, nil
 	}
+	if u.MaxMemoryMB > 0 && strings.TrimSpace(memory) == "" {
+		return nil, &quotaError{"a memory limit is required (the owner has a memory quota)"}
+	}
+	if u.MaxCPUMilli > 0 && strings.TrimSpace(cpu) == "" {
+		return nil, &quotaError{"a CPU limit is required (the owner has a CPU quota)"}
+	}
+	return func(others []models.Server) error { return withinResourceQuota(u, others, memory, cpu) }, nil
+}
+
+// withinResourceQuota adds the requested limits to those of servers and holds
+// the sums against u's memory and CPU quotas.
+func withinResourceQuota(u *models.User, servers []models.Server, memory, cpu string) error {
 	memMB, cpuM := int64(0), int64(0)
-	for i := range owned {
-		mb, c := resourceTotals(owned[i].Resources)
+	for i := range servers {
+		mb, c := resourceTotals(servers[i].Resources)
 		memMB += mb
 		cpuM += c
 	}
 	nmb, ncpu := resourceTotals(models.Resources{Memory: memory, CPU: cpu})
-	if u.MaxServers > 0 && len(owned)+1 > u.MaxServers {
-		return fmt.Errorf("quota exceeded: at most %d servers", u.MaxServers)
-	}
 	if u.MaxMemoryMB > 0 && memMB+nmb > u.MaxMemoryMB {
-		return fmt.Errorf("quota exceeded: memory limit %d MB", u.MaxMemoryMB)
+		return quotaErrorf("quota exceeded: memory limit %d MB", u.MaxMemoryMB)
 	}
 	if u.MaxCPUMilli > 0 && cpuM+ncpu > u.MaxCPUMilli {
-		return fmt.Errorf("quota exceeded: CPU limit %dm", u.MaxCPUMilli)
+		return quotaErrorf("quota exceeded: CPU limit %dm", u.MaxCPUMilli)
 	}
 	return nil
 }
@@ -805,6 +842,7 @@ func (s *Server) updateServerResources(r *http.Request, srv *models.Server, rsc 
 	if err := validateResources(rsc); err != nil {
 		return &httpErr{http.StatusBadRequest, err.Error()}
 	}
+	var withinQuota func([]models.Server) error
 	if editor := userFrom(r.Context()); !editor.HasAdminPerm(models.AdminPermServers) {
 		// The quota belongs to the owner, not the editor, so it has to be loaded.
 		// Failing to load it used to skip the check entirely, which turned a
@@ -816,11 +854,21 @@ func (s *Server) updateServerResources(r *http.Request, srv *models.Server, rsc 
 		if err != nil {
 			return &httpErr{http.StatusInternalServerError, "could not load the server's owner"}
 		}
-		if err := s.checkResourceQuotaForUpdate(owner, srv.ID, rsc.Memory, rsc.CPU); err != nil {
+		if withinQuota, err = resourceQuota(owner, rsc.Memory, rsc.CPU); err != nil {
 			return &httpErr{http.StatusForbidden, err.Error()}
 		}
 	}
-	if err := s.Store.UpdateServerResources(srv.ID, rsc); err != nil {
+	var err error
+	if withinQuota != nil {
+		err = s.Store.UpdateServerResourcesChecked(srv.ID, srv.OwnerID, rsc, withinQuota)
+	} else {
+		err = s.Store.UpdateServerResources(srv.ID, rsc)
+	}
+	var refused *quotaError
+	switch {
+	case errors.As(err, &refused):
+		return &httpErr{http.StatusForbidden, err.Error()}
+	case err != nil:
 		return &httpErr{http.StatusInternalServerError, err.Error()}
 	}
 	srv.Resources = rsc
@@ -870,43 +918,6 @@ func validateResources(rsc models.Resources) error {
 		if q.Sign() < 0 {
 			return fmt.Errorf("cpu limit %q cannot be negative", rsc.CPU)
 		}
-	}
-	return nil
-}
-
-// checkResourceQuotaForUpdate re-checks the owner's memory/CPU quota for an
-// edited server, counting the owner's other servers plus the new request (the
-// edited server's old allocation is excluded since it's being replaced). Server
-// count is unaffected by an edit, so it isn't checked here.
-func (s *Server) checkResourceQuotaForUpdate(u *models.User, serverID uint, memory, cpu string) error {
-	if u.HasAdminPerm(models.AdminPermServers) || (u.MaxMemoryMB == 0 && u.MaxCPUMilli == 0) {
-		return nil
-	}
-	if u.MaxMemoryMB > 0 && strings.TrimSpace(memory) == "" {
-		return errors.New("a memory limit is required (the owner has a memory quota)")
-	}
-	if u.MaxCPUMilli > 0 && strings.TrimSpace(cpu) == "" {
-		return errors.New("a CPU limit is required (the owner has a CPU quota)")
-	}
-	owned, err := s.Store.ListServersByOwner(u.ID)
-	if err != nil {
-		return err
-	}
-	memMB, cpuM := int64(0), int64(0)
-	for i := range owned {
-		if owned[i].ID == serverID {
-			continue
-		}
-		mb, c := resourceTotals(owned[i].Resources)
-		memMB += mb
-		cpuM += c
-	}
-	nmb, ncpu := resourceTotals(models.Resources{Memory: memory, CPU: cpu})
-	if u.MaxMemoryMB > 0 && memMB+nmb > u.MaxMemoryMB {
-		return fmt.Errorf("quota exceeded: memory limit %d MB", u.MaxMemoryMB)
-	}
-	if u.MaxCPUMilli > 0 && cpuM+ncpu > u.MaxCPUMilli {
-		return fmt.Errorf("quota exceeded: CPU limit %dm", u.MaxCPUMilli)
 	}
 	return nil
 }

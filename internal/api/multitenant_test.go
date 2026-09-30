@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/lolozini/quetzal/internal/models"
@@ -164,6 +165,50 @@ func TestQuotaEnforcement(t *testing.T) {
 	}
 	if r := post(t, alice, srv.URL+"/api/servers", map[string]any{"name": "two", "template": "generic-process"}); r.StatusCode != http.StatusForbidden {
 		t.Errorf("second create = %d, want 403 (quota)", r.StatusCode)
+	}
+}
+
+// The quota was read, then the server inserted, with nothing in between to stop
+// another request doing the same: five creations sent at once by an account
+// allowed one server made two. Now the check and the insert are one
+// transaction, and exactly one gets through.
+func TestQuotaHoldsUnderParallelCreations(t *testing.T) {
+	srv, admin := newTestServer(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+	createUser(t, admin, srv.URL, map[string]any{"username": "quinn", "password": "quinnpw12", "maxServers": 1, "maxMemoryMB": 1024})
+	quinn := loginAs(t, srv.URL, "quinn", "quinnpw12")
+
+	const n = 5
+	codes := make(chan int, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			body := strings.NewReader(`{"name":"race ` + itoa(uint(i)) + `","template":"generic-process","memory":"512Mi"}`)
+			r, err := quinn.Post(srv.URL+"/api/servers", "application/json", body)
+			if err != nil {
+				t.Errorf("POST: %v", err)
+				return
+			}
+			r.Body.Close()
+			codes <- r.StatusCode
+		}(i)
+	}
+	wg.Wait()
+	close(codes)
+	count := map[int]int{}
+	for c := range codes {
+		count[c]++
+	}
+	if count[http.StatusCreated] != 1 || count[http.StatusForbidden] != n-1 {
+		t.Errorf("parallel creations under a one-server quota: %v, want one 201 and %d 403", count, n-1)
+	}
+
+	var list []map[string]any
+	getJSON(t, quinn, srv.URL+"/api/servers", &list)
+	if len(list) != 1 {
+		t.Errorf("quinn owns %d servers, quota is 1", len(list))
 	}
 }
 
