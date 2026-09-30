@@ -902,14 +902,24 @@ func (r *Reconciler) inspectPods(ctx context.Context, ns, slug string) podHealth
 		}
 	}
 	for i := range pods.Items {
-		for _, cs := range pods.Items[i].Status.ContainerStatuses {
+		p := &pods.Items[i]
+		// A pod on its way out (a stop, a restart, a new spec) or done for
+		// (evicted) had its game killed, which is no crash.
+		current := p.DeletionTimestamp == nil && p.Status.Phase != corev1.PodFailed && p.Status.Phase != corev1.PodSucceeded
+		for _, cs := range p.Status.ContainerStatuses {
 			h.restarts += int(cs.RestartCount)
 			if cs.State.Waiting != nil && cs.State.Waiting.Reason == "CrashLoopBackOff" {
 				h.crashloop = true
-				h.msg = cs.State.Waiting.Message
-				if h.msg == "" {
-					h.msg = "container in CrashLoopBackOff"
-				}
+				h.msg = crashMessage(cs)
+			}
+			// Down after a failed run is a crash too, whatever the kubelet calls
+			// the wait before the next one. Kubernetes 1.35 reports the failed
+			// run as terminated through the short back-offs and says
+			// CrashLoopBackOff only once they reach minutes, so a game failing
+			// at every start stayed "Starting" for five minutes.
+			if t := cs.State.Terminated; t != nil && t.ExitCode != 0 && current {
+				h.crashloop = true
+				h.msg = crashMessage(cs)
 			}
 			// The previous run's exit explains a restart even once the container is
 			// back up; a container terminated right now is captured too.
@@ -923,6 +933,25 @@ func (r *Reconciler) inspectPods(ctx context.Context, ns, slug string) podHealth
 		noteInit(&h, pods.Items[i].Status.InitContainerStatuses)
 	}
 	return h
+}
+
+// crashMessage says how the game's last run ended. The kubelet's own message
+// ("back-off 2m40s restarting failed container=server pod=...") said neither
+// how nor why.
+func crashMessage(cs corev1.ContainerStatus) string {
+	t := cs.State.Terminated
+	if t == nil {
+		t = cs.LastTerminationState.Terminated
+	}
+	switch {
+	case t != nil && t.Reason == "OOMKilled":
+		return "the game ran out of memory (OOMKilled)"
+	case t != nil:
+		return fmt.Sprintf("the game exited with code %d", t.ExitCode)
+	case cs.State.Waiting != nil && cs.State.Waiting.Message != "":
+		return cs.State.Waiting.Message
+	}
+	return "container in CrashLoopBackOff"
 }
 
 // noteInit reads the init containers: the install step and the config render.

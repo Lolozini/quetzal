@@ -102,3 +102,54 @@ func TestEmitRestartEvents(t *testing.T) {
 		t.Fatalf("crashloop restart should be suppressed, got %d events", len(es))
 	}
 }
+
+// Kubernetes 1.35 reports a game that failed as terminated through the short
+// back-offs (10 s to 80 s) and says CrashLoopBackOff only once they reach
+// minutes. The server stayed "Starting" for five minutes, five failed starts,
+// before it was "Crashed". A container down after a failed run is now a crash
+// however the kubelet words the wait; one killed with its pod is not.
+func TestInspectPodsSeesACrashBetweenRestarts(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("scheme: %v", err)
+	}
+	now := metav1.Now()
+	pod := func(name string, phase corev1.PodPhase, deleting bool, st corev1.ContainerState, last corev1.ContainerState) *corev1.Pod {
+		p := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: name, Labels: map[string]string{serverLabel: "srv"}},
+			Status: corev1.PodStatus{Phase: phase, ContainerStatuses: []corev1.ContainerStatus{{
+				Name: workloadName, RestartCount: 2, State: st, LastTerminationState: last,
+			}}},
+		}
+		if deleting {
+			p.DeletionTimestamp, p.Finalizers = &now, []string{"test"}
+		}
+		return p
+	}
+	exited := func(code int32, reason string) corev1.ContainerState {
+		return corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: code, Reason: reason}}
+	}
+	backoff := corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{
+		Reason: "CrashLoopBackOff", Message: "back-off 2m40s restarting failed container=server pod=server-abc_ns(uid)",
+	}}
+	cases := []struct {
+		name    string
+		pod     *corev1.Pod
+		crashed bool
+		msg     string
+	}{
+		{"terminated between restarts (1.35)", pod("p", corev1.PodRunning, false, exited(1, "Error"), corev1.ContainerState{}), true, "the game exited with code 1"},
+		{"back-off (1.33)", pod("p", corev1.PodRunning, false, backoff, exited(1, "Error")), true, "the game exited with code 1"},
+		{"out of memory", pod("p", corev1.PodRunning, false, exited(137, "OOMKilled"), corev1.ContainerState{}), true, "the game ran out of memory (OOMKilled)"},
+		{"a clean exit restarts", pod("p", corev1.PodRunning, false, exited(0, "Completed"), corev1.ContainerState{}), false, ""},
+		{"stopped with its pod", pod("p", corev1.PodRunning, true, exited(143, "Error"), corev1.ContainerState{}), false, ""},
+		{"evicted", pod("p", corev1.PodFailed, false, exited(137, "Error"), corev1.ContainerState{}), false, ""},
+	}
+	for _, c := range cases {
+		cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(c.pod).Build()
+		h := (&Reconciler{Client: cl}).inspectPods(context.Background(), "ns", "srv")
+		if h.crashloop != c.crashed || h.msg != c.msg {
+			t.Errorf("%s: crashed=%v msg=%q, want %v %q", c.name, h.crashloop, h.msg, c.crashed, c.msg)
+		}
+	}
+}

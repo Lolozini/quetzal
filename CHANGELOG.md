@@ -34,6 +34,12 @@ releases may include breaking changes).
   running pod now keeps its helper image until it restarts for another reason,
   as [the upgrade guide](docs/UPGRADE.md) always said it would. This holds
   from this upgrade on.
+- **A game that fails at every start shows as crashed at once.** Kubernetes
+  1.35 reports such a container as terminated through the first back-offs and
+  calls it CrashLoopBackOff only when they reach minutes; Quetzal waited for
+  that word, and the server stayed "Starting" for five minutes. The message
+  now says how the game ended ("the game exited with code 1", or that it ran
+  out of memory) instead of repeating the kubelet's back-off line.
 
 ## [0.5.0] - 2026-09-28
 
