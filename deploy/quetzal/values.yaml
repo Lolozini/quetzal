@@ -18,6 +18,13 @@ imagePullSecrets: []
 db:
   driver: sqlite
   dsn: "/data/quetzal.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+  # A PostgreSQL DSN carries the database's password, so the chart keeps it in
+  # a Secret rather than in the Deployment, which more people can read. To hold
+  # it yourself -- in SOPS, or an external secret operator -- name your own
+  # Secret and the key it is under, and dsn is ignored. Either way the pods read
+  # it when they start: restart them after changing it.
+  existingSecret: ""
+  existingSecretKey: dsn
 
 persistence:
   enabled: true

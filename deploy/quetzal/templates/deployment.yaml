@@ -194,7 +194,21 @@ spec:
 - name: QUETZAL_DB_DRIVER
   value: {{ .Values.db.driver | quote }}
 - name: QUETZAL_DB_DSN
+{{- if .Values.db.existingSecret }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.db.existingSecret | quote }}
+      key: {{ .Values.db.existingSecretKey | quote }}
+{{- else if eq .Values.db.driver "sqlite" }}
+  # A path, with nothing secret in it.
   value: {{ .Values.db.dsn | quote }}
+{{- else }}
+  # A database server's DSN carries its password (see secret-db.yaml).
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "quetzal.fullname" . }}-db
+      key: dsn
+{{- end }}
 - name: POD_NAMESPACE
   valueFrom:
     fieldRef:

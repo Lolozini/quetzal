@@ -70,6 +70,17 @@ jobs:
           echo "$out" | grep -q 'key: "my-key"'            || fail existingSecretKey
           ! echo "$out" | grep -q 'kind: PersistentVolumeClaim' || fail "claim created anyway"
           ! echo "$out" | grep -q 'quetzal-secretkey'            || fail "key generated anyway"
+          # A PostgreSQL DSN carries the database's password: it goes into a
+          # Secret, never into the Deployment, which more people can read.
+          pg="$(helm template quetzal deploy/quetzal --set persistence.enabled=false \
+            --set db.driver=postgres --set db.dsn=postgres://quetzal:hunter2@db/quetzal)"
+          ! echo "$pg" | sed -n '/^kind: Deployment/,/^---/p' | grep -q hunter2 || fail "the DSN is in the Deployment"
+          [ "$(echo "$pg" | grep -c 'name: quetzal-db$')" = 4 ] || fail "the DSN Secret is not what the containers read"
+          byo="$(helm template quetzal deploy/quetzal --set persistence.enabled=false \
+            --set db.driver=postgres --set db.existingSecret=my-db --set db.existingSecretKey=my-dsn)"
+          echo "$byo" | grep -q 'name: "my-db"'  || fail db.existingSecret
+          echo "$byo" | grep -q 'key: "my-dsn"'  || fail db.existingSecretKey
+          ! echo "$byo" | grep -q 'quetzal-db$'  || fail "DSN Secret generated anyway"
           # apiserver, controller and the migration step all need it.
           [ "$(echo "$out" | grep -c 'Europe/Paris')" = 3 ] || fail extraEnv
           # The apiserver allocates game ports and the controller the SFTP one,

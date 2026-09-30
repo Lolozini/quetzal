@@ -35,7 +35,9 @@
       "additionalProperties": false,
       "properties": {
         "driver": { "type": "string", "enum": ["sqlite", "postgres"] },
-        "dsn": { "type": "string", "minLength": 1 }
+        "dsn": { "type": "string", "minLength": 1 },
+        "existingSecret": { "type": "string" },
+        "existingSecretKey": { "type": "string", "minLength": 1 }
       }
     },
     "persistence": {

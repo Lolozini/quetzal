@@ -62,6 +62,13 @@ releases may include breaking changes).
   until you have a second factor, and the Two-factor policy card says how
   many accounts a policy would hold to enrolment and how many of their API
   keys it would stop, before you save.
+- **The chart keeps a PostgreSQL DSN out of the Deployment.** The DSN,
+  database password included, was a plain environment value of the
+  Deployment, readable by whoever may read Deployments in the namespace, and
+  it had to sit in the values in clear. The chart now puts it in a Secret, and
+  `db.existingSecret` / `db.existingSecretKey` read it from one of your own
+  (SOPS, External Secrets). A PostgreSQL install's pods restart once on the
+  upgrade; a SQLite DSN is only a path and stays where it was.
 - **The audit log records the changes it missed.** Pointing the backups at
   another target, which decides where every server's data goes, editing a
   schedule, changing an account's email or password (a reset through the

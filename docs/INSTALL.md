@@ -132,6 +132,7 @@ Common ones:
 | `persistence.*` | PVC for the SQLite database (the source of truth). |
 | `persistence.existingClaim` | Mount a claim you made yourself instead (a pre-provisioned volume, or an existing install you are moving onto this chart). |
 | `secretKey.existingSecret` | Take the encryption key from your own Secret rather than one the chart generates. |
+| `db.existingSecret` | Take the PostgreSQL DSN from your own Secret rather than from `db.dsn`. |
 | `extraEnv` | Extra environment for every container. `TZ` sets the zone shown in logs and used by a schedule that names none of its own — each schedule can carry its own IANA zone instead. |
 | `nodePort.min` / `nodePort.max` | Control-plane pool for NodePort game ports. |
 | `retention.eventDays` | How long delivered events are kept (default 30; 0 keeps everything). The event table is written on every power action, crash and restart. |
@@ -160,8 +161,18 @@ key migrated across, not a fresh one issued.
 ### Database
 
 - **SQLite** (default): single file on a PVC; simplest for homelab/single-node.
-- **PostgreSQL**: set `QUETZAL_DB_DRIVER=postgres` and `QUETZAL_DB_DSN`
-  accordingly for multi-replica / production.
+- **PostgreSQL**: `--set db.driver=postgres --set db.dsn=postgres://…` for
+  multi-replica / production. The DSN carries the database's password, so the
+  chart puts it in a Secret rather than in the Deployment. To keep it out of
+  your values as well — in SOPS, or an external secret operator — hold it in a
+  Secret of your own and point the chart at it:
+
+  ```sh
+  --set db.existingSecret=my-quetzal-db \
+  --set db.existingSecretKey=dsn
+  ```
+
+  The pods read the DSN when they start: restart them after changing it.
 
 Schema migrations run automatically (a `migrate`-only init container runs before
 the app starts, avoiding a schema race between the two Deployments).
