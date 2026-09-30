@@ -7,6 +7,22 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-30
+
+The fixes from a full test of 0.5.0 on three clusters: eight serious bugs and a
+quota an account could exceed. Pelican eggs such as Rust and Factorio run, and
+so does Valheim; a cluster registered with the setup manifest runs servers;
+backups say when they fail; and upgrading Quetzal no longer restarts the game
+servers, from this upgrade on.
+
+**Upgrading from 0.5.0** — two kinds of pods restart once, and nothing else:
+
+- Servers created from an imported egg, to get the `/etc/passwd` that names
+  their user. See *Fixed*.
+- The activators of servers published with the player's address kept (the
+  default), to move next to their game. A proxy-mode activator drops the
+  players connected through it. See *Fixed*.
+
 ### Fixed
 
 - **Pelican eggs that write `{{server.environment.X}}` work.** Quetzal left
@@ -1010,7 +1026,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/lolozini/quetzal/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/lolozini/quetzal/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lolozini/quetzal/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/lolozini/quetzal/compare/v0.3.0...v0.3.1
