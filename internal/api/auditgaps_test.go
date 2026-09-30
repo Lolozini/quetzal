@@ -24,7 +24,7 @@ func TestSensitiveChangesAreAudited(t *testing.T) {
 
 	if rr := doPut(t, admin, ts.URL+"/api/backup-config", map[string]any{
 		"endpoint": "s3.example.com", "bucket": "elsewhere", "prefix": "games",
-		"accessKey": "AK", "secretKey": "SK", "repoPassword": "RP",
+		"accessKey": "access-key-f00d", "secretKey": "secret-key-f00d", "repoPassword": "repo-password-f00d",
 	}); rr.StatusCode >= 300 {
 		t.Fatalf("backup target = %d", rr.StatusCode)
 	}
@@ -96,7 +96,7 @@ func TestSensitiveChangesAreAudited(t *testing.T) {
 		}
 	}
 	for _, e := range log {
-		if strings.Contains(e.Detail, "SK") || strings.Contains(e.Detail, "RP") {
+		if strings.Contains(e.Detail, "-f00d") {
 			t.Errorf("a secret reached the audit log: %s %q", e.Action, e.Detail)
 		}
 	}
