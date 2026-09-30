@@ -178,14 +178,19 @@ jobs:
       # renderer out of this image) is exercised end-to-end.
       - name: Build image
         run: docker build -t quetzal:e2e .
+      # The node image is the Makefile's, so `make e2e-kind-up` builds the
+      # cluster the suite is tested on here. The two used to be set apart, and
+      # a local run got a Kubernetes four releases behind CI's.
+      - name: Kind node image
+        id: kind
+        run: echo "image=$(make -s kind-node-image)" >> "$GITHUB_OUTPUT"
       - name: Create kind cluster
         uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
         with:
           cluster_name: quetzal-e2e
-          # A supported Kubernetes, not a pin that aged out. 1.31 is long past
-          # end of life, and an older apiserver also knows fewer things to object
-          # to: the duplicate-port-name warning below does not exist before 1.33.
-          node_image: kindest/node:v1.35.0
+          # 1.33 or later: the duplicate-port-name warning below does not exist
+          # before it.
+          node_image: ${{ steps.kind.outputs.image }}
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
       # Rendering the chart and grepping it proves it says what was meant. Only
       # the apiserver can say whether Kubernetes accepts it, and some of what it

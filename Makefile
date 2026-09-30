@@ -2,9 +2,12 @@
 export GOTOOLCHAIN := local
 
 KIND_CLUSTER ?= quetzal-e2e
-KIND_NODE_IMAGE ?= kindest/node:v1.31.0
+# The Kubernetes the e2e suite runs on, here and in CI (which reads it from this
+# line): a supported release, not a pin that aged out. 1.31 is long past end of
+# life, and an older apiserver also knows fewer things to object to.
+KIND_NODE_IMAGE ?= kindest/node:v1.35.0
 
-.PHONY: build test lint fmt vet e2e e2e-kind-up e2e-kind-down tidy
+.PHONY: build test lint fmt vet e2e e2e-kind-up e2e-kind-down kind-node-image tidy
 
 build: ## Build all binaries
 	go build ./...
@@ -34,6 +37,9 @@ e2e-kind-up: ## Create a disposable kind cluster
 
 e2e-kind-down: ## Delete the kind cluster
 	kind delete cluster --name $(KIND_CLUSTER)
+
+kind-node-image: ## Print the kind node image the e2e suite runs on
+	@echo $(KIND_NODE_IMAGE)
 
 e2e: ## Run the e2e suite (expects a reachable cluster via KUBECONFIG)
 	go test -tags e2e -v -timeout 15m ./test/e2e/...
