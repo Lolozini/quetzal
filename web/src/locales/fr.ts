@@ -72,6 +72,11 @@ export const fr: Record<string, string> = {
   "Volume size": "Taille du volume",
   "Host path": "Chemin hôte",
   "Network exposure": "Exposition réseau",
+  "There is no template yet. A server is made from a template, and templates are the Pterodactyl or Pelican eggs you import: most games have one in Pelican's repositories.":
+    "Il n'y a encore aucun modèle. Un serveur se crée à partir d'un modèle, et les modèles sont les eggs Pterodactyl ou Pelican que vous importez : la plupart des jeux en ont un dans les dépôts de Pelican.",
+  "Pelican's egg repositories": "Les dépôts d'eggs de Pelican",
+  "There is no template yet: an administrator has to import one, a Pterodactyl or Pelican egg, before a server can be created.":
+    "Il n'y a encore aucun modèle : un administrateur doit en importer un, un egg Pterodactyl ou Pelican, avant qu'un serveur puisse être créé.",
   "NodePort (node IP : allocated port)": "NodePort (IP du nœud : port attribué)",
   "LoadBalancer (external IP)": "LoadBalancer (IP externe)",
   "ClusterIP (in-cluster only)": "ClusterIP (dans le cluster seulement)",

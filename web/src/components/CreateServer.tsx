@@ -6,17 +6,21 @@ import { PortRow, PortsEditor, portsToRows, PROTO_BOTH, rowsToPorts } from "./Po
 
 export function CreateServer({
   memoryRequired = false,
+  canImportTemplates = false,
   onDone,
   onCancel,
 }: {
   // The panel refuses a server without a memory limit from anyone but an
   // administrator: its pod could take all of its node's memory.
   memoryRequired?: boolean;
+  // May import eggs: with no template yet, the form points there.
+  canImportTemplates?: boolean;
   onDone: () => void;
   onCancel: () => void;
 }) {
   const { t } = useT();
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
   const [tplSlug, setTplSlug] = useState("");
   const [name, setName] = useState("");
   const [image, setImage] = useState("");
@@ -124,6 +128,7 @@ export function CreateServer({
       .templates()
       .then((ts) => {
         setTemplates(ts);
+        setTemplatesLoaded(true);
         if (ts[0]) selectTemplate(ts[0]);
       })
       .catch((e) => setError(String(e)));
@@ -214,6 +219,35 @@ export function CreateServer({
   // (UDP players are invisible to the connection probe). Hide the toggle for any
   // server exposing a UDP port so it isn't enabled as a silent no-op.
   const tcpOnly = hasPorts && effPorts.every((p) => p.protocol.toUpperCase() !== "UDP");
+
+  // A new install has no template: servers are made from imported eggs, and
+  // this form, empty, said nothing about it.
+  if (templatesLoaded && templates.length === 0) {
+    return (
+      <div className="card">
+        <div className="row">
+          <h2>{t("New server")}</h2>
+          <div className="spacer" />
+          <button onClick={onCancel}>{t("Cancel")}</button>
+        </div>
+        {canImportTemplates ? (
+          <>
+            <p>
+              {t("There is no template yet. A server is made from a template, and templates are the Pterodactyl or Pelican eggs you import: most games have one in Pelican's repositories.")}
+            </p>
+            <div className="row">
+              <button type="button" className="primary" onClick={() => { window.location.hash = "#/admin/templates"; }}>
+                {t("Import an egg")}
+              </button>
+              <a href="https://github.com/pelican-eggs" target="_blank" rel="noreferrer">{t("Pelican's egg repositories")}</a>
+            </div>
+          </>
+        ) : (
+          <p>{t("There is no template yet: an administrator has to import one, a Pterodactyl or Pelican egg, before a server can be created.")}</p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="card">

@@ -6,7 +6,7 @@ import { Collapsible } from "./Collapsible";
 // Templates is the admin egg manager: import Pterodactyl/Pelican eggs (pasted or
 // by URL) or a template exported from another install, browse, edit (as native
 // JSON), export and delete templates.
-export function Templates() {
+export function Templates({ open = false }: { open?: boolean }) {
   const { t: tr } = useT();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [error, setError] = useState("");
@@ -114,7 +114,7 @@ export function Templates() {
 
   return (
     <div className="card">
-      <Collapsible title={tr("Eggs / templates")} count={templates.length}>
+      <Collapsible title={tr("Eggs / templates")} count={templates.length} defaultOpen={open}>
       <p className="muted">{tr("The game/app templates available to servers. Import existing Pterodactyl/Pelican eggs, or edit and export your own.")}</p>
 
       {templates.length > 0 && (

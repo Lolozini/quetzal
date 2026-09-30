@@ -96,8 +96,9 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
 | [<img alt="The server list, with each server's state and address" src="docs/screenshots/servers.png">](docs/screenshots/servers.png) | [<img alt="The console of a Minecraft server" src="docs/screenshots/console.png">](docs/screenshots/console.png) | [<img alt="Creating a server: the template list, with eggs imported from Pelican" src="docs/screenshots/new-server.png">](docs/screenshots/new-server.png) |
 
 ### Deploy & run
-- Create servers from built-in or imported templates; start / stop / restart /
-  kill, with graceful stop via a template's stop command.
+- Create servers from templates, which are the Pterodactyl/Pelican eggs you
+  import; start / stop / restart / kill, with graceful stop via a template's
+  stop command.
 - Edit startup variables and CPU/RAM limits after creation (validated against the
   template; secrets preserved).
 - **Reinstall** on demand (optionally wiping data) without surprise re-installs on
@@ -211,8 +212,10 @@ Browser ──HTTP/WS──▶  api-server  (UI · REST/WebSocket · console pro
   ports, lifecycle, install script, and `config.files`. Importing a Pterodactyl
   egg maps it onto this model; `config.files` are rendered at startup
   (properties/json/yaml/ini/xml) so imported eggs configure themselves.
-- Ships with templates for **Minecraft (Paper)**, **Minecraft (CurseForge
-  modpacks)**, **Valheim**, and a **generic process** — import eggs for the rest.
+- **A new install has no template:** import the eggs of the games you run, from
+  your Pterodactyl panel or straight from
+  [Pelican's repositories](https://github.com/pelican-eggs) by URL (see
+  [Import the eggs](docs/MIGRATING.md#1-import-the-eggs)).
 
 ---
 

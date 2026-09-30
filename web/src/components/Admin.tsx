@@ -7,13 +7,17 @@ import { DatabaseHosts } from "./DatabaseHosts";
 import { Notifications } from "./Notifications";
 import { Templates } from "./Templates";
 
-export function Admin({ user }: { user: User }) {
+// section puts one card first, open: #/admin/templates is where the create
+// form sends an admin while there is no template to create a server from.
+export function Admin({ user, section }: { user: User; section?: string }) {
   const can = (p: string) => hasAdminPerm(user, p);
+  const templatesFirst = section === "templates" && can("templates");
   return (
     <>
+      {templatesFirst && <Templates open />}
       {can("users") && <Users me={user} />}
       {user.isAdmin && <Roles />}
-      {can("templates") && <Templates />}
+      {can("templates") && !templatesFirst && <Templates />}
       {can("settings") && <SecuritySettingsCard isSuperadmin={user.isAdmin} hasTwoFactor={!!user.twoFactorEnabled} />}
       {can("settings") && <NetworkSettingsCard />}
       {can("settings") && <EmailSettingsCard />}

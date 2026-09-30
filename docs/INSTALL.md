@@ -49,12 +49,11 @@ backups, the managed MariaDB.
 **Not every game does.** A game server runs its own image, and many games are
 published for amd64 only:
 
-| Template | amd64 | arm64 |
+| Game | amd64 | arm64 |
 |---|---|---|
-| Minecraft (Paper), Minecraft (CurseForge modpacks) | yes | yes |
-| Valheim | yes | **no** |
-| Generic process | depends on the image you choose | |
-| Imported eggs | depends on the egg's image | |
+| Minecraft Java, on the Java images Pelican's and Pterodactyl's eggs use | yes | yes |
+| Games installed through SteamCMD (Valheim, Rust, Counter-Strike…) | yes | **no** |
+| Any other egg | depends on the egg's image | |
 
 Games installed through SteamCMD are amd64 only, because SteamCMD itself is:
 Valheim, Satisfactory, Rust, ARK, Counter-Strike and most Steam dedicated
@@ -183,6 +182,11 @@ Open the panel and complete the first-run admin setup (create the initial admin
 account). From there you can register clusters, import templates/eggs, and create
 servers. Coming from Pterodactyl, see [Migrating from Pterodactyl](MIGRATING.md) to bring your
 eggs and servers over.
+
+A new install has **no template**, and a server is created from one: import the
+eggs of the games you run first, under Admin → Eggs / templates. An egg file from
+[Pelican's repositories](https://github.com/pelican-eggs) can be imported by its
+URL; see [Import the eggs](MIGRATING.md#1-import-the-eggs).
 
 ## Backup target (S3)
 

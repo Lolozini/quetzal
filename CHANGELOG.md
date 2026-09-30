@@ -92,6 +92,11 @@ releases may include breaking changes).
   password resets included: the whole string went into the SMTP envelope.
   The envelope takes the address now, and the From header keeps the name. A
   sender that is not an address at all is refused when it is saved.
+- **A new install says it has no template.** Built-in templates stopped being
+  installed in 0.2.0, but the README still listed them, and the create form
+  of a new install was an empty picker that said nothing. It now explains
+  that servers are made from imported eggs, and takes an administrator
+  straight to the import; the README and the install guide say so too.
 
 ### Security
 

@@ -12,7 +12,7 @@ type View =
   | { name: "list" }
   | { name: "create" }
   | { name: "detail"; id: number; tab?: string }
-  | { name: "admin" }
+  | { name: "admin"; section?: string }
   | { name: "account" };
 
 // The current view lives in the URL fragment (#/servers, #/servers/42,
@@ -23,7 +23,7 @@ function parseHash(): View {
   const parts = window.location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   switch (parts[0]) {
     case "admin":
-      return { name: "admin" };
+      return { name: "admin", section: parts[1] };
     case "account":
       return { name: "account" };
     case "servers":
@@ -42,7 +42,7 @@ function viewToHash(v: View): string {
     case "detail":
       return `#/servers/${v.id}` + (v.tab ? `/${v.tab}` : "");
     case "admin":
-      return "#/admin";
+      return "#/admin" + (v.section ? `/${v.section}` : "");
     case "account":
       return "#/account";
     default:
@@ -95,6 +95,7 @@ export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void
         {view.name === "create" && (
           <CreateServer
             memoryRequired={!hasAdminPerm(user, "servers")}
+            canImportTemplates={hasAdminPerm(user, "templates")}
             onDone={() => go({ name: "list" })}
             onCancel={() => go({ name: "list" })}
           />
@@ -102,7 +103,7 @@ export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void
         {view.name === "detail" && (
           <ServerDetail id={view.id} tab={view.tab} user={user} onBack={() => go({ name: "list" })} />
         )}
-        {view.name === "admin" && (isAnyAdmin(user) ? <Admin user={user} /> : <ServerList onCreate={() => go({ name: "create" })} onOpen={(id) => go({ name: "detail", id })} />)}
+        {view.name === "admin" && (isAnyAdmin(user) ? <Admin user={user} section={view.section} /> : <ServerList onCreate={() => go({ name: "create" })} onOpen={(id) => go({ name: "detail", id })} />)}
         {view.name === "account" && <Account user={user} />}
       </div>
       <VersionFooter />
