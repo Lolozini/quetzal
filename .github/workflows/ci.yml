@@ -246,7 +246,7 @@ jobs:
       - name: Preload the fixture images into kind
         run: |
           set -eux
-          for img in versity/versitygw:v1.8.0 restic/restic:0.17.3; do
+          for img in versity/versitygw:v1.8.0 restic/restic:0.19.1; do
             docker pull "$img"
             kind load docker-image "$img" --name quetzal-e2e
           done

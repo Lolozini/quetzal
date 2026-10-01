@@ -27,7 +27,7 @@ const (
 	// BackupLabel marks backup Jobs/Secrets (value = backup operation ID).
 	BackupLabel  = "quetzal.dev/backup"
 	mountPath    = "/data"
-	defaultImage = "restic/restic:0.17.3"
+	defaultImage = "restic/restic:0.19.1"
 )
 
 // Params is everything needed to render a backup/restore operation.

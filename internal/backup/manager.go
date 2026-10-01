@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -592,6 +593,9 @@ func failureLine(logs, repo string) string {
 	fallback := ""
 	for i := len(lines) - 1; i >= 0; i-- {
 		l := strings.TrimSpace(lines[i])
+		if msg, ok := exitError(l); ok {
+			l = msg
+		}
 		if strings.HasPrefix(l, "Fatal:") {
 			return l
 		}
@@ -601,6 +605,26 @@ func failureLine(logs, repo string) string {
 		}
 	}
 	return fallback
+}
+
+// exitError reads the error restic prints as JSON when a command runs with
+// --json, as the backup does, since 0.18:
+// {"message_type":"exit_error","code":1,"message":"Fatal: ...\nIs there a ..."}.
+// It returns the message's first line, the one that says what went wrong;
+// without this the whole JSON line became the backup's message.
+func exitError(line string) (string, bool) {
+	if !strings.HasPrefix(line, "{") {
+		return "", false
+	}
+	var e struct {
+		Type    string `json:"message_type"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal([]byte(line), &e) != nil || e.Type != "exit_error" {
+		return "", false
+	}
+	first, _, _ := strings.Cut(e.Message, "\n")
+	return strings.TrimSpace(first), true
 }
 
 // failureCauses turn a failed run's error into what to check. restic's own

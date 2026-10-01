@@ -35,6 +35,16 @@ func TestFailureMessageSaysWhatWentWrong(t *testing.T) {
 	if got := failureMessage("Is there a repository at the following location?\n"+strings.TrimPrefix(repo, "s3:")+"\n", repo); got != "" {
 		t.Errorf("a pointer alone became the message: %q", got)
 	}
+	// restic 0.18 and later say it in JSON when the command runs with --json,
+	// as the backup does. This line is restic 0.19.1's.
+	locked := `{"message_type":"exit_error","code":1,"message":"Fatal: unable to create lock in backend: repository is already locked by PID 7 on backup-2 by root (UID 0, GID 0)\nlock was created at 2026-10-01 07:12:44 (1m2s ago)"}`
+	if got := failureMessage("open repository\n"+locked+"\n", repo); got != "Fatal: unable to create lock in backend: repository is already locked by PID 7 on backup-2 by root (UID 0, GID 0)" {
+		t.Errorf("from restic's JSON: %q", got)
+	}
+	missing := `{"message_type":"exit_error","code":10,"message":"Fatal: repository does not exist: unable to open config file: Stat: The specified key does not exist.\nIs there a repository at the following location?\n` + repo + `"}`
+	if got := failureMessage(missing, repo); !strings.Contains(got, "repository does not exist") || strings.Contains(got, "ops-backups") || strings.Contains(got, "message_type") {
+		t.Errorf("from restic's JSON: %q", got)
+	}
 }
 
 // A target is where its snapshots are: the endpoint, the bucket and the

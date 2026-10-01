@@ -205,7 +205,7 @@ function BackupConfigForm({ cfg, onSaved }: { cfg: BackupConfig | null; onSaved:
         <div><label>{t("Keep last (snapshots)")}</label>
           <input type="number" min={1} value={f.keepLast} onChange={(e) => set("keepLast", Number(e.target.value))} /></div>
         <div><label>{t("Runner image (optional, restic 0.17 or later)")}</label>
-          <input value={f.runnerImage} onChange={(e) => set("runnerImage", e.target.value)} placeholder="restic/restic:0.17.3" /></div>
+          <input value={f.runnerImage} onChange={(e) => set("runnerImage", e.target.value)} placeholder="restic/restic:0.19.1" /></div>
       </div>
       <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={f.useSSL} onChange={(e) => set("useSSL", e.target.checked)} />&nbsp;{t("Use TLS (https)")}</label>
       <div className="grid2" style={{ marginTop: 8 }}>

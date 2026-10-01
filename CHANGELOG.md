@@ -33,6 +33,11 @@ releases may include breaking changes).
   `escape.txt` at the top of the server's files, which is not what was asked
   for. Every file route now answers 400 for a path that climbs above the data
   directory; `..` that stays inside it still works.
+- **The default backup runner is restic 0.19.1**, where it was 0.17.3. Since
+  0.18, restic no longer fails a backup over a file that disappears while it
+  runs, which a running game does all the time. Repositories stay as they
+  are, and a runner image set in the backup settings is kept: it must still
+  be restic 0.17 or later.
 - **A transfer names its destination cluster by slug.** Creating a server on
   a cluster took the cluster's slug (`cluster`), and moving one there its
   numeric ID (`targetCluster`), which a script had to look up first.

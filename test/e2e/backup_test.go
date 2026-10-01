@@ -71,7 +71,7 @@ func TestE2EBackupRestore(t *testing.T) {
 	// Point the backup target at the in-cluster MinIO.
 	if err := st.SaveBackupConfig(&models.BackupConfig{
 		Endpoint: "minio.minio.svc:9000", Bucket: "quetzal", UseSSL: false, KeepLast: 3,
-		RunnerImage: "restic/restic:0.17.3",
+		RunnerImage: "restic/restic:0.19.1",
 	}, "quetzaltest", "quetzaltest", "restic-test-pw"); err != nil {
 		t.Fatalf("backup config: %v", err)
 	}

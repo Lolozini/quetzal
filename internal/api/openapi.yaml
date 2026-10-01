@@ -2671,7 +2671,7 @@ components:
         runnerImage:
           type: string
           description: >-
-            The restic image the backup jobs run, restic/restic:0.17.3 when
+            The restic image the backup jobs run, restic/restic:0.19.1 when
             empty. It must be restic 0.17 or later, which says when a
             repository does not exist yet (exit code 10).
         accessKey: { type: string }
