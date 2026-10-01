@@ -1461,7 +1461,7 @@ func sanitizePorts(in []models.PortSpec) ([]models.PortSpec, error) {
 	out := make([]models.PortSpec, 0, len(in))
 	primaries := 0
 	seen := map[string]bool{}
-	seenName := map[string]bool{}
+	seenName := map[string]int32{} // name -> the port that has it
 	// A port number carrying both TCP and UDP (e.g. Minecraft Java game 25565/TCP
 	// + query 25565/UDP, or a Source game 27015/UDP + RCON 27015/TCP) needs its
 	// auto-generated names disambiguated by protocol, since Kubernetes requires
@@ -1499,10 +1499,16 @@ func sanitizePorts(in []models.PortSpec) ([]models.PortSpec, error) {
 		if err := validatePortName(name); err != nil {
 			return nil, err
 		}
-		if seenName[name] {
+		if other, dup := seenName[name]; dup {
+			if other == p.Port {
+				// One port on TCP and UDP is two entries, which Kubernetes
+				// needs to tell apart by name.
+				return nil, fmt.Errorf("duplicate port name %q: the TCP and UDP entries of port %d need a name each, or none (they are then named p%d-tcp and p%d-udp)",
+					name, p.Port, p.Port, p.Port)
+			}
 			return nil, fmt.Errorf("duplicate port name %q", name)
 		}
-		seenName[name] = true
+		seenName[name] = p.Port
 		if p.Primary {
 			primaries++
 		}

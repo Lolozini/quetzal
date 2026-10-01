@@ -1353,6 +1353,14 @@ paths:
           application/json:
             schema: { $ref: "#/components/schemas/BackupConfigInput" }
       responses:
+        "200":
+          description: Saved, with a warning that the panel could not reach the object store to check the bucket and the keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  warning: { type: string }
         "204": { description: Saved }
   /api/servers/{id}/backups:
     parameters:
@@ -1376,8 +1384,8 @@ paths:
         its phase says how it ends. A backup of a server that is stopping
         waits for it to be down, up to 15 minutes.
       responses:
-        "201":
-          description: Backup started
+        "202":
+          description: Backup requested
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Backup" }
@@ -1388,9 +1396,12 @@ paths:
     post:
       tags: [Backups]
       summary: Restore from a backup
+      description: >-
+        The restore runs after the answer: the record comes back Pending, and
+        its phase says how it ends.
       responses:
-        "201":
-          description: Restore started
+        "202":
+          description: Restore requested
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Backup" }
@@ -1537,6 +1548,11 @@ paths:
         source cluster. The source data is untouched throughout. Without this a
         transfer whose job stalls pins the server indefinitely.
       responses:
+        "200":
+          description: Cancellation already recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TransferState" }
         "202":
           description: Cancellation recorded
           content:
@@ -2302,6 +2318,10 @@ components:
         retainOnDelete: { type: boolean }
     Port:
       type: object
+      description: >-
+        A port on TCP and UDP is two entries, one per protocol. Each needs a
+        name of its own, or none: unnamed, they are called p<port>-tcp and
+        p<port>-udp (a port on one protocol only is p<port>).
       properties:
         name: { type: string }
         port: { type: integer }

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lolozini/quetzal/internal/models"
@@ -83,6 +84,16 @@ func TestSanitizePortsSharedPortDualProtocol(t *testing.T) {
 		{Port: 25575, Protocol: "UDP", Name: "dup"},
 	}); err == nil {
 		t.Fatal("expected error for duplicate explicit port names")
+	}
+
+	// The same name on the TCP and UDP entries of one port is the likely way
+	// to write "port 27015 on both" through the API: the error says how.
+	_, err = sanitizePorts([]models.PortSpec{
+		{Port: 27015, Protocol: "TCP", Name: "game"},
+		{Port: 27015, Protocol: "UDP", Name: "game"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "p27015-tcp and p27015-udp") {
+		t.Fatalf("one name on both protocols of a port: %v, want an error saying to name them apart or not at all", err)
 	}
 }
 

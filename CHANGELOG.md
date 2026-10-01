@@ -71,6 +71,11 @@ releases may include breaking changes).
   after 10 seconds now and says to choose implicit TLS, and a server that
   greets in plain text under implicit TLS says to choose STARTTLS. The email
   settings and email channels point out either mismatch as it is typed.
+- **The API reference says what the API answers.** Requesting a backup or a
+  restore answers 202, where it said 201; saving the backup settings may
+  answer 200 with a warning, and cancelling a transfer already cancelled 200;
+  `GET /api/clusters/setup-manifest` is described. One name given to the TCP
+  and UDP entries of a port is refused with how to name them.
 
 ### Security
 
