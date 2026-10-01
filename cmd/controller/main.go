@@ -262,12 +262,16 @@ func (e *executor) Command(ctx context.Context, srv *models.Server, cmd string) 
 }
 
 // Backup enqueues a backup operation; the backup Manager picks it up.
-func (e *executor) Backup(_ context.Context, srv *models.Server) error {
-	return e.st.CreateBackup(&models.Backup{
+func (e *executor) Backup(_ context.Context, srv *models.Server) (uint, error) {
+	b := &models.Backup{
 		ServerID:  srv.ID,
 		Direction: models.DirBackup,
 		Phase:     models.BackupPending,
-	})
+	}
+	if err := e.st.CreateBackup(b); err != nil {
+		return 0, err
+	}
+	return b.ID, nil
 }
 
 // connProbe returns a hibernation probe that counts ESTABLISHED connections on a

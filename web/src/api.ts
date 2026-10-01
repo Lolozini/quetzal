@@ -578,6 +578,7 @@ export const EVENT_TYPES = [
   "restore.succeeded",
   "restore.failed",
   "schedule.create",
+  "schedule.run",
   "server.transfer",
 ] as const;
 

@@ -37,6 +37,7 @@ const (
 	EventServerStopped       = "server.stopped"    // controller: went down
 	EventServerHibernated    = "server.hibernated" // controller: auto-slept
 	EventServerTransfer      = "server.transfer"   // controller: cross-cluster move
+	EventScheduleRun         = "schedule.run"      // controller: a schedule's tasks ran
 	EventBackupCreate        = "backup.create"
 	EventBackupRestore       = "backup.restore"
 	// How a backup or a restore ended, scheduled or not. The two above are the
@@ -66,6 +67,7 @@ var EventTypes = []string{
 	EventServerRunning, EventServerStopped, EventServerCrashed, EventServerRestarted,
 	EventServerOOMKilled, EventServerInstallFailed, EventServerHibernated, EventServerTransfer,
 	EventBackupSucceeded, EventBackupFailed, EventRestoreSucceeded, EventRestoreFailed,
+	EventScheduleRun,
 	// Done through the panel.
 	"server.create", "server.delete", "server.power", "server.update", "server.rename",
 	"server.env", "server.resources", "server.image", "server.hibernation", "server.sftp",
@@ -104,6 +106,7 @@ var eventTitles = map[string]string{
 	EventBackupFailed:        "Backup failed",
 	EventRestoreSucceeded:    "Restore done",
 	EventRestoreFailed:       "Restore failed",
+	EventScheduleRun:         "Schedule ran",
 	"server.create":          "Server created",
 	"server.delete":          "Server deleted",
 	"server.power":           "Power action",
@@ -128,9 +131,11 @@ func EventTitle(t string) string {
 
 // quietByDefault reports whether a channel receives an event of type t only
 // when it asks for it. A channel's own changes are the panel's bookkeeping:
-// creating one notified every other channel of it, which was noise.
+// creating one notified every other channel of it, which was noise. So is a
+// schedule's run, which can come every minute, and whose effects -- a restart,
+// a backup -- are events of their own.
 func quietByDefault(t string) bool {
-	return strings.HasPrefix(t, "notification.")
+	return strings.HasPrefix(t, "notification.") || t == EventScheduleRun
 }
 
 // KnownEventType reports whether t is one of EventTypes.

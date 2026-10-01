@@ -32,8 +32,18 @@ type Executor interface {
 	Stop(ctx context.Context, srv *models.Server) error
 	Restart(ctx context.Context, srv *models.Server) error
 	Command(ctx context.Context, srv *models.Server, cmd string) error
-	Backup(ctx context.Context, srv *models.Server) error
+	// Backup requests a backup and returns its ID; the chain then waits for it
+	// to end (see awaitBackup).
+	Backup(ctx context.Context, srv *models.Server) (uint, error)
 }
+
+// backupPoll is how often a chain's backup step looks at its backup.
+const backupPoll = 5 * time.Second
+
+// backupWait bounds that wait. The backup manager fails a backup whose Job runs
+// past its deadline, six hours, so this only ends the wait for one that never
+// got as far as a Job, on a cluster that stopped answering.
+const backupWait = 7 * time.Hour
 
 // Scheduler evaluates enabled schedules and fires the ones that are due.
 type Scheduler struct {
@@ -146,19 +156,45 @@ func (s *Scheduler) Tick(ctx context.Context) {
 			defer func() {
 				if r := recover(); r != nil {
 					log.Printf("scheduler: chain %d panicked: %v", scCopy.ID, r)
-					_ = s.Store.MarkScheduleResult(scCopy.ID, now, fmt.Sprintf("error: panic: %v", r))
+					status := fmt.Sprintf("error: panic: %v", r)
+					_ = s.Store.MarkScheduleResult(scCopy.ID, now, status)
+					s.record(&scCopy, status)
 				}
 			}()
 			status := s.runChain(ctx, &scCopy)
 			if err := s.Store.MarkScheduleResult(scCopy.ID, now, status); err != nil {
 				log.Printf("scheduler: mark result %d: %v", scCopy.ID, err)
 			}
+			s.record(&scCopy, status)
 		}()
 	}
 }
 
 // Wait blocks until all in-flight chains finish (for graceful shutdown / tests).
 func (s *Scheduler) Wait() { s.wg.Wait() }
+
+// record writes a run into the panel's audit log and the server's activity.
+// What a schedule did showed only as its last status, which the next run
+// overwrote, and nowhere in the log an administrator reads: a server restarted
+// at four in the morning left no trace of why. A run whose server is gone is
+// not recorded: the schedule went with it.
+func (s *Scheduler) record(sc *models.Schedule, status string) {
+	srv, err := s.Store.GetServer(sc.ServerID)
+	if err != nil {
+		return
+	}
+	name := sc.Name
+	if name == "" {
+		name = fmt.Sprintf("schedule #%d", sc.ID)
+	}
+	detail := fmt.Sprintf("%q: %s", name, status)
+	if err := s.Store.AddAudit(&models.AuditEntry{ServerID: srv.ID, Action: models.EventScheduleRun, Detail: detail}); err != nil {
+		log.Printf("scheduler: audit %d: %v", sc.ID, err)
+	}
+	if err := s.Store.AddEvent(&models.Event{ServerID: srv.ID, Type: models.EventScheduleRun, Message: srv.Slug + ": " + detail}); err != nil {
+		log.Printf("scheduler: event %d: %v", sc.ID, err)
+	}
+}
 
 // runChain executes a schedule's task chain in order and returns a status
 // summary. Each task may wait TimeOffset seconds first; a failing task aborts
@@ -236,7 +272,10 @@ func (s *Scheduler) runTask(ctx context.Context, srv *models.Server, t models.Sc
 	case models.SchedCommand:
 		err = s.Exec.Command(ctx, srv, t.Payload)
 	case models.SchedBackup:
-		err = s.Exec.Backup(ctx, srv)
+		var id uint
+		if id, err = s.Exec.Backup(ctx, srv); err == nil {
+			err = s.awaitBackup(ctx, id)
+		}
 	default:
 		return false, "error: unknown action " + string(t.Action)
 	}
@@ -244,6 +283,38 @@ func (s *Scheduler) runTask(ctx context.Context, srv *models.Server, t models.Sc
 		return false, "error: " + err.Error()
 	}
 	return true, "ok"
+}
+
+// awaitBackup waits for the backup a step requested to end, so that the next
+// step runs after it rather than alongside it. A chain that stops the server,
+// backs it up and starts it again used to start it while the backup was still
+// being taken -- copying a running game, the one thing the chain was written to
+// avoid -- and one that paused the game's saves for a backup resumed them
+// before anything had been copied. The step fails with the backup.
+func (s *Scheduler) awaitBackup(ctx context.Context, id uint) error {
+	deadline := s.now().Add(backupWait)
+	for {
+		b, err := s.Store.GetBackup(id)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			return errors.New("the backup was deleted before it finished")
+		case err != nil:
+			return err
+		}
+		switch b.Phase {
+		case models.BackupSucceeded, models.BackupDeleting:
+			// Deleting is a succeeded backup someone has since asked to remove.
+			return nil
+		case models.BackupFailed:
+			return fmt.Errorf("the backup failed: %s", b.Message)
+		}
+		if !s.now().Before(deadline) {
+			return fmt.Errorf("the backup had not finished after %s", backupWait)
+		}
+		if err := s.sleep(ctx, backupPoll); err != nil {
+			return err
+		}
+	}
 }
 
 // acquire marks a schedule as in-flight, returning false if it already is.

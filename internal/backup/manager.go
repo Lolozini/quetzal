@@ -128,6 +128,17 @@ func (m *Manager) processPending(ctx context.Context) {
 				continue
 			}
 		}
+		// A backup of a server on its way down waits for the game to be gone,
+		// so that stopping a server and backing it up gives the copy of a
+		// stopped server it was meant to: started at once, it copied the world
+		// while the game was still saving it on the way out. Not forever: a pod
+		// stuck terminating still gets its backup, taken live, after stopWait.
+		if b.Direction == models.DirBackup && (srv.DesiredState != models.StateRunning || srv.Hibernated) && m.now().Sub(b.CreatedAt) < stopWait {
+			up, err := gameHasPods(ctx, cs, srv.Namespace, srv.Slug)
+			if err != nil || up {
+				continue
+			}
+		}
 		p := Params{
 			Image: Image(cfg), Namespace: srv.Namespace, Slug: srv.Slug,
 			BackupID: b.ID, Direction: b.Direction, SourceID: b.SourceID,
@@ -362,6 +373,22 @@ func (m *Manager) failDelete(b *models.Backup, msg string) {
 	if err := m.Store.UpdateBackup(b); err != nil {
 		log.Printf("backup: delete %d: revert: %v", b.ID, err)
 	}
+}
+
+// stopWait bounds how long a backup waits for a stopping server's game to go:
+// well past any stop grace a template sets, short of leaving the backup to
+// wait on a pod that will not go.
+const stopWait = 15 * time.Minute
+
+// gameHasPods reports whether a server's game still has a pod, terminating or
+// not. The data manager's does not count: it mounts the volume for the file
+// manager, and writes nothing on its own.
+func gameHasPods(ctx context.Context, cs kubernetes.Interface, ns, slug string) (bool, error) {
+	pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: reconciler.ServerLabel + "=" + slug})
+	if err != nil {
+		return false, err
+	}
+	return len(pods.Items) > 0, nil
 }
 
 // serverHasPods reports whether any pod that mounts the data volume still exists

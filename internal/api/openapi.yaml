@@ -1371,6 +1371,10 @@ paths:
     post:
       tags: [Backups]
       summary: Trigger a backup
+      description: >-
+        The backup runs after the answer: the record comes back Pending, and
+        its phase says how it ends. A backup of a server that is stopping
+        waits for it to be down, up to 15 minutes.
       responses:
         "201":
           description: Backup started

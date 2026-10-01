@@ -195,6 +195,11 @@ export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boo
           </div>
         ))}
         <button type="button" onClick={addTask} style={{ marginTop: 6 }}>+ {t("Add task")}</button>
+        {tasks.some((x) => x.action === "backup") && (
+          <p className="muted">
+            {t("A backup step ends when its backup does, so the next step runs after it. To copy a Minecraft world without stopping the server, send save-off and save-all flush before the backup and save-on after it, with \"continue on fail\" ticked on the backup so that saving always resumes.")}
+          </p>
+        )}
 
         {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
         <div>

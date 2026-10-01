@@ -407,7 +407,8 @@ export const fr: Record<string, string> = {
   Enabled: "Activé",
   "New channel": "Nouveau canal",
   'Edit "{name}"': "Modifier « {name} »",
-  "Events (none selected = all)": "Événements (aucun sélectionné = tous)",
+  "Events (none selected = all, except schedule runs and changes to channels)":
+    "Événements (aucun sélectionné = tous, sauf les exécutions de tâches planifiées et les modifications de canaux)",
   "Add channel": "Ajouter un canal",
   "Save changes": "Enregistrer les modifications",
   " (configured — leave blank to keep)": " (configuré — laisser vide pour garder)",
@@ -464,6 +465,8 @@ export const fr: Record<string, string> = {
   "Keep going even if this task fails": "Continuer même si cette tâche échoue",
   "continue on fail": "continuer si échec",
   "Add task": "Ajouter une tâche",
+  "A backup step ends when its backup does, so the next step runs after it. To copy a Minecraft world without stopping the server, send save-off and save-all flush before the backup and save-on after it, with \"continue on fail\" ticked on the backup so that saving always resumes.":
+    "Une étape de sauvegarde se termine avec sa sauvegarde : l’étape suivante vient après. Pour copier un monde Minecraft sans arrêter le serveur, envoyez save-off et save-all flush avant la sauvegarde et save-on après, en cochant « continuer si échec » sur la sauvegarde pour que l’enregistrement reprenne toujours.",
   "Add schedule": "Ajouter la planification",
   'Delete schedule "{name}"?': "Supprimer la planification « {name} » ?",
 

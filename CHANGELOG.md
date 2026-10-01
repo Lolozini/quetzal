@@ -7,8 +7,27 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **A schedule's runs are recorded.** What the scheduler did showed only as
+  the schedule's last status, which the next run overwrote, and nowhere in
+  the activity log: a server restarted at four in the morning left no trace
+  of why. Each run is now an entry of the panel's activity log and of the
+  server's, `schedule.run`, saying what each step did. A notification channel
+  receives it only when it lists it, since a schedule can run every minute.
+
 ### Changed
 
+- **A backup step in a schedule ends when its backup does.** It ended when the
+  backup was requested, so *stop → backup → start* started the server again
+  while its backup was still being taken, a copy of a running game, and a
+  chain that paused the game's saves for a backup resumed them before
+  anything had been copied. The next step now waits for the backup, and the
+  step fails with it: a nightly backup that failed read "ok". A backup of a
+  server that is stopping also waits for its game to be down, up to 15
+  minutes, so stopping a server and backing it up copies a stopped world. To
+  copy a Minecraft world without stopping it: `save-off`, `save-all flush`,
+  the backup with "continue on fail", then `save-on`.
 - **A file path that leaves the server's files is refused.** `../escape.txt`
   was brought back inside them without a word, and the file was written as
   `escape.txt` at the top of the server's files, which is not what was asked

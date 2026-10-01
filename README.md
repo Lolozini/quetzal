@@ -152,6 +152,10 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
 ### Automation
 - **Scheduled tasks** (cron) as ordered **chains** — e.g. *warn players → wait
   30s → stop → backup → start* — with per-step delays and continue-on-failure.
+  A backup step ends when its backup does, and a backup waits for a stopping
+  server to be down, so that chain copies a stopped world. To copy a Minecraft
+  world without stopping it: `save-off`, `save-all flush`, backup (continue on
+  failure), `save-on`. Each run is recorded in the activity log.
 - **Notifications** to **Discord**, **HMAC-signed webhooks**, or **email/SMTP**
   on events (up / crash / idle-sleep / power / backups), global or per-server,
   delivered from a durable event outbox.

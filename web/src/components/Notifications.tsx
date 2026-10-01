@@ -251,7 +251,7 @@ export function Notifications({ serverId }: { serverId: number }) {
           );
         })}
 
-        <label style={{ marginTop: 8 }}>{t("Events (none selected = all)")}</label>
+        <label style={{ marginTop: 8 }}>{t("Events (none selected = all, except schedule runs and changes to channels)")}</label>
         <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
           {EVENT_TYPES.map((ev) => (
             <label key={ev} className="row" style={{ gap: 4 }}>

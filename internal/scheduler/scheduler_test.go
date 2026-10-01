@@ -19,6 +19,11 @@ type mockExec struct {
 	commands                              []string
 	seq                                   []string
 	fail                                  map[models.ScheduleAction]bool
+	// st receives the backups the chain asks for. They are over at once unless
+	// pending is set, for a test to watch the chain wait for one.
+	st      *store.Store
+	pending bool
+	backups []uint
 }
 
 func (m *mockExec) do(a models.ScheduleAction, payload string) error {
@@ -48,7 +53,22 @@ func (m *mockExec) Stop(context.Context, *models.Server) error  { return m.do(mo
 func (m *mockExec) Restart(context.Context, *models.Server) error {
 	return m.do(models.SchedRestart, "")
 }
-func (m *mockExec) Backup(context.Context, *models.Server) error { return m.do(models.SchedBackup, "") }
+func (m *mockExec) Backup(_ context.Context, srv *models.Server) (uint, error) {
+	if err := m.do(models.SchedBackup, ""); err != nil {
+		return 0, err
+	}
+	b := &models.Backup{ServerID: srv.ID, Direction: models.DirBackup, Phase: models.BackupSucceeded}
+	if m.pending {
+		b.Phase = models.BackupPending
+	}
+	if err := m.st.CreateBackup(b); err != nil {
+		return 0, err
+	}
+	m.mu.Lock()
+	m.backups = append(m.backups, b.ID)
+	m.mu.Unlock()
+	return b.ID, nil
+}
 func (m *mockExec) Command(_ context.Context, _ *models.Server, c string) error {
 	return m.do(models.SchedCommand, c)
 }
@@ -91,7 +111,7 @@ func TestTickFiresDueSchedule(t *testing.T) {
 		t.Fatalf("create schedule: %v", err)
 	}
 
-	m := &mockExec{}
+	m := &mockExec{st: st}
 	runTick(New(st, m), context.Background())
 
 	if m.started != 1 {
@@ -117,7 +137,7 @@ func TestTickComputesMissingNextRunWithoutFiring(t *testing.T) {
 	sc := &models.Schedule{ServerID: srv.ID, Name: "nightly", Cron: "0 4 * * *", Action: models.SchedStop, Enabled: true}
 	_ = st.CreateSchedule(sc)
 
-	m := &mockExec{}
+	m := &mockExec{st: st}
 	runTick(New(st, m), context.Background())
 
 	if m.stopped != 0 {
@@ -138,7 +158,7 @@ func TestTickIgnoresDisabledAndFuture(t *testing.T) {
 	_ = st.CreateSchedule(&models.Schedule{ServerID: srv.ID, Name: "off", Cron: "* * * * *", Action: models.SchedStart, Enabled: false, NextRun: &past})
 	_ = st.CreateSchedule(&models.Schedule{ServerID: srv.ID, Name: "later", Cron: "* * * * *", Action: models.SchedStart, Enabled: true, NextRun: &future})
 
-	m := &mockExec{}
+	m := &mockExec{st: st}
 	runTick(New(st, m), context.Background())
 	if m.started != 0 {
 		t.Errorf("no schedule should have fired, Start called %d", m.started)
@@ -153,7 +173,7 @@ func TestTickSkipsPowerActionsOnSuspendedServer(t *testing.T) {
 	sc := &models.Schedule{ServerID: srv.ID, Name: "wake", Cron: "* * * * *", Action: models.SchedStart, Enabled: true, NextRun: &past}
 	_ = st.CreateSchedule(sc)
 
-	m := &mockExec{}
+	m := &mockExec{st: st}
 	runTick(New(st, m), context.Background())
 
 	if m.started != 0 {
@@ -183,7 +203,7 @@ func TestTickRunsNothingOnSuspendedServer(t *testing.T) {
 	}
 	_ = st.CreateSchedule(sc)
 
-	m := &mockExec{}
+	m := &mockExec{st: st}
 	runTick(New(st, m), context.Background())
 
 	if m.backedup != 0 || len(m.commands) != 0 {
@@ -211,7 +231,7 @@ func TestChainRunsTasksInOrder(t *testing.T) {
 	}
 	_ = st.CreateSchedule(sc)
 
-	m := &mockExec{}
+	m := &mockExec{st: st}
 	var slept []time.Duration
 	s := New(st, m)
 	s.Sleep = func(_ context.Context, d time.Duration) error { slept = append(slept, d); return nil }
@@ -244,7 +264,7 @@ func TestChainAbortsOnFailure(t *testing.T) {
 	}
 	_ = st.CreateSchedule(sc)
 
-	m := &mockExec{fail: map[models.ScheduleAction]bool{models.SchedStop: true}}
+	m := &mockExec{st: st, fail: map[models.ScheduleAction]bool{models.SchedStop: true}}
 	runTick(New(st, m), context.Background())
 
 	if m.stopped != 1 || m.backedup != 0 {
@@ -270,7 +290,7 @@ func TestChainContinueOnFailure(t *testing.T) {
 	}
 	_ = st.CreateSchedule(sc)
 
-	m := &mockExec{fail: map[models.ScheduleAction]bool{models.SchedBackup: true}}
+	m := &mockExec{st: st, fail: map[models.ScheduleAction]bool{models.SchedBackup: true}}
 	runTick(New(st, m), context.Background())
 
 	if m.backedup != 1 || m.started != 1 {
@@ -294,7 +314,7 @@ func TestChainCancelledByContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	m := &mockExec{}
+	m := &mockExec{st: st}
 	s := New(st, m)
 	s.Sleep = func(c context.Context, _ time.Duration) error { return c.Err() }
 	runTick(s, ctx)
@@ -325,7 +345,7 @@ func TestNoOverlap(t *testing.T) {
 	_ = st.CreateSchedule(sc)
 
 	block := make(chan struct{})
-	m := &mockExec{}
+	m := &mockExec{st: st}
 	s := New(st, m)
 	s.Sleep = func(_ context.Context, _ time.Duration) error { <-block; return nil }
 
@@ -371,7 +391,7 @@ func TestTickRemovesOrphanSchedule(t *testing.T) {
 	sc := &models.Schedule{ServerID: 9999, Name: "orphan", Cron: "* * * * *", Action: models.SchedStart, Enabled: true, NextRun: &past}
 	_ = st.CreateSchedule(sc)
 
-	runTick(New(st, &mockExec{}), context.Background())
+	runTick(New(st, &mockExec{st: st}), context.Background())
 
 	if _, err := st.GetSchedule(sc.ID); err == nil {
 		t.Error("orphan schedule should have been deleted")
@@ -400,7 +420,7 @@ func TestScheduledStartSkippedDuringTransfer(t *testing.T) {
 		Tasks: []models.ScheduleTask{{Action: models.SchedStart}}}
 	_ = st.CreateSchedule(sc)
 
-	m := &mockExec{}
+	m := &mockExec{st: st}
 	runTick(New(st, m), context.Background())
 
 	if m.started != 0 {
@@ -409,5 +429,102 @@ func TestScheduledStartSkippedDuringTransfer(t *testing.T) {
 	got, _ := st.GetSchedule(sc.ID)
 	if !strings.Contains(got.LastStatus, "transferred") {
 		t.Errorf("LastStatus = %q", got.LastStatus)
+	}
+}
+
+// "Stop, back up, start" started the server again the moment the backup was
+// requested, so the copy was taken of a running game; a chain that paused the
+// game's saves for a backup resumed them before anything was copied. A backup
+// step now ends when its backup does.
+func TestABackupStepWaitsForItsBackup(t *testing.T) {
+	st := testStore(t)
+	srv := &models.Server{Slug: "s", Namespace: "ns", DesiredState: models.StateRunning}
+	_ = st.CreateServer(srv)
+	past := time.Now().Add(-time.Minute)
+	sc := &models.Schedule{
+		ServerID: srv.ID, Name: "cold backup", Cron: "* * * * *", Enabled: true, NextRun: &past,
+		Tasks: []models.ScheduleTask{{Action: models.SchedStop}, {Action: models.SchedBackup}, {Action: models.SchedStart}},
+	}
+	_ = st.CreateSchedule(sc)
+
+	m := &mockExec{st: st, pending: true}
+	s := New(st, m)
+	polls := 0
+	s.Sleep = func(_ context.Context, d time.Duration) error {
+		polls++
+		if got := strings.Join(m.sequence(), ","); got != "stop,backup" {
+			t.Errorf("while the backup runs, the chain has done %s", got)
+		}
+		if polls == 3 {
+			b, _ := st.GetBackup(m.backups[0])
+			b.Phase = models.BackupSucceeded
+			_ = st.UpdateBackup(b)
+		}
+		return nil
+	}
+	runTick(s, context.Background())
+
+	if got := strings.Join(m.sequence(), ","); got != "stop,backup,start" || polls != 3 {
+		t.Errorf("sequence %s after %d polls, want stop,backup,start once the backup was over", got, polls)
+	}
+	if got, _ := st.GetSchedule(sc.ID); !strings.Contains(got.LastStatus, "#2 backup: ok; #3 start: ok") {
+		t.Errorf("status = %q", got.LastStatus)
+	}
+}
+
+// The step fails with its backup, which a nightly backup schedule used to
+// report as "ok" whatever became of it.
+func TestABackupStepFailsWithItsBackup(t *testing.T) {
+	st := testStore(t)
+	srv := &models.Server{Slug: "s", Namespace: "ns", DesiredState: models.StateRunning}
+	_ = st.CreateServer(srv)
+	past := time.Now().Add(-time.Minute)
+	sc := &models.Schedule{
+		ServerID: srv.ID, Name: "nightly", Cron: "* * * * *", Enabled: true, NextRun: &past,
+		Tasks: []models.ScheduleTask{{Action: models.SchedBackup}, {Action: models.SchedCommand, Payload: "say backed up"}},
+	}
+	_ = st.CreateSchedule(sc)
+
+	m := &mockExec{st: st, pending: true}
+	s := New(st, m)
+	s.Sleep = func(context.Context, time.Duration) error {
+		b, _ := st.GetBackup(m.backups[0])
+		b.Phase, b.Message = models.BackupFailed, "Access Denied"
+		_ = st.UpdateBackup(b)
+		return nil
+	}
+	runTick(s, context.Background())
+
+	got, _ := st.GetSchedule(sc.ID)
+	if !strings.Contains(got.LastStatus, "#1 backup: error: the backup failed: Access Denied — chain aborted") || len(m.commands) != 0 {
+		t.Errorf("status = %q, commands %q; want the backup's failure, and nothing after it", got.LastStatus, m.commands)
+	}
+}
+
+// What a schedule did showed only as its last status, overwritten by the next
+// run. Each run is now in the audit log and in the server's activity.
+func TestAScheduleRunIsRecorded(t *testing.T) {
+	st := testStore(t)
+	srv := &models.Server{Slug: "survival", Namespace: "ns", DesiredState: models.StateRunning}
+	_ = st.CreateServer(srv)
+	past := time.Now().Add(-time.Minute)
+	sc := &models.Schedule{
+		ServerID: srv.ID, Name: "nightly restart", Cron: "* * * * *", Enabled: true, NextRun: &past,
+		Tasks: []models.ScheduleTask{{Action: models.SchedCommand, Payload: "say restarting"}, {Action: models.SchedRestart}},
+	}
+	_ = st.CreateSchedule(sc)
+	runTick(New(st, &mockExec{st: st}), context.Background())
+
+	want := `"nightly restart": #1 command: ok; #2 restart: ok`
+	audit, err := st.ListAuditForServer(srv.ID, 0, 10)
+	if err != nil || len(audit) != 1 || audit[0].Action != models.EventScheduleRun || audit[0].Detail != want || audit[0].UserID != 0 {
+		t.Errorf("audit = %+v (%v), want one schedule.run entry %q by no user", audit, err, want)
+	}
+	events, err := st.ListEventsForServer(srv.ID, 0, 10)
+	if err != nil || len(events) != 1 || events[0].Type != models.EventScheduleRun || events[0].Message != "survival: "+want {
+		t.Errorf("events = %+v (%v), want one schedule.run event", events, err)
+	}
+	if !models.KnownEventType(models.EventScheduleRun) {
+		t.Error("schedule.run is not in the catalog a channel filters on")
 	}
 }

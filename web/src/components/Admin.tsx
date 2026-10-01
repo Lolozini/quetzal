@@ -673,7 +673,7 @@ function GlobalAudit() {
               {entries.map((e) => (
                 <tr key={e.id}>
                   <td>{new Date(e.createdAt).toLocaleString()}</td>
-                  <td>{e.username}</td>
+                  <td>{e.username || t("system")}</td>
                   <td>{e.serverName || (e.serverId ? `#${e.serverId}` : "—")}</td>
                   <td><code>{e.action}</code></td>
                   <td>{e.detail}</td>

@@ -5,11 +5,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/lolozini/quetzal/internal/cluster"
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/store"
 )
 
@@ -166,5 +170,82 @@ func TestFailureMessageHidesTheObjectStore(t *testing.T) {
 	}
 	if !strings.Contains(got, "connection reset by peer") {
 		t.Errorf("message = %q, want what went wrong kept", got)
+	}
+}
+
+// Stopping a server and backing it up, by hand or in a schedule, is how a world
+// is copied while nothing writes to it. The backup started at once, while the
+// game was still saving the world on its way out; it now waits for the game's
+// pod to be gone, and no longer than stopWait.
+func TestABackupWaitsForAStoppingServer(t *testing.T) {
+	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "m.db"), Silent: true})
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	if err := st.Migrate(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := st.SaveBackupConfig(&models.BackupConfig{Endpoint: "s3.example", Bucket: "b", KeepLast: 3}, "ak", "sk", "rp"); err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	srv := &models.Server{Slug: "mc", Namespace: "quetzal-srv-mc", DesiredState: models.StateStopped}
+	if err := st.CreateServer(srv); err != nil {
+		t.Fatalf("server: %v", err)
+	}
+	game := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "server-1", Namespace: srv.Namespace, Labels: map[string]string{reconciler.ServerLabel: srv.Slug}}}
+	data := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "data-1", Namespace: srv.Namespace, Labels: map[string]string{reconciler.DataLabel: srv.Slug}}}
+	cs := fake.NewSimpleClientset(game, data)
+	m := NewManager(st, cluster.New(st, cluster.Clients{Clientset: cs}))
+	ctx := context.Background()
+
+	b := &models.Backup{ServerID: srv.ID, Direction: models.DirBackup, Phase: models.BackupPending}
+	if err := st.CreateBackup(b); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	m.processPending(ctx)
+	if got, _ := st.GetBackup(b.ID); got.Phase != models.BackupPending {
+		t.Fatalf("with the game still going down: %s, want Pending", got.Phase)
+	}
+	if err := cs.CoreV1().Pods(srv.Namespace).Delete(ctx, game.Name, metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	m.processPending(ctx)
+	if got, _ := st.GetBackup(b.ID); got.Phase != models.BackupRunning {
+		t.Fatalf("once the game is gone: %s, want Running (the data manager does not count)", got.Phase)
+	}
+
+	// A pod that will not go does not hold a backup back for good.
+	if _, err := cs.CoreV1().Pods(srv.Namespace).Create(ctx, game, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	stuck := &models.Backup{ServerID: srv.ID, Direction: models.DirBackup, Phase: models.BackupPending}
+	if err := st.CreateBackup(stuck); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	done, _ := st.GetBackup(b.ID) // one operation per server at a time
+	done.Phase = models.BackupSucceeded
+	_ = st.UpdateBackup(done)
+	m.Now = func() time.Time { return time.Now().Add(stopWait + time.Minute) }
+	m.processPending(ctx)
+	if got, _ := st.GetBackup(stuck.ID); got.Phase != models.BackupRunning {
+		t.Errorf("past stopWait: %s, want Running", got.Phase)
+	}
+
+	// A running server's backup never waited, and does not now.
+	srv.DesiredState = models.StateRunning
+	if err := st.SetDesiredState(srv.ID, models.StateRunning); err != nil {
+		t.Fatal(err)
+	}
+	m.Now = time.Now
+	live := &models.Backup{ServerID: srv.ID, Direction: models.DirBackup, Phase: models.BackupPending}
+	if err := st.CreateBackup(live); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	stuckDone, _ := st.GetBackup(stuck.ID)
+	stuckDone.Phase = models.BackupSucceeded
+	_ = st.UpdateBackup(stuckDone)
+	m.processPending(ctx)
+	if got, _ := st.GetBackup(live.ID); got.Phase != models.BackupRunning {
+		t.Errorf("a running server's backup: %s, want Running", got.Phase)
 	}
 }
