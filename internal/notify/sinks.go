@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -278,6 +279,32 @@ func ParseFrom(from string) (*mail.Address, error) {
 	return a, nil
 }
 
+// greetingTimeout bounds the wait for the server's first words. A server that
+// expects TLS from the first byte (SMTPS, usually port 465) waits in silence for
+// the client to start it, while a client set to STARTTLS waits for the server's
+// greeting: neither says anything, and the send ended at the deadline of the
+// whole conversation, 20 seconds on, with "i/o timeout" and no hint of the
+// cause. The greeting delays some relays impose on spammers stay well below.
+var greetingTimeout = 10 * time.Second
+
+// greetingError explains a conversation that failed before it began when the
+// TLS mode is the likely cause, since neither way of getting it wrong looks
+// like one. Anything else is returned as it came.
+func greetingError(addr, mode string, err error) error {
+	var ne net.Error
+	var rh tls.RecordHeaderError
+	switch {
+	case mode != "tls" && errors.As(err, &ne) && ne.Timeout():
+		// Not permanent: a relay that is merely slow to answer this once
+		// deserves its retry.
+		return fmt.Errorf(`email: %s said nothing within %s of the connection; a server that expects TLS from the first byte (usually port 465) waits like this, so choose "tls" if that is the case (%w)`,
+			addr, greetingTimeout, err)
+	case mode == "tls" && errors.As(err, &rh):
+		return permanent(fmt.Errorf(`email: %s answered in plain text, so it does not expect TLS from the first byte; choose "starttls" (usually port 587) (%w)`, addr, err))
+	}
+	return err
+}
+
 // SendMail sends a plain-text email to the given recipients using the SMTP
 // settings in cfg (host, port, username, password, from, tls). It is used both
 // for notification email channels and for system mail such as password reset.
@@ -321,9 +348,16 @@ func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, 
 	// net/smtp takes no context, so bound the whole conversation with a socket
 	// deadline. Without it a server that accepts the connection then stalls would
 	// block the single dispatcher goroutine forever, wedging all notifications.
-	if dl, ok := ctx.Deadline(); ok {
+	dl, hasDeadline := ctx.Deadline()
+	if hasDeadline {
 		_ = conn.SetDeadline(dl)
 	}
+	// The greeting gets a shorter one of its own: see greetingTimeout.
+	greet := time.Now().Add(greetingTimeout)
+	if hasDeadline && dl.Before(greet) {
+		greet = dl
+	}
+	_ = conn.SetReadDeadline(greet)
 	// Implicit TLS (SMTPS, usually :465) wraps the connection immediately.
 	if mode == "tls" {
 		conn = tls.Client(conn, &tls.Config{ServerName: host})
@@ -331,9 +365,10 @@ func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, 
 	client, err := smtp.NewClient(conn, host)
 	if err != nil {
 		conn.Close()
-		return err
+		return greetingError(addr, mode, err)
 	}
 	defer client.Close()
+	_ = conn.SetReadDeadline(dl) // the zero time when there is none: no deadline
 	// STARTTLS is required, not attempted. This used to go ahead in cleartext
 	// whenever the server did not offer it -- which is also what a man in the
 	// middle arranges by deleting the offer from the EHLO reply. The password was

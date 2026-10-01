@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { AdminPermInfo, AdminRole, api, ApiError, AuditEntry, EmailSettingsInput, hasAdminPerm, NetworkSettings, PolicyImpact, User } from "../api";
 import { useT } from "../i18n";
+import { tlsHint } from "../smtp";
 import { Collapsible } from "./Collapsible";
 import { Clusters } from "./Clusters";
 import { DatabaseHosts } from "./DatabaseHosts";
@@ -624,6 +625,7 @@ function EmailSettingsCard() {
             </select>
           </div>
         </div>
+        {tlsHint(t, form.port, form.tls) && <div className="notice warn">{tlsHint(t, form.port, form.tls)}</div>}
         <div><label>{t("Panel public URL (for reset links)")}</label><input value={form.publicUrl} onChange={set("publicUrl")} placeholder="https://quetzal.example.com" /></div>
         {msg && <div className="notice">{msg}</div>}
         {error && <div className="error">{error}</div>}

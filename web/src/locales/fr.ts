@@ -257,6 +257,10 @@ export const fr: Record<string, string> = {
   "last failure: {time}": "dernier échec : {time}",
   "last delivered {time}": "dernière livraison {time}",
   "None (cleartext)": "Aucun (en clair)",
+  "Port 465 usually expects TLS from the first byte: choose implicit TLS.":
+    "Le port 465 attend en général du TLS dès le premier octet : choisissez TLS implicite.",
+  "Port {port} usually greets in plain text and offers STARTTLS: choose STARTTLS.":
+    "Le port {port} répond en général en clair et propose STARTTLS : choisissez STARTTLS.",
   "Panel public URL (for reset links)": "URL publique du panel (pour les liens de réinitialisation)",
   "•••••• (leave blank to keep)": "•••••• (laisser vide pour garder)",
   Saved: "Enregistré",

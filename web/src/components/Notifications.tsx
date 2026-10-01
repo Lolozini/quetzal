@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, ApiError, ChannelType, EVENT_TYPES, NotificationChannel } from "../api";
 import { useT } from "../i18n";
+import { tlsHint } from "../smtp";
 
 type FieldDef = {
   key: string;
@@ -45,6 +46,8 @@ const blankForm = (serverId: number) => ({
 
 export function Notifications({ serverId }: { serverId: number }) {
   const { t } = useT();
+  // The TLS modes read as they do in the panel's email settings.
+  const optionLabel = (o: string) => ({ starttls: "STARTTLS", tls: t("Implicit TLS"), none: t("None (cleartext)") } as Record<string, string>)[o] ?? o;
   const [channels, setChannels] = useState<NotificationChannel[]>([]);
   const [form, setForm] = useState(blankForm(serverId));
   const [error, setError] = useState("");
@@ -222,12 +225,15 @@ export function Notifications({ serverId }: { serverId: number }) {
         {FIELDS[form.type].map((fld) => {
           const configured = form.secrets[fld.key];
           if (fld.select) {
+            // Only a channel with a server of its own uses its port and TLS mode.
+            const hint = fld.key === "tls" && (form.config.host || "").trim() ? tlsHint(t, form.config.port, form.config.tls) : "";
             return (
               <div key={fld.key}>
                 <label>{t(fld.label)}</label>
                 <select value={form.config[fld.key] ?? fld.select[0]} onChange={(e) => setConfig(fld.key, e.target.value)}>
-                  {fld.select.map((o) => <option key={o} value={o}>{o}</option>)}
+                  {fld.select.map((o) => <option key={o} value={o}>{optionLabel(o)}</option>)}
                 </select>
+                {hint && <div className="notice warn">{hint}</div>}
               </div>
             );
           }

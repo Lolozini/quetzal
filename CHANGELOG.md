@@ -21,6 +21,12 @@ releases may include breaking changes).
   can create one, and the file manager listed `new\nline.txt` as `new`, a file
   that was not there, while the real one could be neither renamed nor
   deleted from the panel.
+- **An email server set to the wrong TLS mode for its port says which to
+  choose.** Set to STARTTLS, a server on port 465, which expects TLS from the
+  first byte, kept a send waiting 20 seconds before "i/o timeout". It fails
+  after 10 seconds now and says to choose implicit TLS, and a server that
+  greets in plain text under implicit TLS says to choose STARTTLS. The email
+  settings and email channels point out either mismatch as it is typed.
 
 ### Security
 
