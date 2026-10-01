@@ -372,7 +372,8 @@ function APIKeys() {
     <div className="card">
       <h2>{t("API keys")}</h2>
       <p className="muted">
-        {t("Use as a bearer token:")} <code>Authorization: Bearer &lt;token&gt;</code>. {t("A key inherits your permissions.")}
+        {t("Use as a bearer token:")} <code>Authorization: Bearer &lt;token&gt;</code>. {t("A key inherits your permissions.")}{" "}
+        {t("It signs in without two-factor authentication: keep it as safe as your password and your second factor together.")}
       </p>
       {fresh && (
         <div className="notice">

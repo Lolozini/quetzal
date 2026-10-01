@@ -23,14 +23,17 @@ type adminPermInfo struct {
 
 // adminPermCatalog is the authoritative, human-readable list of admin
 // permissions, kept in declaration order.
+//
+// What a permission leads to counts as much as what it names: managing accounts
+// includes resetting a user's password, which opens that user's servers too.
 var adminPermCatalog = []adminPermInfo{
 	{models.AdminPermServers, "Administer every server (view, power, files, settings, delete, suspend)"},
-	{models.AdminPermUsers, "Manage user accounts (not admin status, which stays superadmin-only)"},
+	{models.AdminPermUsers, "Manage user accounts and their quotas, not admin status; resetting a user's password gives access to their servers"},
 	{models.AdminPermTemplates, "Import, edit and delete templates (eggs)"},
 	{models.AdminPermClusters, "Manage the cluster registry"},
 	{models.AdminPermDatabaseHosts, "Manage database hosts"},
 	{models.AdminPermNotifications, "Manage global notification channels"},
-	{models.AdminPermSettings, "Configure email/SMTP and backups"},
+	{models.AdminPermSettings, "Configure backups and the network settings, and read the email settings (changing them is superadmin-only)"},
 	{models.AdminPermAudit, "View the global activity log"},
 }
 

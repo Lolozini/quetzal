@@ -377,11 +377,13 @@ function Roles() {
           <div><label>{t("Description")}</label><input value={description} onChange={(e) => setDescription(e.target.value)} /></div>
         </div>
         <label>{t("Permissions")}</label>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginTop: 4 }}>
+        <div className="perm-list">
           {catalog.map((p) => (
-            <label key={p.key} className="row" title={p.description}>
-              <input type="checkbox" style={{ width: "auto" }} checked={perms.has(p.key)} onChange={() => togglePerm(p.key)} />
-              &nbsp;{p.key}
+            <label key={p.key}>
+              <input type="checkbox" checked={perms.has(p.key)} onChange={() => togglePerm(p.key)} />
+              <span>
+                <b>{p.key}</b> <span className="muted">{adminPermHelp(t, p.key) || p.description}</span>
+              </span>
             </label>
           ))}
         </div>
@@ -637,6 +639,32 @@ function EmailSettingsCard() {
       </div>
     </div>
   );
+}
+
+// adminPermHelp says what an admin permission allows, as the Access tab does
+// for a server's: it was a tooltip, in English, over the bare key, and nothing
+// said that managing accounts includes resetting a user's password, which opens
+// that user's servers.
+function adminPermHelp(t: ReturnType<typeof useT>["t"], key: string): string {
+  switch (key) {
+    case "servers":
+      return t("every server: its page, power, console, files, settings, suspension and deletion");
+    case "users":
+      return t("user accounts and their quotas, not admin status; resetting a password gives access to that user's servers");
+    case "templates":
+      return t("importing, editing and deleting templates (eggs)");
+    case "clusters":
+      return t("the cluster registry");
+    case "database-hosts":
+      return t("database hosts");
+    case "notifications":
+      return t("the panel-wide notification channels");
+    case "settings":
+      return t("backups and the network settings; the email settings read-only, as changing them is for superadmins");
+    case "audit":
+      return t("the panel-wide activity log");
+  }
+  return "";
 }
 
 function GlobalAudit() {

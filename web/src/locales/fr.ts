@@ -204,6 +204,17 @@ export const fr: Record<string, string> = {
   "Bundles of admin permissions you can assign to users for scoped admin access. Assign a role to a user in the Users card above.":
     "Ensembles de permissions admin attribuables aux utilisateurs pour un accès admin restreint. Attribuez un rôle dans la carte Utilisateurs ci-dessus.",
   Permissions: "Permissions",
+  "every server: its page, power, console, files, settings, suspension and deletion":
+    "tous les serveurs : fiche, alimentation, console, fichiers, réglages, suspension et suppression",
+  "user accounts and their quotas, not admin status; resetting a password gives access to that user's servers":
+    "les comptes et leurs quotas, sans le statut d’administrateur ; réinitialiser un mot de passe donne accès aux serveurs du compte",
+  "importing, editing and deleting templates (eggs)": "importer, modifier et supprimer des modèles (eggs)",
+  "the cluster registry": "le registre des clusters",
+  "database hosts": "les hôtes de bases de données",
+  "the panel-wide notification channels": "les canaux de notification du panel",
+  "backups and the network settings; the email settings read-only, as changing them is for superadmins":
+    "les sauvegardes et les réglages réseau ; les réglages e-mail en lecture seule, leur modification étant réservée aux superadmins",
+  "the panel-wide activity log": "le journal d’activité du panel",
   none: "aucune",
   Edit: "Modifier",
   "No roles yet.": "Aucun rôle pour l'instant.",
@@ -628,6 +639,8 @@ export const fr: Record<string, string> = {
   "API keys": "Clés d'API",
   "Use as a bearer token:": "À utiliser comme jeton bearer :",
   "A key inherits your permissions.": "Une clé hérite de vos permissions.",
+  "It signs in without two-factor authentication: keep it as safe as your password and your second factor together.":
+    "Elle se connecte sans double authentification : gardez-la aussi précieusement que votre mot de passe et votre second facteur réunis.",
   "New token (shown once — copy it now):": "Nouveau jeton (affiché une fois — copiez-le maintenant) :",
   "No API keys.": "Aucune clé d'API.",
   Prefix: "Préfixe",

@@ -12,7 +12,9 @@ info:
 
     - **API key** (recommended for scripts): send `Authorization: Bearer <token>`.
       Create a key under *Account → API keys*; it inherits the owner's
-      permissions. Tokens are shown once at creation.
+      permissions. Tokens are shown once at creation. A key needs no second
+      factor, even on an account with two-factor authentication: it stands
+      for the password and the second factor together.
     - **Session cookie**: set by `POST /api/login` and used by the web UI.
 
     A key/session identifies a user; per-server access follows that user's

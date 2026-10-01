@@ -58,6 +58,12 @@ releases may include breaking changes).
   tunnel or to a kind cluster, which from Quetzal leads back to Quetzal. The
   script now warns about such an address, the form says to check it, and a
   failed connection to one says what is wrong.
+- **An admin role says what each of its permissions allows.** The role form
+  listed them by name, with a tooltip in English, and nothing said that
+  managing accounts includes resetting a user's password, which opens that
+  user's servers. Each permission is explained under its name now, in the
+  panel's language, and the account page and the API reference say that an
+  API key signs in without the second factor.
 
 ### Fixed
 
