@@ -17,6 +17,7 @@ import (
 	"github.com/lolozini/quetzal/internal/api"
 	"github.com/lolozini/quetzal/internal/auth"
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/templates"
 )
@@ -24,7 +25,8 @@ import (
 type sentMail struct {
 	to      []string
 	subject string
-	body    string
+	body    string // the text version
+	html    string
 }
 
 type captureMailer struct {
@@ -32,10 +34,10 @@ type captureMailer struct {
 	msgs []sentMail
 }
 
-func (c *captureMailer) send(_ context.Context, _ map[string]string, to []string, subject, body string) error {
+func (c *captureMailer) send(_ context.Context, _ map[string]string, to []string, m notify.Mail) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.msgs = append(c.msgs, sentMail{to, subject, body})
+	c.msgs = append(c.msgs, sentMail{to, m.Subject, m.Text, m.HTML})
 	return nil
 }
 

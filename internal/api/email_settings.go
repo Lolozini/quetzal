@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lolozini/quetzal/internal/mailtmpl"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/store"
@@ -132,8 +133,12 @@ func (s *Server) handleTestEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	if err := s.Mailer(ctx, cfg, []string{to}, "Quetzal test email",
-		"This is a test email from Quetzal. Your SMTP settings work.\n"); err != nil {
+	m, err := mailtmpl.Test(s.publicURL())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.Mailer(ctx, cfg, []string{to}, m); err != nil {
 		writeError(w, http.StatusBadGateway, "send failed: "+err.Error())
 		return
 	}

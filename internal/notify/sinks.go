@@ -6,16 +6,20 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"mime"
+	"mime/multipart"
+	"mime/quotedprintable"
 	"net"
 	"net/http"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"time"
@@ -311,6 +315,31 @@ func greetingError(addr, mode string, err error) error {
 // net/smtp takes no context, so the whole conversation is bounded by a socket
 // deadline derived from ctx.
 func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, body string) error {
+	return Send(ctx, cfg, to, Mail{Subject: subject, Text: body})
+}
+
+// Mail is a message: its text, and optionally an HTML version of it with the
+// images it shows. A client that does not display HTML shows the text.
+type Mail struct {
+	Subject string
+	Text    string
+	HTML    string
+	// Inline are the HTML part's images, referenced from it as cid:<ID>. Sent
+	// with the message rather than linked, so that they show without the
+	// reader allowing remote images.
+	Inline []Inline
+}
+
+// Inline is a file shown inside the HTML part.
+type Inline struct {
+	ID          string // Content-ID, without the angle brackets
+	Name        string
+	ContentType string
+	Data        []byte
+}
+
+// Send delivers m through the configured relay; see SendMail.
+func Send(ctx context.Context, cfg map[string]string, to []string, m Mail) error {
 	host := strings.TrimSpace(cfg["host"])
 	from := strings.TrimSpace(cfg["from"])
 	if host == "" || from == "" || len(to) == 0 {
@@ -333,7 +362,10 @@ func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, 
 	addr := net.JoinHostPort(host, port)
 	mode := strings.ToLower(strings.TrimSpace(cfg["tls"]))
 
-	msg := buildMessage(fromHeader, to, subject, body)
+	msg, err := buildMail(fromHeader, to, m)
+	if err != nil {
+		return permanent(fmt.Errorf("email: %w", err))
+	}
 
 	var auth smtp.Auth
 	if u := cfg["username"]; u != "" {
@@ -415,17 +447,90 @@ func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, 
 }
 
 func buildMessage(from string, to []string, subject, body string) []byte {
-	var b strings.Builder
+	msg, _ := buildMail(from, to, Mail{Subject: subject, Text: body}) // text alone cannot fail
+	return msg
+}
+
+// buildMail renders m as an RFC 5322 message. Text alone is sent as it always
+// was. With HTML it becomes multipart/alternative — the text first, then the
+// HTML with its images in a multipart/related — so that each client shows the
+// richest part it can display.
+func buildMail(from string, to []string, m Mail) ([]byte, error) {
+	var b bytes.Buffer
 	fmt.Fprintf(&b, "From: %s\r\n", stripCRLF(from))
 	fmt.Fprintf(&b, "To: %s\r\n", stripCRLF(strings.Join(to, ", ")))
-	fmt.Fprintf(&b, "Subject: %s\r\n", encodeHeader(subject))
+	fmt.Fprintf(&b, "Subject: %s\r\n", encodeHeader(m.Subject))
 	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
 	b.WriteString("MIME-Version: 1.0\r\n")
-	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
-	b.WriteString("\r\n")
-	b.WriteString(body)
-	b.WriteString("\r\n")
-	return []byte(b.String())
+	if m.HTML == "" {
+		b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+		b.WriteString("\r\n")
+		b.WriteString(m.Text)
+		b.WriteString("\r\n")
+		return b.Bytes(), nil
+	}
+
+	alt := multipart.NewWriter(&b)
+	fmt.Fprintf(&b, "Content-Type: multipart/alternative; boundary=%q\r\n\r\n", alt.Boundary())
+	if err := writeQP(alt, "text/plain; charset=utf-8", m.Text); err != nil {
+		return nil, err
+	}
+	var rel bytes.Buffer
+	related := multipart.NewWriter(&rel)
+	if err := writeQP(related, "text/html; charset=utf-8", m.HTML); err != nil {
+		return nil, err
+	}
+	for _, f := range m.Inline {
+		h := textproto.MIMEHeader{}
+		h.Set("Content-Type", f.ContentType)
+		h.Set("Content-Transfer-Encoding", "base64")
+		h.Set("Content-ID", "<"+stripCRLF(f.ID)+">")
+		h.Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": f.Name}))
+		w, err := related.CreatePart(h)
+		if err != nil {
+			return nil, err
+		}
+		enc := base64.StdEncoding.EncodeToString(f.Data)
+		for len(enc) > 76 {
+			io.WriteString(w, enc[:76]+"\r\n")
+			enc = enc[76:]
+		}
+		io.WriteString(w, enc+"\r\n")
+	}
+	if err := related.Close(); err != nil {
+		return nil, err
+	}
+	h := textproto.MIMEHeader{}
+	h.Set("Content-Type", mime.FormatMediaType("multipart/related", map[string]string{"boundary": related.Boundary(), "type": "text/html"}))
+	w, err := alt.CreatePart(h)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := w.Write(rel.Bytes()); err != nil {
+		return nil, err
+	}
+	if err := alt.Close(); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+}
+
+// writeQP adds a part in quoted-printable, which keeps its lines under the
+// 998 characters SMTP allows whatever the content.
+func writeQP(mw *multipart.Writer, contentType, body string) error {
+	h := textproto.MIMEHeader{}
+	h.Set("Content-Type", contentType)
+	h.Set("Content-Transfer-Encoding", "quoted-printable")
+	w, err := mw.CreatePart(h)
+	if err != nil {
+		return err
+	}
+	qp := quotedprintable.NewWriter(w)
+	// Text mode: the writer turns each line break into CRLF itself.
+	if _, err := io.WriteString(qp, body); err != nil {
+		return err
+	}
+	return qp.Close()
 }
 
 func splitList(s string) []string {

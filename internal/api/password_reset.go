@@ -2,13 +2,13 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/lolozini/quetzal/internal/auth"
+	"github.com/lolozini/quetzal/internal/mailtmpl"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/store"
 )
@@ -100,13 +100,12 @@ func (s *Server) lookupResetUser(id string) *models.User {
 func (s *Server) sendResetEmail(cfg map[string]string, u *models.User, link string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	body := fmt.Sprintf(
-		"Hi %s,\n\nWe received a request to reset your Quetzal password. "+
-			"Use the link below within %s:\n\n%s\n\n"+
-			"If you didn't request this, you can ignore this email.\n",
-		u.Username, passwordResetTTL, link,
-	)
-	if err := s.Mailer(ctx, cfg, []string{u.Email}, "Reset your Quetzal password", body); err != nil {
+	m, err := mailtmpl.PasswordReset(u.Username, link, passwordResetTTL, s.publicURL())
+	if err != nil {
+		log.Printf("password reset: render: %v", err)
+		return
+	}
+	if err := s.Mailer(ctx, cfg, []string{u.Email}, m); err != nil {
 		log.Printf("password reset: send to user %d: %v", u.ID, err)
 	}
 }

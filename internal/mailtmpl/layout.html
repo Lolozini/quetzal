@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>{{.Subject}}</title>
+<style>
+  /* Crème by default, as the logo is set on cream; Nuit, the panel's theme,
+     for a reader in dark mode, with the logo made for dark backgrounds. */
+  @media (prefers-color-scheme: dark) {
+    .q-page { background: #141416 !important; }
+    .q-card { background: #1c1c1f !important; border-color: #2f2f34 !important; }
+    .q-ink { color: #eee9e1 !important; }
+    .q-muted { color: #a8a29a !important; }
+    .q-accent { color: #e57a5f !important; }
+    .q-btn { background: #e57a5f !important; }
+    .q-btn a { color: #1a0e0b !important; }
+    .q-code { background: #232327 !important; color: #eee9e1 !important; }
+    .q-rule { border-color: #2f2f34 !important; }
+    .q-logo-light { display: none !important; }
+    .q-logo-dark { display: block !important; max-height: none !important; overflow: visible !important; }
+  }
+  @media (max-width: 480px) {
+    .q-card { padding: 24px 20px !important; }
+  }
+</style>
+</head>
+<body class="q-page" style="margin:0;padding:0;background:#F3EDE4;-webkit-text-size-adjust:100%;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">{{.Preheader}}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="q-page" style="background:#F3EDE4;">
+<tr><td align="center" style="padding:32px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+  <tr><td style="padding:0 4px 24px;">
+    <img class="q-logo-light" src="cid:{{.LogoID}}" width="168" height="42" alt="Quetzal" style="display:block;border:0;outline:none;">
+    <!--[if !mso]><!-->
+    <img class="q-logo-dark" src="cid:{{.LogoDarkID}}" width="168" height="42" alt="" style="display:none;max-height:0;overflow:hidden;border:0;outline:none;">
+    <!--<![endif]-->
+  </td></tr>
+  <tr><td class="q-card" style="background:#FBF9F5;border:1px solid #E2DBD0;border-radius:16px;padding:32px;">
+    <h1 class="q-ink" style="margin:0 0 16px;font-family:'Bricolage Grotesque','Instrument Sans','Segoe UI',Helvetica,Arial,sans-serif;font-size:24px;line-height:1.25;font-weight:700;letter-spacing:-0.01em;color:#2B2B2E;">{{.Heading}}</h1>
+    {{- range .Intro}}
+    <p class="q-ink" style="margin:0 0 14px;font-family:'Instrument Sans','Segoe UI',Helvetica,Arial,sans-serif;font-size:16px;line-height:1.55;color:#2B2B2E;">{{.}}</p>
+    {{- end}}
+    {{- if .Items}}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 14px;">
+      {{- range .Items}}
+      <tr>
+        <td valign="top" class="q-accent" style="width:16px;padding:4px 0;font-family:'Instrument Sans','Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.45;color:#C8553D;">&#9656;</td>
+        <td valign="top" style="padding:4px 0;font-family:'Instrument Sans','Segoe UI',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.45;">
+          <span class="q-ink" style="font-weight:600;color:#2B2B2E;">{{.Term}}</span>
+          <span class="q-muted" style="color:#655F57;">{{if .Detail}}&mdash; {{.Detail}}{{end}}</span>
+        </td>
+      </tr>
+      {{- end}}
+    </table>
+    {{- end}}
+    {{- with .Action}}
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0 24px;">
+      <tr><td class="q-btn" style="background:#A8412B;border-radius:10px;">
+        <a href="{{.URL}}" style="display:inline-block;padding:13px 24px;font-family:'Instrument Sans','Segoe UI',Helvetica,Arial,sans-serif;font-size:16px;font-weight:600;line-height:1;color:#FFFFFF;text-decoration:none;border-radius:10px;">{{.Label}}</a>
+      </td></tr>
+    </table>
+    {{- end}}
+    {{- range .After}}
+    <p class="q-muted" style="margin:0 0 12px;font-family:'Instrument Sans','Segoe UI',Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55;color:#655F57;">{{.}}</p>
+    {{- end}}
+    {{- with .Action}}
+    <p class="q-muted" style="margin:18px 0 6px;font-family:'Instrument Sans','Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;line-height:1.5;color:#655F57;">If the button does not work, paste this address into your browser:</p>
+    <p class="q-code" style="margin:0;padding:10px 12px;background:#EFE8DD;border-radius:6px;font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;color:#2B2B2E;word-break:break-all;">{{.URL}}</p>
+    {{- end}}
+  </td></tr>
+  <tr><td style="padding:20px 4px 0;">
+    <p class="q-muted" style="margin:0 0 6px;font-family:'Bricolage Grotesque','Instrument Sans','Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;line-height:1.5;color:#655F57;">Game servers, run by Kubernetes.</p>
+    {{- range .Footer}}
+    <p class="q-muted" style="margin:0 0 4px;font-family:'Instrument Sans','Segoe UI',Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#655F57;">{{.}}</p>
+    {{- end}}
+  </td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

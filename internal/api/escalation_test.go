@@ -16,6 +16,7 @@ import (
 
 	"github.com/lolozini/quetzal/internal/api"
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/templates"
 )
@@ -28,11 +29,11 @@ type relayMailer struct {
 	body []string
 }
 
-func (m *relayMailer) send(_ context.Context, cfg map[string]string, _ []string, _, body string) error {
+func (m *relayMailer) send(_ context.Context, cfg map[string]string, _ []string, msg notify.Mail) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.cfgs = append(m.cfgs, cfg)
-	m.body = append(m.body, body)
+	m.body = append(m.body, msg.Text)
 	return nil
 }
 

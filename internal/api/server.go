@@ -150,7 +150,7 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 		// Password-reset requests: cap per identifier to avoid emailing-bombing a
 		// victim and to blunt account enumeration via repeated probing.
 		ForgotLimiter: ratelimit.New(3, time.Hour),
-		Mailer:        notify.SendMail,
+		Mailer:        notify.Send,
 		processKey:    newProcessKey(),
 		Fetch:         safefetch.Get,
 		CheckBucket: func(ctx context.Context, t objectstore.Target) error {
@@ -162,8 +162,8 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 	return s
 }
 
-// MailSender sends a plain-text email; see notify.SendMail.
-type MailSender func(ctx context.Context, cfg map[string]string, to []string, subject, body string) error
+// MailSender sends an email; see notify.Send.
+type MailSender func(ctx context.Context, cfg map[string]string, to []string, m notify.Mail) error
 
 // Fetcher performs an SSRF-guarded outbound GET; see safefetch.Get.
 type Fetcher func(ctx context.Context, url string, maxBytes int64) ([]byte, error)

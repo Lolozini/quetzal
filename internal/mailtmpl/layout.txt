@@ -1,0 +1,15 @@
+{{.Heading}}
+{{range .Intro}}
+{{.}}
+{{end}}{{if .Items}}
+{{range .Items}}  - {{.Term}}{{if .Detail}}: {{.Detail}}{{end}}
+{{end}}{{end}}{{with .Action}}
+{{.Label}}:
+{{.URL}}
+{{end}}{{range .After}}
+{{.}}
+{{end}}
+--
+Quetzal. Game servers, run by Kubernetes.
+{{range .Footer}}{{.}}
+{{end}}

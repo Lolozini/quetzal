@@ -7,6 +7,15 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- **The password reset mail, the invitation and the email settings' test
+  mail are in Quetzal's colours**, with the logo, a button for the link, the
+  address in full below it, and a text version for clients that show no HTML.
+  Cream by default and the panel's dark theme for a reader in dark mode; the
+  logo travels inside the message, so it shows without allowing remote
+  images. Event notifications are unchanged.
+
 ### Security
 
 - **The control plane's account no longer reaches past its own namespaces
