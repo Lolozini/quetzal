@@ -7,6 +7,37 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-01
+
+A server's page in tabs, a panel that fits a phone, and game servers held more
+tightly. The console now opens a server's page, a server can be given other
+servers to reach — a Velocity or BungeeCord proxy and the servers behind it —
+and its image switched without a reinstall. Sleeping servers no longer wake for
+port scans and server-list queries. Game servers reach DNS through the
+cluster's resolver only, an install runs within its server's limits, and the
+game's container gets Wings' memory headroom.
+
+**Upgrading from 0.6.0** — six things behave differently. Game servers keep
+running through the upgrade: the new install limits and memory headroom reach
+each one at its next stop and start.
+
+- Game servers resolve names through the cluster's DNS only: its CoreDNS or
+  kube-dns pods, a node-local cache at a link-local address, or the resolver
+  the controller was given. If your pods use a resolver elsewhere, add its
+  address to `egressAllow`. See *Security*.
+- Importing an egg over a template of the same slug answers 409: a script
+  that re-imports eggs to update them needs `?ifExists=replace`. See
+  *Changed*.
+- `GET /api/servers/{id}/stats` answers 200 with `available: false` for a
+  server with nothing to measure, where it answered 409 or 503. See
+  *Changed*.
+- A notification channel no longer receives `notification.*` events unless it
+  lists them, and one whose filter names an event type the panel does not
+  record must drop it the next time it is saved. See *Changed* and *Fixed*.
+- A custom backup runner image must be restic 0.17 or later. See *Fixed*.
+- An SSH key added twice to one account keeps its oldest entry. See
+  *Security*.
+
 ### Added
 
 - **A server can reach the servers it is given.** A game server cannot reach
@@ -1340,7 +1371,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/lolozini/quetzal/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/lolozini/quetzal/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/lolozini/quetzal/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/lolozini/quetzal/compare/v0.4.0...v0.5.0
