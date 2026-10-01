@@ -20,6 +20,7 @@ export function Admin({ user, section }: { user: User; section?: string }) {
       {user.isAdmin && <Roles />}
       {can("templates") && !templatesFirst && <Templates />}
       {can("settings") && <SecuritySettingsCard isSuperadmin={user.isAdmin} hasTwoFactor={!!user.twoFactorEnabled} />}
+      {can("settings") && <InviteSettingsCard isSuperadmin={user.isAdmin} />}
       {can("settings") && <NetworkSettingsCard />}
       {can("settings") && <EmailSettingsCard />}
       {can("database-hosts") && <DatabaseHosts />}
@@ -433,7 +434,7 @@ function SecuritySettingsCard({ isSuperadmin, hasTwoFactor }: { isSuperadmin: bo
     setError("");
     setBusy(true);
     try {
-      const res = await api.setSecuritySettings(mode);
+      const res = await api.setSecuritySettings({ requireTwoFactor: mode });
       setSaved(res.requireTwoFactor);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -469,6 +470,56 @@ function SecuritySettingsCard({ isSuperadmin, hasTwoFactor }: { isSuperadmin: bo
       {!isSuperadmin && <p className="muted">{t("Only a superadmin can change this.")}</p>}
       {isSuperadmin && (
         <button className="primary" style={{ marginTop: 8 }} onClick={save} disabled={busy || mode === saved || coversMe}>
+          {busy ? t("Saving…") : t("Save")}
+        </button>
+      )}
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
+}
+
+// InviteSettingsCard says whether an invitation may create the account it is
+// accepted from. Superadmin-only to change, like the two-factor policy: it
+// decides who can get in.
+function InviteSettingsCard({ isSuperadmin }: { isSuperadmin: boolean }) {
+  const { t } = useT();
+  const [on, setOn] = useState(true);
+  const [saved, setSaved] = useState(true);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.securitySettings()
+      .then((s) => { setOn(s.inviteSignup); setSaved(s.inviteSignup); })
+      .catch(() => {});
+  }, []);
+
+  async function save() {
+    setError("");
+    setBusy(true);
+    try {
+      const res = await api.setSecuritySettings({ inviteSignup: on });
+      setSaved(res.inviteSignup);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3>{t("Invitations")}</h3>
+      <p className="muted">
+        {t("A server's owner can invite someone by email. The link lets them accept from their account, and, if this is on, create one: it may own no server until you allow it, and reaches only the servers it is invited to.")}
+      </p>
+      <label className="row" style={{ gap: 6 }}>
+        <input type="checkbox" style={{ width: "auto" }} checked={on} onChange={(e) => setOn(e.target.checked)} disabled={!isSuperadmin} />
+        {t("An invitation can create an account")}
+      </label>
+      {!isSuperadmin && <p className="muted">{t("Only a superadmin can change this.")}</p>}
+      {isSuperadmin && (
+        <button className="primary" style={{ marginTop: 8 }} onClick={save} disabled={busy || on === saved}>
           {busy ? t("Saving…") : t("Save")}
         </button>
       )}

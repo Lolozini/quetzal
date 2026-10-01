@@ -69,13 +69,15 @@ type Server struct {
 	// Rate limiters (per-process). LoginLimiter is keyed by username and counts
 	// the browsers that never signed in to the account, DeviceLimiter by device
 	// cookie and counts those that did (see device.go), AuthIPLimiter by client
-	// address, InternalLimiter by client IP, ForgotLimiter by reset identifier.
+	// address, InternalLimiter by client IP, ForgotLimiter by reset identifier,
+	// InviteLimiter by the account sending invitations.
 	// Replaceable in tests.
 	LoginLimiter    *ratelimit.Limiter
 	DeviceLimiter   *ratelimit.Limiter
 	AuthIPLimiter   *ratelimit.Limiter
 	InternalLimiter *ratelimit.Limiter
 	ForgotLimiter   *ratelimit.Limiter
+	InviteLimiter   *ratelimit.Limiter
 	// DevOrigin accepts WebSocket upgrades from localhost on top of same-origin,
 	// for a web dev server running against this API. Off by default: a deployed
 	// panel has no reason to take them.
@@ -150,6 +152,8 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 		// Password-reset requests: cap per identifier to avoid emailing-bombing a
 		// victim and to blunt account enumeration via repeated probing.
 		ForgotLimiter: ratelimit.New(3, time.Hour),
+		// Invitations: each is a mail to an address of the sender's choosing.
+		InviteLimiter: ratelimit.New(20, time.Hour),
 		Mailer:        notify.Send,
 		processKey:    newProcessKey(),
 		Fetch:         safefetch.Get,
@@ -179,6 +183,7 @@ func (s *Server) GCRateLimiters() {
 	s.AuthIPLimiter.GC()
 	s.InternalLimiter.GC()
 	s.ForgotLimiter.GC()
+	s.InviteLimiter.GC()
 }
 
 // clientIP returns the caller's IP, honoring X-Forwarded-For only when behind a
@@ -230,6 +235,11 @@ func (s *Server) Handler() http.Handler {
 	// Self-service password reset (rate-limited; always responds uniformly).
 	mux.HandleFunc("POST /api/forgot-password", s.handleForgotPassword)
 	mux.HandleFunc("POST /api/reset-password", s.handleResetPassword)
+	// An invitation link: what it offers, and the account it may create. The
+	// token is the credential, as for a reset.
+	mux.HandleFunc("POST /api/invites/inspect", s.handleInspectInvite)
+	mux.HandleFunc("POST /api/invites/register", s.handleRegisterFromInvite)
+	mux.Handle("POST /api/invites/accept", s.auth(s.handleAcceptInvite))
 	// Wake-on-connect callbacks from a server's activator (token-authenticated,
 	// no session). Reachable in-cluster from server namespaces.
 	mux.HandleFunc("POST /api/internal/wake", s.handleWake)
@@ -301,6 +311,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/servers/{id}/access", s.auth(s.handleListAccess))
 	mux.Handle("POST /api/servers/{id}/access", s.auth(s.handleGrantAccess))
 	mux.Handle("DELETE /api/servers/{id}/access/{uid}", s.auth(s.handleRevokeAccess))
+	mux.Handle("GET /api/servers/{id}/invites", s.auth(s.handleListInvites))
+	mux.Handle("POST /api/servers/{id}/invites", s.auth(s.handleCreateInvite))
+	mux.Handle("DELETE /api/servers/{id}/invites/{iid}", s.auth(s.handleDeleteInvite))
 	mux.Handle("GET /api/servers/{id}/audit", s.auth(s.handleServerAudit))
 	mux.Handle("GET /api/audit", s.auth(s.handleGlobalAudit))
 

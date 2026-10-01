@@ -3,6 +3,7 @@ import { api, User } from "./api";
 import { useT } from "./i18n";
 import { Auth } from "./components/Auth";
 import { ResetPassword } from "./components/ResetPassword";
+import { Invite } from "./components/Invite";
 import { Dashboard } from "./components/Dashboard";
 import { TwoFactor } from "./components/Account";
 
@@ -15,6 +16,26 @@ export function App() {
   // the URL fragment so it's never sent to the server (or upstream proxy logs).
   const [resetToken, setResetToken] = useState<string | null>(
     () => new URLSearchParams(window.location.hash.replace(/^#/, "")).get("reset"),
+  );
+  // An invitation link (<panel>/#invite=<token>), in the fragment for the same
+  // reason.
+  const [inviteToken, setInviteToken] = useState<string | null>(
+    () => new URLSearchParams(window.location.hash.replace(/^#/, "")).get("invite"),
+  );
+  const invite = inviteToken && (
+    <Invite
+      token={inviteToken}
+      user={user}
+      onAuthed={(u) => {
+        setUser(u);
+        setSetupNeeded(false);
+      }}
+      onDone={(serverId) => {
+        // Drop the token from the URL; open the server when there is one.
+        window.history.replaceState(null, "", window.location.pathname + (serverId ? `#/servers/${serverId}` : ""));
+        setInviteToken(null);
+      }}
+    />
   );
 
   useEffect(() => {
@@ -55,6 +76,8 @@ export function App() {
   }
 
   if (loading) return <div className="center muted">{t("Loading…")}</div>;
+
+  if (!user && invite && !setupNeeded) return invite;
 
   if (!user) {
     return (
@@ -97,6 +120,10 @@ export function App() {
       </div>
     );
   }
+
+  // After the second factor, not before: until then the session reaches
+  // nothing, accepting included.
+  if (invite) return invite;
 
   return (
     <Dashboard

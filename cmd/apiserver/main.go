@@ -76,6 +76,7 @@ func main() {
 	apiSrv.DeviceLimiter.Share(st, "device:")
 	apiSrv.AuthIPLimiter.Share(st, "ip:")
 	apiSrv.ForgotLimiter.Share(st, "forgot:")
+	apiSrv.InviteLimiter.Share(st, "invite:")
 	apiSrv.Secure = env("QUETZAL_SECURE_COOKIES", "") == "true"
 	apiSrv.NodePortMin = envInt32("QUETZAL_NODEPORT_MIN", 0)
 	apiSrv.NodePortMax = envInt32("QUETZAL_NODEPORT_MAX", 0)
@@ -162,8 +163,8 @@ func serveOps(addr string, st *store.Store) *http.Server {
 	return srv
 }
 
-// gcSessions periodically deletes expired sessions and password-reset tokens,
-// and prunes the log tables per their retention settings.
+// gcSessions periodically deletes expired sessions, password-reset tokens and
+// invitations, and prunes the log tables per their retention settings.
 func gcSessions(ctx context.Context, st *store.Store, retention logRetention) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
@@ -175,6 +176,9 @@ func gcSessions(ctx context.Context, st *store.Store, retention logRetention) {
 		}
 		if _, err := st.DeleteExpiredPasswordResets(); err != nil {
 			log.Printf("reset-token gc: %v", err)
+		}
+		if _, err := st.DeleteExpiredServerInvites(); err != nil {
+			log.Printf("invitation gc: %v", err)
 		}
 		gcLogs(st, retention)
 		select {

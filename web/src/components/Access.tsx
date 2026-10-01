@@ -1,11 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
-import { ALL_PERMISSIONS, api, ApiError, ServerAccess } from "../api";
+import { ALL_PERMISSIONS, api, ApiError, ServerAccess, ServerInvite } from "../api";
 import { useT } from "../i18n";
 
 // What each permission allows. The names alone left it to guess that "view"
 // also lists the server's backups and schedules, while its files, console and
 // databases each need their own.
-function permissionHelp(t: ReturnType<typeof useT>["t"], p: (typeof ALL_PERMISSIONS)[number]): string {
+export function permissionHelp(t: ReturnType<typeof useT>["t"], p: (typeof ALL_PERMISSIONS)[number]): string {
   switch (p) {
     case "view":
       return t("its page: state, address, usage, backups, schedules and activity");
@@ -31,14 +31,21 @@ function permissionHelp(t: ReturnType<typeof useT>["t"], p: (typeof ALL_PERMISSI
 export function Access({ id }: { id: number }) {
   const { t } = useT();
   const [list, setList] = useState<ServerAccess[]>([]);
-  const [username, setUsername] = useState("");
+  const [invites, setInvites] = useState<ServerInvite[]>([]);
+  // A username grants at once; an email address sends an invitation, which
+  // whoever reads that mailbox accepts from their account or a new one.
+  const [who, setWho] = useState("");
   const [perms, setPerms] = useState<string[]>(["view"]);
   const [error, setError] = useState("");
+  const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const byEmail = who.includes("@");
 
   async function load() {
     try {
-      setList(await api.access(id));
+      const [a, i] = await Promise.all([api.access(id), api.invites(id)]);
+      setList(a);
+      setInvites(i);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
@@ -55,9 +62,16 @@ export function Access({ id }: { id: number }) {
     e.preventDefault();
     setBusy(true);
     setError("");
+    setMsg("");
     try {
-      await api.grantAccess(id, username, perms);
-      setUsername("");
+      const target = who.trim();
+      if (byEmail) {
+        await api.invite(id, target, perms);
+        setMsg(t("Invitation sent to {email}. The link is good for 7 days.", { email: target }));
+      } else {
+        await api.grantAccess(id, target, perms);
+      }
+      setWho("");
       setPerms(["view"]);
       await load();
     } catch (err) {
@@ -73,11 +87,17 @@ export function Access({ id }: { id: number }) {
     await load();
   }
 
+  async function withdraw(inv: ServerInvite) {
+    if (!window.confirm(t("Withdraw the invitation to {email}?", { email: inv.email }))) return;
+    await api.withdrawInvite(id, inv.id).catch((e) => setError(String(e)));
+    await load();
+  }
+
   return (
     <div className="card">
       <h3>{t("Subusers")}</h3>
       {list.length === 0 ? (
-        <p className="muted">{t("No subusers. Grant another account scoped access below.")}</p>
+        <p className="muted">{t("No subusers. Grant another account scoped access below, or invite someone by email.")}</p>
       ) : (
         <div className="table-scroll">
           <table>
@@ -94,9 +114,34 @@ export function Access({ id }: { id: number }) {
           </table>
         </div>
       )}
+      {invites.length > 0 && (
+        <>
+          <h4 style={{ marginTop: 16 }}>{t("Invitations waiting")}</h4>
+          <div className="table-scroll">
+            <table>
+              <thead><tr><th>{t("Email")}</th><th>{t("Permissions")}</th><th>{t("Expires")}</th><th></th></tr></thead>
+              <tbody>
+                {invites.map((inv) => (
+                  <tr key={inv.id}>
+                    <td>{inv.email}</td>
+                    <td>{inv.permissions.join(", ")}</td>
+                    <td>{new Date(inv.expiresAt).toLocaleDateString()}</td>
+                    <td><button className="danger" onClick={() => withdraw(inv)}>{t("Withdraw")}</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
       <form onSubmit={grant} style={{ marginTop: 12 }}>
-        <label>{t("Username")}</label>
-        <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t("existing account")} required />
+        <label>{t("Username or email address")}</label>
+        <input value={who} onChange={(e) => setWho(e.target.value)} placeholder={t("an account, or an address to invite")} required />
+        <p className="muted" style={{ marginTop: 4 }}>
+          {byEmail
+            ? t("They get a link by email, to accept from their account or a new one.")
+            : t("An account on this panel gets access at once.")}
+        </p>
         <label>{t("Permissions")}</label>
         <div className="perm-list">
           {ALL_PERMISSIONS.map((p) => (
@@ -109,8 +154,9 @@ export function Access({ id }: { id: number }) {
           ))}
         </div>
         {error && <div className="error">{error}</div>}
-        <button className="primary" style={{ marginTop: 12 }} disabled={busy || !username || perms.length === 0}>
-          {busy ? t("Granting…") : t("Grant access")}
+        {msg && <div className="notice">{msg}</div>}
+        <button className="primary" style={{ marginTop: 12 }} disabled={busy || !who.trim() || perms.length === 0}>
+          {busy ? (byEmail ? t("Sending…") : t("Granting…")) : byEmail ? t("Send invitation") : t("Grant access")}
         </button>
       </form>
     </div>

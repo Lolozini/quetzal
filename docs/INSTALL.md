@@ -264,6 +264,13 @@ encryption key and every stored credential. If you host for others and want a
 hard boundary, register a second cluster and put the game servers there; the
 panel keeps running where it is.
 
+**An invitation can create an account.** A server's owner invites people by
+email, and the link lets its reader create an account to accept from. That
+account may own no server until you allow it and reaches only the servers it
+was invited to, but it is an account on your panel: turn this off under
+*Admin → Invitations* if only you should make them. Invitations to people who
+have an account keep working.
+
 **A new account creates nothing until you allow it.** Accounts have quotas:
 how many servers they may own, and the total memory and CPU of those servers.
 A new one may own none, with no bound on memory or CPU, so giving it a number

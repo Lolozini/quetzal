@@ -25,6 +25,7 @@ func (s *Server) handleGetSecuritySettings(w http.ResponseWriter, r *http.Reques
 		"requireTwoFactor": s.requireTwoFactorPolicy(),
 		"options":          []string{store.Require2FAOff, store.Require2FAAdmins, store.Require2FAAll},
 		"impact":           impact,
+		"inviteSignup":     s.inviteSignupAllowed(),
 	})
 }
 
@@ -61,11 +62,16 @@ func (s *Server) twoFactorImpact() (map[string]policyImpact, error) {
 	return out, nil
 }
 
+// securitySettingsRequest changes the fields it names. requireTwoFactor was the
+// only one, and an empty value still means off, as it always has.
 type securitySettingsRequest struct {
-	RequireTwoFactor string `json:"requireTwoFactor"`
+	RequireTwoFactor *string `json:"requireTwoFactor"`
+	// InviteSignup lets an invitation create the account it is accepted from.
+	InviteSignup *bool `json:"inviteSignup"`
 }
 
-// handleSetSecuritySettings sets who must hold a second factor. Superadmin only.
+// handleSetSecuritySettings sets who must hold a second factor, and whether an
+// invitation may create an account. Superadmin only.
 func (s *Server) handleSetSecuritySettings(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
 		return
@@ -75,34 +81,54 @@ func (s *Server) handleSetSecuritySettings(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	v := strings.TrimSpace(req.RequireTwoFactor)
-	switch v {
-	case "", store.Require2FAOff:
-		v = store.Require2FAOff
-	case store.Require2FAAdmins, store.Require2FAAll:
-	default:
-		writeError(w, http.StatusBadRequest, `requireTwoFactor must be "off", "admins" or "all"`)
-		return
+	// Both fields are checked before either is written, so a refused request
+	// changes nothing.
+	policy := ""
+	if req.RequireTwoFactor != nil {
+		policy = strings.TrimSpace(*req.RequireTwoFactor)
+		switch policy {
+		case "", store.Require2FAOff:
+			policy = store.Require2FAOff
+		case store.Require2FAAdmins, store.Require2FAAll:
+		default:
+			writeError(w, http.StatusBadRequest, `requireTwoFactor must be "off", "admins" or "all"`)
+			return
+		}
+		// Turning the requirement on locks nobody out: a user without a second
+		// factor keeps a session, but it only reaches the enrolment endpoints
+		// until they have one (see auth). Refusing the login instead would
+		// strand every account at once.
+		//
+		// Its author is the exception. A superadmin without a second factor who
+		// required one was left the enrolment page and nothing else, their API
+		// keys refused, including for turning it back off. Whoever requires a
+		// second factor holds one first.
+		if u := userFrom(r.Context()); policyCovers(policy, u) && !u.TOTPEnabled {
+			writeError(w, http.StatusConflict, "enable two-factor authentication on your own account before requiring it")
+			return
+		}
 	}
-	// Turning the requirement on locks nobody out: a user without a second
-	// factor keeps a session, but it only reaches the enrolment endpoints until
-	// they have one (see auth). Refusing the login instead would strand every
-	// account at once.
-	//
-	// Its author is the exception. A superadmin without a second factor who
-	// required one was left the enrolment page and nothing else, their API keys
-	// refused, including for turning it back off. Whoever requires a second
-	// factor holds one first.
-	if u := userFrom(r.Context()); policyCovers(v, u) && !u.TOTPEnabled {
-		writeError(w, http.StatusConflict, "enable two-factor authentication on your own account before requiring it")
-		return
+	if req.InviteSignup != nil {
+		v := "on"
+		if !*req.InviteSignup {
+			v = "off"
+		}
+		if err := s.Store.SetSetting(store.SettingInviteSignup, v); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.audit(r, 0, "settings.invite-signup", v)
 	}
-	if err := s.Store.SetSetting(store.SettingRequire2FA, v); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
+	if policy != "" {
+		if err := s.Store.SetSetting(store.SettingRequire2FA, policy); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.audit(r, 0, "settings.require-2fa", policy)
 	}
-	s.audit(r, 0, "settings.require-2fa", v)
-	writeJSON(w, http.StatusOK, map[string]any{"requireTwoFactor": v})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"requireTwoFactor": s.requireTwoFactorPolicy(), "inviteSignup": s.inviteSignupAllowed(),
+	})
 }
 
 // requireTwoFactorPolicy reads the policy, defaulting to off.

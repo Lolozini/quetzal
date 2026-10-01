@@ -317,3 +317,5 @@ pre.log {
 .perm-list label { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: baseline; margin: 0; }
 .perm-list input[type="checkbox"] { width: auto; margin: 0; }
 .perm-list .muted { font-size: 13px; }
+.perm-summary { margin: 8px 0 12px; padding-left: 18px; display: grid; gap: 4px; }
+.perm-summary .muted { font-size: 13px; }

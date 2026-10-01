@@ -161,7 +161,8 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   delivered from a durable event outbox.
 
 ### Multi-tenant & access control
-- Per-server **ownership** and **subusers** with scoped permissions.
+- Per-server **ownership** and **subusers** with scoped permissions, added by
+  username or **invited by email**, account creation included.
 - **Granular admin roles**: delegate management of servers, users, templates,
   clusters, database hosts, notifications, settings, or the audit log — without
   handing out full control.

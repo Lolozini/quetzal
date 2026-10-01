@@ -87,6 +87,29 @@ export interface ServerAccess {
   permissions: string[];
 }
 
+// ServerInvite is an invitation waiting in someone's mailbox. Its token is only
+// ever in the mail.
+export interface ServerInvite {
+  id: number;
+  serverId: number;
+  email: string;
+  permissions: string[];
+  invitedBy: number;
+  invitedByName?: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+// InviteInfo is what an invitation link offers, read before signing in.
+export interface InviteInfo {
+  server: string;
+  invitedBy: string;
+  email: string;
+  permissions: string[];
+  expiresAt: string;
+  signup: boolean;
+}
+
 export const ALL_PERMISSIONS = [
   "view",
   "power",
@@ -779,6 +802,18 @@ export const api = {
     req<void>("POST", `/api/servers/${id}/access`, { username, permissions }),
   revokeAccess: (id: number, uid: number) =>
     req<void>("DELETE", `/api/servers/${id}/access/${uid}`),
+  invites: (id: number) => req<ServerInvite[]>("GET", `/api/servers/${id}/invites`),
+  invite: (id: number, email: string, permissions: string[]) =>
+    req<ServerInvite>("POST", `/api/servers/${id}/invites`, { email, permissions }),
+  withdrawInvite: (id: number, iid: number) =>
+    req<void>("DELETE", `/api/servers/${id}/invites/${iid}`),
+  // An invitation link (#invite=<token>): what it offers, then accepting it
+  // from the account signed in or from a new one.
+  inspectInvite: (token: string) => req<InviteInfo>("POST", "/api/invites/inspect", { token }),
+  acceptInvite: (token: string) =>
+    req<{ serverId: number }>("POST", "/api/invites/accept", { token }),
+  registerFromInvite: (token: string, username: string, password: string) =>
+    req<{ user: User; serverId: number }>("POST", "/api/invites/register", { token, username, password }),
   // The log endpoints page with a cursor: `before` is the id of the oldest row
   // already held. Without it only the newest entries were ever reachable, which
   // makes an audit log useless for looking up last week.
@@ -808,9 +843,11 @@ export const api = {
 
   // Two-factor authentication (opt-in TOTP).
   securitySettings: () =>
-    req<{ requireTwoFactor: string; options: string[]; impact?: Record<string, PolicyImpact> }>("GET", "/api/security-settings"),
-  setSecuritySettings: (requireTwoFactor: string) =>
-    req<{ requireTwoFactor: string }>("PUT", "/api/security-settings", { requireTwoFactor }),
+    req<{ requireTwoFactor: string; options: string[]; impact?: Record<string, PolicyImpact>; inviteSignup: boolean }>(
+      "GET", "/api/security-settings"),
+  // Changes only the fields given.
+  setSecuritySettings: (body: { requireTwoFactor?: string; inviteSignup?: boolean }) =>
+    req<{ requireTwoFactor: string; inviteSignup: boolean }>("PUT", "/api/security-settings", body),
   setup2FA: () => req<{ secret: string; uri: string }>("POST", "/api/me/2fa/setup"),
   enable2FA: (code: string) =>
     req<{ recoveryCodes: string[] }>("POST", "/api/me/2fa/enable", { code }),

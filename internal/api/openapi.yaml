@@ -242,6 +242,96 @@ paths:
         "204": { description: Password reset }
         "400": { description: Invalid/expired token or weak password }
         "429": { $ref: "#/components/responses/RateLimited" }
+  /api/invites/inspect:
+    post:
+      tags: [Access]
+      summary: Read what an invitation link offers
+      description: The token from the link is the credential. Rate-limited per address.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties: { token: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  server: { type: string, description: The server's display name }
+                  invitedBy: { type: string }
+                  email: { type: string }
+                  permissions: { type: array, items: { type: string } }
+                  expiresAt: { type: string, format: date-time }
+                  signup: { type: boolean, description: Whether the link may create an account }
+        "404": { description: The invitation was used, withdrawn or has expired }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /api/invites/accept:
+    post:
+      tags: [Access]
+      summary: Accept an invitation with the account signed in
+      description: >
+        Grants the invitation's permissions on its server (replacing a grant the
+        account already had there) and uses the link up.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties: { token: { type: string } }
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { serverId: { type: integer } }
+        "400": { description: The account owns the server }
+        "404": { description: The invitation was used, withdrawn or has expired }
+  /api/invites/register:
+    post:
+      tags: [Access]
+      summary: Create an account from an invitation, accept it, and sign in
+      description: >
+        The account may own no server until an administrator allows it, and its
+        email is the invited address. Refused (403) when the panel does not
+        create accounts from invitations. Sets the session cookie.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, username, password]
+              properties:
+                token: { type: string }
+                username: { type: string, minLength: 3 }
+                password: { type: string, format: password, minLength: 8 }
+      responses:
+        "201":
+          description: Created and signed in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: "#/components/schemas/User" }
+                  serverId: { type: integer }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { description: The panel does not create accounts from invitations }
+        "404": { description: The invitation was used, withdrawn or has expired }
+        "409": { description: The username is taken }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /api/security-settings:
     get:
       tags: [Servers]
@@ -267,15 +357,20 @@ paths:
                       properties:
                         accounts: { type: integer }
                         apiKeys: { type: integer }
+                  inviteSignup:
+                    type: boolean
+                    description: Whether an invitation may create the account it is accepted from.
         "403": { $ref: "#/components/responses/Forbidden" }
     put:
       tags: [Servers]
-      summary: Set who must hold a second factor (superadmin)
+      summary: Set who must hold a second factor, and whether invitations create accounts (superadmin)
       description: >
-        Accounts the policy covers keep their session but reach only `/api/me`,
-        the enrolment endpoints and logout until they have a second factor, and
-        their API keys are refused meanwhile. A policy that covers the caller is
-        refused (409) until the caller has a second factor of their own.
+        Changes the fields it names and leaves the others. Accounts the policy
+        covers keep their session but reach only `/api/me`, the enrolment
+        endpoints and logout until they have a second factor, and their API
+        keys are refused meanwhile. A policy that covers the caller is refused
+        (409) until the caller has a second factor of their own; a refused
+        request changes nothing.
       requestBody:
         required: true
         content:
@@ -283,7 +378,8 @@ paths:
             schema:
               type: object
               properties:
-                requireTwoFactor: { type: string, enum: [off, admins, all] }
+                requireTwoFactor: { type: string, enum: [off, admins, all], description: An empty string means off. }
+                inviteSignup: { type: boolean }
       responses:
         "200":
           description: Updated
@@ -293,6 +389,7 @@ paths:
                 type: object
                 properties:
                   requireTwoFactor: { type: string }
+                  inviteSignup: { type: boolean }
         "400": { $ref: "#/components/responses/BadRequest" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { description: The policy covers the caller, who has no second factor }
@@ -1611,6 +1708,69 @@ paths:
       summary: Revoke a subuser's access
       responses:
         "204": { description: Revoked }
+  /api/servers/{id}/invites:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Access]
+      summary: List a server's open invitations (owner or admin)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ServerInvite" }
+    post:
+      tags: [Access]
+      summary: Invite someone to the server by email (owner or admin)
+      description: >
+        Mails a link to the address. Whoever reads it accepts from the account
+        they sign in to, or from one they create when the panel allows it: the
+        address is never matched against accounts, whose email is not verified.
+        The link is good for 7 days, once; inviting the same address again
+        sends a new one and retires the old. Needs email and the panel's public
+        address set up (409 otherwise). At most 50 open invitations per server,
+        and 20 sent per hour by each account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, permissions]
+              properties:
+                email: { type: string, format: email, description: One bare address. }
+                permissions:
+                  type: array
+                  description: As for granting access.
+                  items:
+                    type: string
+                    enum: [view, power, console, schedules, backups, files, settings, databases, delete]
+      responses:
+        "201":
+          description: Sent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServerInvite" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { description: Email is not set up, or the server has too many open invitations }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { description: The mail could not be sent; nothing was kept }
+  /api/servers/{id}/invites/{iid}:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+      - name: iid
+        in: path
+        required: true
+        schema: { type: integer }
+    delete:
+      tags: [Access]
+      summary: Withdraw an invitation
+      responses:
+        "204": { description: Withdrawn; its link no longer works }
+        "404": { $ref: "#/components/responses/NotFound" }
   /api/servers/{id}/audit:
     parameters:
       - $ref: "#/components/parameters/ServerId"
@@ -2739,6 +2899,18 @@ components:
         permissions:
           type: array
           items: { type: string }
+    ServerInvite:
+      type: object
+      description: An open invitation. Its token is only in the mail.
+      properties:
+        id: { type: integer }
+        serverId: { type: integer }
+        email: { type: string }
+        permissions: { type: array, items: { type: string } }
+        invitedBy: { type: integer }
+        invitedByName: { type: string }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
     AuditEntry:
       type: object
       properties:

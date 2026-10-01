@@ -7,6 +7,22 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **Invite someone to a server by email.** Pterodactyl's way of adding a
+  subuser, and the only one for someone who has no account yet: the access
+  form now takes an email address as well as a username. The address gets a
+  link, good for 7 days and once, that accepts the invitation from the account
+  its reader signs in to, or from one they create there. Such an account may
+  own no server until an administrator allows it, and its email is the invited
+  address. The address is never matched against accounts: an account's email
+  is not verified, so listing someone's address in a profile gains nothing.
+  The owner sees the invitations waiting and can withdraw them. Administrators
+  can stop invitations from creating accounts (*Admin → Invitations*), which
+  leaves them to people who already have one. Needs the panel's email and
+  public address; at most 50 open per server and 20 sent per hour by each
+  account.
+
 ### Changed
 
 - **The password reset mail, the invitation and the email settings' test

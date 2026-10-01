@@ -747,4 +747,40 @@ export const fr: Record<string, string> = {
   "Saved: it applies within a few seconds, without a restart.": "Enregistré : cela s'applique en quelques secondes, sans redémarrage.",
   "Only the displayed name changes: the server's address and ID stay the same.":
     "Seul le nom affiché change : l’adresse et l’identifiant du serveur restent les mêmes.",
+  "A server's owner can invite someone by email. The link lets them accept from their account, and, if this is on, create one: it may own no server until you allow it, and reaches only the servers it is invited to.":
+    "Le propriétaire d'un serveur peut inviter quelqu'un par e-mail. Le lien permet d'accepter depuis son compte et, si cette option est active, d'en créer un : ce compte ne peut posséder aucun serveur tant que vous ne l'autorisez pas, et n'accède qu'aux serveurs où il est invité.",
+  "Accept as {username}": "Accepter en tant que {username}",
+  "An account on this panel gets access at once.": "Un compte de ce panneau obtient l'accès immédiatement.",
+  "An invitation can create an account": "Une invitation peut créer un compte",
+  "Create an account": "Créer un compte",
+  "Create my account and accept": "Créer mon compte et accepter",
+  "Expires": "Expire le",
+  "Go to the panel": "Aller au panneau",
+  "Invitation sent to {email}. The link is good for 7 days.": "Invitation envoyée à {email}. Le lien est valable 7 jours.",
+  "Invitations": "Invitations",
+  "Invitations waiting": "Invitations en attente",
+  "It was used, withdrawn, or is more than 7 days old. Ask whoever sent it for a new one.":
+    "Elle a déjà servi, a été retirée ou date de plus de 7 jours. Demandez-en une nouvelle à la personne qui vous l'a envoyée.",
+  "No subusers. Grant another account scoped access below, or invite someone by email.":
+    "Aucun sous-utilisateur. Donnez ci-dessous un accès limité à un autre compte, ou invitez quelqu'un par e-mail.",
+  "Not now": "Plus tard",
+  "Not you? Sign out": "Ce n'est pas vous ? Déconnectez-vous",
+  "Send invitation": "Envoyer l'invitation",
+  "Sending…": "Envoi…",
+  "Sign in to accept": "Se connecter pour accepter",
+  "Someone": "Quelqu'un",
+  "The link is good until {date}.": "Le lien est valable jusqu'au {date}.",
+  "They get a link by email, to accept from their account or a new one.":
+    "Cette personne reçoit un lien par e-mail, à accepter depuis son compte ou un nouveau.",
+  "This invitation is no longer valid": "Cette invitation n'est plus valable",
+  "This panel does not create accounts from invitations: sign in to the account you have here.":
+    "Ce panneau ne crée pas de compte à partir d'une invitation : connectez-vous au compte que vous y avez.",
+  "Username or email address": "Nom d'utilisateur ou adresse e-mail",
+  "Withdraw": "Retirer",
+  "Withdraw the invitation to {email}?": "Retirer l'invitation envoyée à {email} ?",
+  "You are invited to {server}": "Vous avez une invitation pour {server}",
+  "Your account reaches the servers it is invited to. Its email is {email}.":
+    "Votre compte accède aux serveurs où il est invité. Son adresse e-mail est {email}.",
+  "an account, or an address to invite": "un compte, ou une adresse à inviter",
+  "{name} invited {email}, with access to:": "{name} a invité {email}, avec accès à :",
 };

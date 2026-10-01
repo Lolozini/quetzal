@@ -259,7 +259,7 @@ func (s *Store) autoMigrate() error {
 		&models.NotificationChannel{}, &models.Event{}, &models.Setting{},
 		&models.SSHKey{}, &models.PasswordReset{},
 		&models.DatabaseHost{}, &models.ServerDatabase{},
-		&models.RateCounter{},
+		&models.RateCounter{}, &models.ServerInvite{},
 	)
 }
 
@@ -649,10 +649,15 @@ func (s *Store) UpdateServerNetworking(id uint, expose models.Expose, ports []mo
 		Updates(models.Server{Expose: expose, Ports: ports}).Error
 }
 
-// DeleteServer removes a server record and frees any node ports it held.
+// DeleteServer removes a server record and frees any node ports it held. Its
+// open invitations go with it: an ID can be given again to a later server,
+// which an old link must not open.
 func (s *Store) DeleteServer(id uint) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("server_id = ?", id).Delete(&models.PortAllocation{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("server_id = ?", id).Delete(&models.ServerInvite{}).Error; err != nil {
 			return err
 		}
 		return tx.Delete(&models.Server{}, id).Error
@@ -1135,6 +1140,11 @@ func (s *Store) DeleteUser(id, reassignTo uint) error {
 			return err
 		}
 		if err := tx.Where("user_id = ?", id).Delete(&models.ServerAccess{}).Error; err != nil {
+			return err
+		}
+		// Invitations speak for whoever sent them. Once the account is gone,
+		// its servers belong to someone else, who never offered that access.
+		if err := tx.Where("invited_by = ?", id).Delete(&models.ServerInvite{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("user_id = ?", id).Delete(&models.APIKey{}).Error; err != nil {
