@@ -7,6 +7,27 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-01
+
+Schedules do what their chain says: a backup step ends when its backup does,
+and a backup waits for a stopping server to be down, so *stop → backup →
+start* copies a stopped world and *save-off → backup → save-on* a quiet one.
+Every run is in the activity log. A game that never prints its done line is no
+longer shown Starting for half an hour at every start, a deleted SSH key's
+SFTP sessions close within seconds, and backups run restic 0.19.1.
+
+**Upgrading from 0.7.0** — three things behave differently:
+
+- A schedule's backup step now waits for its backup, and fails when the backup
+  does: a chain stops there unless the step continues on failure, and the
+  steps after it run once the backup is over, not as soon as it was
+  requested. A backup asked for while its server is stopping starts once the
+  game is down. See *Changed*.
+- A file path that climbs above a server's files, such as `../config.yml`,
+  answers 400 where it was quietly brought back inside them. See *Changed*.
+- Backups run restic 0.19.1 unless the backup settings name another image.
+  See *Changed*.
+
 ### Added
 
 - **A schedule's runs are recorded.** What the scheduler did showed only as
@@ -1457,7 +1478,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/lolozini/quetzal/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/lolozini/quetzal/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/lolozini/quetzal/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/lolozini/quetzal/compare/v0.5.0...v0.5.1
