@@ -271,6 +271,16 @@ bound. Whatever the quotas, a server created by anyone but an administrator
 needs a memory limit: without one its pod may take all of its node's memory,
 at the expense of every other server there.
 
+**A server's memory is what the game is given, plus Wings' headroom.** The
+memory set is what the node holds for the server, what quotas count, and the
+`SERVER_MEMORY` an egg reads; the container may use 15 % more up to 2 GiB,
+10 % up to 4 GiB and 5 % beyond, as under Wings, because eggs start Java with
+a heap of `SERVER_MEMORY` or 95 % of the container and the JVM needs memory of
+its own beyond its heap. Plan a node for the larger figure if its servers run
+full. A server's install runs within its limits too, with at least 1 GiB and
+one CPU, as Wings gives an installer; one without limits installs without
+them.
+
 **A suspended server is frozen for everyone but administrators.** Suspending
 one stops it, and until an administrator lifts the suspension its owner and
 subusers can look at it and nothing more: they cannot start, change, back up,

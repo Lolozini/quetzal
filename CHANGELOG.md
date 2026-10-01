@@ -76,6 +76,14 @@ releases may include breaking changes).
   the mail's body and under the Discord embed. A channel is no longer told
   when another channel is created, changed or deleted, unless it lists
   `notification.*` events: setting channels up pinged all the others.
+- **A server's container gets Wings' memory headroom.** Its memory limit was
+  the memory set, exactly, so an egg starting Java with
+  `-Xmx{{SERVER_MEMORY}}M` had a heap as large as the container and was
+  killed once the heap filled. The container may now use 15 % more than the
+  memory set up to 2 GiB, 10 % up to 4 GiB and 5 % beyond, as under Wings;
+  what the node holds for the server, `SERVER_MEMORY` and quotas stay the
+  memory set. A running server takes it at its next stop and start, not with
+  the upgrade.
 - **Importing an egg no longer replaces a template of the same name without
   asking.** Two different eggs can share a name, and so a slug: Pterodactyl's
   Paper imported over Pelican's replaced it, and the servers created
@@ -188,6 +196,13 @@ releases may include breaking changes).
   address, and the resolver the controller was given, and public resolvers
   as before; nothing else on port 53. A cluster whose pods are pointed at a
   resolver elsewhere needs its address in `egressAllow`.
+- **An install script runs within its server's limits.** The install
+  container had none, so an egg's script could take all of its node's
+  memory and CPU, and the helpers that run before a server starts had none
+  either. The install gets the server's limits, with at least 1 GiB and one
+  CPU as Wings gives an installer, and asks the node for no more than the
+  server does; the helpers get small fixed limits. A running server takes
+  them at its next stop and start, not with the upgrade.
 - **Deleting an SSH key revokes it.** The same public key could be added to
   an account twice, and deleting one of the two left the key working through
   the other: an SFTP session stayed open after its key was deleted. A key is

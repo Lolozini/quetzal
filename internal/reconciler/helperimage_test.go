@@ -182,3 +182,56 @@ func TestActivatorsTakeTheNewImageWhenNobodyGoesThroughThem(t *testing.T) {
 		}
 	}
 }
+
+// 0.7 bounds the install container and the helpers and gives the game Wings'
+// memory headroom: a change to the pod of every server that has a limit, which
+// would have restarted them all with the upgrade. A running pod keeps the
+// rendering it started with, as it keeps its helper image, until something
+// restarts it anyway.
+func TestARenderingChangeLeavesRunningPodsAlone(t *testing.T) {
+	s, tmpl := serverWithHelpers()
+	tmpl.Install = &models.InstallScript{Script: "echo installing"}
+	s.Resources = models.Resources{Memory: "1536Mi", CPU: "1"}
+	as06 := func(s *models.Server) map[string]*appsv1.Deployment {
+		out := helperDeployments(s, tmpl, panelV1)
+		for _, d := range out {
+			undoResources07(d)
+			keepHelperImage(nil, d, panelV1) // as first applied
+		}
+		return out
+	}
+	before := as06(s)
+	for name, want := range helperDeployments(s, tmpl, panelV2) {
+		live := before[name]
+		if !keepHelperImage(live, want, panelV2) {
+			t.Errorf("%s: the upgrade gave a running pod the new rendering", name)
+			continue
+		}
+		if !equality.Semantic.DeepEqual(want.Spec.Template, live.Spec.Template) {
+			t.Errorf("%s: the pod template still changes with the upgrade", name)
+		}
+	}
+
+	// A new memory limit restarts the server, which then gets this rendering.
+	s.Resources.Memory = "2Gi"
+	want := BuildDeployment(s, tmpl, panelV2, nil)
+	if keepHelperImage(before["game (render-copy)"], want, panelV2) {
+		t.Fatal("kept the old rendering of a server whose memory changed")
+	}
+	if limits := want.Spec.Template.Spec.Containers[0].Resources.Limits; limits.Memory().String() != "2355Mi" {
+		t.Errorf("memory limit %s after the change, want 2355Mi", limits.Memory())
+	}
+
+	// So does a stop: the next start renders afresh.
+	s.Resources.Memory = "1536Mi"
+	s.DesiredState = models.StateStopped
+	stopped := BuildDeployment(s, tmpl, panelV2, nil)
+	if keepHelperImage(before["game (render-copy)"], stopped, panelV2) {
+		t.Error("kept the old rendering for a server being stopped")
+	}
+	for _, c := range stopped.Spec.Template.Spec.InitContainers {
+		if c.Name == InstallContainer && len(c.Resources.Limits) == 0 {
+			t.Error("the stopped server's install still has no limits")
+		}
+	}
+}

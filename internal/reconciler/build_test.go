@@ -2,11 +2,14 @@ package reconciler
 
 import (
 	"net"
+	"strconv"
 	"strings"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/lolozini/quetzal/internal/models"
 )
@@ -1106,4 +1109,94 @@ func TestNameservers(t *testing.T) {
 	if strings.Join(cidrs, " ") != "10.96.0.10/32 fd00::a/128" {
 		t.Errorf("DNS peers = %v", cidrs)
 	}
+}
+
+// The game's memory limit was the memory set, exactly: an egg starting Java
+// with -Xmx{{SERVER_MEMORY}}M had a heap as large as its container, and was
+// killed once the heap filled. Wings gives 15 % more up to 2 GiB, 10 % up to
+// 4 GiB and 5 % beyond, and eggs are written for that; the request, and
+// SERVER_MEMORY, stay the memory set.
+func TestTheGameGetsWingsHeadroom(t *testing.T) {
+	for _, c := range []struct{ memory, limit string }{
+		{"1536Mi", "1766Mi"}, {"2Gi", "2355Mi"}, {"4Gi", "4506Mi"}, {"8Gi", "8602Mi"},
+	} {
+		s, tmpl := testServerAndTemplate()
+		s.Resources = models.Resources{Memory: c.memory, CPU: "1"}
+		d := BuildDeployment(s, tmpl, "", nil)
+		res := d.Spec.Template.Spec.Containers[0].Resources
+		if got := res.Limits.Memory(); got.Cmp(resource.MustParse(c.limit)) != 0 {
+			t.Errorf("%s: memory limit %s, want %s", c.memory, got, c.limit)
+		}
+		if got := res.Requests.Memory(); got.Cmp(resource.MustParse(c.memory)) != 0 {
+			t.Errorf("%s: memory request %s, want the memory set", c.memory, got)
+		}
+		if res.Limits.Cpu().String() != "1" || res.Requests.Cpu().String() != "1" {
+			t.Errorf("%s: cpu %s/%s, want 1/1", c.memory, res.Requests.Cpu(), res.Limits.Cpu())
+		}
+		mib, _ := serverMemoryMiB(c.memory)
+		if env := envValue(d.Spec.Template.Spec.Containers[0].Env, "SERVER_MEMORY"); env != strconv.FormatInt(mib, 10) {
+			t.Errorf("%s: SERVER_MEMORY %s, want %d", c.memory, env, mib)
+		}
+	}
+	s, tmpl := testServerAndTemplate()
+	s.Resources = models.Resources{}
+	if res := BuildDeployment(s, tmpl, "", nil).Spec.Template.Spec.Containers[0].Resources; len(res.Limits)+len(res.Requests) != 0 {
+		t.Errorf("a server without limits got some: %+v", res)
+	}
+}
+
+// The install container ran without limits: an egg's script could take all of
+// its node's memory and CPU, and the helpers before the game had none either.
+// The install gets the server's limits, at least 1 GiB and one CPU as Wings
+// gives an installer, and requests what the game does.
+func TestTheInstallIsBounded(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	tmpl.Install = &models.InstallScript{Script: "echo installing"}
+	tmpl.ConfigFiles = []models.ConfigFile{{Path: "server.properties", Parser: models.ParserProperties, Find: map[string]string{"motd": "hi"}}}
+	s.SFTP.Enabled = true
+	container := func(d *appsv1.Deployment, name string) corev1.Container {
+		for _, c := range d.Spec.Template.Spec.InitContainers {
+			if c.Name == name {
+				return c
+			}
+		}
+		t.Fatalf("no %s container", name)
+		return corev1.Container{}
+	}
+	for _, c := range []struct {
+		memory, cpu, memLimit, cpuLimit string
+	}{
+		{"512Mi", "500m", "1Gi", "1"},
+		{"4Gi", "2", "4Gi", "2"},
+	} {
+		s.Resources = models.Resources{Memory: c.memory, CPU: c.cpu}
+		res := container(BuildDeployment(s, tmpl, "panel:1", nil), InstallContainer).Resources
+		if res.Limits.Memory().Cmp(resource.MustParse(c.memLimit)) != 0 || res.Limits.Cpu().Cmp(resource.MustParse(c.cpuLimit)) != 0 {
+			t.Errorf("%s/%s: install limits %s/%s, want %s/%s", c.memory, c.cpu, res.Limits.Memory(), res.Limits.Cpu(), c.memLimit, c.cpuLimit)
+		}
+		if res.Requests.Memory().Cmp(resource.MustParse(c.memory)) != 0 || res.Requests.Cpu().Cmp(resource.MustParse(c.cpu)) != 0 {
+			t.Errorf("%s/%s: install requests %s/%s, want the server's", c.memory, c.cpu, res.Requests.Memory(), res.Requests.Cpu())
+		}
+	}
+	s.Resources = models.Resources{}
+	if res := container(BuildDeployment(s, tmpl, "panel:1", nil), InstallContainer).Resources; len(res.Limits) != 0 {
+		t.Errorf("a server without limits got an install with some: %+v", res)
+	}
+	for _, name := range []string{RenderCopyContainer, RenderConfigContainer} {
+		if limits := container(BuildDeployment(s, tmpl, "panel:1", nil), name).Resources.Limits; limits.Memory().IsZero() {
+			t.Errorf("%s has no memory limit", name)
+		}
+	}
+	if limits := container(BuildDataDeployment(s, tmpl, "panel:1", 1), "sftp-copy").Resources.Limits; limits.Memory().IsZero() {
+		t.Error("sftp-copy has no memory limit")
+	}
+}
+
+func envValue(env []corev1.EnvVar, name string) string {
+	for _, e := range env {
+		if e.Name == name {
+			return e.Value
+		}
+	}
+	return ""
 }

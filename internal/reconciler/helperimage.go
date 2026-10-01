@@ -75,19 +75,85 @@ func activatorTakesNewHelpers(s *models.Server) bool {
 	return s.Hibernated
 }
 
-// keepHelperImage stamps want with its pod spec hash and, when live runs the
-// same template with another helper image and keeps running, gives want that
-// image back. It reports whether it did.
+// renderingChanges undo, newest first, what a release changed in the pods it
+// renders for a server nobody changed. A running pod rendered by an earlier
+// release keeps that rendering, as it keeps its helper image, until something
+// restarts it anyway: a stop and start, hibernation, a new setting. Otherwise
+// each such change restarts every running server with the upgrade that brings
+// it, players and all.
+var renderingChanges = []func(*appsv1.Deployment){
+	undoResources07,
+}
+
+// undoResources07 is a pod as 0.6 rendered it: no resources on the install
+// container and the helpers, and the game's memory limit at the memory set,
+// without Wings' headroom or a request.
+func undoResources07(d *appsv1.Deployment) {
+	spec := &d.Spec.Template.Spec
+	for i := range spec.InitContainers {
+		switch spec.InitContainers[i].Name {
+		case InstallContainer, RenderCopyContainer, RenderConfigContainer, "sftp-copy":
+			spec.InitContainers[i].Resources = corev1.ResourceRequirements{}
+		}
+	}
+	if d.Name != workloadName {
+		return // the data-manager and the activator kept their resources
+	}
+	for i := range spec.Containers {
+		c := &spec.Containers[i]
+		if c.Name != workloadName {
+			continue
+		}
+		if mem, ok := c.Resources.Requests[corev1.ResourceMemory]; ok {
+			c.Resources.Limits[corev1.ResourceMemory] = mem
+		}
+		c.Resources.Requests = nil
+	}
+}
+
+// renderings returns want as this release renders it, then as each earlier one
+// did, newest first.
+func renderings(want *appsv1.Deployment) []*appsv1.Deployment {
+	out := []*appsv1.Deployment{want.DeepCopy()}
+	earlier := want.DeepCopy()
+	for _, undo := range renderingChanges {
+		undo(earlier)
+		out = append(out, earlier.DeepCopy())
+	}
+	return out
+}
+
+// keepHelperImage stamps want with its pod spec hash and, while live keeps
+// running what an earlier release or another helper image rendered for a
+// server nobody changed, gives want back the template live runs. It reports
+// whether it did.
 func keepHelperImage(live, want *appsv1.Deployment, systemImage string) bool {
-	hash := podSpecHash(want, systemImage)
 	if want.Annotations == nil {
 		want.Annotations = map[string]string{}
 	}
-	want.Annotations[podSpecAnnotation] = hash
-	if systemImage == "" || live == nil || live.Annotations[podSpecAnnotation] != hash {
+	want.Annotations[podSpecAnnotation] = podSpecHash(want, systemImage)
+	if live == nil || live.Annotations[podSpecAnnotation] == "" {
 		return false
 	}
-	return withHelpersOf(live, want, systemImage)
+	for i, r := range renderings(want) {
+		hash := podSpecHash(r, systemImage)
+		if hash != live.Annotations[podSpecAnnotation] {
+			continue
+		}
+		if i == 0 { // this release's rendering: the helper image differs at most
+			return systemImage != "" && withHelpersOf(live, want, systemImage)
+		}
+		if !scaledUp(live) || !scaledUp(want) {
+			return false // nothing runs, or nothing will: the new rendering restarts nothing
+		}
+		if systemImage != "" {
+			withHelpersOf(live, r, systemImage)
+		}
+		r.Annotations[podSpecAnnotation] = hash
+		*want = *r
+		return true
+	}
+	return false
 }
 
 // isLegacy reports whether live predates podSpecAnnotation.
@@ -101,20 +167,31 @@ func isLegacy(live *appsv1.Deployment) bool {
 // answer is the live template. Without it, the upgrade that brings the
 // annotation would restart every pod with a helper one last time. Any error
 // leaves want as it is: the pod restarts, as it used to.
+//
+// The candidates are this release's rendering and each earlier one's, with the
+// live helper image: a Deployment that old was rendered by an older release.
 func (r *Reconciler) keepLegacyHelperImage(ctx context.Context, live, want *appsv1.Deployment, systemImage string) {
-	if systemImage == "" {
+	if !scaledUp(live) || !scaledUp(want) {
 		return
 	}
-	candidate := want.DeepCopy()
-	if !withHelpersOf(live, candidate, systemImage) {
-		return
+	for _, candidate := range renderings(want) {
+		// Hashed before the live helper image goes back in: the hash leaves out
+		// the current helper image only, and the next pass compares against it.
+		hash := podSpecHash(candidate, systemImage)
+		if systemImage != "" {
+			withHelpersOf(live, candidate, systemImage)
+		}
+		dry := candidate.DeepCopy()
+		err := r.Client.Patch(ctx, dry, client.Apply, client.FieldOwner(fieldOwner), client.ForceOwnership, client.DryRunAll)
+		if err != nil {
+			return
+		}
+		if equality.Semantic.DeepEqual(dry.Spec.Template, live.Spec.Template) {
+			candidate.Annotations[podSpecAnnotation] = hash
+			*want = *candidate
+			return
+		}
 	}
-	dry := candidate.DeepCopy()
-	err := r.Client.Patch(ctx, dry, client.Apply, client.FieldOwner(fieldOwner), client.ForceOwnership, client.DryRunAll)
-	if err != nil || !equality.Semantic.DeepEqual(dry.Spec.Template, live.Spec.Template) {
-		return
-	}
-	*want = *candidate
 }
 
 // withHelpersOf gives want's helper containers, those that run systemImage, the

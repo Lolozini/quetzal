@@ -75,9 +75,10 @@ echo "$d:$a:$b"; sleep 2; done`, decoyIP)
 	if err != nil {
 		t.Fatalf("template: %v", err)
 	}
+	slug := fmt.Sprintf("e2e-dns-%d", time.Now().Unix()%100000)
 	srv := &models.Server{
-		Slug: "e2e-dns", DisplayName: "e2e-dns", TemplateID: saved.ID, TemplateVersion: saved.Version,
-		Image: "alpine:3.20", Namespace: reconciler.NamespaceFor("e2e-dns"),
+		Slug: slug, DisplayName: "e2e-dns", TemplateID: saved.ID, TemplateVersion: saved.Version,
+		Image: "alpine:3.20", Namespace: reconciler.NamespaceFor(slug),
 		DesiredState: models.StateRunning, Storage: models.Storage{Type: models.StoragePVC, Size: "1Gi"},
 	}
 	if err := st.CreateServer(srv); err != nil {

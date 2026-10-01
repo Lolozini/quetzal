@@ -3,6 +3,7 @@ package reconciler
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -981,18 +982,91 @@ func buildContainerPorts(ports []models.PortSpec) []corev1.ContainerPort {
 	return out
 }
 
+// buildResources sizes the game's container: the CPU it is set to, and the
+// memory it is set to as its request, with Wings' headroom on top as its limit.
+//
+// The limit was the memory exactly. An egg starting Java with
+// -Xmx{{SERVER_MEMORY}}M then had a heap as large as the container, nothing
+// left for the JVM's own memory, and was killed as soon as the heap filled;
+// one with -XX:MaxRAMPercentage=95 kept a few megabytes. Wings gives a server
+// 15 % more than its memory up to 2 GiB, 10 % up to 4 GiB and 5 % beyond, and
+// eggs are written for that. SERVER_MEMORY stays the memory set, and so does
+// the request: what the node is asked to hold for the server does not change.
 func buildResources(r models.Resources) corev1.ResourceRequirements {
 	limits := corev1.ResourceList{}
+	var req corev1.ResourceList
 	if r.Memory != "" {
-		limits[corev1.ResourceMemory] = resource.MustParse(r.Memory)
+		mem := resource.MustParse(r.Memory)
+		req = corev1.ResourceList{corev1.ResourceMemory: mem}
+		limits[corev1.ResourceMemory] = withHeadroom(mem)
 	}
 	if r.CPU != "" {
-		limits[corev1.ResourceCPU] = resource.MustParse(r.CPU)
+		cpu := resource.MustParse(r.CPU)
+		limits[corev1.ResourceCPU] = cpu
+		if req != nil {
+			req[corev1.ResourceCPU] = cpu // as it was: a limit alone requests itself
+		}
 	}
 	if len(limits) == 0 {
 		return corev1.ResourceRequirements{}
 	}
-	return corev1.ResourceRequirements{Limits: limits}
+	return corev1.ResourceRequirements{Limits: limits, Requests: req}
+}
+
+// withHeadroom is a memory limit with Wings' overhead on top: 15 % up to
+// 2 GiB, 10 % up to 4 GiB, 5 % beyond.
+func withHeadroom(mem resource.Quantity) resource.Quantity {
+	mib := mem.Value() / (1 << 20)
+	factor := 1.05
+	switch {
+	case mib <= 2048:
+		factor = 1.15
+	case mib <= 4096:
+		factor = 1.10
+	}
+	return *resource.NewQuantity(int64(math.Round(float64(mib)*factor))<<20, resource.BinarySI)
+}
+
+// installResources bounds the install container, which ran with none: an
+// egg's script could take all of its node's memory and CPU. It gets the
+// server's own limits, and at least 1 GiB and one CPU as Wings gives an
+// installer, since compiling or unpacking can take more than the game will;
+// a dimension the server leaves unlimited stays so. It requests what the game
+// does, so a server needs no more room on a node to install than to run.
+func installResources(r models.Resources) corev1.ResourceRequirements {
+	out := corev1.ResourceRequirements{}
+	floor := map[corev1.ResourceName]resource.Quantity{
+		corev1.ResourceMemory: resource.MustParse("1Gi"),
+		corev1.ResourceCPU:    resource.MustParse("1"),
+	}
+	for name, set := range map[corev1.ResourceName]string{corev1.ResourceMemory: r.Memory, corev1.ResourceCPU: r.CPU} {
+		if set == "" {
+			continue
+		}
+		q := resource.MustParse(set)
+		limit := q
+		if limit.Cmp(floor[name]) < 0 {
+			limit = floor[name]
+		}
+		if out.Limits == nil {
+			out.Limits, out.Requests = corev1.ResourceList{}, corev1.ResourceList{}
+		}
+		out.Limits[name], out.Requests[name] = limit, q
+	}
+	return out
+}
+
+// helperResources bounds the short-lived helpers that copy and run Quetzal's
+// own binaries before a server starts (render-copy, render-config, sftp-copy),
+// which ran with none.
+func helperResources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("10m"),
+			corev1.ResourceMemory: resource.MustParse("16Mi"),
+		},
+		Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("128Mi")},
+	}
 }
 
 func buildDataVolume(s *models.Server) corev1.Volume {
@@ -1175,6 +1249,7 @@ func configRenderInitContainers(s *models.Server, t *models.Template, systemImag
 			Command:         []string{configRenderBinary},
 			Env:             []corev1.EnvVar{{Name: "QUETZAL_INSTALL_TO", Value: renderBinPath}},
 			VolumeMounts:    []corev1.VolumeMount{{Name: renderBinVolume, MountPath: renderBinMount}},
+			Resources:       helperResources(),
 			SecurityContext: sc,
 		},
 		{
@@ -1187,6 +1262,7 @@ func configRenderInitContainers(s *models.Server, t *models.Template, systemImag
 				{Name: dataVolume, MountPath: dataPath},
 				{Name: renderBinVolume, MountPath: renderBinMount, ReadOnly: true},
 			},
+			Resources:       helperResources(),
 			SecurityContext: sc,
 		},
 	}
@@ -1226,6 +1302,7 @@ func sftpCopyInitContainer(systemImage string, t *models.Template) corev1.Contai
 		Command:         []string{"/usr/local/bin/quetzal-sftp"},
 		Env:             []corev1.EnvVar{{Name: "QUETZAL_INSTALL_TO", Value: sftpBinPath}},
 		VolumeMounts:    []corev1.VolumeMount{{Name: renderBinVolume, MountPath: renderBinMount}},
+		Resources:       helperResources(),
 		SecurityContext: buildContainerSecurityContext(t),
 	}
 }
@@ -1596,6 +1673,7 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 		Command:         []string{"/bin/sh", "-c", installShellPicker},
 		Env:             env,
 		VolumeMounts:    []corev1.VolumeMount{{Name: dataVolume, MountPath: installMountPath}},
+		Resources:       installResources(s.Resources),
 		// Run as root even though the pod defaults to non-root: the container-level
 		// settings override the pod's runAsNonRoot so apt/apk and writes to
 		// root-owned paths in the installer image succeed.
