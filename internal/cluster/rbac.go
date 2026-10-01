@@ -217,10 +217,19 @@ func writeRules(b *strings.Builder, rules []PolicyRule) {
 // RemoteKubeconfigScript prints the kubeconfig to paste back into Quetzal. It
 // reads the cluster's own address and CA from the current context, so it works
 // wherever the operator already has access.
+//
+// That address is the one the operator's machine uses, which is often its own
+// (127.0.0.1 through a tunnel, or a kind cluster) and then means nothing to
+// Quetzal: the script says so on stderr, out of the kubeconfig it prints, rather
+// than leave it to the connection test after registering.
 func RemoteKubeconfigScript() string {
 	return `# Then, still pointed at that cluster, print the kubeconfig to paste into
 # Quetzal. Everything here comes from your current context.
 SERVER=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+case "$SERVER" in
+  *://127.*|*://localhost|*://localhost:*|*://\[::1\]*)
+    echo "warning: $SERVER is this machine's own address, which Quetzal cannot reach: replace it in the server line with one that Quetzal can" >&2 ;;
+esac
 CA=$(kubectl -n ` + RemoteNamespace + ` get secret ` + RemoteServiceAccount + `-token -o jsonpath='{.data.ca\.crt}')
 TOKEN=$(kubectl -n ` + RemoteNamespace + ` get secret ` + RemoteServiceAccount + `-token -o jsonpath='{.data.token}' | base64 -d)
 

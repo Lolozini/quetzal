@@ -1,6 +1,8 @@
 package api
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -20,7 +22,37 @@ func transferInProgress(w http.ResponseWriter, srv *models.Server) bool {
 }
 
 type transferRequest struct {
+	// Cluster names the target by its slug, as creating a server does.
+	Cluster string `json:"cluster"`
+	// TargetCluster names it by its ID, the only form this endpoint took at
+	// first. Still accepted.
 	TargetCluster uint `json:"targetCluster"`
+}
+
+// transferTarget resolves the cluster a transfer request names. Creating a
+// server on a cluster took its slug while moving one there took its ID, which a
+// script had to look up first; either is accepted now, and both together if
+// they agree.
+func (s *Server) transferTarget(req transferRequest) (*models.Cluster, error) {
+	slug := strings.TrimSpace(req.Cluster)
+	switch {
+	case slug != "":
+		c, err := s.Store.GetClusterBySlug(slug)
+		if err != nil {
+			return nil, fmt.Errorf("unknown cluster %q", slug)
+		}
+		if req.TargetCluster != 0 && req.TargetCluster != c.ID {
+			return nil, fmt.Errorf("cluster %q and targetCluster %d are two different clusters", slug, req.TargetCluster)
+		}
+		return c, nil
+	case req.TargetCluster != 0:
+		c, err := s.Store.GetCluster(req.TargetCluster)
+		if err != nil {
+			return nil, errors.New("unknown target cluster")
+		}
+		return c, nil
+	}
+	return nil, errors.New(`name the target cluster: "cluster", its slug`)
 }
 
 // handleTransferServer starts migrating a server to another cluster. It is an
@@ -84,14 +116,14 @@ func (s *Server) handleTransferServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if req.TargetCluster == srv.ClusterID {
-		writeError(w, http.StatusBadRequest, "server is already on that cluster")
+	// The target must be a real, registered cluster.
+	target, err := s.transferTarget(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// The target must be a real, registered cluster.
-	target, err := s.Store.GetCluster(req.TargetCluster)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "unknown target cluster")
+	if target.ID == srv.ClusterID {
+		writeError(w, http.StatusBadRequest, "server is already on that cluster")
 		return
 	}
 	// Data crosses clusters via the backup target, so it must be configured.
@@ -106,7 +138,7 @@ func (s *Server) handleTransferServer(w http.ResponseWriter, r *http.Request) {
 	t := &models.TransferState{
 		Phase:         models.TransferBackingUp,
 		SourceCluster: srv.ClusterID,
-		TargetCluster: req.TargetCluster,
+		TargetCluster: target.ID,
 		PrevState:     srv.DesiredState,
 		StartedAt:     time.Now(),
 	}

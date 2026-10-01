@@ -288,6 +288,9 @@ export function Clusters() {
                 style={{ width: "100%", fontFamily: "var(--font-mono)", fontSize: 12 }}
                 onFocus={(e) => e.currentTarget.select()}
               />
+              <p className="muted">
+                {t("The script takes the cluster's address from your kubectl context. If that is an address only your machine reaches (127.0.0.1, a tunnel, a port-forward), replace it in the server line with one that Quetzal can reach.")}
+              </p>
             </>
           ) : (
             <p className="muted">{t("Loading…")}</p>

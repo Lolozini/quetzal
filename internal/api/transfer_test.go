@@ -3,6 +3,7 @@ package api_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/lolozini/quetzal/internal/models"
@@ -105,5 +106,40 @@ func TestTransferStartsAndBlocksActions(t *testing.T) {
 	delReq, _ := http.NewRequest(http.MethodDelete, base+"/api/clusters/"+itoa(cid), nil)
 	if dr, _ := admin.Do(delReq); dr.StatusCode != http.StatusConflict {
 		t.Errorf("delete transfer target cluster = %d, want 409", dr.StatusCode)
+	}
+}
+
+// Creating a server on a cluster names it by slug; moving one there took its
+// numeric ID, which a script had to look up first. The slug works for both now,
+// and the ID is still accepted.
+func TestTransferTakesTheClusterSlug(t *testing.T) {
+	_, admin, st, url := seedTransferEnv(t)
+	cid := seedCluster(t, st)
+	configureBackups(t, st)
+
+	for _, tc := range []struct {
+		body map[string]any
+		want string
+	}{
+		{map[string]any{"cluster": "nowhere"}, `unknown cluster "nowhere"`},
+		{map[string]any{"cluster": "c2", "targetCluster": cid + 100}, "two different clusters"},
+		{map[string]any{}, "name the target cluster"},
+	} {
+		r := post(t, admin, url+"/transfer", tc.body)
+		var e struct{ Error string }
+		_ = json.NewDecoder(r.Body).Decode(&e)
+		if r.StatusCode != http.StatusBadRequest || !strings.Contains(e.Error, tc.want) {
+			t.Errorf("%v = %d %q, want 400 %q", tc.body, r.StatusCode, e.Error, tc.want)
+		}
+	}
+
+	r := post(t, admin, url+"/transfer", map[string]any{"cluster": "c2"})
+	if r.StatusCode != http.StatusAccepted {
+		t.Fatalf("transfer by slug = %d, want 202", r.StatusCode)
+	}
+	var srv models.Server
+	getJSON(t, admin, url, &srv)
+	if srv.Transfer == nil || srv.Transfer.TargetCluster != cid {
+		t.Fatalf("transfer by slug recorded %+v, want target %d", srv.Transfer, cid)
 	}
 }

@@ -11,6 +11,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -129,7 +132,7 @@ func FromConfig(cfg *rest.Config) (Clients, error) {
 func Probe(ctx context.Context, c Clients) (version string, nodes int, err error) {
 	raw, err := c.Clientset.Discovery().RESTClient().Get().AbsPath("/version").DoRaw(ctx)
 	if err != nil {
-		return "", 0, err
+		return "", 0, loopbackHint(c.Config, err)
 	}
 	var v struct {
 		GitVersion string `json:"gitVersion"`
@@ -140,6 +143,29 @@ func Probe(ctx context.Context, c Clients) (version string, nodes int, err error
 		return v.GitVersion, 0, nil // reachable, but can't list nodes (RBAC)
 	}
 	return v.GitVersion, len(nl.Items), nil
+}
+
+// loopbackHint adds the likely cause to a failure to reach a cluster registered
+// at a loopback address. Such an address comes from a kubeconfig that works on
+// the operator's machine -- through a tunnel, or to a kind cluster -- and from
+// Quetzal it leads back to Quetzal's own pod.
+func loopbackHint(cfg *rest.Config, err error) error {
+	if cfg == nil {
+		return err
+	}
+	host := cfg.Host
+	if !strings.Contains(host, "://") {
+		host = "https://" + host
+	}
+	u, perr := url.Parse(host)
+	if perr != nil {
+		return err
+	}
+	h := u.Hostname()
+	if ip := net.ParseIP(h); h != "localhost" && (ip == nil || !ip.IsLoopback()) {
+		return err
+	}
+	return fmt.Errorf("%w (%s is a loopback address, which from Quetzal leads back to Quetzal itself: put an address of the cluster that Quetzal can reach in the kubeconfig)", err, h)
 }
 
 func hashStr(s string) string {

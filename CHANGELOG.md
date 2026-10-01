@@ -14,6 +14,17 @@ releases may include breaking changes).
   `escape.txt` at the top of the server's files, which is not what was asked
   for. Every file route now answers 400 for a path that climbs above the data
   directory; `..` that stays inside it still works.
+- **A transfer names its destination cluster by slug.** Creating a server on
+  a cluster took the cluster's slug (`cluster`), and moving one there its
+  numeric ID (`targetCluster`), which a script had to look up first.
+  `POST /api/servers/{id}/transfer` takes `cluster` now; `targetCluster` is
+  still accepted.
+- **A cluster registered at a loopback address says why it is unreachable.**
+  The script that prints the kubeconfig to register takes the cluster's
+  address from the operator's kubectl context, often 127.0.0.1 through a
+  tunnel or to a kind cluster, which from Quetzal leads back to Quetzal. The
+  script now warns about such an address, the form says to check it, and a
+  failed connection to one says what is wrong.
 
 ### Fixed
 

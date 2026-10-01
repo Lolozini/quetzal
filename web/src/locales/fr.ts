@@ -675,6 +675,8 @@ export const fr: Record<string, string> = {
     "Préparer d’abord le cluster distant (recommandé)",
   "An admin kubeconfig would give Quetzal — and anyone who reaches it — everything on that cluster. Run this there instead: it creates a service account with only the access Quetzal needs, then prints the kubeconfig to paste below.":
     "Un kubeconfig admin donnerait à Quetzal — et à quiconque l’atteint — tous les droits sur ce cluster. Exécutez plutôt ceci là-bas : cela crée un compte de service limité à ce dont Quetzal a besoin, puis affiche le kubeconfig à coller ci-dessous.",
+  "The script takes the cluster's address from your kubectl context. If that is an address only your machine reaches (127.0.0.1, a tunnel, a port-forward), replace it in the server line with one that Quetzal can reach.":
+    "Le script prend l’adresse du cluster dans votre contexte kubectl. Si seule votre machine joint cette adresse (127.0.0.1, un tunnel, un port-forward), remplacez-la dans la ligne server par une adresse que Quetzal peut joindre.",
   // Import from Pterodactyl
   "CPU limit": "Limite CPU",
   "e.g. 2 or 1500m (optional)": "ex. 2 ou 1500m (facultatif)",

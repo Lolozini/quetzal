@@ -1505,19 +1505,20 @@ paths:
         (via the configured S3 backup target), then the source namespace is
         removed. Requires a configured backup target. While in progress,
         power/edit/reinstall are blocked — `DELETE` on this path cancels it if
-        it stalls.
+        it stalls. Name the destination by its slug in `cluster`, as when
+        creating a server; `targetCluster`, its ID, is still accepted.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [targetCluster]
               properties:
-                targetCluster: { type: integer }
+                cluster: { type: string, description: The destination cluster's slug }
+                targetCluster: { type: integer, description: The destination cluster's ID, in place of its slug }
       responses:
         "202": { description: Transfer started }
-        "400": { description: Bad target, no backup target, or already on that cluster }
+        "400": { description: No or unknown destination, no backup target, or already on that cluster }
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { description: A transfer is already in progress }
 
@@ -1970,6 +1971,28 @@ paths:
       responses:
         "204": { description: Revoked }
 
+  /api/clusters/setup-manifest:
+    get:
+      tags: [Clusters]
+      summary: What to run on a cluster before registering it (admin)
+      description: >-
+        A manifest creating a service account with only the access Quetzal
+        needs, and a script that prints the kubeconfig to register. The script
+        takes the cluster's address from the current kubectl context, and warns
+        on stderr when that is a loopback address, which Quetzal cannot reach.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  manifest: { type: string }
+                  kubeconfigScript: { type: string }
+                  namespace: { type: string }
+                  serviceAccount: { type: string }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /api/clusters:
     get:
       tags: [Clusters]

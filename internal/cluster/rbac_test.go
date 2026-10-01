@@ -1,9 +1,11 @@
 package cluster
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -11,6 +13,7 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+	"k8s.io/client-go/rest"
 
 	"github.com/lolozini/quetzal/internal/models"
 )
@@ -189,5 +192,61 @@ func TestRemoteClustersBindTheManifestRole(t *testing.T) {
 
 	if got := NamespacedRole(&models.Cluster{InCluster: true}, "quetzal-namespaced"); got != "quetzal-namespaced" {
 		t.Errorf("the local cluster binds %q, want the chart's role", got)
+	}
+}
+
+// The script takes the API server's address from the operator's own context,
+// which is often an address of their machine alone. It says so, on stderr so
+// that the kubeconfig it prints stays clean.
+func TestKubeconfigScriptWarnsAboutALoopbackAddress(t *testing.T) {
+	bin := t.TempDir()
+	kubectl := "#!/bin/sh\ncase \"$*\" in\n  *\"config view\"*) printf '%s' \"$FAKE_SERVER\" ;;\n  *) printf 'Y2E=' ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "kubectl"), []byte(kubectl), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for server, warn := range map[string]bool{
+		"https://127.0.0.1:6443":            true,
+		"https://127.0.0.1:41245":           true,
+		"https://localhost:6443":            true,
+		"https://[::1]:6443":                true,
+		"https://10.0.0.5:6443":             false,
+		"https://api.example.com:6443":      false,
+		"https://localhost.example.com:443": false,
+	} {
+		cmd := exec.Command("sh", "-c", RemoteKubeconfigScript())
+		cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "FAKE_SERVER="+server)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("%s: %v (%s)", server, err, stderr.String())
+		}
+		if got := strings.Contains(stderr.String(), "warning"); got != warn {
+			t.Errorf("%s: warned=%v, want %v (stderr %q)", server, got, warn, stderr.String())
+		}
+		if !strings.Contains(stdout.String(), "server: "+server+"\n") || strings.Contains(stdout.String(), "warning") {
+			t.Errorf("%s: the kubeconfig is not clean:\n%s", server, stdout.String())
+		}
+	}
+}
+
+// A cluster registered at a loopback address cannot be reached from Quetzal,
+// whatever works on the operator's machine. The failure says why.
+func TestProbeExplainsALoopbackAddress(t *testing.T) {
+	failed := errors.New("dial tcp: connection refused")
+	for host, hint := range map[string]bool{
+		"https://127.0.0.1:6443":  true,
+		"127.0.0.1:41245":         true,
+		"https://localhost:6443":  true,
+		"https://[::1]:6443":      true,
+		"https://10.96.0.1:443":   false,
+		"https://k8s.example.com": false,
+	} {
+		err := loopbackHint(&rest.Config{Host: host}, failed)
+		if !errors.Is(err, failed) {
+			t.Errorf("%s: the original error was lost: %v", host, err)
+		}
+		if got := strings.Contains(err.Error(), "loopback"); got != hint {
+			t.Errorf("%s: hint=%v, want %v (%v)", host, got, hint, err)
+		}
 	}
 }
