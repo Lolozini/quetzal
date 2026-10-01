@@ -580,8 +580,10 @@ paths:
         Kubernetes assigns it, or if no system image is configured — the server
         status reports the latter). Auth is key-only (register keys via
         /api/me/sshkeys); the username is cosmetic. Access is confined to the
-        data directory. Revoking a key cuts live sessions, but the change takes
-        up to a controller resync plus ConfigMap refresh to reach the pod.
+        data directory. A key added or deleted reaches the pod within a minute
+        or two (a controller resync, then the kubelet's refresh of a mounted
+        ConfigMap): from then on it is accepted or refused, and the sessions a
+        deleted key opened are closed within seconds.
       responses:
         "200":
           description: OK

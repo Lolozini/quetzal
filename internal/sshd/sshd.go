@@ -25,7 +25,14 @@ import (
 
 // defaultRevokeInterval is how often live sessions are re-checked against the
 // authorized keys so a revoked key is cut off, not just blocked at next connect.
-const defaultRevokeInterval = 30 * time.Second
+//
+// The keys reach the pod through a mounted ConfigMap, which the kubelet
+// refreshes on its own clock, a minute or so after the change: new connections
+// are refused from then on. Checking the open sessions every 30 seconds on top
+// of that kept a revoked key's session alive up to two minutes after the click.
+// Reading a file of a few keys every few seconds costs nothing, and closes it
+// within seconds of when new connections are refused.
+const defaultRevokeInterval = 5 * time.Second
 
 // defaultHandshakeTimeout bounds a connection that has not authenticated yet.
 // Without one, a client that opens a socket and then says nothing holds a

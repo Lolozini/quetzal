@@ -594,6 +594,10 @@ export const fr: Record<string, string> = {
   "Email saved.": "E-mail enregistré.",
   "SSH keys": "Clés SSH",
   "Public keys authorized for SFTP access to servers you can manage files on.": "Clés publiques autorisées pour l'accès SFTP aux serveurs dont vous gérez les fichiers.",
+  "Key added. SFTP accepts it within a minute or two, on the servers whose files you can manage.":
+    "Clé ajoutée. SFTP l’accepte d’ici une à deux minutes, sur les serveurs dont vous pouvez gérer les fichiers.",
+  "Key deleted. SFTP refuses it within a minute or two, and closes the sessions opened with it.":
+    "Clé supprimée. SFTP la refuse d’ici une à deux minutes, et ferme les sessions ouvertes avec elle.",
   "No SSH keys.": "Aucune clé SSH.",
   Fingerprint: "Empreinte",
   "Add a key": "Ajouter une clé",

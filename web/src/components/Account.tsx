@@ -244,6 +244,7 @@ function SSHKeys() {
   const [name, setName] = useState("");
   const [pub, setPub] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   async function load() {
     try {
@@ -259,10 +260,12 @@ function SSHKeys() {
   async function add(e: FormEvent) {
     e.preventDefault();
     setError("");
+    setNotice("");
     try {
       await api.addSSHKey(name.trim(), pub.trim());
       setName("");
       setPub("");
+      setNotice(t("Key added. SFTP accepts it within a minute or two, on the servers whose files you can manage."));
       await load();
     } catch (err) {
       const existing = err instanceof ApiError && err.status === 409 ? (err.data as { existing?: { name: string } })?.existing : undefined;
@@ -273,7 +276,14 @@ function SSHKeys() {
 
   async function remove(k: SSHKey) {
     if (!window.confirm(t('Delete SSH key "{name}"?', { name: k.name }))) return;
-    await api.deleteSSHKey(k.id).catch((e) => setError(String(e)));
+    setError("");
+    setNotice("");
+    try {
+      await api.deleteSSHKey(k.id);
+      setNotice(t("Key deleted. SFTP refuses it within a minute or two, and closes the sessions opened with it."));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
     await load();
   }
 
@@ -283,6 +293,7 @@ function SSHKeys() {
       <p className="muted">
         {t("Public keys authorized for SFTP access to servers you can manage files on.")}
       </p>
+      {notice && <div className="notice">{notice}</div>}
       {keys.length === 0 ? (
         <p className="muted">{t("No SSH keys.")}</p>
       ) : (

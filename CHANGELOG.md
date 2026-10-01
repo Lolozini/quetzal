@@ -22,6 +22,16 @@ releases may include breaking changes).
   that was not there, while the real one could be neither renamed nor
   deleted from the panel.
 
+### Security
+
+- **A deleted SSH key's SFTP sessions close within seconds of the key being
+  refused.** A key reaches the SFTP server a minute or two after it is added
+  or deleted, through a ConfigMap the kubelet refreshes on its own clock, and
+  open sessions were then checked every 30 seconds: a deleted key's session
+  could stay open two minutes after the click. They are checked every 5
+  seconds now, and the account page says how long a key takes to be accepted
+  or refused.
+
 ## [0.7.0] - 2026-10-01
 
 A server's page in tabs, a panel that fits a phone, and game servers held more
