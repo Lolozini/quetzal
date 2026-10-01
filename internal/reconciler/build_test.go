@@ -1040,3 +1040,70 @@ func TestSystemPullPolicy(t *testing.T) {
 		t.Errorf("game container: %s", got)
 	}
 }
+
+// The DNS rule named no peer, which opened port 53 of every address to the
+// servers: the LAN's router and domain controllers, anything in the cluster
+// listening there. It is the cluster's resolver now -- its pods, a cache on the
+// node, and the address the controller was given -- and nothing else.
+func TestDNSGoesToTheClusterResolverOnly(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	np := BuildNetworkPolicy(s, tmpl, []EgressPeer{{CIDR: "10.96.0.10/32", DNS: true}, {CIDR: "192.168.1.0/24"}})
+	var dns *networkingv1.NetworkPolicyEgressRule
+	for i, rule := range np.Spec.Egress {
+		for _, p := range rule.Ports {
+			if p.Port != nil && p.Port.IntValue() == 53 {
+				dns = &np.Spec.Egress[i]
+			}
+		}
+	}
+	if dns == nil {
+		t.Fatalf("no DNS rule: %+v", np.Spec.Egress)
+	}
+	if len(dns.To) == 0 {
+		t.Fatal("the DNS rule names no peer: port 53 of every address is open")
+	}
+	var kubeDNS, nodeCache, given bool
+	for _, p := range dns.To {
+		switch {
+		case p.PodSelector != nil && p.PodSelector.MatchLabels["k8s-app"] == "kube-dns" && p.NamespaceSelector != nil && len(p.NamespaceSelector.MatchLabels) == 0:
+			kubeDNS = true
+		case p.IPBlock != nil && p.IPBlock.CIDR == "169.254.0.0/16":
+			nodeCache = true
+		case p.IPBlock != nil && p.IPBlock.CIDR == "10.96.0.10/32":
+			given = true
+		case p.IPBlock != nil:
+			t.Errorf("the DNS rule reaches %s", p.IPBlock.CIDR)
+		}
+	}
+	if !kubeDNS || !nodeCache || !given {
+		t.Errorf("DNS peers: kube-dns pods %v, node cache %v, the controller's resolver %v -- want all three", kubeDNS, nodeCache, given)
+	}
+	// The resolver is not given every port, and the operator's range still is.
+	for _, rule := range np.Spec.Egress {
+		for _, p := range rule.To {
+			if p.IPBlock != nil && p.IPBlock.CIDR == "10.96.0.10/32" && len(rule.Ports) != 2 {
+				t.Errorf("the resolver's address is open beyond port 53: %+v", rule.Ports)
+			}
+		}
+	}
+	if len(np.Spec.Egress) != 3 {
+		t.Errorf("want DNS, internet and the operator's range, got %d rules", len(np.Spec.Egress))
+	}
+}
+
+func TestNameservers(t *testing.T) {
+	conf := "search qz-a.svc.cluster.local svc.cluster.local\nnameserver 10.96.0.10\nnameserver 127.0.0.53\nnameserver fd00::a\noptions ndots:5\n"
+	if got := strings.Join(Nameservers(conf), " "); got != "10.96.0.10 fd00::a" {
+		t.Errorf("nameservers = %q, want the cluster's, without loopback", got)
+	}
+	r := &Reconciler{DNSServers: []string{"10.96.0.10", "fd00::a"}}
+	var cidrs []string
+	for _, p := range r.egressPeersFor(&models.Server{}) {
+		if p.DNS {
+			cidrs = append(cidrs, p.CIDR)
+		}
+	}
+	if strings.Join(cidrs, " ") != "10.96.0.10/32 fd00::a/128" {
+		t.Errorf("DNS peers = %v", cidrs)
+	}
+}

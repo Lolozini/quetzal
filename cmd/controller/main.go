@@ -116,6 +116,11 @@ func main() {
 	// out of reach; this is the operator's way to allow what their servers
 	// genuinely need there.
 	egressAllow := parseCIDRList(env("QUETZAL_EGRESS_ALLOW", ""))
+	// The resolver this pod was given is the one game servers are given too.
+	var dnsServers []string
+	if b, err := os.ReadFile("/etc/resolv.conf"); err == nil {
+		dnsServers = reconciler.Nameservers(string(b))
+	}
 	// The ClusterRole to bind to ourselves in each namespace we create, rather
 	// than holding that access across the whole cluster. Empty on an install
 	// that predates the split, and on a cluster registered with an
@@ -151,7 +156,7 @@ func main() {
 		}
 		reconcile := func() {
 			_ = guarded("reconcile", func() error {
-				reconcileAll(ctx, reg, st, actCfg, egressAllow, namespacedRole, watcher)
+				reconcileAll(ctx, reg, st, actCfg, egressAllow, dnsServers, namespacedRole, watcher)
 				return nil
 			})
 		}
@@ -334,7 +339,7 @@ func apiCallbackURL(base, kind string) string {
 	return base + "/api/internal/" + kind
 }
 
-func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, actCfg activatorConfig, egressAllow []string, namespacedRole string, watcher *startup.Watcher) {
+func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, actCfg activatorConfig, egressAllow, dnsServers []string, namespacedRole string, watcher *startup.Watcher) {
 	servers, err := st.ListServers()
 	if err != nil {
 		log.Printf("list servers: %v", err)
@@ -379,6 +384,7 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 		rec.NodePortMin = actCfg.nodePortMin
 		rec.NodePortMax = actCfg.nodePortMax
 		rec.ExtraEgressCIDRs = egressAllow
+		rec.DNSServers = dnsServers
 		rec.NamespacedRole = cluster.NamespacedRole(c, namespacedRole)
 		// Read straight from the environment rather than reusing `namespace`,
 		// which carries a default: a managed database's ingress policy has to

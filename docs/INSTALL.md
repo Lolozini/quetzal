@@ -281,7 +281,11 @@ stay as they were for whoever looks into why it was suspended.
 **Game servers themselves are confined.** Their pods mount no service account
 token, run with every capability dropped and no privilege escalation, and their
 NetworkPolicy allows DNS and the public internet only — not the cluster network,
-not the node, not your LAN. A database host is reachable because it is granted
+not the node, not your LAN. DNS means the cluster's resolver: its CoreDNS or
+kube-dns pods, a cache on the node at a link-local address (NodeLocal
+DNSCache and the like), and the resolver address the controller was given.
+If your pods are pointed at a resolver elsewhere, on the LAN say, add its
+address to `egressAllow`, or the servers will not resolve names. A database host is reachable because it is granted
 explicitly: a managed one, in the namespace that holds nothing else, and an
 external one at a private address on its database port only, however it is
 named — a Service of the cluster in full

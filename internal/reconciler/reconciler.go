@@ -81,6 +81,11 @@ type Reconciler struct {
 	// names its range here. Injected by the controller from QUETZAL_EGRESS_ALLOW.
 	ExtraEgressCIDRs []string
 
+	// DNSServers are the resolver addresses the controller itself was given
+	// (Nameservers), which a server may query on port 53 besides the cluster's
+	// DNS pods and node caches: see clusterDNSPeers.
+	DNSServers []string
+
 	// ControlPlaneNamespace is where the apiserver and controller run. A managed
 	// database's ingress policy has to let it in: it is the one that creates and
 	// drops databases over 3306. Empty means unknown, and the policy is then not
@@ -548,9 +553,18 @@ func (r *Reconciler) ensureNetworkPolicy(ctx context.Context, s *models.Server, 
 // has no notion of hostnames — so one on a private address needs its range in
 // ExtraEgressCIDRs. A public one is already covered by the internet rule.
 func (r *Reconciler) egressPeersFor(s *models.Server) []EgressPeer {
-	peers := make([]EgressPeer, 0, len(r.ExtraEgressCIDRs))
+	peers := make([]EgressPeer, 0, len(r.ExtraEgressCIDRs)+len(r.DNSServers))
 	for _, c := range r.ExtraEgressCIDRs {
 		peers = append(peers, EgressPeer{CIDR: c})
+	}
+	for _, ip := range r.DNSServers {
+		if a := net.ParseIP(ip); a != nil {
+			bits := 32
+			if a.To4() == nil {
+				bits = 128
+			}
+			peers = append(peers, EgressPeer{CIDR: fmt.Sprintf("%s/%d", a, bits), DNS: true})
+		}
 	}
 	if r.Store == nil {
 		return peers
@@ -595,6 +609,24 @@ func (r *Reconciler) egressPeersFor(s *models.Server) []EgressPeer {
 		peers = append(peers, EgressPeer{Namespace: t.Namespace})
 	}
 	return peers
+}
+
+// Nameservers reads the resolvers of a resolv.conf. On a pod they are the
+// cluster's -- the kubelet's clusterDNS, which game servers are handed too.
+// Loopback and unspecified addresses, which mean nothing from another pod,
+// are left out.
+func Nameservers(resolvConf string) []string {
+	var out []string
+	for _, line := range strings.Split(resolvConf, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || f[0] != "nameserver" {
+			continue
+		}
+		if ip := net.ParseIP(f[1]); ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
+			out = append(out, ip.String())
+		}
+	}
+	return out
 }
 
 // ensureSecret creates/updates the per-server Secret, skipping the write when

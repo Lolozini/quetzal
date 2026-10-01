@@ -661,6 +661,42 @@ type EgressPeer struct {
 	// Port, when set, narrows the peer to that TCP port: an external database
 	// host's, where the server has nothing else to do.
 	Port int32
+	// DNS makes CIDR a resolver: reachable on port 53 only, as the cluster's
+	// own DNS is.
+	DNS bool
+}
+
+// clusterDNSPeers are where a server's DNS queries may go. The rule used to
+// name no peer, which opened port 53 of every address to the servers -- the
+// LAN's router and domain controllers, anything listening there in the
+// cluster. It is the cluster's resolver now, in the forms it takes:
+//
+//   - CoreDNS or kube-dns pods, in whatever namespace: kubeadm, kind, k3s,
+//     RKE2, EKS, GKE and AKS label them k8s-app=kube-dns, and policy is
+//     evaluated on the pod a Service address was translated to;
+//   - OpenShift's, which carry a label of their own;
+//   - a cache on the node (NodeLocal DNSCache, kubespray's, AKS's), which
+//     listens on a link-local address, outside any pod.
+//
+// The resolver address the controller itself was given joins them (EgressPeer
+// DNS), for a node cache that answers on the kube-dns Service address.
+// Anything else -- a resolver on the LAN the pods were pointed at -- is what
+// QUETZAL_EGRESS_ALLOW is for. Public resolvers stay reachable through the
+// internet rule.
+func clusterDNSPeers() []networkingv1.NetworkPolicyPeer {
+	return []networkingv1.NetworkPolicyPeer{
+		{
+			NamespaceSelector: &metav1.LabelSelector{},
+			PodSelector:       &metav1.LabelSelector{MatchLabels: map[string]string{"k8s-app": "kube-dns"}},
+		},
+		{
+			NamespaceSelector: &metav1.LabelSelector{},
+			PodSelector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+				Key: "dns.operator.openshift.io/daemonset-dns", Operator: metav1.LabelSelectorOpExists,
+			}}},
+		},
+		{IPBlock: &networkingv1.IPBlock{CIDR: "169.254.0.0/16"}},
+	}
 }
 
 // privateRanges are the address blocks a game server has no business reaching:
@@ -739,9 +775,16 @@ func BuildNetworkPolicy(s *models.Server, t *models.Template, extra []EgressPeer
 // egressRules builds the egress side: DNS, the public internet, and whatever
 // else this server was explicitly given.
 func egressRules(dnsUDP, dnsTCP corev1.Protocol, dnsPort intstr.IntOrString, extra []EgressPeer) []networkingv1.NetworkPolicyEgressRule {
+	dnsPeers := clusterDNSPeers()
+	for _, p := range extra {
+		if p.DNS && p.CIDR != "" {
+			dnsPeers = append(dnsPeers, networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: p.CIDR}})
+		}
+	}
 	rules := []networkingv1.NetworkPolicyEgressRule{
 		{ // DNS. The resolver lives in the cluster, which the rule below denies,
-			// so it needs one of its own — ports only, no peer restriction.
+			// so it needs one of its own: the resolver, nothing else on port 53.
+			To: dnsPeers,
 			Ports: []networkingv1.NetworkPolicyPort{
 				{Protocol: &dnsUDP, Port: &dnsPort},
 				{Protocol: &dnsTCP, Port: &dnsPort},
@@ -757,6 +800,9 @@ func egressRules(dnsUDP, dnsTCP corev1.Protocol, dnsPort intstr.IntOrString, ext
 		},
 	}
 	for _, p := range extra {
+		if p.DNS {
+			continue // in the DNS rule above
+		}
 		var ports []networkingv1.NetworkPolicyPort
 		if p.Port != 0 {
 			tcp := corev1.ProtocolTCP

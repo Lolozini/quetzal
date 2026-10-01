@@ -181,6 +181,13 @@ releases may include breaking changes).
   on it reach every port of that address, the cloud metadata endpoint
   included had a host been pointed at it. It is the database port only now,
   and link-local and loopback addresses never get through.
+- **A game server's DNS goes to the cluster's resolver only.** The policy
+  opened port 53 of every address to the servers: the LAN's router and
+  domain controllers, anything in the cluster listening there. They may query
+  the cluster's CoreDNS or kube-dns pods, a node-local cache at a link-local
+  address, and the resolver the controller was given, and public resolvers
+  as before; nothing else on port 53. A cluster whose pods are pointed at a
+  resolver elsewhere needs its address in `egressAllow`.
 - **Deleting an SSH key revokes it.** The same public key could be added to
   an account twice, and deleting one of the two left the key working through
   the other: an SFTP session stayed open after its key was deleted. A key is
