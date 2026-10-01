@@ -7,6 +7,21 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- **A file path that leaves the server's files is refused.** `../escape.txt`
+  was brought back inside them without a word, and the file was written as
+  `escape.txt` at the top of the server's files, which is not what was asked
+  for. Every file route now answers 400 for a path that climbs above the data
+  directory; `..` that stays inside it still works.
+
+### Fixed
+
+- **A file whose name holds a newline is listed whole.** The game or a plugin
+  can create one, and the file manager listed `new\nline.txt` as `new`, a file
+  that was not there, while the real one could be neither renamed nor
+  deleted from the panel.
+
 ## [0.7.0] - 2026-10-01
 
 A server's page in tabs, a panel that fits a phone, and game servers held more

@@ -71,6 +71,9 @@ func (s *Server) handleBulkDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if outsideRoot(w, req.Root) {
+		return
+	}
 	dir := jail(root, req.Root)
 	cmd := []string{"sh", "-c", guarded(bulkDeleteScript), root}
 	for _, f := range req.Files {
@@ -119,6 +122,9 @@ func (s *Server) handleBulkMove(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := checkNames(req.Files); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if outsideRoot(w, req.Root, req.Destination) {
 		return
 	}
 	dir := jail(root, req.Root)
@@ -194,6 +200,9 @@ func (s *Server) handleCopyFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
+	if outsideRoot(w, req.Path) {
+		return
+	}
 	rel := path.Clean("/" + req.Path)
 	if rel == "/" {
 		writeError(w, http.StatusBadRequest, "choose a file or folder to copy")
@@ -243,6 +252,9 @@ func (s *Server) handleCompressFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := checkNames(req.Files); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if outsideRoot(w, req.Root) {
 		return
 	}
 	name := "archive-" + time.Now().UTC().Format("2006-01-02-150405") + ".tar.gz"
@@ -312,6 +324,9 @@ func (s *Server) handleDecompressFile(w http.ResponseWriter, r *http.Request) {
 	var req decompressRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	if outsideRoot(w, req.Path) {
 		return
 	}
 	format, ok := archiveFormat(req.Path)

@@ -70,6 +70,20 @@ func jail(root, rel string) string {
 	return path.Join(root, path.Clean("/"+rel))
 }
 
+// outsideRoot answers 400 when one of paths climbs above the data directory
+// ("../x", "a/../../x") and reports whether it did. jail would confine such a
+// path, but silently: a write to "../escape.txt" landed in the data directory
+// as "escape.txt", and nothing told the caller that the path had been changed.
+func outsideRoot(w http.ResponseWriter, paths ...string) bool {
+	for _, p := range paths {
+		if c := path.Clean(strings.TrimLeft(p, "/")); c == ".." || strings.HasPrefix(c, "../") {
+			writeError(w, http.StatusBadRequest, "path escapes the data directory: "+p)
+			return true
+		}
+	}
+	return false
+}
+
 // guardScript refuses paths that leave the data directory once symlinks are
 // taken into account, so a link planted in the volume (by an extracted archive,
 // or by the game process) cannot be used to read or write outside it. It runs in
@@ -133,6 +147,9 @@ func (s *Server) fileContext(w http.ResponseWriter, r *http.Request) (srv *model
 	srv, ok = s.requireServer(w, r, models.PermFiles)
 	if !ok {
 		return
+	}
+	if q := r.URL.Query(); outsideRoot(w, q.Get("path"), q.Get("to")) {
+		return nil, "", nil, nil, "", false
 	}
 	root = s.dataRoot(srv)
 	cs, cfg, err := s.clientsFor(srv)
@@ -316,6 +333,10 @@ func guarded(body string) string { return guardScript + body }
 
 // listScript prints "<type>\t<size>\t<mtime>\t<name>" per entry of the
 // directory in $1, mtime in Unix seconds (0 where the image has no stat).
+// Each record ends with a NUL, the one byte a file name cannot hold: ended by a
+// newline, a name with a newline in it (which the game or a plugin can create)
+// came out cut in two, its first half listed as a file that was not there and
+// the real one out of the panel's reach.
 const listScript = `qz_guard deref "$0" "$1"
 qz_exists "$1"
 cd "$1" 2>/dev/null || { echo "not a directory" >&2; exit 4; }
@@ -324,9 +345,24 @@ for e in * .*; do
   [ "$e" = ".." ] && continue
   [ -e "$e" ] || [ -L "$e" ] || continue
   m=$(stat -c %Y -- "$e" 2>/dev/null) || m=0
-  if [ -d "$e" ]; then printf 'd\t0\t%s\t%s\n' "$m" "$e"
-  else s=$(wc -c < "$e" 2>/dev/null) || s=0; printf 'f\t%s\t%s\t%s\n' "$s" "$m" "$e"; fi
+  if [ -d "$e" ]; then printf 'd\t0\t%s\t%s\0' "$m" "$e"
+  else s=$(wc -c < "$e" 2>/dev/null) || s=0; printf 'f\t%s\t%s\t%s\0' "$s" "$m" "$e"; fi
 done`
+
+// parseListing reads listScript's output.
+func parseListing(out string) []fileEntry {
+	entries := []fileEntry{}
+	for _, rec := range strings.Split(out, "\x00") {
+		parts := strings.SplitN(rec, "\t", 4)
+		if len(parts) != 4 || parts[3] == "" {
+			continue
+		}
+		size, _ := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+		mtime, _ := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 64)
+		entries = append(entries, fileEntry{Name: parts[3], Size: size, ModTime: mtime, Dir: parts[0] == "d"})
+	}
+	return entries
+}
 
 func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
@@ -339,20 +375,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 		writeFileOpError(w, "list failed", err)
 		return
 	}
-	entries := []fileEntry{}
-	for _, line := range strings.Split(out.String(), "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "\t", 4)
-		if len(parts) != 4 {
-			continue
-		}
-		size, _ := strconv.ParseInt(parts[1], 10, 64)
-		mtime, _ := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 64)
-		entries = append(entries, fileEntry{Name: parts[3], Size: size, ModTime: mtime, Dir: parts[0] == "d"})
-	}
-	writeJSON(w, http.StatusOK, entries)
+	writeJSON(w, http.StatusOK, parseListing(out.String()))
 }
 
 func (s *Server) handleReadFile(w http.ResponseWriter, r *http.Request) {

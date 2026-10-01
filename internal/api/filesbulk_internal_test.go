@@ -220,3 +220,31 @@ func TestArchiveFormatAndNames(t *testing.T) {
 		t.Errorf("checkNames: %v", err)
 	}
 }
+
+// A name may hold a newline: the game or a plugin can create one, and SFTP can.
+// Listed line by line, "new\nline.txt" came out as an entry "new", which was not
+// there, and the real file could be neither renamed nor deleted from the panel.
+func TestListingKeepsNamesWithANewlineWhole(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"new\nline.txt", "tab\there.txt", "plain.txt", ".hidden"} {
+		mkfile(t, filepath.Join(root, name), "x")
+	}
+	os.Mkdir(filepath.Join(root, "two\nlines"), 0o755)
+	out, _, code := runScript(t, root, listScript, root)
+	if code != 0 {
+		t.Fatalf("list exited %d", code)
+	}
+	got := map[string]bool{}
+	for _, e := range parseListing(out) {
+		got[e.Name] = e.Dir
+	}
+	want := map[string]bool{"new\nline.txt": false, "tab\there.txt": false, "plain.txt": false, ".hidden": false, "two\nlines": true}
+	if len(got) != len(want) {
+		t.Errorf("listed %v, want %v", got, want)
+	}
+	for name, dir := range want {
+		if d, ok := got[name]; !ok || d != dir {
+			t.Errorf("%q: listed=%v dir=%v, want listed as dir=%v (all: %v)", name, ok, d, dir, got)
+		}
+	}
+}

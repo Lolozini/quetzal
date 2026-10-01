@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -131,13 +132,34 @@ func TestE2EFiles(t *testing.T) {
 		t.Errorf("whole-volume archive is not a gzip stream (len=%d)", len(wb))
 	}
 
-	// Path traversal must be confined to the data root: reading ../../etc/passwd
-	// resolves under /data (nonexistent) and must NOT return the real file.
+	// Path traversal is refused before anything runs in the container: reading
+	// ../../etc/passwd must neither return the real file nor be quietly read
+	// as /data/etc/passwd.
 	tr := doFile(t, hc, http.MethodGet, base+"/content?path=../../../../etc/passwd", "")
 	body := readBody(t, tr)
 	if strings.Contains(body, "root:") {
 		t.Fatalf("path traversal escaped the data root: %q", body)
 	}
+	if tr.StatusCode != http.StatusBadRequest {
+		t.Errorf("path traversal = %d %q, want 400", tr.StatusCode, body)
+	}
+
+	// A name with a newline in it, which the game can create, is listed whole
+	// by the image's own shell, and can be deleted from the panel.
+	odd := url.QueryEscape("new\nline.txt")
+	mustStatus(t, doFile(t, hc, http.MethodPut, base+"/content?path="+odd, "x"), http.StatusNoContent)
+	var listed []struct{ Name string }
+	lr := doFile(t, hc, http.MethodGet, base+"?path=", "")
+	mustStatus(t, lr, http.StatusOK)
+	json.NewDecoder(lr.Body).Decode(&listed)
+	names := map[string]bool{}
+	for _, e := range listed {
+		names[e.Name] = true
+	}
+	if !names["new\nline.txt"] || names["new"] || names["line.txt"] {
+		t.Errorf("a name with a newline is not listed whole: %q", listed)
+	}
+	mustStatus(t, doFile(t, hc, http.MethodDelete, base+"?path="+odd, ""), http.StatusNoContent)
 
 	// A symlink planted in the volume must not become a way out either. Textual
 	// confinement does not catch one, and a link gets there without SFTP or the
