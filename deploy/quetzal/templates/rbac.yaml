@@ -11,8 +11,8 @@ metadata:
 # Two roles, because RBAC cannot say "namespaces beginning with quetzal-".
 #
 # This one is cluster-wide because its resources are: namespaces themselves,
-# nodes, volumes, storage classes. It also carries the right to hand the second
-# role out — but only that role, and see the admission policy below for where.
+# nodes, storage classes. It also carries the right to hand the second role
+# out — but only that role, and see the admission policy for where and to whom.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -23,11 +23,6 @@ rules:
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Cluster-scoped volumes: switching a reclaim policy to Retain when a server is
-  # deleted with "keep data".
-  - apiGroups: [""]
-    resources: ["persistentvolumes"]
-    verbs: ["get", "list", "patch"]
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list", "watch"]
@@ -40,10 +35,11 @@ rules:
     verbs: ["get", "list", "watch"]
   # Granting itself the namespaced role, in each namespace it creates. RBAC
   # allows this without holding those permissions because of the bind verb
-  # below, which is scoped to that one role by name.
+  # below, which is scoped to that one role by name. Create only: a binding is
+  # never changed afterwards, and it goes with its namespace.
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["rolebindings"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    verbs: ["create"]
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["clusterroles"]
     resourceNames: ["{{ include "quetzal.fullname" . }}-namespaced"]

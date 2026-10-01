@@ -14,7 +14,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -105,6 +108,55 @@ current-context: remote
 	}
 	if rb.RoleRef.Name != cluster.RemoteNamespacedRole {
 		t.Errorf("bound %q, want the manifest's %q", rb.RoleRef.Name, cluster.RemoteNamespacedRole)
+	}
+
+	// And nothing beyond its own namespaces, as the account the operator hands
+	// over. Each of these reaches past them; the server above shows that what
+	// Quetzal does need still works.
+	cs := clients.Clientset
+	self := rbacv1.Subject{Kind: "ServiceAccount", Name: cluster.RemoteServiceAccount, Namespace: cluster.RemoteNamespace}
+	binding := func(ns string, subject rbacv1.Subject) *rbacv1.RoleBinding {
+		return &rbacv1.RoleBinding{
+			ObjectMeta: metav1.ObjectMeta{Name: "e2e-reach", Namespace: ns},
+			RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: cluster.RemoteNamespacedRole},
+			Subjects:   []rbacv1.Subject{subject},
+		}
+	}
+	refused := func(what string, err error) {
+		t.Helper()
+		if err == nil {
+			t.Errorf("%s: allowed", what)
+		}
+	}
+	_, err = cs.RbacV1().RoleBindings("kube-system").Create(ctx, binding("kube-system", self), metav1.CreateOptions{})
+	refused("binding its role to itself in kube-system", err)
+	everyone := rbacv1.Subject{Kind: "Group", APIGroup: rbacv1.GroupName, Name: "system:authenticated"}
+	_, err = cs.RbacV1().RoleBindings(srv.Namespace).Create(ctx, binding(srv.Namespace, everyone), metav1.CreateOptions{})
+	refused("binding its role to every authenticated user, in its own namespace", err)
+
+	canary := binding("kube-system", rbacv1.Subject{Kind: "User", APIGroup: rbacv1.GroupName, Name: "e2e-nobody"})
+	canary.RoleRef = rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "view"}
+	if err := c.Create(ctx, canary); err != nil {
+		t.Fatalf("canary binding: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Delete(context.Background(), canary) })
+	err = cs.RbacV1().RoleBindings("kube-system").Delete(ctx, canary.Name, metav1.DeleteOptions{})
+	refused("deleting a binding in kube-system", err)
+
+	_, err = cs.CoreV1().Namespaces().Patch(ctx, "kube-system", types.MergePatchType,
+		[]byte(`{"metadata":{"labels":{"e2e-reach":"yes"}}}`), metav1.PatchOptions{})
+	refused("labelling kube-system", err)
+	stray := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "e2e-not-quetzal"}}
+	if _, err := cs.CoreV1().Namespaces().Create(ctx, stray, metav1.CreateOptions{}); err == nil {
+		t.Errorf("creating a namespace of another name: allowed")
+		_ = c.Delete(context.Background(), stray)
+	}
+
+	// Volumes are not its business at all: a PersistentVolume's claimRef is
+	// what decides whose data a claim mounts.
+	_, err = cs.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})
+	if !apierrors.IsForbidden(err) {
+		t.Errorf("listing PersistentVolumes: got %v, want forbidden", err)
 	}
 }
 

@@ -244,7 +244,7 @@ Worth knowing before you hand accounts to other people.
 
 **The control plane is scoped to the namespaces it creates.** It holds
 cluster-wide access only to what is genuinely cluster-scoped — namespaces,
-nodes, volumes, storage classes. Everything a server needs is a role it grants
+nodes, storage classes. Everything a server needs is a role it grants
 itself inside each namespace it makes, so it cannot read a Secret in
 kube-system, exec into a pod that is not a game server, or run a workload in
 somebody else's namespace.
@@ -252,8 +252,9 @@ somebody else's namespace.
 Handing that role out requires creating RoleBindings, and RBAC can only grant
 that cluster-wide — which on its own would let the account bind its own role
 anywhere and read everything after all. `admissionPolicy.enabled` closes that:
-an admission policy confines those bindings, and namespace deletions, to
-namespaces Quetzal owns. It needs 1.30; turn it off below that and the scoping
+an admission policy confines those bindings to namespaces Quetzal owns, to its
+own role and to its own account, and does the same for creating, relabelling
+and deleting namespaces. It needs 1.30; turn it off below that and the scoping
 still stands, but the escalation becomes possible again — noisily, since
 creating a RoleBinding in kube-system is an audited write where reading a Secret
 is not.

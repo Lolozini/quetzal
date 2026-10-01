@@ -53,19 +53,17 @@ type PolicyRule struct {
 }
 
 // RemoteClusterRules are the permissions that are genuinely cluster-wide,
-// because their resources are: namespaces themselves, nodes, volumes, storage
-// classes. It also carries the right to hand the namespaced role out, scoped by
-// name to that one role.
+// because their resources are: namespaces themselves, nodes, storage classes.
+// It also carries the right to hand the namespaced role out, scoped by name to
+// that one role.
 var RemoteClusterRules = []PolicyRule{
 	{APIGroups: []string{""}, Resources: []string{"namespaces"},
 		Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
-	{APIGroups: []string{""}, Resources: []string{"persistentvolumes"},
-		Verbs: []string{"get", "list", "patch"}},
 	{APIGroups: []string{""}, Resources: []string{"nodes"}, Verbs: []string{"get", "list", "watch"}},
 	{APIGroups: []string{"metrics.k8s.io"}, Resources: []string{"pods"}, Verbs: []string{"get", "list"}},
 	{APIGroups: []string{"storage.k8s.io"}, Resources: []string{"storageclasses"}, Verbs: []string{"get", "list", "watch"}},
 	{APIGroups: []string{"rbac.authorization.k8s.io"}, Resources: []string{"rolebindings"},
-		Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
+		Verbs: []string{"create"}},
 	{APIGroups: []string{"rbac.authorization.k8s.io"}, Resources: []string{"clusterroles"},
 		ResourceNames: []string{RemoteNamespacedRole}, Verbs: []string{"bind"}},
 	{APIGroups: []string{"authentication.k8s.io"}, Resources: []string{"selfsubjectreviews"}, Verbs: []string{"create"}},
@@ -115,8 +113,8 @@ metadata:
   namespace: ` + RemoteNamespace + `
 ---
 # Cluster-wide, because these resources are: namespaces themselves, nodes,
-# volumes, storage classes — plus the right to hand out the role below, scoped
-# by name to that one role.
+# storage classes — plus the right to hand out the role below, scoped by name
+# to that one role.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -162,9 +160,10 @@ type: kubernetes.io/service-account-token
 ---
 # The right to hand out the namespaced role is cluster-wide or nothing in RBAC,
 # so on its own it lets this account bind that role in kube-system and read
-# everything after all. Admission can say where, so it does. Delete these two if
-# your cluster is older than 1.30: everything else still works, you lose this
-# guard.
+# everything after all. Admission can say where, and to whom, so it does — and
+# it keeps the account's namespace writes to its own namespaces too. Delete
+# these two if your cluster is older than 1.30: everything else still works,
+# you lose this guard.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -179,7 +178,7 @@ spec:
         resources: ["rolebindings"]
       - apiGroups: [""]
         apiVersions: ["v1"]
-        operations: ["DELETE"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
         resources: ["namespaces"]
   matchConditions:
     - name: only-the-control-plane
@@ -192,6 +191,15 @@ spec:
   validations:
     - expression: variables.mine
       messageExpression: "'Quetzal may only do this in the namespaces it creates, not ' + variables.target"
+    - expression: >-
+        request.resource.resource != 'rolebindings' || (
+          object.roleRef.kind == 'ClusterRole' &&
+          object.roleRef.name == '` + RemoteNamespacedRole + `' &&
+          (!has(object.subjects) || object.subjects.all(s,
+            s.kind == 'ServiceAccount' && has(s.namespace) &&
+            s.namespace == '` + RemoteNamespace + `' &&
+            s.name == '` + RemoteServiceAccount + `')))
+      message: Quetzal may only bind its own namespaced role, and only to itself
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

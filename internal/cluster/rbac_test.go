@@ -87,6 +87,71 @@ func TestRemoteRulesMatchTheChart(t *testing.T) {
 	compare("namespaced", chartRules("-namespaced"), RemoteNamespacedRules)
 }
 
+// The admission policy exists twice as well, and drifts the same way: a write
+// the chart's copy refuses that the manifest's lets through is a guard remote
+// clusters quietly lack.
+func TestRemotePolicyMatchesTheChart(t *testing.T) {
+	type policy struct {
+		Kind string `yaml:"kind"`
+		Spec struct {
+			MatchConstraints struct {
+				ResourceRules []struct {
+					APIGroups  []string `yaml:"apiGroups"`
+					Operations []string `yaml:"operations"`
+					Resources  []string `yaml:"resources"`
+				} `yaml:"resourceRules"`
+			} `yaml:"matchConstraints"`
+			Validations []struct {
+				Expression string `yaml:"expression"`
+			} `yaml:"validations"`
+		} `yaml:"spec"`
+	}
+	find := func(what, text string) policy {
+		t.Helper()
+		dec := yaml.NewDecoder(strings.NewReader(text))
+		for {
+			var p policy
+			err := dec.Decode(&p)
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				t.Fatalf("parse %s: %v", what, err)
+			}
+			if p.Kind == "ValidatingAdmissionPolicy" {
+				return p
+			}
+		}
+		t.Fatalf("%s has no ValidatingAdmissionPolicy", what)
+		return policy{}
+	}
+	raw, err := os.ReadFile(filepath.Join("..", "..", "deploy", "quetzal", "templates", "admissionpolicy.yaml"))
+	if err != nil {
+		t.Fatalf("read chart: %v", err)
+	}
+	// Names differ between the two by design; the check is about what is
+	// matched and how many conditions are checked. Lines that are template
+	// actions alone (the if, the labels) go; names inside text are replaced.
+	body := regexp.MustCompile(`(?m)^\s*\{\{[^}]*\}\}\s*$`).ReplaceAllString(string(raw), "")
+	body = regexp.MustCompile(`\{\{[^}]*\}\}`).ReplaceAllString(body, "TEMPLATED")
+	chart, manifest := find("chart", body), find("manifest", RemoteManifest())
+
+	rules := func(p policy) []string {
+		var out []string
+		for _, r := range p.Spec.MatchConstraints.ResourceRules {
+			out = append(out, strings.Join(r.APIGroups, ",")+"|"+strings.Join(r.Resources, ",")+"|"+strings.Join(r.Operations, ","))
+		}
+		slices.Sort(out)
+		return out
+	}
+	if a, b := rules(chart), rules(manifest); !slices.Equal(a, b) {
+		t.Errorf("the policies match different writes:\nchart:    %v\nmanifest: %v", a, b)
+	}
+	if a, b := len(chart.Spec.Validations), len(manifest.Spec.Validations); a != b {
+		t.Errorf("the chart's policy checks %d conditions, the manifest's %d", a, b)
+	}
+}
+
 // The manifest is applied by hand on someone else's cluster, so it has to parse
 // and it has to create the account it claims to.
 func TestRemoteManifestIsValidYAML(t *testing.T) {

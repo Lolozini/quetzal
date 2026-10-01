@@ -7,6 +7,21 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Security
+
+- **The control plane's account no longer reaches past its own namespaces
+  through volumes, bindings or namespace labels.** It could still patch any
+  PersistentVolume on the cluster, a right left over from the "keep data"
+  option that 0.2.0 removed: a volume's claim reference decides which claim
+  mounts it, so a compromised panel could have mounted another application's
+  data. It could also delete any RoleBinding, relabel or create any namespace,
+  and, in its own namespaces, bind its role to someone other than itself. The
+  chart and the remote-cluster manifest drop the volume rule and keep only
+  *create* on RoleBindings, and the admission policy now also refuses
+  namespace writes outside Quetzal's namespaces and any binding of another
+  role or to another account. Remote clusters pick this up when the manifest
+  the panel shows is applied again.
+
 ## [0.8.0] - 2026-10-01
 
 Schedules do what their chain says: a backup step ends when its backup does,

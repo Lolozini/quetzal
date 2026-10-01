@@ -7,7 +7,10 @@
 #
 # Admission can say where, so it does. It only sees writes — a read never reaches
 # it — which is exactly the division of labour: RBAC bounds what this account can
-# read, and this bounds the one write that would undo that.
+# read, and this bounds the writes that would undo that. It also bounds the
+# namespaces themselves: creating, relabelling and deleting them is cluster-wide
+# in RBAC too, and the labels of somebody else's namespace can be what their
+# NetworkPolicies select on.
 #
 # Needs Kubernetes 1.30, where ValidatingAdmissionPolicy went GA. Without it
 # Quetzal runs the same; you lose this guard, not a feature.
@@ -27,7 +30,7 @@ spec:
         resources: ["rolebindings"]
       - apiGroups: [""]
         apiVersions: ["v1"]
-        operations: ["DELETE"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
         resources: ["namespaces"]
   matchConditions:
     # Only this account. Everyone else's RoleBindings and namespaces are none of
@@ -37,8 +40,8 @@ spec:
         request.userInfo.username ==
         'system:serviceaccount:{{ .Release.Namespace }}:{{ include "quetzal.serviceAccountName" . }}'
   variables:
-    # A RoleBinding is judged on the namespace it lands in; a namespace deletion
-    # on the namespace itself.
+    # A RoleBinding is judged on the namespace it lands in; a namespace write on
+    # the namespace itself.
     - name: target
       expression: >-
         request.resource.resource == 'namespaces' ? request.name : request.namespace
@@ -50,6 +53,18 @@ spec:
     - expression: variables.mine
       messageExpression: >-
         'Quetzal may only do this in the namespaces it creates, not ' + variables.target
+    # Even there, a binding hands out the namespaced role and only to this
+    # account. Binding it to anyone else — every authenticated user, say — would
+    # open the game servers' Secrets to them.
+    - expression: >-
+        request.resource.resource != 'rolebindings' || (
+          object.roleRef.kind == 'ClusterRole' &&
+          object.roleRef.name == '{{ include "quetzal.fullname" . }}-namespaced' &&
+          (!has(object.subjects) || object.subjects.all(s,
+            s.kind == 'ServiceAccount' && has(s.namespace) &&
+            s.namespace == '{{ .Release.Namespace }}' &&
+            s.name == '{{ include "quetzal.serviceAccountName" . }}')))
+      message: Quetzal may only bind its own namespaced role, and only to itself
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
