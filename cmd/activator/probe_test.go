@@ -9,12 +9,14 @@ import (
 	"time"
 )
 
+// shortWindow is the scan window shortScanWindow sets.
+const shortWindow = 300 * time.Millisecond
+
 // shortScanWindow makes a test's port scans and slow clients quick to tell apart.
 func shortScanWindow(t *testing.T) {
 	t.Helper()
-	old := scanWindow
-	scanWindow = 300 * time.Millisecond
-	t.Cleanup(func() { scanWindow = old })
+	old := scanWindow.Swap(int64(shortWindow))
+	t.Cleanup(func() { scanWindow.Store(old) })
 }
 
 // Outside Minecraft, a port scanner's bare connection woke a sleeping server
@@ -30,7 +32,7 @@ func TestDropIgnoresPortScans(t *testing.T) {
 
 	c := dial(t, addr)
 	_ = c.Close()
-	time.Sleep(3 * scanWindow)
+	time.Sleep(3 * shortWindow)
 	if n := wakes.Load(); n != 0 {
 		t.Fatalf("a bare connection woke the server (%d)", n)
 	}
@@ -59,7 +61,7 @@ func TestProxyIgnoresPortScansWhileAsleep(t *testing.T) {
 
 	c := dial(t, ln.Addr().String())
 	_ = c.Close()
-	time.Sleep(backendDial + 3*scanWindow)
+	time.Sleep(backendDial + 3*shortWindow)
 	if n := wakes.Load(); n != 0 {
 		t.Fatalf("a bare connection woke the server (%d)", n)
 	}

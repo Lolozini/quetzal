@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,14 +20,17 @@ import (
 // scanWindow is how long a TCP connection to a sleeping server has to show it
 // is not a port scan. A scanner connects and hangs up at once, without a byte;
 // a client speaks first, as nearly every game's does, or waits for the server
-// to, and either way is still there.
-var scanWindow = 3 * time.Second
+// to, and either way is still there. Atomic because tests shorten it while
+// connection handlers of an earlier test may still read it.
+var scanWindow atomic.Int64
+
+func init() { scanWindow.Store(int64(3 * time.Second)) }
 
 // firstMove waits up to scanWindow for a client's first bytes and reports
 // whether the connection is a client rather than a port scan. What it read is
 // returned, for a proxy to pass on.
 func firstMove(conn net.Conn) (bool, []byte) {
-	_ = conn.SetReadDeadline(time.Now().Add(scanWindow))
+	_ = conn.SetReadDeadline(time.Now().Add(time.Duration(scanWindow.Load())))
 	buf := make([]byte, 4096)
 	n, err := conn.Read(buf)
 	_ = conn.SetReadDeadline(time.Time{})
