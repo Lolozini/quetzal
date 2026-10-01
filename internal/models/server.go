@@ -151,6 +151,11 @@ type Status struct {
 	// on every restart) that printed one of the template's done lines. The
 	// server is Running while that container is the one up.
 	StartedContainer string `json:"startedContainer,omitempty"`
+	// StartupMissed records that the game's last start went without a done
+	// line: it was reported Running once the wait for one ran out. The next
+	// start is then reported Running as soon as its container is up, rather
+	// than after the same long wait, until a done line shows again.
+	StartupMissed bool `json:"startupMissed,omitempty"`
 }
 
 // Server is a deployable game server instance. The database row is the source

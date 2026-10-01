@@ -666,7 +666,9 @@ func secretDataEqual(data map[string][]byte, want map[string]string) bool {
 // including crash detection.
 func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *models.Template) error {
 	eps, addr := r.endpointsFor(ctx, s, t)
-	st := models.Status{Endpoints: eps, Address: addr, InstalledGeneration: s.Status.InstalledGeneration}
+	// A missed done line is remembered while the server is stopped or asleep:
+	// it is about the next start.
+	st := models.Status{Endpoints: eps, Address: addr, InstalledGeneration: s.Status.InstalledGeneration, StartupMissed: s.Status.StartupMissed}
 
 	switch {
 	case s.DesiredState == models.StateSuspended:
@@ -690,7 +692,7 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 			st.Phase = models.PhaseError
 			st.Message = installFailureMessage(h)
 		case r.deploymentReady(ctx, s.Namespace):
-			st.Phase, st.StartedContainer, st.Message = r.startupPhase(s, t, h, time.Now())
+			st.Phase, st.StartedContainer, st.Message, st.StartupMissed = r.startupPhase(s, t, h, time.Now())
 			if r.deploymentCurrent(ctx, s.Namespace) {
 				st.InstalledGeneration = s.InstallGeneration
 			}
@@ -731,8 +733,16 @@ const startupLimit = 30 * time.Minute
 // startupPhase tells Running from Starting once the pod is ready. Ready only
 // means the container is up; the game is ready when it prints one of its
 // template's done lines, which is what Pterodactyl waits for too. It returns
-// the phase, the container known to have started, and a message.
-func (r *Reconciler) startupPhase(s *models.Server, t *models.Template, h podHealth, now time.Time) (models.Phase, string, string) {
+// the phase, the container known to have started, a message, and whether this
+// start is going without its done line.
+//
+// A game whose done line never comes -- Counter-Strike 2 without a valid game
+// server token never prints "Connection to Steam servers successful", yet takes
+// players -- was shown Starting for the first half hour of every start. Once
+// the wait has run out, the next starts are reported Running as soon as their
+// container is up, with a message saying why. The line is still looked for, and
+// seeing it again brings back the usual wait.
+func (r *Reconciler) startupPhase(s *models.Server, t *models.Template, h podHealth, now time.Time) (models.Phase, string, string, bool) {
 	lines := t.DoneLines()
 	ms, bad := startup.Compile(lines)
 	id := h.gameContainer
@@ -743,33 +753,42 @@ func (r *Reconciler) startupPhase(s *models.Server, t *models.Template, h podHea
 		if bad != nil {
 			msg = "the template's startup line is invalid (" + bad.Error() + "), so the server is not checked for it"
 		}
-		return models.PhaseRunning, id, msg
+		return models.PhaseRunning, id, msg, false
 	case r.StartupSeen == nil:
-		return models.PhaseRunning, id, ""
+		return models.PhaseRunning, id, "", false
 	case id == "" || h.gameStarted.IsZero():
 		// The Deployment and the pod list disagree for a moment. Keep what was
 		// reported rather than flap between phases.
 		if s.Status.Phase == models.PhaseRunning || s.Status.Phase == models.PhaseStarting {
-			return s.Status.Phase, s.Status.StartedContainer, s.Status.Message
+			return s.Status.Phase, s.Status.StartedContainer, s.Status.Message, s.Status.StartupMissed
 		}
-		return models.PhaseStarting, "", ""
-	case s.Status.StartedContainer == id:
-		return models.PhaseRunning, id, ""
+		return models.PhaseStarting, "", "", s.Status.StartupMissed
+	case s.Status.StartedContainer == id && !s.Status.StartupMissed:
+		return models.PhaseRunning, id, "", false
 	case s.Status.StartedContainer == "" && s.Status.Phase == models.PhaseRunning:
 		// Reported Running before this check existed. Sending every running
 		// server back to Starting on upgrade, some for good because their done
 		// line has since left the log, would be worse than trusting it.
-		return models.PhaseRunning, id, ""
+		return models.PhaseRunning, id, "", false
 	}
 	deadline := h.gameStarted.Add(startupLimit)
 	if r.StartupSeen(s.Namespace, h.gamePod, id, deadline, ms) {
-		return models.PhaseRunning, id, ""
+		return models.PhaseRunning, id, "", false
 	}
-	if !now.Before(deadline) {
+	switch {
+	case !now.Before(deadline):
 		return models.PhaseRunning, id, fmt.Sprintf("the console never showed %s within %s of starting; the template's startup line may be out of date",
-			quoteLines(lines), startupLimit)
+			quoteLines(lines), minutes(startupLimit)), true
+	case s.Status.StartupMissed:
+		return models.PhaseRunning, id, fmt.Sprintf("the console did not show %s when this server last started, so it is not waited for this time; the template's startup line may be out of date",
+			quoteLines(lines)), true
 	}
-	return models.PhaseStarting, "", "waiting for " + quoteLines(lines) + " in the console"
+	return models.PhaseStarting, "", fmt.Sprintf("waiting for %s in the console, for up to %s", quoteLines(lines), minutes(startupLimit)), false
+}
+
+// minutes writes a whole number of minutes for a message: "30 minutes".
+func minutes(d time.Duration) string {
+	return fmt.Sprintf("%d minutes", int(d/time.Minute))
 }
 
 // quoteLines lists done lines for a message: "a" or "b".

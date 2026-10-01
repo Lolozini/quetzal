@@ -36,7 +36,7 @@ func TestStartupPhaseWaitsForTheDoneLine(t *testing.T) {
 	}}
 	starting := &models.Server{Namespace: "ns", Status: models.Status{Phase: models.PhaseStarting}}
 
-	phase, id, msg := r.startupPhase(starting, withDone, up, time.Now())
+	phase, id, msg, _ := r.startupPhase(starting, withDone, up, time.Now())
 	if phase != models.PhaseStarting || id != "" {
 		t.Errorf("before the done line: %s %q, want Starting and no container", phase, id)
 	}
@@ -48,7 +48,7 @@ func TestStartupPhaseWaitsForTheDoneLine(t *testing.T) {
 	}
 
 	seen = true
-	phase, id, msg = r.startupPhase(starting, withDone, up, time.Now())
+	phase, id, msg, _ = r.startupPhase(starting, withDone, up, time.Now())
 	if phase != models.PhaseRunning || id != "containerd://b" || msg != "" {
 		t.Errorf("after the done line: %s %q %q, want Running on containerd://b", phase, id, msg)
 	}
@@ -56,7 +56,7 @@ func TestStartupPhaseWaitsForTheDoneLine(t *testing.T) {
 	// Once kept in the status, the same container is not asked about again.
 	calls = nil
 	running := &models.Server{Status: models.Status{Phase: models.PhaseRunning, StartedContainer: "containerd://b"}}
-	if phase, _, _ := r.startupPhase(running, withDone, up, time.Now()); phase != models.PhaseRunning || len(calls) != 0 {
+	if phase, _, _, _ := r.startupPhase(running, withDone, up, time.Now()); phase != models.PhaseRunning || len(calls) != 0 {
 		t.Errorf("a started container: %s after %d calls, want Running without asking", phase, len(calls))
 	}
 
@@ -64,7 +64,7 @@ func TestStartupPhaseWaitsForTheDoneLine(t *testing.T) {
 	seen = false
 	restarted := up
 	restarted.gameContainer = "containerd://c"
-	if phase, _, _ := r.startupPhase(running, withDone, restarted, time.Now()); phase != models.PhaseStarting {
+	if phase, _, _, _ := r.startupPhase(running, withDone, restarted, time.Now()); phase != models.PhaseStarting {
 		t.Errorf("a restarted container: %s, want Starting", phase)
 	}
 }
@@ -76,21 +76,21 @@ func TestStartupPhaseFallbacks(t *testing.T) {
 	starting := &models.Server{Status: models.Status{Phase: models.PhaseStarting}}
 
 	t.Run("a template without done lines", func(t *testing.T) {
-		phase, id, _ := r.startupPhase(starting, &models.Template{}, up, time.Now())
+		phase, id, _, _ := r.startupPhase(starting, &models.Template{}, up, time.Now())
 		if phase != models.PhaseRunning || id != "containerd://b" {
 			t.Errorf("%s %q, want Running", phase, id)
 		}
 	})
 
 	t.Run("an older template's single line", func(t *testing.T) {
-		phase, _, _ := r.startupPhase(starting, &models.Template{DoneRegex: "Done ("}, up, time.Now())
+		phase, _, _, _ := r.startupPhase(starting, &models.Template{DoneRegex: "Done ("}, up, time.Now())
 		if phase != models.PhaseStarting {
 			t.Errorf("%s, want Starting: the legacy field is a done line too", phase)
 		}
 	})
 
 	t.Run("an invalid expression alone", func(t *testing.T) {
-		phase, _, msg := r.startupPhase(starting, &models.Template{Done: []string{"regex:(["}}, up, time.Now())
+		phase, _, msg, _ := r.startupPhase(starting, &models.Template{Done: []string{"regex:(["}}, up, time.Now())
 		if phase != models.PhaseRunning || !strings.Contains(msg, "invalid") {
 			t.Errorf("%s %q, want Running with the reason", phase, msg)
 		}
@@ -98,7 +98,7 @@ func TestStartupPhaseFallbacks(t *testing.T) {
 
 	t.Run("reported Running before the check existed", func(t *testing.T) {
 		legacy := &models.Server{Status: models.Status{Phase: models.PhaseRunning}}
-		phase, id, _ := r.startupPhase(legacy, &models.Template{Done: []string{"Done ("}}, up, time.Now())
+		phase, id, _, _ := r.startupPhase(legacy, &models.Template{Done: []string{"Done ("}}, up, time.Now())
 		if phase != models.PhaseRunning || id != "containerd://b" {
 			t.Errorf("%s %q, want it kept Running and its container recorded", phase, id)
 		}
@@ -107,14 +107,14 @@ func TestStartupPhaseFallbacks(t *testing.T) {
 	t.Run("a done line that never comes", func(t *testing.T) {
 		late := up
 		late.gameStarted = time.Now().Add(-startupLimit - time.Minute)
-		phase, _, msg := r.startupPhase(starting, &models.Template{Done: []string{"Done ("}}, late, time.Now())
-		if phase != models.PhaseRunning || !strings.Contains(msg, "out of date") {
-			t.Errorf("%s %q, want Running with a warning past the limit", phase, msg)
+		phase, _, msg, missed := r.startupPhase(starting, &models.Template{Done: []string{"Done ("}}, late, time.Now())
+		if phase != models.PhaseRunning || !strings.Contains(msg, "out of date") || !missed {
+			t.Errorf("%s %q missed=%v, want Running with a warning past the limit, and the miss kept", phase, msg, missed)
 		}
 	})
 
 	t.Run("no game container in sight", func(t *testing.T) {
-		phase, _, _ := r.startupPhase(starting, &models.Template{Done: []string{"Done ("}}, podHealth{}, time.Now())
+		phase, _, _, _ := r.startupPhase(starting, &models.Template{Done: []string{"Done ("}}, podHealth{}, time.Now())
 		if phase != models.PhaseStarting {
 			t.Errorf("%s, want the previous phase kept", phase)
 		}
@@ -122,10 +122,61 @@ func TestStartupPhaseFallbacks(t *testing.T) {
 
 	t.Run("no way to read the log", func(t *testing.T) {
 		bare := &Reconciler{}
-		if phase, _, _ := bare.startupPhase(starting, &models.Template{Done: []string{"Done ("}}, up, time.Now()); phase != models.PhaseRunning {
+		if phase, _, _, _ := bare.startupPhase(starting, &models.Template{Done: []string{"Done ("}}, up, time.Now()); phase != models.PhaseRunning {
 			t.Errorf("%s, want Running", phase)
 		}
 	})
+}
+
+// Counter-Strike 2 without a valid game server token takes players but never
+// prints its done line, so every start showed it Starting for half an hour.
+// After one start that ran out the wait, the next ones are reported Running as
+// soon as the container is up, and the reason stays in view while it runs.
+func TestStartupPhaseRemembersAMissedDoneLine(t *testing.T) {
+	tpl := &models.Template{Done: []string{"Connection to Steam servers successful"}}
+	seen := false
+	asked := 0
+	r := &Reconciler{StartupSeen: func(string, string, string, time.Time, []startup.Matcher) bool {
+		asked++
+		return seen
+	}}
+
+	// The first start runs out the wait.
+	first := podHealth{gamePod: "p", gameContainer: "containerd://a", gameStarted: time.Now().Add(-startupLimit - time.Minute)}
+	srv := &models.Server{Status: models.Status{Phase: models.PhaseStarting}}
+	phase, id, msg, missed := r.startupPhase(srv, tpl, first, time.Now())
+	if phase != models.PhaseRunning || !missed || !strings.Contains(msg, "never showed") {
+		t.Fatalf("past the limit: %s %q missed=%v, want Running and the miss recorded", phase, msg, missed)
+	}
+
+	// The explanation stays while that container runs: it used to be gone at
+	// the next reconcile, a few seconds after it appeared.
+	srv.Status = models.Status{Phase: phase, StartedContainer: id, Message: msg, StartupMissed: missed}
+	if phase, _, msg, missed := r.startupPhase(srv, tpl, first, time.Now()); phase != models.PhaseRunning || !missed || !strings.Contains(msg, "never showed") {
+		t.Errorf("the next reconcile: %s %q missed=%v, want the message kept", phase, msg, missed)
+	}
+
+	// The server is stopped and started again: no half hour this time.
+	srv.Status = models.Status{Phase: models.PhaseStopped, StartupMissed: true}
+	next := podHealth{gamePod: "p2", gameContainer: "containerd://b", gameStarted: time.Now().Add(-10 * time.Second)}
+	phase, id, msg, missed = r.startupPhase(srv, tpl, next, time.Now())
+	if phase != models.PhaseRunning || id != "containerd://b" || !missed || !strings.Contains(msg, "last started") {
+		t.Fatalf("the next start: %s %q %q missed=%v, want Running at once, saying why", phase, id, msg, missed)
+	}
+
+	// The line is still looked for, and once it shows the usual wait is back.
+	srv.Status = models.Status{Phase: phase, StartedContainer: id, Message: msg, StartupMissed: missed}
+	asked, seen = 0, true
+	phase, _, msg, missed = r.startupPhase(srv, tpl, next, time.Now())
+	if asked == 0 || phase != models.PhaseRunning || msg != "" || missed {
+		t.Errorf("the line shows: asked %d times, %s %q missed=%v, want Running, no message, nothing missed", asked, phase, msg, missed)
+	}
+	srv.Status = models.Status{Phase: models.PhaseStopped}
+	seen = false
+	third := podHealth{gamePod: "p3", gameContainer: "containerd://c", gameStarted: time.Now()}
+	if phase, _, msg, _ := r.startupPhase(srv, tpl, third, time.Now()); phase != models.PhaseStarting || !strings.Contains(msg, "waiting for") {
+		t.Errorf("a start after the line came back: %s %q, want Starting until it shows", phase, msg)
+	}
 }
 
 // The game container is the one named after the workload, running, in a pod
@@ -152,5 +203,32 @@ func TestInspectPodsFindsTheGameContainer(t *testing.T) {
 	h := (&Reconciler{Client: cl}).inspectPods(context.Background(), "ns", "srv")
 	if h.gamePod != "p" || h.gameContainer != "containerd://game" || !h.gameStarted.Equal(at.Time) {
 		t.Errorf("game = %q %q %v, want p containerd://game %v", h.gamePod, h.gameContainer, h.gameStarted, at.Time)
+	}
+}
+
+// The miss is about the next start, so it has to outlive the stop in between:
+// the status is rebuilt on every pass, and a field left out of it is lost.
+func TestAMissedDoneLineOutlivesTheStop(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("scheme: %v", err)
+	}
+	st := reconStore(t)
+	s, tmpl := testServerAndTemplate()
+	s.DesiredState = models.StateStopped
+	s.Status = models.Status{Phase: models.PhaseRunning, StartupMissed: true}
+	if err := st.CreateServer(s); err != nil {
+		t.Fatal(err)
+	}
+	r := &Reconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), Store: st}
+	if err := r.updateStatus(context.Background(), s, tmpl); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetServer(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status.Phase != models.PhaseStopped || !got.Status.StartupMissed {
+		t.Errorf("after the stop: %s missed=%v, want Stopped with the miss kept", got.Status.Phase, got.Status.StartupMissed)
 	}
 }

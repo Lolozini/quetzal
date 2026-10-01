@@ -28,6 +28,15 @@ releases may include breaking changes).
   minutes, so stopping a server and backing it up copies a stopped world. To
   copy a Minecraft world without stopping it: `save-off`, `save-all flush`,
   the backup with "continue on fail", then `save-on`.
+- **A game that does not print its done line is not shown Starting for half
+  an hour at every start.** Counter-Strike 2 without a valid game server
+  token takes players but never prints "Connection to Steam servers
+  successful": each start showed it Starting for 30 minutes before it was
+  reported Running, and the message explaining why was gone a few seconds
+  later. After a start that went without its done line, the next ones are
+  reported Running as soon as their container is up, the message stays while
+  it runs, and the line is still looked for: once it shows, the usual wait is
+  back.
 - **A file path that leaves the server's files is refused.** `../escape.txt`
   was brought back inside them without a word, and the file was written as
   `escape.txt` at the top of the server's files, which is not what was asked
