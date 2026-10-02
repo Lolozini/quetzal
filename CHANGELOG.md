@@ -7,6 +7,20 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-02
+
+Uploads of any size: the file manager sends files and archives in pieces that
+each fit within the read timeout of the proxy in front of the panel, shows
+their progress, and resumes one that was interrupted. A write the symlink
+guard refuses also answers at once, where it held the request for an hour.
+
+**Upgrading from 0.9.0** — one thing behaves differently:
+
+- An upload in progress, or interrupted, shows as
+  `<name>.quetzal-part-<id>` beside its destination (`.quetzal-upload-<id>`
+  inside an archive's directory) until it finishes, is cancelled, or is
+  collected 24 hours after its last piece. See *Added*.
+
 ### Added
 
 - **Uploads of any size get through the proxy in front of the panel, and
@@ -1572,7 +1586,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/lolozini/quetzal/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/lolozini/quetzal/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/lolozini/quetzal/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/lolozini/quetzal/compare/v0.6.0...v0.7.0
