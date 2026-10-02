@@ -438,11 +438,19 @@ cd "$1" && exec tar -czf - -- "$2"`), root, parent, base}
 // extractTimeout bounds an archive upload+extraction (modpacks can be large).
 const extractTimeout = 15 * time.Minute
 
+// drainStdin opens every script that is handed a request body. A script that
+// stops before reading all of its stdin — a path the guard refuses, a piece for
+// the wrong offset — would otherwise never finish: the container runtime holds
+// the exec open until the input it was given is consumed, so the request hung
+// until its timeout, an hour for a write. Reading the rest on the way out ends
+// it, with the exit status the script chose.
+const drainStdin = "trap 'cat >/dev/null' EXIT\n"
+
 // extractScript unpacks an uploaded archive (read from stdin) into $1, choosing
 // the tool from $2 ("zip" or "tar"). It spools to a temp file first because both
 // tools need a seekable file to auto-detect the format: tar sniffs gz/bz2/xz
 // from the file (it can't from a pipe), and unzip requires a real file.
-const extractScript = `qz_guard deref "$0" "$1"
+const extractScript = drainStdin + `qz_guard deref "$0" "$1"
 dir="$1"; fmt="$2"
 mkdir -p "$dir" || exit 1
 tmp="$dir/.quetzal-upload.$$"
@@ -486,7 +494,7 @@ func (s *Server) handleExtractArchive(w http.ResponseWriter, r *http.Request) {
 // channel can come up empty against a container that has only just started)
 // leaves the existing file untouched instead of truncating it to nothing. $2, if
 // set, is the byte count expected; a mismatch fails the write.
-const writeScript = `qz_guard deref "$0" "$1"
+const writeScript = drainStdin + `qz_guard deref "$0" "$1"
 dst="$1"; want="$2"
 qz_exists "$(dirname "$dst")"
 tmp="$dst.quetzal-part.$$"

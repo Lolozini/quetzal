@@ -7,6 +7,17 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A write or an archive the panel refuses answers at once instead of
+  hanging.** Writing a file, or extracting an archive, through a symbolic
+  link that leaves the data directory was refused by the guard before the
+  script read the request body, and the container runtime then held the
+  exec open until that body was consumed: the request hung until its
+  timeout, an hour for a write, and answered 502. The scripts now read what
+  is left of the body on their way out, and the refusal comes back as a 400
+  straight away.
+
 ## [0.9.0] - 2026-10-02
 
 Invite people by email: a server's owner types an address where a username

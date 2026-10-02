@@ -177,6 +177,13 @@ func TestE2EFiles(t *testing.T) {
 	if body := readBody(t, doFile(t, hc, http.MethodGet, base+"/content?path=escape/etc/passwd", "")); strings.Contains(body, "root:") {
 		t.Fatalf("symlink escaped the data root: %q", body)
 	}
+	// Writing through it is refused too, and at once: the script stops before
+	// reading the body, which used to hold the request open until its timeout.
+	started := time.Now()
+	mustStatus(t, doFile(t, hc, http.MethodPut, base+"/content?path=escape/tmp/x", strings.Repeat("x", 1<<20)), http.StatusBadRequest)
+	if d := time.Since(started); d > 30*time.Second {
+		t.Errorf("a refused write took %s to answer", d)
+	}
 	// The link itself stays removable, so a planted one can be cleaned up.
 	mustStatus(t, doFile(t, hc, http.MethodDelete, base+"?path=escape", ""), http.StatusNoContent)
 
