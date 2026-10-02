@@ -57,8 +57,11 @@ service:
 # cluster's default service node port range (30000-32767). Quetzal tracks its own
 # allocations in the database but is NOT aware of node ports Kubernetes assigns
 # itself (LoadBalancer / health-check ports, or NodePort Services created outside
-# Quetzal). On a shared cluster, narrow this to a block reserved for Quetzal (and
-# open on your firewall) to avoid collisions.
+# Quetzal). A port the cluster refuses as already allocated is set aside and the
+# server moved to another one (event server.port-moved), which changes its
+# players' address. On a shared cluster, narrow this to a block reserved for
+# Quetzal (and open on your firewall) to avoid collisions; Kubernetes hands out
+# the bottom of its range last (30000-30085 with the default range).
 nodePort:
   min: ""
   max: ""

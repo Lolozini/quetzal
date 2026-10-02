@@ -37,9 +37,13 @@ const (
 	EventServerStopped       = "server.stopped"    // controller: went down
 	EventServerHibernated    = "server.hibernated" // controller: auto-slept
 	EventServerTransfer      = "server.transfer"   // controller: cross-cluster move
-	EventScheduleRun         = "schedule.run"      // controller: a schedule's tasks ran
-	EventBackupCreate        = "backup.create"
-	EventBackupRestore       = "backup.restore"
+	// EventServerPortMoved is a node port the cluster had already given to a
+	// Service outside Quetzal, replaced by another: the address players use
+	// changes.
+	EventServerPortMoved = "server.port-moved"
+	EventScheduleRun     = "schedule.run" // controller: a schedule's tasks ran
+	EventBackupCreate    = "backup.create"
+	EventBackupRestore   = "backup.restore"
 	// How a backup or a restore ended, scheduled or not. The two above are the
 	// requests that start one, so a nightly backup failing used to be told to
 	// no one.
@@ -66,6 +70,7 @@ var EventTypes = []string{
 	// Seen by the controller.
 	EventServerRunning, EventServerStopped, EventServerCrashed, EventServerRestarted,
 	EventServerOOMKilled, EventServerInstallFailed, EventServerHibernated, EventServerTransfer,
+	EventServerPortMoved,
 	EventBackupSucceeded, EventBackupFailed, EventRestoreSucceeded, EventRestoreFailed,
 	EventScheduleRun,
 	// Done through the panel.
@@ -102,6 +107,7 @@ var eventTitles = map[string]string{
 	EventServerInstallFailed: "Install failed",
 	EventServerHibernated:    "Server went to sleep",
 	EventServerTransfer:      "Server transfer",
+	EventServerPortMoved:     "Server port changed",
 	EventBackupSucceeded:     "Backup done",
 	EventBackupFailed:        "Backup failed",
 	EventRestoreSucceeded:    "Restore done",

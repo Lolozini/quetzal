@@ -1367,14 +1367,10 @@ func nodePortStatus(err error) int {
 	return http.StatusInternalServerError
 }
 
-// portAllocKey is a port's key in the node-port pool. It is derived from the
-// port *number* alone, never the name, which buys two things: a number exposed
-// on both TCP and UDP shares one pool entry (and therefore one node port, as
-// Kubernetes allows for a TCP/UDP pair), and adding or removing a protocol
-// never renames the entry, so the address players use stays put. Must match
-// between allocation and release so a port frees the key it reserved.
+// portAllocKey is a port's key in the node-port pool (store.NodePortKey). Must
+// match between allocation and release so a port frees the key it reserved.
 func portAllocKey(p models.PortSpec) string {
-	return fmt.Sprintf("p%d", p.Port)
+	return store.NodePortKey(p.Port)
 }
 
 func clearNodePorts(ports []models.PortSpec) []models.PortSpec {

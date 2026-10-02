@@ -7,6 +7,36 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Security
+
+- **A server whose Service the cluster refuses no longer runs without its
+  network policy.** The policy that keeps a game's code — a tenant's mods and
+  plugins — off the cluster network was written last, after the server's
+  Service, and a Service the cluster refused stopped the pass before it, on
+  every pass. A node port that a Service outside Quetzal already held was
+  enough: the game could reach the panel, the Kubernetes API and the other
+  servers, while the panel showed it *Stopped*. The policy now goes in right
+  after the namespace, and nothing that runs a tenant's code is created or
+  changed while it cannot be written.
+
+### Fixed
+
+- **A node port that another Service already holds is replaced.** The pool
+  only knows Quetzal's own allocations, and draws by default from the
+  cluster's whole range, which an ingress controller's LoadBalancer Service
+  or any other NodePort Service draws from too: the cluster then refused the
+  server's Service on every pass. Quetzal now sets that port aside for good,
+  publishes the server — or its SFTP — on another one in the same pass, and
+  records a `server.port-moved` event, which notification channels can
+  select, since the address players use changes.
+- **A server's status says what the cluster refused.** A step of the
+  reconcile that failed kept the status from being written, so the panel
+  went on showing what an earlier pass had found: *Stopped*, without a
+  message, next to a game that was running. The status now follows what
+  runs, and its message gives Kubernetes's answer — the Service refused for
+  a port already allocated, say. Connection errors are left to the
+  controller's log, since they name the cluster's address.
+
 ## [0.10.0] - 2026-10-02
 
 Uploads of any size: the file manager sends files and archives in pieces that

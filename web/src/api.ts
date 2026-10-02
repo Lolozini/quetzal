@@ -618,6 +618,7 @@ export const EVENT_TYPES = [
   "schedule.create",
   "schedule.run",
   "server.transfer",
+  "server.port-moved",
 ] as const;
 
 export type PowerAction = "start" | "stop" | "restart" | "kill";

@@ -683,6 +683,19 @@ const (
 // returned unchanged.
 // A min/max of 0 falls back to the Kubernetes default range.
 func (s *Store) AllocateNodePort(serverID uint, name string, min, max int32) (int32, error) {
+	var port int32
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var err error
+		port, err = allocateNodePort(tx, serverID, name, min, max)
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return port, nil
+}
+
+func allocateNodePort(tx *gorm.DB, serverID uint, name string, min, max int32) (int32, error) {
 	if min <= 0 {
 		min = DefaultNodePortMin
 	}
@@ -693,42 +706,111 @@ func (s *Store) AllocateNodePort(serverID uint, name string, min, max int32) (in
 		return 0, fmt.Errorf("invalid node port range %d-%d", min, max)
 	}
 	var alloc models.PortAllocation
+	err := tx.Where("server_id = ? AND port_name = ?", serverID, name).First(&alloc).Error
+	switch {
+	case err == nil:
+		return alloc.NodePort, nil // reuse existing allocation
+	case !errors.Is(err, gorm.ErrRecordNotFound):
+		return 0, err
+	}
+	used := map[int32]bool{}
+	var rows []models.PortAllocation
+	if err := tx.Find(&rows).Error; err != nil {
+		return 0, err
+	}
+	for _, r := range rows {
+		used[r.NodePort] = true
+	}
+	// Scan the range from a random start (wrapping) rather than always taking
+	// the lowest free port: this scatters allocations so a server's ports can't
+	// be guessed from its neighbours', while still finding a free port whenever
+	// one exists.
+	span := int(max-min) + 1
+	start := randRange(span)
+	for i := 0; i < span; i++ {
+		p := min + int32((start+i)%span)
+		if used[p] {
+			continue
+		}
+		alloc = models.PortAllocation{NodePort: p, ServerID: serverID, PortName: name}
+		if err := tx.Create(&alloc).Error; err != nil {
+			return 0, err
+		}
+		return p, nil
+	}
+	return 0, fmt.Errorf("%w in range %d-%d", ErrNoFreeNodePort, min, max)
+}
+
+// NodePortKey is the pool key of a server's port: its number, never its name.
+// A number exposed on both TCP and UDP then shares one entry (and one node
+// port, as Kubernetes allows for such a pair), and adding or removing a
+// protocol never renames the entry, so the address players use stays put.
+func NodePortKey(port int32) string {
+	return fmt.Sprintf("p%d", port)
+}
+
+// TakenNodePort is the name of a pool entry set aside because the cluster
+// gave the port to something else (see SetAsideNodePort). It belongs to no
+// server.
+const TakenNodePort = "taken-outside"
+
+// SetAsideNodePort records that the cluster refused node port taken for a
+// server, because a Service Quetzal does not manage already holds it, and
+// gives the server's port named key another one, which it returns. The pool
+// only knows Quetzal's own allocations, while the cluster's range is shared
+// with every NodePort and LoadBalancer Service in it: left in the pool, the
+// port would be handed out again, to this server or the next. It stays set
+// aside, since nothing says when the other Service lets go of it.
+//
+// A port the pool gave to another of its servers, or to another port of this
+// one, is theirs, and is left to them.
+func (s *Store) SetAsideNodePort(serverID uint, key string, taken, min, max int32) (int32, error) {
+	var port int32
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		err := tx.Where("server_id = ? AND port_name = ?", serverID, name).First(&alloc).Error
+		var held models.PortAllocation
+		err := tx.Where("node_port = ?", taken).First(&held).Error
 		switch {
-		case err == nil:
-			return nil // reuse existing allocation
-		case !errors.Is(err, gorm.ErrRecordNotFound):
-			return err
-		}
-		used := map[int32]bool{}
-		var rows []models.PortAllocation
-		if err := tx.Find(&rows).Error; err != nil {
-			return err
-		}
-		for _, r := range rows {
-			used[r.NodePort] = true
-		}
-		// Scan the range from a random start (wrapping) rather than always taking
-		// the lowest free port: this scatters allocations so a server's ports can't
-		// be guessed from its neighbours', while still finding a free port whenever
-		// one exists.
-		span := int(max-min) + 1
-		start := randRange(span)
-		for i := 0; i < span; i++ {
-			p := min + int32((start+i)%span)
-			if used[p] {
-				continue
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			if err := tx.Create(&models.PortAllocation{NodePort: taken, PortName: TakenNodePort}).Error; err != nil {
+				return err
 			}
-			alloc = models.PortAllocation{NodePort: p, ServerID: serverID, PortName: name}
-			return tx.Create(&alloc).Error
+		case err != nil:
+			return err
+		case held.ServerID == serverID && held.PortName == key:
+			if err := tx.Model(&held).Updates(map[string]any{"server_id": 0, "port_name": TakenNodePort}).Error; err != nil {
+				return err
+			}
 		}
-		return fmt.Errorf("%w in range %d-%d", ErrNoFreeNodePort, min, max)
+		port, err = allocateNodePort(tx, serverID, key, min, max)
+		return err
 	})
 	if err != nil {
 		return 0, err
 	}
-	return alloc.NodePort, nil
+	return port, nil
+}
+
+// RepointServerNodePort moves a server's ports published on node port from
+// to node port to, leaving the rest of its row alone.
+func (s *Store) RepointServerNodePort(serverID uint, from, to int32) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var srv models.Server
+		if err := tx.Select("id", "ports").First(&srv, serverID).Error; err != nil {
+			return err
+		}
+		moved := false
+		for i := range srv.Ports {
+			if srv.Ports[i].NodePort == from {
+				srv.Ports[i].NodePort = to
+				moved = true
+			}
+		}
+		if !moved {
+			return nil
+		}
+		return tx.Model(&models.Server{}).Where("id = ?", serverID).
+			Select("ports").Updates(models.Server{Ports: srv.Ports}).Error
+	})
 }
 
 // ReleaseNodePort frees a single named node-port allocation for a server (e.g.

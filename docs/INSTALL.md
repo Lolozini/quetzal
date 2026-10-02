@@ -133,11 +133,28 @@ Common ones:
 | `secretKey.existingSecret` | Take the encryption key from your own Secret rather than one the chart generates. |
 | `db.existingSecret` | Take the PostgreSQL DSN from your own Secret rather than from `db.dsn`. |
 | `extraEnv` | Extra environment for every container. `TZ` sets the zone shown in logs and used by a schedule that names none of its own — each schedule can carry its own IANA zone instead. |
-| `nodePort.min` / `nodePort.max` | Control-plane pool for NodePort game ports. |
+| `nodePort.min` / `nodePort.max` | The node ports servers and their SFTP are published on. On a shared cluster, give Quetzal a block of its own: see *Node ports* below. |
 | `retention.eventDays` | How long delivered events are kept (default 30; 0 keeps everything). The event table is written on every power action, crash and restart. |
 | `retention.auditDays` | How long audit entries are kept. **0 by default — nothing is deleted**; set a number of days if you would rather bound the table. |
 | `replicaCount` | Control-plane replicas. More than one needs `db.driver=postgres` and `persistence.enabled=false`; the chart refuses the other combinations rather than let two pods share one SQLite file. |
 | `image.repository` / `image.tag` | Also the image used for the config-render, SFTP and wake-on-connect helpers (`QUETZAL_IMAGE`); the chart derives it, there is nothing to set. |
+
+**Node ports.** A server published on a node port — the default for a new
+one — and its SFTP take theirs from `nodePort.min`–`nodePort.max`, which is
+by default the cluster's whole range, 30000-32767. Quetzal knows the ports it
+handed out, not the others: an ingress controller's LoadBalancer Service, or
+any NodePort Service made outside Quetzal, draws from the same range. When
+the cluster refuses a server's Service for a port it already gave away,
+Quetzal sets that port aside, moves the server to another one and records a
+`server.port-moved` event — and the address its players use changes. To keep
+that from happening, give Quetzal a block nothing else draws from, and open
+it on the firewall. Kubernetes hands out its own node ports from the top of
+the range first, and the first ones last (30000-30085 with the default
+range), so a block at the bottom of the range is the quietest place:
+
+```sh
+--set nodePort.min=30000 --set nodePort.max=30085
+```
 
 **Behind a proxy.** The file manager sends uploads in pieces of at most
 16 MiB, each its own request sized to take a few seconds, so a proxy's read

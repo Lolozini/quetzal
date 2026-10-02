@@ -4,6 +4,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -147,23 +148,50 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 			srv.Slug, srv.Namespace, want)
 	}
 
+	// A step that fails stops the ones after it, but no longer the status: it
+	// used to, and the panel went on showing whatever it showed when a pass
+	// last went through -- "Stopped", next to a game that was running, while
+	// the controller's log was the only place to say its Service was refused.
+	if err := r.ensureObjects(ctx, srv, tmpl); err != nil {
+		if stErr := r.writeStatus(ctx, srv, tmpl, failureNotice(err)); stErr != nil {
+			log.Printf("server %s: status: %v", srv.Slug, stErr)
+		}
+		return err
+	}
+	return r.updateStatus(ctx, srv, tmpl)
+}
+
+// ensureObjects brings a server's Kubernetes objects in line with its row, one
+// after the other, and stops at the first that fails.
+func (r *Reconciler) ensureObjects(ctx context.Context, srv *models.Server, tmpl *models.Template) error {
 	if err := r.ensureNamespace(ctx, srv); err != nil {
-		return fmt.Errorf("namespace: %w", err)
+		return failed("namespace", err)
 	}
 	// Before anything else in there: every step below needs the access this
 	// grants, and on an upgrade the namespace already exists without it.
 	r.ensureRoleBinding(ctx, srv.Namespace)
+	// The network policy is what keeps the game's code -- a tenant's mods and
+	// plugins -- off the cluster network, so nothing that runs that code may
+	// exist without it. It used to come last, after the Service: a Service the
+	// cluster refused (a node port something else already held) stopped the
+	// pass before it, on every pass, and the game ran with the run of the
+	// cluster, the panel and the API server included. It depends on nothing
+	// created below, so it goes first, and a policy that cannot be written
+	// stops everything else.
+	if err := r.ensureNetworkPolicy(ctx, srv, tmpl); err != nil {
+		return failed("network policy", err)
+	}
 	if err := r.ensureResourceQuota(ctx, srv); err != nil {
-		return fmt.Errorf("resourcequota: %w", err)
+		return failed("resource quota", err)
 	}
 	// SFTP supporting objects (host key, authorized_keys, Service) must exist
 	// before the Deployment references them.
 	if err := r.ensureSFTP(ctx, srv); err != nil {
-		return fmt.Errorf("sftp: %w", err)
+		return failed("SFTP access", err)
 	}
 	if pvc := BuildPVC(srv); pvc != nil {
 		if err := r.ensurePVC(ctx, pvc); err != nil {
-			return fmt.Errorf("pvc: %w", err)
+			return failed("data volume", err)
 		}
 	}
 
@@ -171,11 +199,11 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 	// Deployment via secretKeyRef). Values are decrypted from the DB here.
 	secretEnv, err := r.Store.OpenSecrets(srv.SecretEnvEnc)
 	if err != nil {
-		return fmt.Errorf("secrets: %w", err)
+		return failed("secret variables", err)
 	}
 	if sec := BuildSecret(srv, secretEnv); sec != nil {
 		if err := r.ensureSecret(ctx, sec); err != nil {
-			return fmt.Errorf("secret: %w", err)
+			return failed("secret variables", err)
 		}
 	}
 	secretKeys := make([]string, 0, len(secretEnv))
@@ -201,7 +229,7 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 	// game pod is co-located with it via podAffinity. Ensure it before the game
 	// Deployment so the game pod has a node to anchor to.
 	if err := r.ensureDataDeployment(ctx, srv, tmpl); err != nil {
-		return fmt.Errorf("data manager: %w", err)
+		return failed("data manager", err)
 	}
 
 	// A reinstall's wipe is one-shot, but the flag used to stay set for good:
@@ -220,11 +248,11 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 	// The game pod mounts it, so it goes first.
 	if cm := BuildPasswdConfigMap(srv, tmpl); cm != nil {
 		if err := r.apply(ctx, cm); err != nil {
-			return fmt.Errorf("passwd: %w", err)
+			return failed("passwd file", err)
 		}
 	}
 	if err := r.ensureDeployment(ctx, srv, tmpl, secretKeys); err != nil {
-		return fmt.Errorf("deployment: %w", err)
+		return failed("game Deployment", err)
 	}
 	// Wake-on-connect: an activator may front the server. In proxy mode it is
 	// always in path (and needs an internal backend Service); in drop mode it
@@ -233,22 +261,48 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 	proxy := r.proxyActive(srv, tmpl)
 	drop := r.dropActive(srv, tmpl)
 	if err := r.ensureInternalService(ctx, srv, tmpl, proxy); err != nil {
-		return fmt.Errorf("internal service: %w", err)
+		return failed("internal Service", err)
 	}
 	if err := r.ensureActivator(ctx, srv, tmpl, proxy, drop); err != nil {
-		return fmt.Errorf("activator: %w", err)
+		return failed("activator", err)
 	}
 	// A Service requires at least one port; skip it for portless servers.
 	if len(serverPorts(srv, tmpl)) > 0 {
 		if err := r.ensureService(ctx, srv, tmpl, proxy || drop); err != nil {
-			return fmt.Errorf("service: %w", err)
+			return failed("Service", err)
 		}
 	}
-	if err := r.ensureNetworkPolicy(ctx, srv, tmpl); err != nil {
-		return fmt.Errorf("networkpolicy: %w", err)
-	}
+	return nil
+}
 
-	return r.updateStatus(ctx, srv, tmpl)
+// stepError is a step of a server's reconcile that did not go through.
+type stepError struct {
+	step string // what the step puts in place, as the status names it
+	err  error
+}
+
+func (e *stepError) Error() string { return e.step + ": " + e.err.Error() }
+func (e *stepError) Unwrap() error { return e.err }
+
+func failed(step string, err error) error { return &stepError{step: step, err: err} }
+
+// failureNotice is what a server's status says about a step that did not go
+// through. What the API server answered is about the object and is shown; any
+// other error is not -- a connection error names the cluster's address, which
+// anyone allowed to see the server would read -- and is left to the log.
+func failureNotice(err error) string {
+	step := "objects"
+	var se *stepError
+	if errors.As(err, &se) {
+		step = se.step
+	}
+	var status apierrors.APIStatus
+	if errors.As(err, &status) {
+		if msg := status.Status().Message; msg != "" {
+			return fmt.Sprintf("Kubernetes refused this server's %s: %s", step, msg)
+		}
+	}
+	return fmt.Sprintf("this server's %s could not be put in place; the controller retries and logs why", step)
 }
 
 // needsGracefulStop reports whether a server's game should be sent its stop
@@ -400,7 +454,16 @@ func (r *Reconciler) ensureSFTP(ctx context.Context, s *models.Server) error {
 	if err != nil {
 		return fmt.Errorf("sftp node port: %w", err)
 	}
-	if err := r.apply(ctx, BuildSFTPService(s, nodePort)); err != nil {
+	err = r.applyNodePortService(ctx,
+		func() *corev1.Service { return BuildSFTPService(s, nodePort) },
+		func(taken int32) error {
+			np, err := r.moveSFTPPort(s, taken)
+			if err == nil {
+				nodePort = np
+			}
+			return err
+		})
+	if err != nil {
 		return fmt.Errorf("sftp service: %w", err)
 	}
 	return nil
@@ -476,7 +539,9 @@ func (r *Reconciler) ensureDeployment(ctx context.Context, s *models.Server, t *
 }
 
 func (r *Reconciler) ensureService(ctx context.Context, s *models.Server, t *models.Template, activator bool) error {
-	return r.apply(ctx, BuildService(s, t, activator))
+	return r.applyNodePortService(ctx,
+		func() *corev1.Service { return BuildService(s, t, activator) },
+		func(taken int32) error { return r.moveGamePort(s, taken) })
 }
 
 // proxyActive reports whether the always-in-path proxy should front this server
@@ -665,6 +730,12 @@ func secretDataEqual(data map[string][]byte, want map[string]string) bool {
 // updateStatus reads the workload + pods and writes an observed status to the DB,
 // including crash detection.
 func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *models.Template) error {
+	return r.writeStatus(ctx, s, t, "")
+}
+
+// writeStatus is updateStatus with a notice, which says what this pass could
+// not put in place and is added to the message.
+func (r *Reconciler) writeStatus(ctx context.Context, s *models.Server, t *models.Template, notice string) error {
 	eps, addr := r.endpointsFor(ctx, s, t)
 	// A missed done line is remembered while the server is stopped or asleep:
 	// it is about the next start.
@@ -713,16 +784,23 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 	// binary ships in it), otherwise the sidecar is never added and the toggle
 	// looks active while nothing serves.
 	if s.SFTP.Enabled && r.ActivatorImage == "" {
-		warn := "SFTP is enabled but no system image is configured (set QUETZAL_IMAGE); the SFTP sidecar will not start"
-		if st.Message == "" {
-			st.Message = warn
-		} else {
-			st.Message += "; " + warn
-		}
+		st.Message = joinNotice(st.Message, "SFTP is enabled but no system image is configured (set QUETZAL_IMAGE); the SFTP sidecar will not start")
 	}
+	st.Message = joinNotice(st.Message, notice)
 
 	r.emitTransition(s, s.Status.Phase, st)
 	return r.Store.UpdateServerStatus(s.ID, st)
+}
+
+// joinNotice adds a notice to a status message.
+func joinNotice(msg, notice string) string {
+	switch {
+	case notice == "":
+		return msg
+	case msg == "":
+		return notice
+	}
+	return msg + "; " + notice
 }
 
 // startupLimit is how long a game has to print its done line. Past it, the
