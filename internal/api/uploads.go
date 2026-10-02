@@ -35,10 +35,10 @@ import (
 const (
 	// maxUploadSize bounds one upload. The volume is the real limit; this only
 	// stops a typing mistake from reserving a session for a petabyte.
-	maxUploadSize = 64 << 30
+	maxUploadSize int64 = 64 << 30
 	// maxUploadChunk bounds one piece. The browser sizes its pieces to take a
 	// few seconds each, well under this.
-	maxUploadChunk = 32 << 20
+	maxUploadChunk int64 = 32 << 20
 	// uploadIdle is how long an upload may wait for its next piece before it
 	// is collected.
 	uploadIdle = 24 * time.Hour
