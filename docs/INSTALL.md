@@ -139,6 +139,14 @@ Common ones:
 | `replicaCount` | Control-plane replicas. More than one needs `db.driver=postgres` and `persistence.enabled=false`; the chart refuses the other combinations rather than let two pods share one SQLite file. |
 | `image.repository` / `image.tag` | Also the image used for the config-render, SFTP and wake-on-connect helpers (`QUETZAL_IMAGE`); the chart derives it, there is nothing to set. |
 
+**Behind a proxy.** The file manager sends uploads in pieces of at most
+16 MiB, each its own request sized to take a few seconds, so a proxy's read
+timeout (Traefik 3 gives a request 60 seconds) no longer bounds the size of a
+file. The proxy must still accept a request body that large: ingress-nginx
+takes 1 MiB by default, so give the Ingress
+`nginx.ingress.kubernetes.io/proxy-body-size: 32m` through `ingress.annotations`.
+Traefik sets no limit.
+
 ### Secret key
 
 Quetzal encrypts application secrets (S3 creds, SMTP, server secret env) at rest

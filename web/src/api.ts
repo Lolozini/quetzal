@@ -100,6 +100,21 @@ export interface ServerInvite {
   expiresAt: string;
 }
 
+// FileUpload is a file being sent to a server in pieces (see upload.ts).
+export interface FileUpload {
+  id: string;
+  serverId: number;
+  path: string;
+  kind: "file" | "archive";
+  format?: string;
+  size: number;
+  // received is how much has arrived; -1 in a list, where it is not looked up.
+  received: number;
+  chunkMax: number;
+  createdAt: string;
+  expiresAt: string;
+}
+
 // InviteInfo is what an invitation link offers, read before signing in.
 export interface InviteInfo {
   server: string;
@@ -926,6 +941,30 @@ export const api = {
       throw new ApiError(res.status, msg);
     }
   },
+  // Uploads in pieces: start one, send its pieces, finish it. See upload.ts.
+  uploads: (id: number) => req<FileUpload[]>("GET", `/api/servers/${id}/uploads`),
+  startUpload: (id: number, body: { path: string; size: number; kind: "file" | "archive"; format?: string }) =>
+    req<FileUpload>("POST", `/api/servers/${id}/uploads`, body),
+  upload: (id: number, uid: string) => req<FileUpload>("GET", `/api/servers/${id}/uploads/${uid}`),
+  // A 409 carries { received } in the error's data: where the upload really is.
+  uploadPiece: async (id: number, uid: string, offset: number, piece: Blob, signal?: AbortSignal): Promise<{ received: number }> => {
+    const res = await fetch(`/api/servers/${id}/uploads/${uid}?offset=${offset}`, {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: piece,
+      signal,
+    });
+    let data: unknown;
+    try { data = await res.json(); } catch { /* ignore */ }
+    if (!res.ok) {
+      if (res.status === 401) window.dispatchEvent(new Event("quetzal:unauthorized"));
+      throw new ApiError(res.status, (data as { error?: string } | undefined)?.error || res.statusText, data);
+    }
+    return data as { received: number };
+  },
+  completeUpload: (id: number, uid: string) => req<void>("POST", `/api/servers/${id}/uploads/${uid}/complete`),
+  cancelUpload: (id: number, uid: string) => req<void>("DELETE", `/api/servers/${id}/uploads/${uid}`),
   mkdir: (id: number, path: string) =>
     req<void>("POST", `/api/servers/${id}/files/mkdir?path=${encodeURIComponent(path)}`),
   renameFile: (id: number, path: string, to: string) =>

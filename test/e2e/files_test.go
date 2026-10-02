@@ -187,6 +187,51 @@ func TestE2EFiles(t *testing.T) {
 	// The link itself stays removable, so a planted one can be cleaned up.
 	mustStatus(t, doFile(t, hc, http.MethodDelete, base+"?path=escape", ""), http.StatusNoContent)
 
+	// An upload in pieces, through the pod's own shell: three pieces, one of
+	// them sent twice as after a lost answer, then put in place whole.
+	uploads := ts.URL + "/api/servers/" + itoa(created.ID) + "/uploads"
+	big := strings.Repeat("quetzal-", 3<<17) // 3 MiB
+	var up struct{ ID string }
+	r = doPost(t, hc, uploads, map[string]any{"path": "sub/big.bin", "size": len(big)})
+	mustStatus(t, r, http.StatusCreated)
+	json.NewDecoder(r.Body).Decode(&up)
+	piece := func(off, end int) *http.Response {
+		return doFile(t, hc, http.MethodPut, uploads+"/"+up.ID+"?offset="+itoa(uint(off)), big[off:end])
+	}
+	mustStatus(t, piece(0, 1<<20), http.StatusOK)
+	again := piece(0, 1<<20)
+	var where struct{ Received int64 }
+	json.NewDecoder(again.Body).Decode(&where)
+	if again.StatusCode != http.StatusConflict || where.Received != 1<<20 {
+		t.Fatalf("a piece sent twice = %d at %d, want 409 at %d", again.StatusCode, where.Received, 1<<20)
+	}
+	mustStatus(t, piece(1<<20, 2<<20), http.StatusOK)
+	mustStatus(t, piece(2<<20, len(big)), http.StatusOK)
+	mustStatus(t, doFile(t, hc, http.MethodPost, uploads+"/"+up.ID+"/complete", ""), http.StatusNoContent)
+	if got := readBody(t, doFile(t, hc, http.MethodGet, base+"/content?path=sub/big.bin", "")); got != big {
+		t.Fatalf("the file sent in pieces reads back %d bytes, want %d", len(got), len(big))
+	}
+
+	// An archive in pieces, unpacked where it was sent.
+	var tgz bytes.Buffer
+	tw = tar.NewWriter(&tgz)
+	inner := "unpacked from pieces"
+	if err := tw.WriteHeader(&tar.Header{Name: "inner.txt", Mode: 0o644, Size: int64(len(inner))}); err != nil {
+		t.Fatalf("build tar: %v", err)
+	}
+	tw.Write([]byte(inner))
+	tw.Close()
+	r = doPost(t, hc, uploads, map[string]any{"path": "sub/unpacked", "size": tgz.Len(), "kind": "archive", "format": "tar"})
+	mustStatus(t, r, http.StatusCreated)
+	json.NewDecoder(r.Body).Decode(&up)
+	half := tgz.Len() / 2
+	mustStatus(t, doFile(t, hc, http.MethodPut, uploads+"/"+up.ID+"?offset=0", tgz.String()[:half]), http.StatusOK)
+	mustStatus(t, doFile(t, hc, http.MethodPut, uploads+"/"+up.ID+"?offset="+itoa(uint(half)), tgz.String()[half:]), http.StatusOK)
+	mustStatus(t, doFile(t, hc, http.MethodPost, uploads+"/"+up.ID+"/complete", ""), http.StatusNoContent)
+	if got := readBody(t, doFile(t, hc, http.MethodGet, base+"/content?path=sub/unpacked/inner.txt", "")); got != inner {
+		t.Fatalf("unpacked = %q, want %q", got, inner)
+	}
+
 	// Delete the directory.
 	mustStatus(t, doFile(t, hc, http.MethodDelete, base+"?path=sub", ""), http.StatusNoContent)
 }

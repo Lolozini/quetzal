@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -52,6 +53,9 @@ type Server struct {
 	// DataReadyTimeout bounds how long file access waits for the data-manager pod
 	// to be ready (0 = defaultDataReadyTimeout). Overridable in tests.
 	DataReadyTimeout time.Duration
+	// execHook replaces console.Exec for the upload handlers; tests run the
+	// scripts locally with it.
+	execHook func(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, ns, pod string, cmd []string, stdin io.Reader, stdout io.Writer) error
 	// Secure marks cookies Secure (set when served over HTTPS).
 	Secure bool
 	// NodePortMin/NodePortMax bound the control-plane node port pool (0 = use
@@ -290,6 +294,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/servers/{id}/files/move", s.auth(s.handleBulkMove))
 	mux.Handle("POST /api/servers/{id}/files/compress", s.auth(s.handleCompressFiles))
 	mux.Handle("POST /api/servers/{id}/files/decompress", s.auth(s.handleDecompressFile))
+	// Uploads in pieces, each short enough for any proxy in front of the panel.
+	mux.Handle("GET /api/servers/{id}/uploads", s.auth(s.handleListUploads))
+	mux.Handle("POST /api/servers/{id}/uploads", s.auth(s.handleCreateUpload))
+	mux.Handle("GET /api/servers/{id}/uploads/{uid}", s.auth(s.handleGetUpload))
+	mux.Handle("PUT /api/servers/{id}/uploads/{uid}", s.auth(s.handlePutUploadChunk))
+	mux.Handle("POST /api/servers/{id}/uploads/{uid}/complete", s.auth(s.handleCompleteUpload))
+	mux.Handle("DELETE /api/servers/{id}/uploads/{uid}", s.auth(s.handleDeleteUpload))
 	mux.Handle("GET /api/servers/{id}/schedules", s.auth(s.handleListSchedules))
 	mux.Handle("POST /api/servers/{id}/schedules", s.auth(s.handleCreateSchedule))
 	mux.Handle("PATCH /api/servers/{id}/schedules/{sid}", s.auth(s.handleUpdateSchedule))

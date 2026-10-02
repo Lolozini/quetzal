@@ -1203,6 +1203,127 @@ paths:
       responses:
         "204": { description: Extracted }
         "502": { description: Extraction failed (missing tool or bad archive) }
+  /api/servers/{id}/uploads:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+    get:
+      tags: [Files]
+      summary: List the caller's unfinished uploads to this server
+      description: >-
+        For resuming: an upload is the caller's alone, and lasts 24 hours after
+        its last piece. `received` is -1 here; read one upload for it.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/FileUpload" } }
+    post:
+      tags: [Files]
+      summary: Start an upload sent in pieces
+      description: >-
+        For files of any size, behind any proxy: each piece is its own request,
+        so none has to outlast a proxy's read timeout (Traefik 3 cuts at 60
+        seconds), and an interrupted upload resumes from what arrived. The
+        pieces gather in a temporary file beside the destination
+        (`<file>.quetzal-part-<id>`, or `.quetzal-upload-<id>` inside an
+        archive's directory) and replace the destination in one step at the
+        end. The destination is checked now: a file needs its directory, an
+        archive's directory is created. At most 64 GiB, and 20 unfinished
+        uploads per account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, size]
+              properties:
+                path: { type: string, description: The file, or the directory an archive unpacks into, relative to the data root }
+                size: { type: integer, format: int64, minimum: 1 }
+                kind: { type: string, enum: [file, archive], default: file }
+                format: { type: string, enum: [tar, zip], description: For an archive; tar covers gz, bz2 and xz }
+      responses:
+        "201":
+          description: Started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileUpload" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { description: The destination's directory does not exist }
+        "409": { description: Too many unfinished uploads, or file access is not available right now }
+  /api/servers/{id}/uploads/{uid}:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+      - { name: uid, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [Files]
+      summary: How much of an upload has arrived
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FileUpload" }
+        "404": { description: No such upload, or it expired }
+    put:
+      tags: [Files]
+      summary: Send a piece
+      description: >-
+        The body is the bytes from `offset`; Content-Length is required and at
+        most 32 MiB. A piece cut short keeps what arrived: the answer, or a
+        later read of the upload, says where to go on. A piece for another
+        offset than the upload's size is refused with 409 and that size, which
+        is how a piece sent twice after a lost answer is caught. One request at
+        a time per upload.
+      parameters:
+        - { name: offset, in: query, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: Written
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { received: { type: integer, format: int64 } }
+        "400": { description: The piece goes past the upload's size, or the offset is not a number }
+        "409":
+          description: The offset is not where the upload is, or another request holds it
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  received: { type: integer, format: int64 }
+        "411": { description: No Content-Length }
+        "413": { description: The piece is over 32 MiB }
+    delete:
+      tags: [Files]
+      summary: Cancel an upload and remove what arrived
+      responses:
+        "204": { description: Cancelled }
+  /api/servers/{id}/uploads/{uid}/complete:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+      - { name: uid, in: path, required: true, schema: { type: string } }
+    post:
+      tags: [Files]
+      summary: Finish an upload
+      description: >-
+        A file replaces its destination in one step; an archive is unpacked into
+        its directory and removed. Refused with 409 until every byte has
+        arrived, and the upload stays. A file that could not be put in place
+        (its directory removed meanwhile, say) also stays, to be finished again.
+      responses:
+        "204": { description: In place }
+        "409": { description: Not every byte has arrived yet }
+        "502": { description: Extraction failed (missing tool or bad archive) }
   /api/servers/{id}/files/mkdir:
     parameters:
       - $ref: "#/components/parameters/ServerId"
@@ -2899,6 +3020,20 @@ components:
         permissions:
           type: array
           items: { type: string }
+    FileUpload:
+      type: object
+      description: A file being sent in pieces.
+      properties:
+        id: { type: string }
+        serverId: { type: integer }
+        path: { type: string }
+        kind: { type: string, enum: [file, archive] }
+        format: { type: string }
+        size: { type: integer, format: int64 }
+        received: { type: integer, format: int64, description: Bytes arrived so far; -1 when not looked up }
+        chunkMax: { type: integer, description: The largest piece taken }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
     ServerInvite:
       type: object
       description: An open invitation. Its token is only in the mail.

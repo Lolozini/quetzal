@@ -259,7 +259,7 @@ func (s *Store) autoMigrate() error {
 		&models.NotificationChannel{}, &models.Event{}, &models.Setting{},
 		&models.SSHKey{}, &models.PasswordReset{},
 		&models.DatabaseHost{}, &models.ServerDatabase{},
-		&models.RateCounter{}, &models.ServerInvite{},
+		&models.RateCounter{}, &models.ServerInvite{}, &models.FileUpload{},
 	)
 }
 
@@ -651,13 +651,17 @@ func (s *Store) UpdateServerNetworking(id uint, expose models.Expose, ports []mo
 
 // DeleteServer removes a server record and frees any node ports it held. Its
 // open invitations go with it: an ID can be given again to a later server,
-// which an old link must not open.
+// which an old link must not open. So do its unfinished uploads.
 func (s *Store) DeleteServer(id uint) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("server_id = ?", id).Delete(&models.PortAllocation{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("server_id = ?", id).Delete(&models.ServerInvite{}).Error; err != nil {
+			return err
+		}
+		// Unfinished uploads went with the volume their pieces were in.
+		if err := tx.Where("server_id = ?", id).Delete(&models.FileUpload{}).Error; err != nil {
 			return err
 		}
 		return tx.Delete(&models.Server{}, id).Error

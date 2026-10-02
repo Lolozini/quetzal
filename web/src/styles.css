@@ -318,4 +318,5 @@ pre.log {
 .perm-list input[type="checkbox"] { width: auto; margin: 0; }
 .perm-list .muted { font-size: 13px; }
 .perm-summary { margin: 8px 0 12px; padding-left: 18px; display: grid; gap: 4px; }
+.upload-progress progress { accent-color: var(--accent); height: 6px; display: block; }
 .perm-summary .muted { font-size: 13px; }

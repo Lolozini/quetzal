@@ -783,4 +783,7 @@ export const fr: Record<string, string> = {
     "Votre compte accède aux serveurs où il est invité. Son adresse e-mail est {email}.",
   "an account, or an address to invite": "un compte, ou une adresse à inviter",
   "{name} invited {email}, with access to:": "{name} a invité {email}, avec accès à :",
+  "Finishing {name}…": "Finalisation de {name}…",
+  "Resuming {name}: {sent} of {total}": "Reprise de {name} : {sent} sur {total}",
+  "Sending {name}: {sent} of {total}": "Envoi de {name} : {sent} sur {total}",
 };

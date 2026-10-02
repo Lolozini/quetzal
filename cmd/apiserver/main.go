@@ -126,6 +126,7 @@ func main() {
 		audit:  envInt("QUETZAL_AUDIT_RETENTION_DAYS", 0),
 	})
 	go gcRateLimiters(ctx, apiSrv)
+	go collectUploads(ctx, apiSrv)
 	go dispatcher.Run(ctx)
 
 	go func() {
@@ -233,6 +234,20 @@ func gcRateLimiters(ctx context.Context, srv *api.Server) {
 			return
 		case <-t.C:
 			srv.GCRateLimiters()
+		}
+	}
+}
+
+// collectUploads removes, every hour, the uploads nobody finished.
+func collectUploads(ctx context.Context, srv *api.Server) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			srv.CollectUploads(ctx)
 		}
 	}
 }

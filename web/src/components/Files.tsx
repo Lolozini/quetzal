@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, FileEntry } from "../api";
 import { useT } from "../i18n";
+import { forgetUpload, sendInPieces, UploadTarget } from "../upload";
 
 const EDIT_MAX = 1 << 20; // 1 MiB: larger files are download-only
 
@@ -31,6 +32,10 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
   const [actionsFor, setActionsFor] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
   const archiveRef = useRef<HTMLInputElement>(null);
+  // The upload in progress, if any: what is sent, how far, and how to stop it.
+  const [transfer, setTransfer] = useState<{
+    name: string; sent: number; total: number; resumed: boolean; uploadId: string; abort: AbortController;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setError("");
@@ -126,20 +131,37 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
     }
   }
 
+  // send uploads a file in pieces (see upload.ts), showing how far it got. A
+  // file of any size gets through the proxy in front of the panel, and choosing
+  // the same file again after an interruption resumes it.
+  async function send(file: File, target: UploadTarget) {
+    const abort = new AbortController();
+    setError("");
+    setTransfer({ name: file.name, sent: 0, total: file.size, resumed: false, uploadId: "", abort });
+    try {
+      await sendInPieces(id, file, target, (p) => setTransfer((cur) => cur && { ...cur, ...p }), abort.signal);
+      changed();
+    } catch (err) {
+      if (!abort.signal.aborted) setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setTransfer(null);
+    }
+  }
+
+  async function cancelTransfer() {
+    if (!transfer) return;
+    transfer.abort.abort();
+    if (transfer.uploadId) {
+      await api.cancelUpload(id, transfer.uploadId).catch(() => {});
+      forgetUpload(transfer.uploadId);
+    }
+  }
+
   async function upload(ev: React.ChangeEvent<HTMLInputElement>) {
     const file = ev.target.files?.[0];
     ev.target.value = "";
     if (!file) return;
-    setBusy(true);
-    setError("");
-    try {
-      await api.writeFile(id, join(path, file.name), file);
-      changed();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
+    await send(file, { path: join(path, file.name), kind: "file" });
   }
 
   async function uploadArchive(ev: React.ChangeEvent<HTMLInputElement>) {
@@ -148,16 +170,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
     if (!file) return;
     const format = /\.zip$/i.test(file.name) ? "zip" : "tar";
     if (!window.confirm(t('Extract "{file}" into /{path}? Existing files with the same names are overwritten.', { file: file.name, path: path || "" }))) return;
-    setBusy(true);
-    setError("");
-    try {
-      await api.extractArchive(id, path, format, file);
-      changed();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
+    await send(file, { path, kind: "archive", format });
   }
 
   // run wraps an action: busy flag, error display, refresh on success.
@@ -254,13 +267,28 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
         <span style={{ flex: 1 }} />
         <button onClick={load} disabled={busy}>{t("Refresh")}</button>
         <button onClick={newFolder}>{t("New folder")}</button>
-        <button onClick={() => uploadRef.current?.click()}>{t("Upload")}</button>
-        <button onClick={() => archiveRef.current?.click()} disabled={busy}>{t("Upload archive")}</button>
+        <button onClick={() => uploadRef.current?.click()} disabled={!!transfer}>{t("Upload")}</button>
+        <button onClick={() => archiveRef.current?.click()} disabled={busy || !!transfer}>{t("Upload archive")}</button>
         <a href={api.fileArchiveUrl(id, path)}><button type="button">{t("Download folder")}</button></a>
         <input ref={uploadRef} type="file" style={{ display: "none" }} onChange={upload} />
         <input ref={archiveRef} type="file" accept=".zip,.tar,.gz,.tgz,.bz2,.xz" style={{ display: "none" }} onChange={uploadArchive} />
       </div>
 
+      {transfer && (
+        <div className="notice upload-progress" style={{ marginTop: 8 }}>
+          <div className="row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>
+              {transfer.sent >= transfer.total && transfer.total > 0
+                ? t("Finishing {name}…", { name: transfer.name })
+                : transfer.resumed
+                  ? t("Resuming {name}: {sent} of {total}", { name: transfer.name, sent: humanSize(transfer.sent), total: humanSize(transfer.total) })
+                  : t("Sending {name}: {sent} of {total}", { name: transfer.name, sent: humanSize(transfer.sent), total: humanSize(transfer.total) })}
+            </span>
+            <button type="button" onClick={cancelTransfer}>{t("Cancel")}</button>
+          </div>
+          <progress max={transfer.total || 1} value={transfer.sent} style={{ width: "100%", marginTop: 6 }} />
+        </div>
+      )}
       {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
 
       {selected.size > 0 && (

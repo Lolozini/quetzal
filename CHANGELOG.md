@@ -7,6 +7,24 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **Uploads of any size get through the proxy in front of the panel, and
+  resume.** A file went up in one request, which lasted as long as the
+  transfer, and proxies give a request a fixed time to arrive: behind
+  Traefik 3, whose limit is 60 seconds, anything over a few hundred
+  megabytes on a home connection was cut and lost whole, as was an archive
+  taking more than 15 minutes. The file manager now sends files and archives
+  in pieces sized to take a few seconds each, with a progress bar and a
+  cancel button. A piece that fails is sent again from where the server says
+  the upload is, and choosing the same file again after an interruption
+  resumes it, for 24 hours. The file replaces its destination in one step
+  once every byte has arrived; an archive is unpacked then. Uploads are no
+  longer bounded at 256 MiB for a file and 2 GiB for an archive, but at
+  64 GiB. The API has the same, under `/api/servers/{id}/uploads`; the
+  one-request endpoints stay. Behind ingress-nginx, raise its body size
+  limit to 32 MiB: see *Behind a proxy* in the install guide.
+
 ### Fixed
 
 - **A write or an archive the panel refuses answers at once instead of
