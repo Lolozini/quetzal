@@ -7,6 +7,27 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-02
+
+Invite people by email: a server's owner types an address where a username
+went, and the link that arrives lets its reader accept from their account or
+create one there. The mails the panel sends people — the password reset, the
+invitation, the settings test — now carry Quetzal's colours. And the control
+plane's account loses the last rights that reached past its own namespaces:
+patching any volume, deleting any binding, relabelling any namespace.
+
+**Upgrading from 0.8.0** — three things behave differently:
+
+- A server's owner can invite someone by email, and the invitation can create
+  an account on the panel, one that owns nothing and reaches only the servers
+  it is invited to. To keep account creation to administrators, turn off
+  *Admin → Invitations*. See *Added*.
+- `PUT /api/security-settings` changes only the fields it names: a body
+  without `requireTwoFactor` leaves the two-factor policy as it is, where it
+  used to turn it off. See *Changed*.
+- A remote cluster keeps the broader rights it was given until the manifest
+  the panel shows is applied there again. See *Security*.
+
 ### Added
 
 - **Invite someone to a server by email.** Pterodactyl's way of adding a
@@ -31,6 +52,10 @@ releases may include breaking changes).
   Cream by default and the panel's dark theme for a reader in dark mode; the
   logo travels inside the message, so it shows without allowing remote
   images. Event notifications are unchanged.
+- **`PUT /api/security-settings` changes only the fields it names**, now that
+  it holds two: the two-factor policy and whether invitations create
+  accounts. A body without `requireTwoFactor` used to turn the policy off. A
+  request refused for one field changes neither.
 
 ### Security
 
@@ -1518,7 +1543,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/lolozini/quetzal/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/lolozini/quetzal/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/lolozini/quetzal/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/lolozini/quetzal/compare/v0.5.1...v0.6.0
