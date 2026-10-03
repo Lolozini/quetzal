@@ -283,6 +283,15 @@ func (s *Server) handleRegisterFromInvite(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusConflict, "username already taken")
 		return
 	}
+	// The address the invitation went to is the new account's: one that an
+	// account has already is that account's, which can accept by signing in.
+	if taken, err := s.Store.EmailTaken(inv.Email, 0); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	} else if taken {
+		writeError(w, http.StatusConflict, "an account already uses this email address: sign in to it to accept the invitation")
+		return
+	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "hash failed")

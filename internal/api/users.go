@@ -95,6 +95,9 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid email")
 		return
 	}
+	if !s.emailFree(w, email, 0) {
+		return
+	}
 	// A new account is closed: it may own no server until an administrator
 	// gives it some. Memory and CPU are left unbounded, so giving it servers
 	// is all it takes to open it.
@@ -210,6 +213,9 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		email = strings.TrimSpace(*req.Email)
 		if email != "" && !looksLikeEmail(email) {
 			writeError(w, http.StatusBadRequest, "invalid email")
+			return
+		}
+		if !s.emailFree(w, email, target.ID) {
 			return
 		}
 	}
@@ -340,7 +346,8 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSetMyEmail lets the current user set or clear their own email (used for
-// self-service password reset). Emails are not verified.
+// self-service password reset). An address is one account's; it is not
+// confirmed, as Pterodactyl's is not either.
 func (s *Server) handleSetMyEmail(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
 	var req struct {
@@ -353,6 +360,9 @@ func (s *Server) handleSetMyEmail(w http.ResponseWriter, r *http.Request) {
 	email := strings.TrimSpace(req.Email)
 	if email != "" && !looksLikeEmail(email) {
 		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+	if !s.emailFree(w, email, u.ID) {
 		return
 	}
 	if err := s.Store.UpdateUserEmail(u.ID, email); err != nil {
@@ -368,6 +378,22 @@ func (s *Server) handleSetMyEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	updated, _ := s.Store.GetUser(u.ID)
 	writeJSON(w, http.StatusOK, updated)
+}
+
+// emailFree refuses, with a 409, an address another account than except has.
+// Taking someone else's address was accepted, and the reset of either account
+// then went to whichever was made first.
+func (s *Server) emailFree(w http.ResponseWriter, email string, except uint) bool {
+	taken, err := s.Store.EmailTaken(email, except)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return false
+	}
+	if taken {
+		writeError(w, http.StatusConflict, "another account uses this email address")
+		return false
+	}
+	return true
 }
 
 // looksLikeEmail is a light sanity check (not full RFC validation): one '@' with

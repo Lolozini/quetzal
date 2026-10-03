@@ -25,20 +25,35 @@ const (
 )
 
 // GetUserByEmail returns the user with the given email (case-insensitive), or
-// ErrNotFound. Email is optional, so empty input never matches.
+// ErrNotFound. Email is optional, so empty input never matches; nor does an
+// address two accounts have, which addresses were not kept from before
+// EmailTaken: the reset of one used to go to the oldest of them.
 func (s *Store) GetUserByEmail(email string) (*models.User, error) {
 	email = strings.TrimSpace(strings.ToLower(email))
 	if email == "" {
 		return nil, ErrNotFound
 	}
-	var u models.User
-	if err := s.db.Where("lower(email) = ?", email).First(&u).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrNotFound
-		}
+	var us []models.User
+	if err := s.db.Where("lower(email) = ?", email).Limit(2).Find(&us).Error; err != nil {
 		return nil, err
 	}
-	return &u, nil
+	if len(us) != 1 {
+		return nil, ErrNotFound
+	}
+	return &us[0], nil
+}
+
+// EmailTaken reports whether an account other than except has the address,
+// case aside. An address is one account's: two sharing one could not tell
+// whose password a reset to it was for.
+func (s *Store) EmailTaken(email string, except uint) (bool, error) {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" {
+		return false, nil
+	}
+	var n int64
+	err := s.db.Model(&models.User{}).Where("lower(email) = ? AND id <> ?", email, except).Count(&n).Error
+	return n > 0, err
 }
 
 // UpdateUserEmail sets a user's email (empty clears it).

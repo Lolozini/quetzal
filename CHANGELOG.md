@@ -47,6 +47,15 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **An email address belongs to one account.** Any account could set any
+  address, another account's included, and a password reset by address went
+  to the oldest of the accounts that had it: one account could divert
+  another's resets. An address another account has is refused now — on the
+  account page, by an administrator, and from an invitation, whose reader is
+  asked to sign in to the account that has it — and an address two older
+  accounts still share resets neither, until one changes it; both can still
+  be reset by name. Addresses are not confirmed by mail, as Pterodactyl's
+  are not.
 - **Accented and non-Latin text comes through the console whole.** The log
   was read in 4 KiB blocks and each sent as text, and a character of two to
   four bytes that a block ended in the middle of turned into two `�` —
