@@ -1,23 +1,19 @@
 # Installing Quetzal
 
-Quetzal runs as two Deployments (an API server and a controller) in your
-cluster, backed by a database. The bundled Helm chart wires up RBAC, the
-Deployments, a Service, and an optional Ingress.
+Quetzal runs as one Deployment in your cluster, whose pod holds two
+containers — an API server and a controller — backed by a database. The
+bundled Helm chart wires up RBAC, the Deployment, a Service, and an optional
+Ingress.
 
 ## Prerequisites
 
-- A Kubernetes cluster and `kubectl` access. Quetzal is tested on **1.31** (its
-  end-to-end suite runs there on every change) and **1.33**. Nothing it uses is
-  newer than 1.23 — there are no native sidecars, no admission webhooks, no
-  custom resources — so older clusters are likely to work, but "likely" is all
-  anyone can honestly say about a version nobody tests. **1.29 or later** is the
-  version to be on.
-
-  One optional hardening layer wants a newer cluster than the rest: the
-  admission policy that keeps the control plane's account inside its own
-  namespaces needs **1.30+**, where ValidatingAdmissionPolicy went GA. Without
-  it Quetzal runs exactly the same; you lose that one guard, not a feature. See
-  the security notes below.
+- A Kubernetes cluster, **1.30 or later**, and `kubectl` access. The chart
+  refuses anything older: the admission policy that keeps the control plane's
+  account inside its own namespaces is a ValidatingAdmissionPolicy, GA in
+  1.30. Quetzal's end-to-end suite runs on **1.35** on every change, and the
+  reference install runs on **1.33**. Nothing else it uses is newer than
+  1.23 — there are no native sidecars, no admission webhooks, no custom
+  resources.
 - [Helm](https://helm.sh/) v3.
 - A storage class for persistent volumes. Single-node / homelab setups can use a
   local provisioner such as [local-path](https://github.com/rancher/local-path-provisioner).
@@ -199,7 +195,8 @@ key migrated across, not a fresh one issued.
   The pods read the DSN when they start: restart them after changing it.
 
 Schema migrations run automatically (a `migrate`-only init container runs before
-the app starts, avoiding a schema race between the two Deployments).
+the app starts, so the API server and the controller never race to migrate
+the schema).
 
 ## First run
 
@@ -279,10 +276,11 @@ that cluster-wide — which on its own would let the account bind its own role
 anywhere and read everything after all. `admissionPolicy.enabled` closes that:
 an admission policy confines those bindings to namespaces Quetzal owns, to its
 own role and to its own account, and does the same for creating, relabelling
-and deleting namespaces. It needs 1.30; turn it off below that and the scoping
-still stands, but the escalation becomes possible again — noisily, since
-creating a RoleBinding in kube-system is an audited write where reading a Secret
-is not.
+and deleting namespaces. It needs 1.30, as the chart does. A cluster
+registered with the manifest the panel offers gets the same policy; on one
+older than 1.30, leave the policy out of that manifest and the scoping still
+stands, but the escalation becomes possible again — noisily, since creating a
+RoleBinding in kube-system is an audited write where reading a Secret is not.
 
 Still treat the namespace it runs in with care: it holds the database, the
 encryption key and every stored credential. If you host for others and want a
@@ -438,11 +436,13 @@ in-cluster (a PodMonitor, or Prometheus pod annotations). There is no
 authentication on those ports: keep them pod-local.
 
 **SFTP drops a connection that does not authenticate**, within 15 seconds, and
-caps how many may be mid-handshake at once. The SFTP server is a sidecar inside
-the game server's own pod and shares its memory limit, published on a NodePort,
-so silent connections are otherwise a way to have a pod OOM-killed from the
-internet without any credentials. A flood can still make SFTP itself unreachable
-for as long as it lasts; the game server keeps running, which is the trade.
+caps how many may be mid-handshake at once. The SFTP server runs beside the
+file manager in the server's data-manager pod — the one that holds its volume
+whether the game runs or not — and shares that pod's memory limit, published on
+a NodePort, so silent connections are otherwise a way to have it OOM-killed from
+the internet without any credentials. A flood can still make SFTP and the file
+manager unreachable for as long as it lasts; the game server, in a pod of its
+own, keeps running.
 
 **Registering another cluster**: use the manifest the cluster form offers rather
 than an admin kubeconfig. See above.
@@ -450,7 +450,7 @@ than an admin kubeconfig. See above.
 ## Verify
 
 ```sh
-kubectl -n quetzal get pods           # apiserver + controller Running
+kubectl -n quetzal get pods           # quetzal-… 2/2 Running (apiserver + controller)
 curl https://quetzal.example.com/api/healthz   # {"status":"ok"}
 curl https://quetzal.example.com/api/version   # build info
 ```

@@ -144,9 +144,8 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   restore runs on a stopped server, which cannot start again until it is done;
   one still waiting can be cancelled.
 - Deleting a server **destroys its data volume** along with it, so nothing is
-  left orphaned — take a backup first if you need to keep a world. Its snapshots
-  in the backup bucket are kept (the namespace that could prune them is gone by
-  then); drop that server's repository prefix by hand to reclaim the space.
+  left orphaned — download what you need to keep first. Its snapshots go too:
+  the panel purges them from the backup bucket, and logs a purge that fails.
 - Deleting a single backup **removes its snapshot from the repository**, not just
   the row in the panel, so the data really goes.
 - **Per-server databases**: provision a MySQL/MariaDB database + scoped user from
@@ -215,8 +214,10 @@ Browser ──HTTP/WS──▶  api-server  (UI · REST/WebSocket · console pro
                        Deployment · Service · PVC · Secret · NetworkPolicy
 ```
 
-- **One pod per server**, no per-game side pods. The live console is the
-  Kubernetes `attach` (stdin) + `logs` (stdout) subresources.
+- **One game pod per server**, beside an always-on data-manager pod that
+  holds its volume for the file manager and SFTP, and, while it sleeps, a
+  small activator; no per-game side pods. The live console is the Kubernetes
+  `attach` (stdin) + `logs` (stdout) subresources.
 - **Templates are eggs.** A template declares images, variables (env), startup,
   ports, lifecycle, install script, and `config.files`. Importing a Pterodactyl
   egg maps it onto this model; `config.files` are rendered at startup

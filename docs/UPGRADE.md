@@ -8,9 +8,36 @@ automatically on startup.
 
 1. **Check the [CHANGELOG](../CHANGELOG.md)** for the target version (breaking
    changes, new required settings).
-2. **Back up the panel database** — it is the source of truth. For SQLite, snapshot
-   the PVC (or copy the file); for PostgreSQL, take a normal dump. Quetzal can also
-   back up the panel DB to your configured S3 target.
+2. **Back up the panel database** — it is the source of truth, and Quetzal does
+   not back it up itself: its backups hold the game servers' data, not the
+   panel's. For PostgreSQL, take a normal dump. For SQLite, snapshot the volume
+   if your storage can (a `VolumeSnapshot`), or copy it out with the panel
+   stopped — the database runs in WAL mode, so a copy of a live file can miss
+   what the log still holds, and the panel's image has no shell or `tar` for
+   `kubectl cp`. The claim is `<release>-data`, `quetzal-data` for a release
+   named `quetzal`:
+
+   ```sh
+   kubectl -n quetzal scale deploy/quetzal --replicas=0
+   kubectl -n quetzal run db-copy --image=busybox:1.37 --restart=Never --overrides='{
+     "spec": {
+       "securityContext": {"runAsNonRoot": true, "runAsUser": 65532, "seccompProfile": {"type": "RuntimeDefault"}},
+       "containers": [{
+         "name": "db-copy", "image": "busybox:1.37", "command": ["sleep", "600"],
+         "securityContext": {"allowPrivilegeEscalation": false, "capabilities": {"drop": ["ALL"]}},
+         "volumeMounts": [{"name": "data", "mountPath": "/data", "readOnly": true}]
+       }],
+       "volumes": [{"name": "data", "persistentVolumeClaim": {"claimName": "quetzal-data"}}]
+     }
+   }'
+   kubectl -n quetzal wait --for=condition=Ready pod/db-copy
+   kubectl -n quetzal exec db-copy -- tar -C /data -cf - . > quetzal-db-$(date +%F).tar
+   kubectl -n quetzal delete pod db-copy
+   kubectl -n quetzal scale deploy/quetzal --replicas=1
+   ```
+
+   The pod is admitted under the Pod Security Standards' `restricted` level,
+   as the panel's own is.
 3. Note your current version: `curl https://<panel>/api/version` (or the panel
    footer).
 

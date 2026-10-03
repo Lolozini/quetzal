@@ -7,7 +7,7 @@ steps: bring the eggs over once, then import each server.
 ## 1. Import the eggs
 
 A server is imported onto the template made from its egg, so the egg comes first.
-Templates are managed under **Admin → Templates** (the `templates` admin
+Templates are managed under **Admin → Eggs / templates** (the `templates` admin
 permission).
 
 ### From your panel (recommended)
