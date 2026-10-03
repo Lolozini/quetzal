@@ -10,10 +10,11 @@ releases may include breaking changes).
 ### Added
 
 - **What SFTP sessions change shows in the server's activity.** An upload, a
-  deletion, a rename or a new folder made over SFTP went to the sidecar's
-  log and nowhere a server's owner could see it, where the file manager's
-  own changes were in the activity feed. The controller reads that log now
-  and records each change under the account that made it, as `sftp.write`,
+  deletion, a rename or a new folder made over SFTP was recorded nowhere a
+  server's owner could see, where the file manager's own changes are in the
+  activity feed. The SFTP container's log has a line for each change now
+  (see *Fixed*), and the controller reads it into the server's activity,
+  under the account that made each change, as `sftp.write`,
   `sftp.delete`, `sftp.rename`, `sftp.mkdir`, `sftp.symlink` and
   `sftp.link`, which a notification channel can also follow. Many changes
   of one kind made together read as one entry — a folder of a thousand
@@ -30,7 +31,7 @@ releases may include breaking changes).
   address is confirmed, and can send the link again or drop the change. An
   address an administrator writes, or one given while the panel cannot send
   mail, is taken as given and shown unconfirmed; an invitation's is confirmed
-  by the invitation. Pterodactyl does not confirm addresses at all.
+  by the invitation.
 
 ### Changed
 
