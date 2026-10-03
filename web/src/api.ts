@@ -5,6 +5,10 @@ export interface User {
   id: number;
   username: string;
   email?: string;
+  // Whether the address's owner opened a link mailed to it.
+  emailVerified?: boolean;
+  // An address waiting for confirmation; email stays the account's until then.
+  pendingEmail?: string;
   isAdmin: boolean;
   adminRoleId?: number | null;
   adminPerms?: string[];
@@ -736,6 +740,9 @@ export const api = {
   resetPassword: (token: string, password: string) =>
     req<void>("POST", "/api/reset-password", { token, password }),
   setMyEmail: (email: string) => req<User>("PUT", "/api/me/email", { email }),
+  resendEmailConfirmation: () => req<User>("POST", "/api/me/email/confirmation"),
+  cancelPendingEmail: () => req<User>("DELETE", "/api/me/email/pending"),
+  confirmEmail: (token: string) => req<{ email: string }>("POST", "/api/confirm-email", { token }),
   // System email settings (admin).
   emailSettings: () => req<EmailSettings>("GET", "/api/email-settings"),
   setEmailSettings: (body: EmailSettingsInput) =>

@@ -18,6 +18,16 @@ releases may include breaking changes).
   `sftp.link`, which a notification channel can also follow. Many changes
   of one kind made together read as one entry — a folder of a thousand
   files is one line, naming the first few.
+- **An email address is confirmed by a link mailed to it.** Anyone could give
+  their account any address, someone else's included, which then held it:
+  the address's owner could not use it for an account of their own. A new
+  address now waits for its owner to open a link mailed to it, valid for a
+  day, and the account keeps the address it had — and its password resets —
+  until then, so a typo costs nothing. The account page shows whether the
+  address is confirmed, and can send the link again or drop the change. An
+  address an administrator writes, or one given while the panel cannot send
+  mail, is taken as given and shown unconfirmed; an invitation's is confirmed
+  by the invitation. Pterodactyl does not confirm addresses at all.
 
 ### Changed
 

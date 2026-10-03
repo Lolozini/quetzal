@@ -217,6 +217,8 @@ tr.clickable:hover { background: var(--surface-sunken); cursor: pointer; }
 .badge.Starting, .badge.Installing, .badge.Stopping { background: var(--warn-soft); color: var(--warn); }
 .badge.Crashed, .badge.Error { background: var(--danger-soft); color: var(--danger); }
 .badge.Hibernated { background: var(--night-soft); color: var(--night); }
+.badge.ok { background: var(--success-soft); color: var(--success); }
+.badge.warn { background: var(--warn-soft); color: var(--warn); }
 
 .console {
   background: var(--console); color: var(--console-ink); border-radius: var(--radius-md);

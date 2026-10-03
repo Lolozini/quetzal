@@ -8,10 +8,15 @@ type User struct {
 	ID           uint   `gorm:"primaryKey" json:"id"`
 	Username     string `gorm:"uniqueIndex;size:190" json:"username"`
 	PasswordHash string `json:"-"` // argon2id encoded string, never serialized
-	// Email is optional and used for self-service password reset. It is not
-	// verified (no confirmation flow); login is always by username.
-	Email   string `gorm:"index;size:190" json:"email,omitempty"`
-	IsAdmin bool   `json:"isAdmin"` // superadmin: holds every admin permission implicitly
+	// Email is optional and used for self-service password reset; login is
+	// always by username. EmailVerified says its owner opened a link sent to
+	// it. An address someone gives themselves waits in PendingEmail until they
+	// do, and Email keeps the address it replaces until then: a typo does not
+	// cost the account its resets, and nobody holds an address they cannot read.
+	Email         string `gorm:"index;size:190" json:"email,omitempty"`
+	EmailVerified bool   `json:"emailVerified"`
+	PendingEmail  string `gorm:"size:190" json:"pendingEmail,omitempty"`
+	IsAdmin       bool   `json:"isAdmin"` // superadmin: holds every admin permission implicitly
 
 	// AdminRoleID grants a scoped, non-superadmin a bundle of admin permissions
 	// (see AdminRole). Nil means no delegated admin access. Ignored when IsAdmin.

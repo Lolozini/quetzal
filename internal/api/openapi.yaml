@@ -185,7 +185,14 @@ paths:
   /api/me/email:
     put:
       tags: [Email]
-      summary: Set or clear your own email (used for password reset; not verified)
+      summary: Set or clear your own email (used for password reset)
+      description: >-
+        When the panel can send mail (SMTP and the public URL are set), a new
+        address becomes the account's pendingEmail and a confirmation link is
+        mailed to it; the account keeps its current address until the link is
+        opened (POST /api/confirm-email). Without mail, the address is taken as
+        given, unconfirmed. Giving the current address again drops a pending
+        one; an empty one clears the address.
       requestBody:
         required: true
         content:
@@ -200,6 +207,62 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/User" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { description: Another account has this address }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { description: The confirmation mail could not be sent }
+  /api/me/email/confirmation:
+    post:
+      tags: [Email]
+      summary: Mail a new confirmation link
+      description: >-
+        To the pending address, or to the account's own when it was never
+        confirmed. Rate-limited per account.
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "409": { description: Nothing to confirm, or the panel cannot send mail }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { description: The confirmation mail could not be sent }
+  /api/me/email/pending:
+    delete:
+      tags: [Email]
+      summary: Drop the address waiting for confirmation
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+  /api/confirm-email:
+    post:
+      tags: [Email]
+      summary: Confirm an address with an emailed token
+      description: >-
+        The token from the link (sent as <panel>/#confirm-email=<token>) is the
+        credential: no session is needed. Single-use, valid for a day.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties: { token: { type: string } }
+      responses:
+        "200":
+          description: The address the account now has
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { email: { type: string, format: email } }
+        "400": { description: Invalid, used or expired link }
+        "409": { description: Another account took the address meanwhile }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/forgot-password:
     post:
@@ -2559,6 +2622,8 @@ components:
         id: { type: integer }
         username: { type: string }
         email: { type: string, format: email }
+        emailVerified: { type: boolean, description: "The address's owner opened a link mailed to it" }
+        pendingEmail: { type: string, format: email, description: "An address waiting for confirmation; email stays until then" }
         isAdmin: { type: boolean, description: "Superadmin: holds every admin permission" }
         adminRoleId:
           type: integer

@@ -267,7 +267,7 @@ func (s *Store) autoMigrate() error {
 		&models.SSHKey{}, &models.PasswordReset{},
 		&models.DatabaseHost{}, &models.ServerDatabase{},
 		&models.RateCounter{}, &models.ServerInvite{}, &models.FileUpload{},
-		&models.TemplateRevision{}, &models.SFTPCursor{},
+		&models.TemplateRevision{}, &models.SFTPCursor{}, &models.EmailConfirmation{},
 	)
 }
 
@@ -1433,6 +1433,9 @@ func (s *Store) DeleteUser(id, reassignTo uint) error {
 			return err
 		}
 		if err := tx.Where("user_id = ?", id).Delete(&models.PasswordReset{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", id).Delete(&models.EmailConfirmation{}).Error; err != nil {
 			return err
 		}
 		return tx.Delete(&models.User{}, id).Error

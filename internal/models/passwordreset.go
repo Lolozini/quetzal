@@ -12,3 +12,15 @@ type PasswordReset struct {
 	ExpiresAt time.Time `json:"-"`
 	CreatedAt time.Time `json:"-"`
 }
+
+// EmailConfirmation is a link sent to an address, which proves its reader
+// holds it: the account's pending address, or its current one when that was
+// never confirmed. Like a reset token, only the token's hash is stored.
+type EmailConfirmation struct {
+	ID        uint   `gorm:"primaryKey"`
+	UserID    uint   `gorm:"index"`
+	Email     string `gorm:"size:190"`
+	TokenHash string `gorm:"uniqueIndex;size:64"`
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}

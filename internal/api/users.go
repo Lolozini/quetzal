@@ -346,8 +346,10 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSetMyEmail lets the current user set or clear their own email (used for
-// self-service password reset). An address is one account's; it is not
-// confirmed, as Pterodactyl's is not either.
+// self-service password reset). An address is one account's. When the panel
+// can send mail, a new address waits for its owner to open the link mailed to
+// it, and the account keeps the one it had until then (see email_confirm.go);
+// without mail, it is taken as given, unconfirmed.
 func (s *Server) handleSetMyEmail(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
 	var req struct {
@@ -362,18 +364,38 @@ func (s *Server) handleSetMyEmail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid email")
 		return
 	}
-	if !s.emailFree(w, email, u.ID) {
-		return
-	}
-	if err := s.Store.UpdateUserEmail(u.ID, email); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	// The address password resets go to: changing it and then asking for a
-	// reset is how a stolen session becomes a stolen account.
-	if email == "" {
+	switch {
+	case strings.EqualFold(email, u.Email):
+		// Asking for the address the account has drops one it was waiting on.
+		if u.PendingEmail != "" {
+			if err := s.Store.CancelPendingEmail(u.ID); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+	case email == "":
+		if err := s.Store.UpdateUserEmail(u.ID, ""); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		s.audit(r, 0, "user.email", "cleared")
-	} else {
+	default:
+		if !s.emailFree(w, email, u.ID) {
+			return
+		}
+		if cfg, base := s.confirmationMail(); cfg != nil {
+			if !s.sendEmailConfirmation(w, r, cfg, base, u, email) {
+				return
+			}
+			// The address password resets go to: changing it and then asking
+			// for a reset is how a stolen session becomes a stolen account.
+			s.audit(r, 0, "user.email", "confirmation sent to "+email)
+			break
+		}
+		if err := s.Store.UpdateUserEmail(u.ID, email); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		s.audit(r, 0, "user.email", email)
 	}
 	updated, _ := s.Store.GetUser(u.ID)

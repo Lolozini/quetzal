@@ -450,7 +450,17 @@ whether the game runs or not — and shares that pod's memory limit, published o
 a NodePort, so silent connections are otherwise a way to have it OOM-killed from
 the internet without any credentials. A flood can still make SFTP and the file
 manager unreachable for as long as it lasts; the game server, in a pod of its
-own, keeps running.
+own, keeps running. What a session changes -- an upload, a deletion, a rename --
+is written to the sidecar's log, which the controller reads into the server's
+activity (`sftp.write`, `sftp.delete`, ...) under the account that made it.
+
+**An address an account gives itself is confirmed by a link** mailed to it,
+valid for a day, once the panel can send mail (SMTP and the public URL set).
+Until it is opened the account keeps the address it had, and password resets go
+there. An address an administrator writes, or one given while the panel could
+not send mail, is taken as given and marked unconfirmed; its owner can have it
+confirmed from their account page. An invitation's address is confirmed by the
+invitation itself.
 
 **Registering another cluster**: use the manifest the cluster form offers rather
 than an admin kubeconfig. See above.

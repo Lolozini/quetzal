@@ -3,6 +3,7 @@ import { api, User } from "./api";
 import { useT } from "./i18n";
 import { Auth } from "./components/Auth";
 import { ResetPassword } from "./components/ResetPassword";
+import { ConfirmEmail } from "./components/ConfirmEmail";
 import { Invite } from "./components/Invite";
 import { Dashboard } from "./components/Dashboard";
 import { TwoFactor } from "./components/Account";
@@ -17,6 +18,11 @@ export function App() {
   // the URL fragment so it's never sent to the server (or upstream proxy logs).
   const [resetToken, setResetToken] = useState<string | null>(
     () => new URLSearchParams(window.location.hash.replace(/^#/, "")).get("reset"),
+  );
+  // A confirmation link (<panel>/#confirm-email=<token>), in the fragment for
+  // the same reason.
+  const [confirmToken, setConfirmToken] = useState<string | null>(
+    () => new URLSearchParams(window.location.hash.replace(/^#/, "")).get("confirm-email"),
   );
   // An invitation link (<panel>/#invite=<token>), in the fragment for the same
   // reason.
@@ -72,6 +78,20 @@ export function App() {
           // Drop the token from the URL and return to the login screen.
           window.history.replaceState(null, "", window.location.pathname);
           setResetToken(null);
+        }}
+      />
+    );
+  }
+
+  if (confirmToken) {
+    return (
+      <ConfirmEmail
+        token={confirmToken}
+        onDone={() => {
+          window.history.replaceState(null, "", window.location.pathname);
+          setConfirmToken(null);
+          // The address on the account changed: read it again.
+          api.me().then(setUser).catch(() => {});
         }}
       />
     );

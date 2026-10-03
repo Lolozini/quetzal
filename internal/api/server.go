@@ -87,6 +87,9 @@ type Server struct {
 	// request the panel makes, from its own address, where the caller says.
 	InspectLimiter  *ratelimit.Limiter
 	TestMailLimiter *ratelimit.Limiter
+	// ConfirmMailLimiter counts, by account, the confirmation links it has
+	// the panel mail to an address of its choosing.
+	ConfirmMailLimiter *ratelimit.Limiter
 
 	// RequireSetupCode makes the first-run setup ask for the code the store
 	// keeps (Store.SetupCode), which the apiserver prints in its log. Off in
@@ -167,12 +170,13 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 		// victim and to blunt account enumeration via repeated probing.
 		ForgotLimiter: ratelimit.New(3, time.Hour),
 		// Invitations: each is a mail to an address of the sender's choosing.
-		InviteLimiter:   ratelimit.New(20, time.Hour),
-		InspectLimiter:  ratelimit.New(30, time.Hour),
-		TestMailLimiter: ratelimit.New(10, time.Hour),
-		Mailer:          notify.Send,
-		processKey:      newProcessKey(),
-		Fetch:           safefetch.Get,
+		InviteLimiter:      ratelimit.New(20, time.Hour),
+		InspectLimiter:     ratelimit.New(30, time.Hour),
+		TestMailLimiter:    ratelimit.New(10, time.Hour),
+		ConfirmMailLimiter: ratelimit.New(5, time.Hour),
+		Mailer:             notify.Send,
+		processKey:         newProcessKey(),
+		Fetch:              safefetch.Get,
 		CheckBucket: func(ctx context.Context, t objectstore.Target) error {
 			return objectstore.CheckBucket(ctx, t, nil)
 		},
@@ -275,6 +279,9 @@ func (s *Server) Handler() http.Handler {
 	// Protected.
 	mux.Handle("GET /api/me", s.auth(s.handleMe))
 	mux.Handle("PUT /api/me/email", s.auth(s.handleSetMyEmail))
+	mux.Handle("POST /api/me/email/confirmation", s.auth(s.handleResendEmailConfirmation))
+	mux.Handle("DELETE /api/me/email/pending", s.auth(s.handleCancelPendingEmail))
+	mux.HandleFunc("POST /api/confirm-email", s.handleConfirmEmail)
 	mux.Handle("GET /api/templates", s.auth(s.handleListTemplates))
 	mux.Handle("GET /api/templates/{slug}", s.auth(s.handleGetTemplate))
 	mux.Handle("POST /api/templates/import", s.auth(s.handleImportEgg))

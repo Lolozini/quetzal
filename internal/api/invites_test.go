@@ -171,6 +171,9 @@ func TestInvitationCreatesAnAccountWithAccess(t *testing.T) {
 		t.Errorf("new account = email %q admin %v maxServers %d; want the invited address, no admin, no servers of its own",
 			u.Email, u.IsAdmin, u.MaxServers)
 	}
+	if !u.EmailVerified {
+		t.Error("the invited address is not confirmed, though its link was opened")
+	}
 	a, err := h.st.GetServerAccess(h.id, u.ID)
 	if err != nil || strings.Join(a.Permissions, ",") != "view,power" {
 		t.Errorf("access = %+v, %v", a, err)

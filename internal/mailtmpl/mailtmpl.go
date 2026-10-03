@@ -136,6 +136,25 @@ func PasswordReset(username, link string, valid time.Duration, publicURL string)
 	})
 }
 
+// EmailConfirmation is the mail that confirms an account's address.
+func EmailConfirmation(username, address, link string, valid time.Duration, publicURL string) (notify.Mail, error) {
+	host := panelHost(publicURL)
+	return render(content{
+		Subject:   "Confirm your email address on Quetzal",
+		Preheader: "A link to confirm " + address + ", " + within(valid) + ".",
+		Heading:   "Confirm your email address",
+		Intro: []string{
+			fmt.Sprintf("Hi %s, the account %s on %s gave this address, %s, as its own. If it was you, confirm it:", username, username, host, address),
+		},
+		Action: &Action{Label: "Confirm this address", URL: link},
+		After: []string{
+			"The link works once, " + within(valid) + ". Until then the account keeps the address it had, and password resets go there.",
+			"If you did not ask for this, ignore this email: the address stays out of the account.",
+		},
+		Footer: []string{sentBy(publicURL)},
+	})
+}
+
 // permissionHelp is what each permission allows, worded as in the panel.
 var permissionHelp = map[string]string{
 	models.PermView:      "its page: state, address, usage, backups, schedules and activity",

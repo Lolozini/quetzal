@@ -309,6 +309,9 @@ func (s *Server) handleRegisterFromInvite(w http.ResponseWriter, r *http.Request
 	u := &models.User{
 		Username: username, PasswordHash: hash, Email: inv.Email,
 		MaxServers: 0, MaxMemoryMB: models.QuotaUnlimited, MaxCPUMilli: models.QuotaUnlimited,
+
+		// The invitation went to this address, and its link was opened.
+		EmailVerified: true,
 	}
 	if err := s.Store.RegisterFromInvite(inv, u); err != nil {
 		if err == store.ErrNotFound {

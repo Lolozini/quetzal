@@ -120,7 +120,8 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
 - **File manager**: browse, edit, upload, rename, delete, download folders as
   `.tar.gz`, and upload an archive (world / modpack / Pterodactyl backup) that's
   extracted into the volume.
-- Opt-in **SFTP** per server, authenticated by users' SSH public keys.
+- Opt-in **SFTP** per server, authenticated by users' SSH public keys; what a
+  session changes shows in the server's activity under the account that made it.
 - The **file manager and SFTP both stay available whether the server is running
   or stopped** — a small always-on data-manager pod mounts the data volume, with
   the game pod co-located so they share the volume on one node.
@@ -172,7 +173,7 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
 - Admin **suspend**, per-user **quotas**, an append-only **audit log**, and
   **API keys** for the documented REST API.
 - **Two-factor auth** (TOTP + recovery codes) and **self-service password reset**
-  by email.
+  by email, to an address its owner confirms by a link.
 
 ### Security by default
 - Namespace-per-server, deny-by-default **NetworkPolicy**, hardened

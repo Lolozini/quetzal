@@ -56,10 +56,103 @@ func (s *Store) EmailTaken(email string, except uint) (bool, error) {
 	return n > 0, err
 }
 
-// UpdateUserEmail sets a user's email (empty clears it).
+// UpdateUserEmail sets a user's email (empty clears it), unconfirmed: what an
+// administrator writes, or an account with no mail to confirm it by. Any
+// address waiting for confirmation is dropped, and its links with it.
 func (s *Store) UpdateUserEmail(id uint, email string) error {
-	return s.db.Model(&models.User{ID: id}).Select("email").
-		Updates(models.User{Email: strings.TrimSpace(email)}).Error
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ?", id).Delete(&models.EmailConfirmation{}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.User{ID: id}).Select("email", "email_verified", "pending_email").
+			Updates(models.User{Email: strings.TrimSpace(email)}).Error
+	})
+}
+
+// ---- email confirmation ----
+
+// StartEmailConfirmation records a link sent to email, replacing any earlier
+// one. An address other than the account's own becomes its pending address.
+func (s *Store) StartEmailConfirmation(c *models.EmailConfirmation) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var u models.User
+		if err := tx.First(&u, c.UserID).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", c.UserID).Delete(&models.EmailConfirmation{}).Error; err != nil {
+			return err
+		}
+		pending := c.Email
+		if pending == u.Email {
+			pending = ""
+		}
+		if err := tx.Model(&u).Select("pending_email").Updates(models.User{PendingEmail: pending}).Error; err != nil {
+			return err
+		}
+		return tx.Create(c).Error
+	})
+}
+
+// CancelPendingEmail drops the address waiting for confirmation, and its link.
+func (s *Store) CancelPendingEmail(userID uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("user_id = ?", userID).Delete(&models.EmailConfirmation{}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.User{ID: userID}).Select("pending_email").Updates(models.User{}).Error
+	})
+}
+
+// ErrConfirmationInvalid is a confirmation link that is unknown, used, expired,
+// or for an address the account no longer asks for.
+var ErrConfirmationInvalid = errors.New("invalid or expired confirmation link")
+
+// ConfirmEmail makes the address a link was sent to the account's confirmed
+// one. The link is used up. An address another account took meanwhile is
+// refused with ErrDuplicate.
+func (s *Store) ConfirmEmail(tokenHash string) (*models.User, error) {
+	var u models.User
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var c models.EmailConfirmation
+		if err := tx.Where("token_hash = ?", tokenHash).First(&c).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrConfirmationInvalid
+			}
+			return err
+		}
+		if err := tx.Where("user_id = ?", c.UserID).Delete(&models.EmailConfirmation{}).Error; err != nil {
+			return err
+		}
+		if time.Now().After(c.ExpiresAt) {
+			return ErrConfirmationInvalid
+		}
+		if err := tx.First(&u, c.UserID).Error; err != nil {
+			return err
+		}
+		// The account asked for another address since, or cleared it.
+		if c.Email != u.PendingEmail && c.Email != u.Email {
+			return ErrConfirmationInvalid
+		}
+		var n int64
+		if err := tx.Model(&models.User{}).Where("lower(email) = ? AND id <> ?", strings.ToLower(c.Email), u.ID).Count(&n).Error; err != nil {
+			return err
+		}
+		if n > 0 {
+			return ErrDuplicate
+		}
+		u.Email, u.EmailVerified, u.PendingEmail = c.Email, true, ""
+		return tx.Model(&u).Select("email", "email_verified", "pending_email").Updates(&u).Error
+	})
+	if errors.Is(err, ErrConfirmationInvalid) {
+		// The link was used up all the same; commit that.
+		if hErr := s.db.Where("token_hash = ?", tokenHash).Delete(&models.EmailConfirmation{}).Error; hErr != nil {
+			return nil, hErr
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
 }
 
 // ---- password reset tokens ----

@@ -160,31 +160,88 @@ export function TwoFactor({
 function EmailCard({ initial }: { initial: string }) {
   const { t } = useT();
   const [email, setEmail] = useState(initial);
+  const [me, setMe] = useState<User | null>(null);
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function take(u: User) {
+    setMe(u);
+    setEmail(u.email || "");
+  }
 
   // The user prop is captured at login and can be stale; sync on mount.
   useEffect(() => {
-    api.me().then((m) => setEmail(m.email || "")).catch(() => {});
+    api.me().then(take).catch(() => {});
   }, []);
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  async function run(action: () => Promise<User>, done: (u: User) => string) {
     setMsg("");
     setError("");
+    setBusy(true);
     try {
-      const u = await api.setMyEmail(email.trim());
-      setEmail(u.email || "");
-      setMsg(t("Email saved."));
+      const u = await action();
+      take(u);
+      setMsg(done(u));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
     }
   }
 
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const wanted = email.trim();
+    run(
+      () => api.setMyEmail(wanted),
+      (u) =>
+        u.pendingEmail
+          ? t("We sent a link to {address}. Your address changes once you open it.", { address: u.pendingEmail })
+          : t("Email saved."),
+    );
+  }
+
+  const current = me?.email || "";
   return (
     <div className="card">
       <h2>{t("Email")}</h2>
-      <p className="muted">{t("Used for self-service password reset. Optional and not verified.")}</p>
+      <p className="muted">{t("Used for self-service password reset. Optional.")}</p>
+      {current && (
+        <div className="kv">
+          <span className="k">{t("Current address")}</span>
+          <span>
+            {current}{" "}
+            {me?.emailVerified ? (
+              <span className="badge ok">{t("confirmed")}</span>
+            ) : (
+              <span className="badge warn">{t("not confirmed")}</span>
+            )}
+          </span>
+        </div>
+      )}
+      {me?.pendingEmail && (
+        <div className="notice">
+          {t("Waiting for confirmation: {address}. Open the link we mailed to it.", { address: me.pendingEmail })}
+          <div className="row" style={{ marginTop: 8, gap: 8 }}>
+            <button type="button" disabled={busy} onClick={() => run(api.resendEmailConfirmation, () => t("Link sent again."))}>
+              {t("Send the link again")}
+            </button>
+            <button type="button" disabled={busy} onClick={() => run(api.cancelPendingEmail, () => t("Change cancelled."))}>
+              {t("Cancel the change")}
+            </button>
+          </div>
+        </div>
+      )}
+      {current && !me?.emailVerified && !me?.pendingEmail && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => run(api.resendEmailConfirmation, (u) => t("We sent a link to {address}.", { address: u.email || "" }))}
+        >
+          {t("Confirm this address")}
+        </button>
+      )}
       <form onSubmit={submit}>
         <label>{t("Email address")}</label>
         <input
@@ -195,7 +252,7 @@ function EmailCard({ initial }: { initial: string }) {
         />
         {msg && <div className="notice">{msg}</div>}
         {error && <div className="error">{error}</div>}
-        <button className="primary" style={{ marginTop: 12 }}>{t("Save email")}</button>
+        <button className="primary" style={{ marginTop: 12 }} disabled={busy}>{t("Save email")}</button>
       </form>
     </div>
   );
