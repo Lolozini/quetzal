@@ -669,8 +669,8 @@ export const fr: Record<string, string> = {
   "wake when a player connects (TCP)": "réveiller à la connexion d'un joueur (TCP)",
   "transparent proxy (TCP+UDP, no reconnect)": "proxy transparent (TCP+UDP, pas de reconnexion)",
   "UDP servers need the transparent proxy to auto-sleep.": "Les serveurs UDP nécessitent le proxy transparent pour la mise en veille auto.",
-  "Access this server's files over SFTP using an SSH key from your Account → SSH keys. Available while the server is running.":
-    "Accédez aux fichiers de ce serveur en SFTP avec une clé SSH de votre Compte → Clés SSH. Disponible quand le serveur tourne.",
+  "Access this server's files over SFTP using an SSH key from your Account → SSH keys, whether the server is running or not.":
+    "Accédez aux fichiers de ce serveur en SFTP avec une clé SSH de votre Compte → Clés SSH, que le serveur tourne ou non.",
   "Enable SFTP": "Activer le SFTP",
   "provisioning…": "provisionnement…",
 

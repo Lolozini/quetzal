@@ -881,7 +881,7 @@ function SFTPCard({ id, initialEnabled, username, canToggle }: { id: number; ini
     <div className="card">
       <h2>SFTP</h2>
       <p className="muted">
-        {t("Access this server's files over SFTP using an SSH key from your Account → SSH keys. Available while the server is running.")}
+        {t("Access this server's files over SFTP using an SSH key from your Account → SSH keys, whether the server is running or not.")}
       </p>
       <label className="row">
         <input type="checkbox" style={{ width: "auto" }} checked={enabled} disabled={busy || !canToggle} onChange={toggle} />

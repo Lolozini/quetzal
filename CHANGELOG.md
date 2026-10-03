@@ -33,6 +33,20 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **The upgrade guide no longer promises a backup Quetzal does not take.** It
+  said Quetzal could back the panel's database up to the S3 target, and an
+  operator could skip the snapshot of the one thing that is the source of
+  truth; nothing does that. It now shows how to copy the SQLite database out
+  with the panel stopped, in a pod the `restricted` Pod Security level
+  admits. The README no longer says a deleted server's snapshots stay in the
+  bucket — they are purged — nor that a server is one pod; the install guide
+  says the chart is one Deployment of two containers, that it needs
+  Kubernetes 1.30 and is tested on 1.35, and that SFTP runs in the
+  data-manager pod, not the game's.
+- **The SFTP card no longer says it works only while the server runs.** SFTP
+  runs in the data-manager pod, which is up whether the game is or not: the
+  card discouraged the very use it is for, putting a world in place before
+  the first start.
 - **Large directories list in a blink.** A listing ran `stat` and `wc` for
   each entry, about 2 ms apiece in a server's pod: a directory of 3,000
   files took six seconds, and one of 30,000 — playerdata, a plugin's cache —
