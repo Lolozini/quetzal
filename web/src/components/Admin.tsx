@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { AdminPermInfo, AdminRole, api, ApiError, AuditEntry, EmailSettingsInput, hasAdminPerm, NetworkSettings, PolicyImpact, User } from "../api";
 import { useT } from "../i18n";
 import { tlsHint } from "../smtp";
@@ -15,7 +15,7 @@ import { Templates } from "./Templates";
 export function Admin({ user, section }: { user: User; section?: string }) {
   const { t } = useT();
   const can = (p: string) => hasAdminPerm(user, p);
-  const sections: { key: string; label: string; show: boolean; body: () => JSX.Element }[] = [
+  const sections: { key: string; label: string; show: boolean; body: () => ReactNode }[] = [
     { key: "users", label: t("Users"), show: can("users"), body: () => <Users me={user} /> },
     { key: "roles", label: t("Admin roles"), show: user.isAdmin, body: () => <Roles /> },
     { key: "templates", label: t("Eggs / templates"), show: can("templates"), body: () => <Templates open /> },
