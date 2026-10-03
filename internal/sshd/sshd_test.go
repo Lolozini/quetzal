@@ -5,14 +5,25 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/lolozini/quetzal/internal/authkeys"
 	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
+
+// keysFor lets pubs in under any name, as a file without accounts does.
+func keysFor(pubs ...ssh.PublicKey) []authkeys.Key {
+	out := make([]authkeys.Key, 0, len(pubs))
+	for _, p := range pubs {
+		out = append(out, authkeys.Key{Key: p})
+	}
+	return out
+}
 
 // newKeyPair returns an ssh signer and its public key.
 func newKeyPair(t *testing.T) (ssh.Signer, ssh.PublicKey) {
@@ -42,7 +53,7 @@ func startServer(t *testing.T, root string, authorized []ssh.PublicKey, client s
 	}
 	srv, err := New(Config{
 		Addr: "127.0.0.1:0", Root: root, HostKey: hostKey,
-		AuthorizedKeys: func() []ssh.PublicKey { return authorized },
+		AuthorizedKeys: func() []authkeys.Key { return keysFor(authorized...) },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -165,10 +176,10 @@ func TestSFTPRevokesLiveSession(t *testing.T) {
 	srv, err := New(Config{
 		Addr: "127.0.0.1:0", Root: root, HostKey: hostKey,
 		RevokeCheckInterval: 25 * time.Millisecond,
-		AuthorizedKeys: func() []ssh.PublicKey {
+		AuthorizedKeys: func() []authkeys.Key {
 			mu.Lock()
 			defer mu.Unlock()
-			return append([]ssh.PublicKey(nil), authorized...)
+			return keysFor(authorized...)
 		},
 	})
 	if err != nil {
@@ -319,5 +330,70 @@ func TestSFTPSymlinkGoesWhereTheClientSaid(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(root, "etc")); err == nil {
 		t.Error("a link named after the target appeared at the root")
+	}
+}
+
+// SFTP took any name with any key: the recette of 0.10.0 signed in as qa-admin
+// with another account's key (R-10). A key goes with its accounts' names now,
+// and what a session changes is told, with who changed it.
+func TestAKeyGoesWithItsAccountAndChangesAreLogged(t *testing.T) {
+	root := t.TempDir()
+	signer, pub := newKeyPair(t)
+	hostKey, err := crypto.GenerateSSHHostKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var logged []string
+	srv, err := New(Config{
+		Addr: "127.0.0.1:0", Root: root, HostKey: hostKey,
+		AuthorizedKeys: func() []authkeys.Key { return []authkeys.Key{{Key: pub, Users: []string{"alice"}}} },
+		LogOp: func(user, op, p string) {
+			mu.Lock()
+			logged = append(logged, user+" "+op+" "+p)
+			mu.Unlock()
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = srv.Serve() }()
+	t.Cleanup(func() { _ = srv.Close() })
+	<-srv.ready
+	dial := func(user string) (*sftp.Client, error) {
+		conn, err := ssh.Dial("tcp", srv.Addr().String(), &ssh.ClientConfig{
+			User: user, Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(), Timeout: 5 * time.Second,
+		})
+		if err != nil {
+			return nil, err
+		}
+		t.Cleanup(func() { conn.Close() })
+		return sftp.NewClient(conn)
+	}
+	if _, err := dial("mallory"); err == nil {
+		t.Fatal("alice's key signed in as mallory")
+	}
+	c, err := dial("Alice")
+	if err != nil {
+		t.Fatalf("alice's key, as Alice: %v", err)
+	}
+	f, err := c.Create("/notes.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Write([]byte("hi"))
+	f.Close()
+	if err := c.Rename("/notes.txt", "/kept.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Remove("/kept.txt"); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"Alice write /notes.txt", "Alice rename /notes.txt -> /kept.txt", "Alice remove /kept.txt"}
+	if strings.Join(logged, "\n") != strings.Join(want, "\n") {
+		t.Errorf("logged:\n%s\nwant:\n%s", strings.Join(logged, "\n"), strings.Join(want, "\n"))
 	}
 }

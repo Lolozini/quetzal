@@ -21,6 +21,8 @@ import (
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/lolozini/quetzal/internal/authkeys"
 )
 
 // defaultRevokeInterval is how often live sessions are re-checked against the
@@ -57,14 +59,22 @@ const defaultMaxPending = 256
 // the auth callback to the connection handler, so we can re-check it later.
 const pubkeyExt = "quetzal-pubkey"
 
+// userExt carries the account the session signed in as, for the log.
+const userExt = "quetzal-user"
+
 // Config configures the server.
 type Config struct {
 	Addr    string // listen address, e.g. ":2022"
 	Root    string // directory served as "/"
 	HostKey []byte // PEM-encoded host private key
-	// AuthorizedKeys returns the currently-authorized public keys. It is called
-	// on every authentication attempt so changes apply without a restart.
-	AuthorizedKeys func() []ssh.PublicKey
+	// AuthorizedKeys returns the currently-authorized public keys, each with the
+	// accounts it belongs to. It is called on every authentication attempt so
+	// changes apply without a restart.
+	AuthorizedKeys func() []authkeys.Key
+	// LogOp, when set, is told of every change a session makes -- a write, a
+	// removal, a rename, a new folder -- and who made it. Nothing said what
+	// was done over SFTP, nor by whom.
+	LogOp func(user, op, path string)
 	// RevokeCheckInterval is how often open sessions are re-checked against
 	// AuthorizedKeys; a session whose key is no longer authorized is closed.
 	// Defaults to defaultRevokeInterval.
@@ -108,14 +118,22 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("sshd: host key: %w", err)
 	}
 	sc := &ssh.ServerConfig{
-		PublicKeyCallback: func(_ ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+		// The name a session signs in as has to be one of the key's accounts:
+		// any name went with any key, and the name a session showed said
+		// nothing about whose key it was.
+		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 			want := key.Marshal()
 			for _, ak := range cfg.AuthorizedKeys() {
-				if subtle.ConstantTimeCompare(want, ak.Marshal()) == 1 {
-					return &ssh.Permissions{Extensions: map[string]string{
-						pubkeyExt: base64.StdEncoding.EncodeToString(want),
-					}}, nil
+				if subtle.ConstantTimeCompare(want, ak.Key.Marshal()) != 1 {
+					continue
 				}
+				if !ak.Allows(conn.User()) {
+					return nil, fmt.Errorf("sshd: key not authorized for %q", conn.User())
+				}
+				return &ssh.Permissions{Extensions: map[string]string{
+					pubkeyExt: base64.StdEncoding.EncodeToString(want),
+					userExt:   conn.User(),
+				}}, nil
 			}
 			return nil, fmt.Errorf("sshd: unauthorized key")
 		},
@@ -215,7 +233,7 @@ func (s *Server) revokeLoop() {
 func (s *Server) dropRevoked() {
 	authorized := make(map[string]bool)
 	for _, ak := range s.cfg.AuthorizedKeys() {
-		authorized[string(ak.Marshal())] = true
+		authorized[string(ak.Key.Marshal())] = true
 	}
 	s.mu.Lock()
 	var revoked []*ssh.ServerConn
@@ -257,11 +275,12 @@ func (s *Server) handleConn(c net.Conn) {
 
 	// Track the connection by the key it authenticated with so the revoke loop
 	// can cut it off if that key is later removed.
-	var blob string
+	var blob, user string
 	if sconn.Permissions != nil {
 		if raw, err := base64.StdEncoding.DecodeString(sconn.Permissions.Extensions[pubkeyExt]); err == nil {
 			blob = string(raw)
 		}
+		user = sconn.Permissions.Extensions[userExt]
 	}
 	s.mu.Lock()
 	s.conns[sconn] = blob
@@ -283,7 +302,7 @@ func (s *Server) handleConn(c net.Conn) {
 		if err != nil {
 			continue
 		}
-		go s.serveSession(ch, chReqs)
+		go s.serveSession(ch, chReqs, user)
 	}
 }
 
@@ -295,7 +314,7 @@ func (s *Server) handshakeTimeout() time.Duration {
 	return defaultHandshakeTimeout
 }
 
-func (s *Server) serveSession(ch ssh.Channel, reqs <-chan *ssh.Request) {
+func (s *Server) serveSession(ch ssh.Channel, reqs <-chan *ssh.Request, user string) {
 	// Accept only the "sftp" subsystem request.
 	go func() {
 		for r := range reqs {
@@ -306,6 +325,9 @@ func (s *Server) serveSession(ch ssh.Channel, reqs <-chan *ssh.Request) {
 		}
 	}()
 	h := rootedHandlers(s.cfg.Root)
+	if s.cfg.LogOp != nil {
+		h = loggedHandlers(h, func(op, p string) { s.cfg.LogOp(user, op, p) })
+	}
 	srv := sftp.NewRequestServer(ch, h)
 	defer srv.Close()
 	_ = srv.Serve()
@@ -506,4 +528,50 @@ func (l listerat) ListAt(dst []os.FileInfo, off int64) (int, error) {
 		return n, io.EOF
 	}
 	return n, nil
+}
+
+// ---- the log of what sessions change ----
+
+// loggedHandlers tells logOp of each change a session makes, then makes it.
+func loggedHandlers(h sftp.Handlers, logOp func(op, path string)) sftp.Handlers {
+	return sftp.Handlers{
+		FileGet:  h.FileGet,
+		FileList: h.FileList,
+		FilePut:  loggedPut{h.FilePut, logOp},
+		FileCmd:  loggedCmd{h.FileCmd, logOp},
+	}
+}
+
+type loggedPut struct {
+	sftp.FileWriter
+	logOp func(op, path string)
+}
+
+func (l loggedPut) Filewrite(req *sftp.Request) (io.WriterAt, error) {
+	w, err := l.FileWriter.Filewrite(req)
+	if err == nil {
+		l.logOp("write", req.Filepath)
+	}
+	return w, err
+}
+
+type loggedCmd struct {
+	sftp.FileCmder
+	logOp func(op, path string)
+}
+
+func (l loggedCmd) Filecmd(req *sftp.Request) error {
+	err := l.FileCmder.Filecmd(req)
+	if err == nil {
+		switch req.Method {
+		case "Rename":
+			l.logOp("rename", req.Filepath+" -> "+req.Target)
+		case "Symlink":
+			// pkg/sftp hands OpenSSH's order over: Filepath is the target.
+			l.logOp("symlink", req.Target+" -> "+req.Filepath)
+		default:
+			l.logOp(strings.ToLower(req.Method), req.Filepath)
+		}
+	}
+	return err
 }

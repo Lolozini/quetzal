@@ -47,6 +47,15 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **SFTP lets a key in under its account's name only, and logs what it is
+  used for.** The SFTP server took any name with any key it knew, so the
+  name a session gave said nothing about whose key it was, and nothing
+  recorded what a session changed. Each key in a server's authorized_keys
+  now carries the accounts it belongs to, and a session signing in under
+  another name is refused; the SFTP container's log has a line for every
+  write, removal, rename, new folder and link, with the account that made
+  it. A data manager still running the previous release's SFTP binary
+  accepts any name until it restarts.
 - **An email address belongs to one account.** Any account could set any
   address, another account's included, and a password reset by address went
   to the oldest of the accounts that had it: one account could divert

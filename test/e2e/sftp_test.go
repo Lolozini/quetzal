@@ -77,8 +77,8 @@ func TestE2ESFTP(t *testing.T) {
 	if err := c.Get(ctx, client.ObjectKey{Namespace: srv.Namespace, Name: reconciler.SFTPAuthKeysConfigMap}, &cm); err != nil {
 		t.Fatalf("authorized_keys configmap: %v", err)
 	}
-	if !strings.Contains(cm.Data[reconciler.SFTPAuthKeysField], line) {
-		t.Errorf("authorized_keys missing the owner's key:\n%s", cm.Data[reconciler.SFTPAuthKeysField])
+	if !strings.Contains(cm.Data[reconciler.SFTPAuthKeysField], `quetzal-users="alice" `+line) {
+		t.Errorf("authorized_keys missing the owner's key, under the owner's name:\n%s", cm.Data[reconciler.SFTPAuthKeysField])
 	}
 
 	// The sftp sidecar runs in the always-on data-manager pod (a separate pod from

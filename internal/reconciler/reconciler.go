@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/lolozini/quetzal/internal/authkeys"
 	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/startup"
@@ -525,9 +526,22 @@ func (r *Reconciler) ensureSFTP(ctx context.Context, s *models.Server) error {
 	if err != nil {
 		return fmt.Errorf("sftp authorized keys: %w", err)
 	}
+	// Each key with the account it belongs to: SFTP lets a key in under its
+	// account's name only, and its log says who did what.
+	names := map[uint]string{}
 	lines := make([]string, 0, len(keys))
 	for _, k := range keys {
-		lines = append(lines, k.PublicKey)
+		name, ok := names[k.UserID]
+		if !ok {
+			u, err := r.Store.GetUser(k.UserID)
+			if err != nil {
+				return fmt.Errorf("sftp authorized keys: %w", err)
+			}
+			name, names[k.UserID] = u.Username, u.Username
+		}
+		if line := authkeys.Line(k.PublicKey, []string{name}); line != "" {
+			lines = append(lines, line)
+		}
 	}
 	if err := r.apply(ctx, BuildSFTPAuthKeysConfigMap(s, lines)); err != nil {
 		return fmt.Errorf("sftp configmap: %w", err)

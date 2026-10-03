@@ -14,8 +14,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"golang.org/x/crypto/ssh"
-
+	"github.com/lolozini/quetzal/internal/authkeys"
 	"github.com/lolozini/quetzal/internal/sshd"
 )
 
@@ -43,8 +42,12 @@ func main() {
 		Addr:    addr,
 		Root:    root,
 		HostKey: hostKey,
-		AuthorizedKeys: func() []ssh.PublicKey {
+		AuthorizedKeys: func() []authkeys.Key {
 			return loadAuthorizedKeys(authPath)
+		},
+		// The pod's log says who changed what, one line a change.
+		LogOp: func(user, op, path string) {
+			log.Printf("%s %s %q", user, op, path)
 		},
 	})
 	if err != nil {
@@ -58,7 +61,7 @@ func main() {
 
 // loadAuthorizedKeys parses an authorized_keys file (best-effort: skips bad
 // lines). Returns nil if the file is missing, which denies all access.
-func loadAuthorizedKeys(path string) []ssh.PublicKey {
+func loadAuthorizedKeys(path string) []authkeys.Key {
 	if path == "" {
 		return nil
 	}
@@ -66,17 +69,7 @@ func loadAuthorizedKeys(path string) []ssh.PublicKey {
 	if err != nil {
 		return nil
 	}
-	var keys []ssh.PublicKey
-	rest := data
-	for len(rest) > 0 {
-		key, _, _, next, err := ssh.ParseAuthorizedKey(rest)
-		if err != nil {
-			break
-		}
-		keys = append(keys, key)
-		rest = next
-	}
-	return keys
+	return authkeys.Parse(data)
 }
 
 func installSelf(dest string) error {

@@ -11,6 +11,8 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/lolozini/quetzal/internal/crypto"
+
+	"github.com/lolozini/quetzal/internal/authkeys"
 )
 
 // startBare starts a server with no authorized keys and returns its address. No
@@ -24,7 +26,7 @@ func startBare(t *testing.T, cfg Config) *Server {
 	cfg.Addr = "127.0.0.1:0"
 	cfg.Root = t.TempDir()
 	cfg.HostKey = hostKey
-	cfg.AuthorizedKeys = func() []ssh.PublicKey { return nil }
+	cfg.AuthorizedKeys = func() []authkeys.Key { return nil }
 	srv, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -125,7 +127,7 @@ func TestAuthenticatedSessionOutlivesHandshakeTimeout(t *testing.T) {
 	srv, err := New(Config{
 		Addr: "127.0.0.1:0", Root: t.TempDir(), HostKey: hostKey,
 		HandshakeTimeout: 250 * time.Millisecond,
-		AuthorizedKeys:   func() []ssh.PublicKey { return []ssh.PublicKey{pub} },
+		AuthorizedKeys:   func() []authkeys.Key { return keysFor(pub) },
 	})
 	if err != nil {
 		t.Fatal(err)
