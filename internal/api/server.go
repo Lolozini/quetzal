@@ -407,8 +407,44 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/servers/{id}/events", s.auth(s.handleServerEvents))
 	mux.Handle("GET /api/events", s.auth(s.handleGlobalEvents))
 
-	return logRequests(s.csrf(mux))
+	return logRequests(s.csrf(jsonMisses(mux)))
 }
+
+// jsonMisses answers a request no route takes -- an unknown path, or a known
+// one with a method it does not have -- in JSON, as every other error of the
+// API is. The mux answered those in plain text ("404 page not found"), which a
+// client reading {"error": …} could not.
+func jsonMisses(mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h, pattern := mux.Handler(r)
+		if pattern != "" {
+			mux.ServeHTTP(w, r)
+			return
+		}
+		rec := &missRecorder{header: http.Header{}}
+		h.ServeHTTP(rec, r)
+		if allow := rec.header.Get("Allow"); allow != "" {
+			w.Header().Set("Allow", allow)
+		}
+		switch rec.code {
+		case http.StatusMethodNotAllowed:
+			writeError(w, rec.code, "this route does not take "+r.Method)
+		default:
+			writeError(w, http.StatusNotFound, "no such API route")
+		}
+	})
+}
+
+// missRecorder keeps the status and headers the mux's own answer to a miss
+// would have had, and drops its text.
+type missRecorder struct {
+	header http.Header
+	code   int
+}
+
+func (m *missRecorder) Header() http.Header         { return m.header }
+func (m *missRecorder) Write(b []byte) (int, error) { return len(b), nil }
+func (m *missRecorder) WriteHeader(code int)        { m.code = code }
 
 // csrf blocks state-changing requests whose Origin/Referer is cross-origin. The
 // session cookie is SameSite=Lax (already blocking most cross-site sends); this
