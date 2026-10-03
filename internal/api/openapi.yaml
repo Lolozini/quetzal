@@ -1002,6 +1002,11 @@ paths:
               required: [action]
               properties:
                 action: { type: string, enum: [start, stop, restart, kill] }
+      description: >-
+        stop sends the template's stop command, then stops the pod (SIGTERM,
+        then the template's grace). restart does the same and starts the server
+        again once its pod is gone; a server that is not running is left alone.
+        kill stops the game at once (SIGKILL), and the server comes back up.
       responses:
         "200":
           description: Action accepted
@@ -2478,7 +2483,9 @@ components:
         What to do when another template already has the imported one's slug:
         replace updates that template (bumping its version), copy adds this one
         beside it under the next free slug (paper-2, named "Paper (2)").
-        Without it, such an import is refused with a 409.
+        Without it, such an import is refused with a 409. A server whose game
+        is up keeps the version it started with until its pod is replaced: a
+        stop, a restart, a change to its settings, a reinstall.
       schema: { type: string, enum: [replace, copy] }
   responses:
     BadRequest:

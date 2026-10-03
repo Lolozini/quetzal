@@ -1708,7 +1708,12 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "restart":
-		if err := s.deletePods(r, srv, nil); err != nil {
+		// The controller stops the game -- its stop command first, as a stop
+		// does -- and starts it once its pod is gone. Deleting the pod gave it
+		// SIGTERM alone, and the next pod could start on the volume while the
+		// old one was still saving to it. A server that is not running has
+		// nothing to restart.
+		if _, err := s.Store.RequestRestart(srv.ID, time.Now()); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

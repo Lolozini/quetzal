@@ -267,6 +267,7 @@ func (s *Store) autoMigrate() error {
 		&models.SSHKey{}, &models.PasswordReset{},
 		&models.DatabaseHost{}, &models.ServerDatabase{},
 		&models.RateCounter{}, &models.ServerInvite{}, &models.FileUpload{},
+		&models.TemplateRevision{},
 	)
 }
 
@@ -309,10 +310,73 @@ func (s *Store) UpsertTemplate(t *models.Template) (*models.Template, error) {
 	// Save writes every column, and a re-imported egg carries no creation time:
 	// without this its template's createdAt became year 1.
 	t.CreatedAt = existing.CreatedAt
-	if err := s.db.Save(t).Error; err != nil {
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		// A running server keeps the version it started with until it stops:
+		// keep this one while a server is on it.
+		if err := keepRevision(tx, &existing); err != nil {
+			return err
+		}
+		if err := tx.Save(t).Error; err != nil {
+			return err
+		}
+		return pruneRevisions(tx, existing.ID)
+	})
+	if err != nil {
 		return nil, err
 	}
 	return t, nil
+}
+
+// keepRevision stores t as a TemplateRevision if a server is on its version.
+func keepRevision(tx *gorm.DB, t *models.Template) error {
+	var n int64
+	if err := tx.Model(&models.Server{}).Where("template_id = ? AND template_version = ?", t.ID, t.Version).
+		Count(&n).Error; err != nil || n == 0 {
+		return err
+	}
+	data, err := json.Marshal(t)
+	if err != nil {
+		return err
+	}
+	return tx.Clauses(clause.OnConflict{DoNothing: true}).
+		Create(&models.TemplateRevision{TemplateID: t.ID, Version: t.Version, Data: string(data)}).Error
+}
+
+// pruneRevisions drops the revisions of a template no server is on any more.
+func pruneRevisions(tx *gorm.DB, templateID uint) error {
+	pinned := tx.Model(&models.Server{}).Select("template_version").Where("template_id = ?", templateID)
+	return tx.Where("template_id = ? AND version NOT IN (?)", templateID, pinned).
+		Delete(&models.TemplateRevision{}).Error
+}
+
+// GetTemplateRevision returns an earlier version of a template, as it was,
+// while a server is still on it (ErrNotFound otherwise).
+func (s *Store) GetTemplateRevision(templateID uint, version int) (*models.Template, error) {
+	var rev models.TemplateRevision
+	if err := s.db.Where("template_id = ? AND version = ?", templateID, version).First(&rev).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	var t models.Template
+	if err := json.Unmarshal([]byte(rev.Data), &t); err != nil {
+		return nil, fmt.Errorf("template %d version %d: %w", templateID, version, err)
+	}
+	return &t, nil
+}
+
+// SetServerTemplateVersion moves a server onto a version of its template, the
+// one it starts with from now on, and drops the revisions nobody is on any
+// more. A server switched to another template meanwhile is left alone.
+func (s *Store) SetServerTemplateVersion(serverID, templateID uint, version int) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&models.Server{}).Where("id = ? AND template_id = ?", serverID, templateID).
+			Update("template_version", version).Error; err != nil {
+			return err
+		}
+		return pruneRevisions(tx, templateID)
+	})
 }
 
 // DeleteTemplate removes a template row.
@@ -508,6 +572,24 @@ func lockServer(tx *gorm.DB, id uint) (*models.Server, error) {
 		return nil, err
 	}
 	return &srv, nil
+}
+
+// RequestRestart asks for a running server to be stopped -- its stop command
+// first, as a stop does -- and started again once its pod is gone; the
+// controller carries it out (FinishRestart). It reports false, and changes
+// nothing, for a server that is not running.
+func (s *Store) RequestRestart(id uint, when time.Time) (bool, error) {
+	res := s.db.Model(&models.Server{}).
+		Where("id = ? AND desired_state = ? AND hibernated = ?", id, string(models.StateRunning), false).
+		Update("restart_requested_at", when)
+	return res.RowsAffected == 1, res.Error
+}
+
+// FinishRestart ends a restart once the game's pod is gone: the server is
+// started again, if it is still meant to run.
+func (s *Store) FinishRestart(id uint) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Update("restart_requested_at", nil).Error
 }
 
 // UpdateServerHibernation persists a server's hibernation policy. A non-nil

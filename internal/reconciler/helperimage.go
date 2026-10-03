@@ -40,6 +40,12 @@ const helperGeneration = "1"
 // after giving it back the live Deployment's helper image if that is all that
 // would change on a running pod.
 func (r *Reconciler) applyKeepingHelpers(ctx context.Context, want *appsv1.Deployment, systemImage string) error {
+	return r.applyRolling(ctx, want, systemImage, nil)
+}
+
+// applyRolling is applyKeepingHelpers, calling beforeRoll first when the apply
+// is about to replace a running pod.
+func (r *Reconciler) applyRolling(ctx context.Context, want *appsv1.Deployment, systemImage string, beforeRoll func()) error {
 	live := &appsv1.Deployment{}
 	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(want), live); err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -50,7 +56,21 @@ func (r *Reconciler) applyKeepingHelpers(ctx context.Context, want *appsv1.Deplo
 	if !keepHelperImage(live, want, systemImage) && isLegacy(live) {
 		r.keepLegacyHelperImage(ctx, live, want, systemImage)
 	}
+	if beforeRoll != nil && rolls(live, want) {
+		beforeRoll()
+	}
 	return r.apply(ctx, want)
+}
+
+// rolls reports whether applying want replaces a pod live runs: both ask for
+// one, and their pod templates differ. A Deployment made before the pod spec
+// hash cannot tell, and counts as not rolling.
+func rolls(live, want *appsv1.Deployment) bool {
+	if live == nil || !scaledUp(live) || !scaledUp(want) || live.Status.ReadyReplicas == 0 {
+		return false
+	}
+	h := live.Annotations[podSpecAnnotation]
+	return h != "" && h != want.Annotations[podSpecAnnotation]
 }
 
 // applyNewHelpers applies want as it is, new helper image included, stamped

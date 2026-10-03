@@ -148,17 +148,70 @@ func (r *Reconciler) ReconcileServer(ctx context.Context, id uint) error {
 			srv.Slug, srv.Namespace, want)
 	}
 
+	tmpl, pinned := r.renderedTemplate(ctx, srv, tmpl)
+
 	// A step that fails stops the ones after it, but no longer the status: it
 	// used to, and the panel went on showing whatever it showed when a pass
 	// last went through -- "Stopped", next to a game that was running, while
 	// the controller's log was the only place to say its Service was refused.
 	if err := r.ensureObjects(ctx, srv, tmpl); err != nil {
-		if stErr := r.writeStatus(ctx, srv, tmpl, failureNotice(err)); stErr != nil {
+		if stErr := r.writeStatus(ctx, srv, tmpl, joinNotice(pinned, failureNotice(err))); stErr != nil {
 			log.Printf("server %s: status: %v", srv.Slug, stErr)
 		}
 		return err
 	}
-	return r.updateStatus(ctx, srv, tmpl)
+	return r.writeStatus(ctx, srv, tmpl, pinned)
+}
+
+// renderedTemplate is the template a server's pods are made from, and a notice
+// when that is not the current one. A server whose game is up keeps the
+// version it started with: an edited or re-imported template used to replace
+// the pod of every running server that used it, at once and players and all.
+// It takes the current version the next time its pod goes anyway -- a stop, a
+// restart, hibernation, a crash, a change to its own settings -- or when it is
+// reinstalled. A version kept nowhere (the server predates revisions, and runs
+// the current one already) is taken at once.
+func (r *Reconciler) renderedTemplate(ctx context.Context, srv *models.Server, cur *models.Template) (*models.Template, string) {
+	if srv.TemplateVersion == cur.Version {
+		return cur, ""
+	}
+	if srv.Replicas() > 0 {
+		if old, err := r.Store.GetTemplateRevision(cur.ID, srv.TemplateVersion); err == nil && r.keepsRunning(ctx, srv, old) {
+			return old, fmt.Sprintf("its template was updated (version %d): the server takes it at its next restart", cur.Version)
+		}
+	}
+	if err := r.Store.SetServerTemplateVersion(srv.ID, cur.ID, cur.Version); err != nil {
+		log.Printf("server %s: move to template version %d: %v", srv.Slug, cur.Version, err)
+	} else {
+		srv.TemplateVersion = cur.Version
+	}
+	return cur, ""
+}
+
+// keepsRunning reports whether the server's game is up on a pod that old, the
+// template version it started with, still renders as it is: nothing else about
+// the server changed, and only the template's update would replace the pod.
+// When something did, the pod goes anyway, and had better take the current
+// template in the same stroke than be replaced a second time for it.
+func (r *Reconciler) keepsRunning(ctx context.Context, srv *models.Server, old *models.Template) bool {
+	live := &appsv1.Deployment{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: srv.Namespace, Name: workloadName}, live); err != nil {
+		return false
+	}
+	if !scaledUp(live) || live.Status.ReadyReplicas == 0 {
+		return false
+	}
+	secretEnv, err := r.Store.OpenSecrets(srv.SecretEnvEnc)
+	if err != nil {
+		return false
+	}
+	keys := make([]string, 0, len(secretEnv))
+	for k := range secretEnv {
+		keys = append(keys, k)
+	}
+	want := BuildDeployment(srv, old, r.ActivatorImage, keys)
+	keepHelperImage(live, want, r.ActivatorImage)
+	return !rolls(live, want)
 }
 
 // ensureObjects brings a server's Kubernetes objects in line with its row, one
@@ -209,6 +262,17 @@ func (r *Reconciler) ensureObjects(ctx context.Context, srv *models.Server, tmpl
 	secretKeys := make([]string, 0, len(secretEnv))
 	for k := range secretEnv {
 		secretKeys = append(secretKeys, k)
+	}
+	// A restart is a stop, its stop command included, and a start once the
+	// game's pod is gone. It used to delete the pod: the game got SIGTERM and
+	// nothing else, and the Deployment's next pod could start on the volume
+	// while the old one was still saving to it.
+	if srv.RestartRequestedAt != nil && r.restartDone(ctx, srv, tmpl) {
+		if err := r.Store.FinishRestart(srv.ID); err != nil {
+			log.Printf("server %s: finish restart: %v", srv.Slug, err)
+		} else {
+			srv.RestartRequestedAt = nil
+		}
 	}
 	// Graceful stop: when a server that is up is about to be scaled to zero --
 	// stopped, suspended, or put to sleep by hibernation -- and the template
@@ -273,6 +337,26 @@ func (r *Reconciler) ensureObjects(ctx context.Context, srv *models.Server, tmpl
 		}
 	}
 	return nil
+}
+
+// restartLimit bounds the stopping half of a restart, past the template's
+// stop grace: a pod that has not gone by then is not going on its own, and the
+// server is started again regardless.
+const restartLimit = 5 * time.Minute
+
+// restartDone reports whether a restart has stopped the game: none of its pods
+// is left, or it has waited longer than any stop should take.
+func (r *Reconciler) restartDone(ctx context.Context, srv *models.Server, t *models.Template) bool {
+	limit := restartLimit + time.Duration(t.StopGraceSeconds)*time.Second
+	if time.Since(*srv.RestartRequestedAt) > limit {
+		log.Printf("server %s: its game was still not down %s into a restart; starting it again", srv.Slug, limit)
+		return true
+	}
+	var pods corev1.PodList
+	if err := r.Client.List(ctx, &pods, client.InNamespace(srv.Namespace), client.MatchingLabels{serverLabel: srv.Slug}); err != nil {
+		return false
+	}
+	return len(pods.Items) == 0
 }
 
 // stepError is a step of a server's reconcile that did not go through.
@@ -534,8 +618,19 @@ func (r *Reconciler) apply(ctx context.Context, obj client.Object) error {
 	return r.Client.Patch(ctx, obj, client.Apply, client.FieldOwner(fieldOwner), client.ForceOwnership)
 }
 
+// ensureDeployment applies the game's Deployment. A change to its pod -- new
+// resources, image, variables or ports, a reinstall -- replaces a running pod,
+// and the game got SIGTERM alone, which a startup wrapped in a shell never
+// passes on: it now gets its stop command first, as a stop gives it.
 func (r *Reconciler) ensureDeployment(ctx context.Context, s *models.Server, t *models.Template, secretKeys []string) error {
-	return r.applyKeepingHelpers(ctx, BuildDeployment(s, t, r.ActivatorImage, secretKeys), r.ActivatorImage)
+	return r.applyRolling(ctx, BuildDeployment(s, t, r.ActivatorImage, secretKeys), r.ActivatorImage, func() {
+		if r.OnStop == nil || !isConsoleStop(t.StopCommand) {
+			return
+		}
+		if err := r.OnStop(ctx, s.Namespace, s.Slug, t.StopCommand); err != nil {
+			log.Printf("stop command before replacing %s's pod (replacing it anyway): %v", s.Slug, err)
+		}
+	})
 }
 
 func (r *Reconciler) ensureService(ctx context.Context, s *models.Server, t *models.Template, activator bool) error {
@@ -751,6 +846,9 @@ func (r *Reconciler) writeStatus(ctx context.Context, s *models.Server, t *model
 		// It will have to wake where its data is.
 		st.Phase = models.PhaseHibernated
 		st.Message = r.placementProblem(ctx, s, "")
+	case s.RestartRequestedAt != nil:
+		st.Phase = models.PhaseStopping
+		st.Message = "restarting: the game is stopped first, and starts again once it is down"
 	default: // Running
 		h := r.inspectPods(ctx, s.Namespace, s.Slug)
 		st.CrashCount = h.restarts

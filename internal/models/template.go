@@ -331,3 +331,15 @@ type SecurityContext struct {
 	FSGroup      *int64 `json:"fsGroup,omitempty"`
 	RunAsNonRoot *bool  `json:"runAsNonRoot,omitempty"`
 }
+
+// TemplateRevision is an earlier version of a template, kept while a server
+// still runs it. A running server keeps the template it started with: an
+// edited or re-imported template used to restart every running server that
+// used it at once, players and all, where Pterodactyl's panel applies an egg's
+// changes at a server's next start. Data is the template as it was, in JSON.
+type TemplateRevision struct {
+	ID         uint   `gorm:"primaryKey"`
+	TemplateID uint   `gorm:"uniqueIndex:idx_template_revision"`
+	Version    int    `gorm:"uniqueIndex:idx_template_revision"`
+	Data       string `gorm:"type:text"`
+}

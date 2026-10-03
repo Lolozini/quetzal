@@ -7,6 +7,18 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- **An updated template reaches a running server at its next restart, not at
+  once.** Replacing or editing a template replaced the pod of every running
+  server that used it, within seconds and with players on, where
+  Pterodactyl's panel applies an egg's changes at a server's next start. A
+  server whose game is up now keeps the version it started with, and its
+  status says a newer one is waiting; it takes the new version when its pod
+  goes anyway — a stop, a restart, hibernation, a crash, a change to its own
+  settings — or when it is reinstalled. Earlier versions are kept only while a
+  server runs them.
+
 ### Security
 
 - **A server whose Service the cluster refuses no longer runs without its
@@ -21,6 +33,16 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Restart, and any change that replaces a server's pod, give the game its
+  stop command first.** Only a stop did: a restart — from the panel, the API
+  or a schedule — deleted the pod, and a new setting (memory, image,
+  variables, ports) or a reinstall replaced it, with SIGTERM alone, which a
+  startup wrapped in a shell never passes on. A game that saves only on its
+  stop command lost everything since its last autosave at every scheduled
+  restart. A restart is now a stop followed by a start: the stop command,
+  the pod gone, then the server started again — where the next pod used to
+  start on the volume while the old one was still saving to it. A pod
+  replaced for a new setting gets the stop command just before.
 - **A restore can no longer be left waiting under a running server, to roll
   its world back later.** A restore waits for its server's pods to be gone,
   and starting the server after asking for one was accepted: the restore then

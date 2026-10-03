@@ -225,6 +225,10 @@ type Server struct {
 	Hibernated   bool       `json:"hibernated"`
 	LastActiveAt *time.Time `json:"lastActiveAt,omitempty"`
 
+	// RestartRequestedAt is a restart under way: the game is stopped, its stop
+	// command included, and started again once its pod is gone. Nil otherwise.
+	RestartRequestedAt *time.Time `json:"restartRequestedAt,omitempty"`
+
 	// Transfer is the in-progress migration to another cluster (nil when none).
 	// Driven by the controller's transfer manager.
 	Transfer *TransferState `gorm:"serializer:json" json:"transfer,omitempty"`
@@ -237,9 +241,10 @@ type Server struct {
 }
 
 // Replicas returns the desired pod replica count. A server runs only when the
-// user wants it Running and it isn't hibernated (scaled to zero on idle).
+// user wants it Running, it isn't hibernated (scaled to zero on idle), and it
+// is not on the stopping half of a restart.
 func (s *Server) Replicas() int32 {
-	if s.DesiredState == StateRunning && !s.Hibernated {
+	if s.DesiredState == StateRunning && !s.Hibernated && s.RestartRequestedAt == nil {
 		return 1
 	}
 	return 0

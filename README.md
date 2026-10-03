@@ -97,8 +97,10 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
 
 ### Deploy & run
 - Create servers from templates, which are the Pterodactyl/Pelican eggs you
-  import; start / stop / restart / kill, with graceful stop via a template's
-  stop command.
+  import; start / stop / restart / kill, the game given its template's stop
+  command before its pod goes — on a stop, a restart, or a new setting. A
+  running server keeps the template version it started with until it
+  restarts.
 - Edit startup variables and CPU/RAM limits after creation (validated against the
   template; secrets preserved).
 - **Reinstall** on demand (optionally wiping data) without surprise re-installs on

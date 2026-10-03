@@ -45,9 +45,12 @@ export function Templates({ open = false }: { open?: boolean }) {
       const taken = e instanceof ApiError && e.status === 409 && !ifExists ? (e.data as ImportConflict | undefined)?.existing : undefined;
       if (taken) {
         setConflict({
-          message: tr('A template "{name}" ({slug}, version {version}) already exists, used by {servers} server(s).', {
-            name: taken.name, slug: taken.slug, version: taken.version, servers: taken.servers,
-          }),
+          message:
+            tr('A template "{name}" ({slug}, version {version}) already exists, used by {servers} server(s).', {
+              name: taken.name, slug: taken.slug, version: taken.version, servers: taken.servers,
+            }) +
+            " " +
+            tr("If you replace it, a server that is running keeps the version it started with until it restarts."),
           retry: (mode) => importFrom(run, ok, mode),
         });
       } else {

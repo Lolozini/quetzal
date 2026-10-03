@@ -85,7 +85,7 @@ func (s *Server) saveImport(w http.ResponseWriter, r *http.Request, t *models.Te
 	default:
 		n, _ := s.Store.CountServersByTemplate(existing.ID)
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error": fmt.Sprintf("a template %q (%s, version %d) already exists, used by %d server(s): replace it, or import this one as a new template",
+			"error": fmt.Sprintf("a template %q (%s, version %d) already exists, used by %d server(s): replace it (a running server keeps the version it started with until it restarts), or import this one as a new template",
 				existing.Name, existing.Slug, existing.Version, n),
 			"existing": map[string]any{"slug": existing.Slug, "name": existing.Name, "version": existing.Version, "servers": n},
 		})

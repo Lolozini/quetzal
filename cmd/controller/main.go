@@ -237,14 +237,11 @@ func (e *executor) Stop(_ context.Context, srv *models.Server) error {
 	return e.st.SetDesiredState(srv.ID, models.StateStopped)
 }
 
-func (e *executor) Restart(ctx context.Context, srv *models.Server) error {
-	clients, err := e.reg.For(srv.ClusterID)
-	if err != nil {
-		return err
-	}
-	return clients.Clientset.CoreV1().Pods(srv.Namespace).DeleteCollection(ctx,
-		metav1.DeleteOptions{},
-		metav1.ListOptions{LabelSelector: reconciler.ServerLabel + "=" + srv.Slug})
+// Restart stops the game with its stop command and starts it again once it is
+// down, as the panel's restart does (Store.RequestRestart).
+func (e *executor) Restart(_ context.Context, srv *models.Server) error {
+	_, err := e.st.RequestRestart(srv.ID, time.Now())
+	return err
 }
 
 func (e *executor) Command(ctx context.Context, srv *models.Server, cmd string) error {
