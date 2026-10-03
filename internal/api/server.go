@@ -82,6 +82,11 @@ type Server struct {
 	InternalLimiter *ratelimit.Limiter
 	ForgotLimiter   *ratelimit.Limiter
 	InviteLimiter   *ratelimit.Limiter
+	// InspectLimiter counts, by account, the Pterodactyl panels it has the
+	// panel ask, and TestMailLimiter the test mails it has it send: each is a
+	// request the panel makes, from its own address, where the caller says.
+	InspectLimiter  *ratelimit.Limiter
+	TestMailLimiter *ratelimit.Limiter
 	// DevOrigin accepts WebSocket upgrades from localhost on top of same-origin,
 	// for a web dev server running against this API. Off by default: a deployed
 	// panel has no reason to take them.
@@ -157,10 +162,12 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 		// victim and to blunt account enumeration via repeated probing.
 		ForgotLimiter: ratelimit.New(3, time.Hour),
 		// Invitations: each is a mail to an address of the sender's choosing.
-		InviteLimiter: ratelimit.New(20, time.Hour),
-		Mailer:        notify.Send,
-		processKey:    newProcessKey(),
-		Fetch:         safefetch.Get,
+		InviteLimiter:   ratelimit.New(20, time.Hour),
+		InspectLimiter:  ratelimit.New(30, time.Hour),
+		TestMailLimiter: ratelimit.New(10, time.Hour),
+		Mailer:          notify.Send,
+		processKey:      newProcessKey(),
+		Fetch:           safefetch.Get,
 		CheckBucket: func(ctx context.Context, t objectstore.Target) error {
 			return objectstore.CheckBucket(ctx, t, nil)
 		},
@@ -188,6 +195,8 @@ func (s *Server) GCRateLimiters() {
 	s.InternalLimiter.GC()
 	s.ForgotLimiter.GC()
 	s.InviteLimiter.GC()
+	s.InspectLimiter.GC()
+	s.TestMailLimiter.GC()
 }
 
 // clientIP returns the caller's IP, honoring X-Forwarded-For only when behind a

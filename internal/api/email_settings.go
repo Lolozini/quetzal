@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -112,6 +113,13 @@ func (s *Server) handleSetEmailSettings(w http.ResponseWriter, r *http.Request) 
 // handleTestEmail sends a test message with the stored settings (admin only).
 func (s *Server) handleTestEmail(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminPerm(w, r, models.AdminPermSettings) {
+		return
+	}
+	// A test mail goes where the caller says, from the operator's domain: one
+	// a settings administrator could send without end.
+	key := strconv.FormatUint(uint64(userFrom(r.Context()).ID), 10)
+	if !s.TestMailLimiter.Allow(key) {
+		tooManyRequests(w, s.TestMailLimiter.RetryAfter(key))
 		return
 	}
 	var req struct {

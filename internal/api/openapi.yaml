@@ -491,6 +491,7 @@ paths:
         "400": { description: Not configured or no recipient }
         "502": { description: Send failed }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/database-hosts:
     get:
@@ -1708,6 +1709,8 @@ paths:
                   draft: { type: object, additionalProperties: true }
                   warnings: { type: array, items: { type: string } }
         "400": { description: Unusable address or key }
+        "403": { description: The account may not create servers }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "502": { description: The panel refused or could not be reached }
   /api/servers/{id}/import/pterodactyl:
     parameters:

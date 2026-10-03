@@ -47,6 +47,13 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Requests the panel makes on a caller's word are bounded.** Inspecting a
+  Pterodactyl server has the panel call an address the caller gives, and
+  any signed-in account could, without limit, even one allowed no server; a
+  test mail goes from the operator's domain to any address, and a settings
+  administrator could send them without end. An account that may create no
+  server cannot inspect one any more, and each account gets 30 inspections
+  and 10 test mails an hour.
 - **An invitation to an address the mail server refuses says so.** It
   answered that the invitation could not be sent and that an administrator
   could check the email settings, which were fine: it was the address. A

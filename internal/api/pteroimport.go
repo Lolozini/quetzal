@@ -112,6 +112,20 @@ type pteroInspectResult struct {
 // handleInspectPterodactyl reads a server from a Pterodactyl panel and returns
 // the create form it maps to. Nothing is created.
 func (s *Server) handleInspectPterodactyl(w http.ResponseWriter, r *http.Request) {
+	// Inspecting is the first step of creating a server, and has the panel
+	// call an address the caller gives: an account that may create none, and
+	// had it call any public host, unbounded, is refused, and the others
+	// counted.
+	u := userFrom(r.Context())
+	if !u.HasAdminPerm(models.AdminPermServers) && u.MaxServers == 0 {
+		writeError(w, http.StatusForbidden, "your account may not create servers; an administrator can allow it")
+		return
+	}
+	key := strconv.FormatUint(uint64(u.ID), 10)
+	if !s.InspectLimiter.Allow(key) {
+		tooManyRequests(w, s.InspectLimiter.RetryAfter(key))
+		return
+	}
 	var src pteroSource
 	if err := decodeJSON(r, &src); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
