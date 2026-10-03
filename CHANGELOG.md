@@ -33,6 +33,11 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Accented and non-Latin text comes through the console whole.** The log
+  was read in 4 KiB blocks and each sent as text, and a character of two to
+  four bytes that a block ended in the middle of turned into two `�` —
+  accented chat, Cyrillic or CJK logs had holes in them where the pod's log
+  had none. A block is cut between characters now.
 - **The upgrade guide no longer promises a backup Quetzal does not take.** It
   said Quetzal could back the panel's database up to the S3 target, and an
   operator could skip the snapshot of the one thing that is the source of

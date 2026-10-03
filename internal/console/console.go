@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
 	corev1 "k8s.io/api/core/v1"
@@ -293,19 +294,56 @@ func streamLogs(ctx context.Context, cs kubernetes.Interface, ns, pod string, ou
 	}
 	defer stream.Close()
 
-	buf := make([]byte, 4096)
+	err = forwardText(stream, func(text string) { send(ctx, out, Message{Type: "stdout", Data: text}) })
+	if err == nil || ctx.Err() != nil {
+		return nil
+	}
+	return err
+}
+
+// forwardText reads r in blocks and hands each on as text, cut between
+// characters only. A block ends wherever the read did, and a character of two
+// to four bytes cut in two was invalid on both sides: the JSON encoder turned
+// each half into U+FFFD, and accented chat, Cyrillic or CJK logs came out with
+// holes in them. The start of an unfinished character waits for the next
+// block. It returns nil at the end of r.
+func forwardText(r io.Reader, emit func(string)) error {
+	const block = 4096
+	buf := make([]byte, block+utf8.UTFMax)
+	held := 0 // the start of a character, carried from the last read
 	for {
-		n, err := stream.Read(buf)
-		if n > 0 {
-			send(ctx, out, Message{Type: "stdout", Data: string(buf[:n])})
+		n, err := r.Read(buf[held : held+block])
+		n += held
+		cut := n
+		if err == nil {
+			cut = wholeRunes(buf[:n])
 		}
+		if cut > 0 {
+			emit(string(buf[:cut]))
+		}
+		held = copy(buf, buf[cut:n])
 		if err != nil {
-			if err == io.EOF || ctx.Err() != nil {
+			if err == io.EOF {
 				return nil
 			}
 			return err
 		}
 	}
+}
+
+// wholeRunes is how much of b holds whole characters: all of it, or up to the
+// start of a last character whose other bytes have not come yet. Bytes that are
+// not UTF-8 count as whole, so nothing waits on them.
+func wholeRunes(b []byte) int {
+	for i := len(b) - 1; i >= 0 && i >= len(b)-utf8.UTFMax; i-- {
+		if utf8.RuneStart(b[i]) {
+			if !utf8.FullRune(b[i:]) {
+				return i
+			}
+			break
+		}
+	}
+	return len(b)
 }
 
 func attachStdin(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, ns, pod string, stdin io.Reader) error {
