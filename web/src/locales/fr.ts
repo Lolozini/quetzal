@@ -491,13 +491,14 @@ export const fr: Record<string, string> = {
     "Aucune cible de sauvegarde configurée — définissez-en une ci-dessous pour activer les sauvegardes.",
   "No backups yet.": "Aucune sauvegarde pour l'instant.",
   Restore: "Restaurer",
-  "Restore this backup into the server's volume? Current data will be overwritten by the snapshot.\n\nThe server must be stopped first (a live restore would corrupt the data).":
-    "Restaurer cette sauvegarde dans le volume du serveur ? Les données actuelles seront écrasées par le snapshot.\n\nLe serveur doit d'abord être arrêté (une restauration à chaud corromprait les données).",
+  "Restore this backup into the server's volume? Current data will be overwritten by the snapshot.\n\nThe server must be stopped first (a live restore would corrupt the data), and cannot be started again until the restore has finished or been cancelled.":
+    "Restaurer cette sauvegarde dans le volume du serveur ? Les données actuelles seront écrasées par le snapshot.\n\nLe serveur doit d'abord être arrêté (une restauration à chaud corromprait les données), et ne pourra pas redémarrer avant la fin ou l'annulation de la restauration.",
   "Delete this backup? Its snapshot is removed from the repository and the data cannot be recovered.":
     "Supprimer cette sauvegarde ? Son snapshot est retiré du dépôt et les données seront irrécupérables.",
   "Delete this record?": "Supprimer cet enregistrement ?",
   "Deleting…": "Suppression…",
   "Wait for this operation to finish.": "Attendez la fin de cette opération.",
+  "Cancel this operation? It has not started yet.": "Annuler cette opération ? Elle n'a pas encore commencé.",
   "S3 endpoint (host:port)": "Endpoint S3 (hôte:port)",
   Bucket: "Bucket",
   "Prefix (optional)": "Préfixe (optionnel)",

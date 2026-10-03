@@ -261,17 +261,9 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, backup.OtherTargetMessage)
 		return
 	}
-	// A restore overwrites the data volume in place. If the server is running, its
-	// pod and the restore Job would mount the same volume read-write at the same
-	// time (RWO allows this on a single node) and corrupt the data. Require a
-	// stopped server first, mirroring Pterodactyl/Pelican.
 	srv, err := s.Store.GetServer(src.ServerID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if srv.DesiredState == models.StateRunning {
-		writeError(w, http.StatusConflict, "stop the server before restoring (a live restore would corrupt the data volume)")
 		return
 	}
 	// A transfer runs its own backup and restore on this volume, and moves it to
@@ -285,7 +277,19 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 		Phase:     models.BackupPending,
 		SourceID:  src.ID,
 	}
-	if err := s.Store.CreateBackup(b); err != nil {
+	// A restore overwrites the data volume in place. If the server is running, its
+	// pod and the restore Job would mount the same volume read-write at the same
+	// time (RWO allows this on a single node) and corrupt the data. Require a
+	// stopped server first, mirroring Pterodactyl/Pelican; the store checks it
+	// under the same lock as a start, which is refused while the restore waits.
+	switch err := s.Store.CreateRestore(b); {
+	case errors.Is(err, store.ErrServerRunning):
+		writeError(w, http.StatusConflict, "stop the server before restoring (a live restore would corrupt the data volume)")
+		return
+	case errors.Is(err, store.ErrRestoreActive):
+		writeError(w, http.StatusConflict, "a restore is already waiting or running for this server; cancel it, or wait for it to finish")
+		return
+	case err != nil:
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -302,12 +306,27 @@ func (s *Server) handleDeleteBackup(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// An operation in flight owns a running Job — and, for a restore, the
-	// exclusive write mount on the data volume (the reconciler keeps the data
-	// manager scaled down while a restore row is Pending/Running). Dropping the
-	// row would lift that guard mid-restore and orphan the Job, so refuse.
+	// A running operation owns a Job — and, for a restore, the exclusive write
+	// mount on the data volume (the reconciler keeps the data manager scaled
+	// down while a restore row is Pending/Running). Dropping the row would lift
+	// that guard mid-restore and orphan the Job, so refuse. One still pending
+	// has neither yet, and is called off: a restore queued by mistake used to
+	// be bound to run, whenever the server next stopped.
 	switch b.Phase {
-	case models.BackupPending, models.BackupRunning:
+	case models.BackupPending:
+		cancelled, err := s.Store.CancelPendingBackup(b.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if !cancelled {
+			writeError(w, http.StatusConflict, "this operation has just started; wait for it to finish before deleting it")
+			return
+		}
+		s.audit(r, b.ServerID, "backup.delete", "#"+strconv.FormatUint(uint64(b.ID), 10)+" (cancelled before it started)")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	case models.BackupRunning:
 		writeError(w, http.StatusConflict, "this operation is still running; wait for it to finish before deleting it")
 		return
 	case models.BackupDeleting:

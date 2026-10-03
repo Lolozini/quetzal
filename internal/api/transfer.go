@@ -21,6 +21,25 @@ func transferInProgress(w http.ResponseWriter, srv *models.Server) bool {
 	return false
 }
 
+// restoreActiveMessage answers what a waiting or running restore forbids.
+const restoreActiveMessage = "a restore of this server's data is waiting or running; it has to finish, or be cancelled from the backups, first"
+
+// restoreInProgress refuses, with a 409, what a restore waiting for the
+// server's volume or writing it forbids: the data manager is down for it, and
+// a transfer or an import would write the same volume.
+func (s *Server) restoreInProgress(w http.ResponseWriter, srv *models.Server) bool {
+	active, err := s.Store.HasActiveRestore(srv.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return true
+	}
+	if active {
+		writeError(w, http.StatusConflict, restoreActiveMessage)
+		return true
+	}
+	return false
+}
+
 type transferRequest struct {
 	// Cluster names the target by its slug, as creating a server does.
 	Cluster string `json:"cluster"`
@@ -108,7 +127,7 @@ func (s *Server) handleTransferServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "a transfer is already in progress")
 		return
 	}
-	if importInProgress(w, srv) {
+	if importInProgress(w, srv) || s.restoreInProgress(w, srv) {
 		return
 	}
 	var req transferRequest

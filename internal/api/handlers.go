@@ -1695,6 +1695,10 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 	case "start":
 		// StartServer also wakes a hibernated server and rearms its idle timer.
 		if err := s.Store.StartServer(srv.ID, time.Now()); err != nil {
+			if errors.Is(err, store.ErrRestoreActive) {
+				writeError(w, http.StatusConflict, restoreActiveMessage)
+				return
+			}
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

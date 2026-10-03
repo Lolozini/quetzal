@@ -42,7 +42,7 @@ export function Backups({ id, readOnly = false }: { id: number; readOnly?: boole
   }
 
   async function restore(b: Backup) {
-    if (!window.confirm(t("Restore this backup into the server's volume? Current data will be overwritten by the snapshot.\n\nThe server must be stopped first (a live restore would corrupt the data)."))) return;
+    if (!window.confirm(t("Restore this backup into the server's volume? Current data will be overwritten by the snapshot.\n\nThe server must be stopped first (a live restore would corrupt the data), and cannot be started again until the restore has finished or been cancelled."))) return;
     setError("");
     try {
       await api.restoreBackup(id, b.id);
@@ -56,9 +56,11 @@ export function Backups({ id, readOnly = false }: { id: number; readOnly?: boole
     // A succeeded backup owns a snapshot in the repository, and deleting it now
     // really removes that data — say so rather than calling it a "record".
     const msg =
-      b.direction === "backup" && b.phase === "Succeeded"
-        ? t("Delete this backup? Its snapshot is removed from the repository and the data cannot be recovered.")
-        : t("Delete this record?");
+      b.phase === "Pending"
+        ? t("Cancel this operation? It has not started yet.")
+        : b.direction === "backup" && b.phase === "Succeeded"
+          ? t("Delete this backup? Its snapshot is removed from the repository and the data cannot be recovered.")
+          : t("Delete this record?");
     if (!window.confirm(msg)) return;
     setError("");
     try {
@@ -128,15 +130,16 @@ export function Backups({ id, readOnly = false }: { id: number; readOnly?: boole
                     {b.direction === "backup" && b.phase === "Succeeded" && !b.otherTarget && (
                       <button onClick={() => restore(b)}>{t("Restore")}</button>
                     )}{" "}
-                    {/* An operation in flight owns a Job (and, for a restore, the
-                        exclusive write mount); the API refuses to drop it. */}
+                    {/* A running operation owns a Job (and, for a restore, the
+                        exclusive write mount); the API refuses to drop it. One
+                        still pending has neither, and can be called off. */}
                     <button
                       className="danger"
                       disabled={IN_FLIGHT.includes(b.phase)}
                       title={IN_FLIGHT.includes(b.phase) ? t("Wait for this operation to finish.") : ""}
                       onClick={() => remove(b)}
                     >
-                      {b.phase === "Deleting" ? t("Deleting…") : t("Delete")}
+                      {b.phase === "Deleting" ? t("Deleting…") : b.phase === "Pending" ? t("Cancel") : t("Delete")}
                     </button>
                       </>
                     )}
@@ -230,7 +233,8 @@ function BackupConfigForm({ cfg, onSaved }: { cfg: BackupConfig | null; onSaved:
 }
 
 // Phases that own a live Job: nothing may be deleted while one is in flight.
-const IN_FLIGHT = ["Pending", "Running", "Deleting"];
+// A pending operation has none yet, and is cancelled instead.
+const IN_FLIGHT = ["Running", "Deleting"];
 
 function phaseClass(p: string): string {
   if (p === "Succeeded") return "Running";

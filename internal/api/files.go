@@ -151,6 +151,11 @@ func (s *Server) fileContext(w http.ResponseWriter, r *http.Request) (srv *model
 	if q := r.URL.Query(); outsideRoot(w, q.Get("path"), q.Get("to")) {
 		return nil, "", nil, nil, "", false
 	}
+	// The data manager is down while a restore waits or runs: say so at once,
+	// rather than after the two minutes spent waiting for it.
+	if s.restoreInProgress(w, srv) {
+		return nil, "", nil, nil, "", false
+	}
 	root = s.dataRoot(srv)
 	cs, cfg, err := s.clientsFor(srv)
 	if err != nil {

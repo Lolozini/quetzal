@@ -1012,6 +1012,10 @@ paths:
                 properties:
                   action: { type: string }
                   result: { type: string }
+        "409":
+          description: >-
+            The server is suspended, being transferred or imported, or — for
+            start — a restore of its data is waiting or running
   /api/servers/{id}/reinstall:
     parameters:
       - $ref: "#/components/parameters/ServerId"
@@ -1618,14 +1622,17 @@ paths:
       summary: Restore from a backup
       description: >-
         The restore runs after the answer: the record comes back Pending, and
-        its phase says how it ends.
+        its phase says how it ends. It waits for the server's pods to be gone,
+        and is called off if its volume is still held 15 minutes later. Until
+        it ends, or is cancelled by deleting it while still Pending, the server
+        cannot be started and its files are unavailable.
       responses:
         "202":
           description: Restore requested
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Backup" }
-        "409": { description: Server must be stopped to restore }
+        "409": { description: The server is not stopped, or a restore is already waiting or running }
   /api/servers/{id}/backups/{bid}:
     parameters:
       - $ref: "#/components/parameters/ServerId"
@@ -1638,12 +1645,13 @@ paths:
         from the database: the record enters the Deleting phase and the
         controller forgets the snapshot from the repository first. Records with
         nothing to forget (a failed operation, a restore) are removed at once.
-        An operation still in flight cannot be deleted — it owns a running Job,
-        and a restore also owns the exclusive write mount on the data volume.
+        A Pending operation has not started and is cancelled. A Running one
+        cannot be deleted — it owns a Job, and a restore also owns the
+        exclusive write mount on the data volume.
       responses:
         "202": { description: Snapshot deletion started; the record is now Deleting }
-        "204": { description: Deleted }
-        "409": { description: The operation is still running }
+        "204": { description: Deleted, or cancelled before it started }
+        "409": { description: The operation is running }
 
   /api/servers/{id}/suspend:
     parameters:

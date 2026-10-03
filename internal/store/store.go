@@ -34,6 +34,13 @@ var ErrDuplicate = errors.New("duplicate")
 // ErrNoFreeNodePort means the node-port range is used up.
 var ErrNoFreeNodePort = errors.New("no free node port")
 
+// ErrRestoreActive is a server that cannot be started, or given another
+// restore, because a restore is waiting for its data volume or writing it.
+var ErrRestoreActive = errors.New("a restore of this server's data is waiting or running")
+
+// ErrServerRunning is a restore refused because the server is meant to run.
+var ErrServerRunning = errors.New("the server is running")
+
 // Driver enumerates supported database engines.
 type Driver string
 
@@ -465,13 +472,42 @@ func (s *Store) Wake(id uint, when time.Time) error {
 // stale LastActiveAt would let the very next hibernation tick put it straight
 // back to sleep. Every start path (API power action, scheduled task) goes
 // through here so they cannot drift apart again.
+//
+// A server with a restore waiting or running is not started (ErrRestoreActive).
+// A restore waits for the server to be down, then writes over its data, and a
+// start under it used to be accepted: the restore waited -- days, if need be --
+// and rolled the world back the next time the server stopped. The server's row
+// is locked as CreateRestore locks it, so the two cannot both go through.
 func (s *Store) StartServer(id uint, when time.Time) error {
-	return s.db.Model(&models.Server{}).Where("id = ?", id).
-		Updates(map[string]any{
-			"desired_state":  string(models.StateRunning),
-			"hibernated":     false,
-			"last_active_at": when,
-		}).Error
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if _, err := lockServer(tx, id); err != nil {
+			return err
+		}
+		if active, err := hasActiveRestore(tx, id); err != nil {
+			return err
+		} else if active {
+			return ErrRestoreActive
+		}
+		return tx.Model(&models.Server{}).Where("id = ?", id).
+			Updates(map[string]any{
+				"desired_state":  string(models.StateRunning),
+				"hibernated":     false,
+				"last_active_at": when,
+			}).Error
+	})
+}
+
+// lockServer reads a server's row and locks it for the rest of tx (SQLite
+// already runs one write transaction at a time).
+func lockServer(tx *gorm.DB, id uint) (*models.Server, error) {
+	var srv models.Server
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&srv, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &srv, nil
 }
 
 // UpdateServerHibernation persists a server's hibernation policy. A non-nil
@@ -962,6 +998,51 @@ func (s *Store) CreateBackup(b *models.Backup) error {
 	return s.db.Create(b).Error
 }
 
+// CreateRestore queues a restore of a server that is not meant to run
+// (ErrServerRunning otherwise). It locks the server's row as StartServer does,
+// so a start and a restore sent together cannot both be accepted. A restore
+// already waiting or running is ErrRestoreActive: a second one would only
+// replace the first, whichever finished last.
+func (s *Store) CreateRestore(b *models.Backup) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		srv, err := lockServer(tx, b.ServerID)
+		if err != nil {
+			return err
+		}
+		if srv.DesiredState == models.StateRunning {
+			return ErrServerRunning
+		}
+		if active, err := hasActiveRestore(tx, b.ServerID); err != nil {
+			return err
+		} else if active {
+			return ErrRestoreActive
+		}
+		return tx.Create(b).Error
+	})
+}
+
+// CancelPendingBackup drops an operation nothing has started: no Job exists
+// for it, and the volume is untouched. It reports false when the operation
+// left Pending meanwhile (the controller took it up), and drops nothing then.
+func (s *Store) CancelPendingBackup(id uint) (bool, error) {
+	res := s.db.Where("id = ? AND phase = ?", id, models.BackupPending).Delete(&models.Backup{})
+	return res.RowsAffected == 1, res.Error
+}
+
+// ClaimBackup moves a pending operation to Running under jobName -- and, for a
+// backup, the target it goes to -- before its Job is created. It reports false
+// when the operation is no longer pending, cancelled meanwhile: it must not get
+// a Job nobody tracks, which for a restore would write over the volume while
+// the file manager is back on it.
+func (s *Store) ClaimBackup(id uint, jobName, target string) (bool, error) {
+	fields := map[string]any{"phase": models.BackupRunning, "job_name": jobName}
+	if target != "" {
+		fields["target"] = target
+	}
+	res := s.db.Model(&models.Backup{}).Where("id = ? AND phase = ?", id, models.BackupPending).Updates(fields)
+	return res.RowsAffected == 1, res.Error
+}
+
 // GetBackup returns a backup by ID.
 func (s *Store) GetBackup(id uint) (*models.Backup, error) {
 	var b models.Backup
@@ -996,8 +1077,12 @@ func (s *Store) ListBackupsByPhase(phase models.BackupPhase) ([]models.Backup, e
 // A restore overwrites the data volume in place, so it needs exclusive write
 // access; the reconciler scales the data-manager pod down while one is active.
 func (s *Store) HasActiveRestore(serverID uint) (bool, error) {
+	return hasActiveRestore(s.db, serverID)
+}
+
+func hasActiveRestore(tx *gorm.DB, serverID uint) (bool, error) {
 	var n int64
-	err := s.db.Model(&models.Backup{}).
+	err := tx.Model(&models.Backup{}).
 		Where("server_id = ? AND direction = ? AND phase IN ?",
 			serverID, models.DirRestore,
 			[]models.BackupPhase{models.BackupPending, models.BackupRunning}).

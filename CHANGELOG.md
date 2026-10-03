@@ -21,6 +21,17 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A restore can no longer be left waiting under a running server, to roll
+  its world back later.** A restore waits for its server's pods to be gone,
+  and starting the server after asking for one was accepted: the restore then
+  waited — days, on a server left running — with the file manager and SFTP
+  down all along, could not be cancelled, and ran the next time the server
+  stopped, over everything played since. While a restore waits or runs, the
+  server cannot be started now, by hand or by a schedule, nor transferred or
+  imported into, and the file manager says why at once instead of after two
+  minutes. A restore still waiting can be cancelled from the backups, and one
+  whose volume is still held 15 minutes after the request is called off and
+  reported as failed.
 - **A node port that another Service already holds is replaced.** The pool
   only knows Quetzal's own allocations, and draws by default from the
   cluster's whole range, which an ingress controller's LoadBalancer Service

@@ -533,7 +533,7 @@ func (s *Server) handleImportPterodactyl(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if transferInProgress(w, srv) || importInProgress(w, srv) {
+	if transferInProgress(w, srv) || importInProgress(w, srv) || s.restoreInProgress(w, srv) {
 		return
 	}
 	if srv.DesiredState != models.StateStopped || srv.Status.Phase != models.PhaseStopped {

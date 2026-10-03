@@ -125,7 +125,19 @@ func (m *Manager) processPending(ctx context.Context) {
 		// restore for a running server; this also covers the stop grace period.
 		if b.Direction == models.DirRestore {
 			has, err := serverHasPods(ctx, cs, srv.Namespace, srv.Slug)
-			if err != nil || has {
+			if err != nil {
+				continue
+			}
+			if has {
+				// The server cannot be started while a restore waits, but a pod
+				// can still hold the volume: one stuck terminating, a game
+				// started before that was refused. Such a restore is called off
+				// rather than left to run whenever the pod goes -- days later,
+				// over everything the game wrote meanwhile.
+				if m.now().Sub(b.CreatedAt) > restoreWait {
+					m.finish(b, models.BackupFailed, 0, fmt.Sprintf(
+						"it never started: the server's data was still in use %s after the request, so nothing was restored", restoreWait))
+				}
 				continue
 			}
 		}
@@ -147,6 +159,25 @@ func (m *Manager) processPending(ctx context.Context) {
 			AccessKey: access, SecretKey: secret, RepoPassword: pass,
 			NodeSelector: srv.NodeSelector, InstallGen: srv.InstallGeneration,
 		}
+		// Take the operation up before its Job exists: one cancelled meanwhile
+		// is gone, and gets no Job.
+		target := ""
+		if b.Direction == models.DirBackup {
+			target = TargetID(cfg)
+		}
+		claimed, err := m.Store.ClaimBackup(b.ID, JobName(p), target)
+		if err != nil {
+			log.Printf("backup: claim %d: %v", b.ID, err)
+			continue
+		}
+		if !claimed {
+			continue
+		}
+		b.Phase, b.JobName = models.BackupRunning, JobName(p)
+		if target != "" {
+			b.Target = target
+		}
+		busy[b.ServerID] = true
 		if err := ensureSecret(ctx, cs, BuildSecret(p)); err != nil {
 			m.finish(b, models.BackupFailed, 0, "create creds secret: "+err.Error())
 			continue
@@ -156,15 +187,6 @@ func (m *Manager) processPending(ctx context.Context) {
 			m.finish(b, models.BackupFailed, 0, "create job: "+err.Error())
 			continue
 		}
-		b.Phase = models.BackupRunning
-		b.JobName = JobName(p)
-		if b.Direction == models.DirBackup {
-			b.Target = TargetID(cfg)
-		}
-		if err := m.Store.UpdateBackup(b); err != nil {
-			log.Printf("backup: update %d: %v", b.ID, err)
-		}
-		busy[b.ServerID] = true
 	}
 }
 
@@ -380,6 +402,11 @@ func (m *Manager) failDelete(b *models.Backup, msg string) {
 // well past any stop grace a template sets, short of leaving the backup to
 // wait on a pod that will not go.
 const stopWait = 15 * time.Minute
+
+// restoreWait bounds how long a restore waits for its server's volume to be
+// free. The pods of a stopped server are gone in seconds: past this, something
+// holds the volume that will not let go on its own.
+const restoreWait = 15 * time.Minute
 
 // gameHasPods reports whether a server's game still has a pod, terminating or
 // not. The data manager's does not count: it mounts the volume for the file

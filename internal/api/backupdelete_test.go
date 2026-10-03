@@ -60,8 +60,15 @@ func TestDeleteBackupRespectsInFlightAndSnapshots(t *testing.T) {
 	if b, err := st.GetBackup(running.ID); err != nil || b.Phase != models.BackupRunning {
 		t.Errorf("running restore was disturbed: %+v (err %v)", b, err)
 	}
-	if got := del(seed(models.DirBackup, models.BackupPending).ID); got != http.StatusConflict {
-		t.Errorf("delete pending backup = %d, want 409", got)
+	// One that has not started owns neither yet, and is called off.
+	for _, d := range []models.BackupDirection{models.DirBackup, models.DirRestore} {
+		pending := seed(d, models.BackupPending)
+		if got := del(pending.ID); got != http.StatusNoContent {
+			t.Errorf("cancel pending %s = %d, want 204", d, got)
+		}
+		if _, err := st.GetBackup(pending.ID); err == nil {
+			t.Errorf("cancelled %s still listed", d)
+		}
 	}
 
 	// A succeeded backup owns a snapshot: the row survives as Deleting until the

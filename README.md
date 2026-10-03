@@ -138,7 +138,9 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
 
 ### Data & backups
 - **Backups & restore** to any S3-compatible target via **restic** (dedup,
-  encryption, retention) — one-shot Jobs, credentials encrypted at rest.
+  encryption, retention) — one-shot Jobs, credentials encrypted at rest. A
+  restore runs on a stopped server, which cannot start again until it is done;
+  one still waiting can be cancelled.
 - Deleting a server **destroys its data volume** along with it, so nothing is
   left orphaned — take a backup first if you need to keep a world. Its snapshots
   in the backup bucket are kept (the namespace that could prune them is gone by
