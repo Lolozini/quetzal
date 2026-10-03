@@ -1148,23 +1148,26 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var ports []models.PortSpec
-	if expose.ServiceType() == models.ExposeNodePort {
-		// Free node ports for game ports no longer present so the pool set matches
-		// the new list. Ports that survive keep their allocation (allocateNodePorts
-		// reuses by name), so unchanged external ports stay stable. The SFTP port
-		// has its own allocation key and is left untouched.
-		if portsChanged {
-			keep := map[string]bool{}
-			for _, p := range newPorts {
-				keep[portAllocKey(p)] = true
-			}
-			for _, p := range srv.Ports {
-				if !keep[portAllocKey(p)] {
-					_ = s.Store.ReleaseNodePort(srv.ID, portAllocKey(p))
-				}
+	// Free node ports for game ports no longer present so the pool set matches
+	// the new list. Ports that survive keep their allocation (allocateNodePorts
+	// reuses by key), so unchanged external ports stay stable -- also while the
+	// server is not published on node ports: they went back to the pool then,
+	// and switching back gave the server new ones, the address its players,
+	// a box's port forwarding and an SRV record knew all to redo. The SFTP port
+	// has its own allocation key and is left untouched.
+	if portsChanged {
+		keep := map[string]bool{}
+		for _, p := range newPorts {
+			keep[portAllocKey(p)] = true
+		}
+		for _, p := range srv.Ports {
+			if !keep[portAllocKey(p)] {
+				_ = s.Store.ReleaseNodePort(srv.ID, portAllocKey(p))
 			}
 		}
+	}
+	var ports []models.PortSpec
+	if expose.ServiceType() == models.ExposeNodePort {
 		allocated, err := s.allocateNodePorts(srv.ID, newPorts)
 		if err != nil {
 			writeError(w, nodePortStatus(err), err.Error())
@@ -1172,10 +1175,6 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		}
 		ports = allocated
 	} else {
-		// Not NodePort: release every game port's pool allocation (leaving SFTP).
-		for _, p := range srv.Ports {
-			_ = s.Store.ReleaseNodePort(srv.ID, portAllocKey(p))
-		}
 		ports = clearNodePorts(newPorts)
 	}
 	if err := s.Store.UpdateServerNetworking(srv.ID, expose, ports); err != nil {

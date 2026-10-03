@@ -47,6 +47,12 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A server keeps its node ports while it exists.** Taking a server off
+  NodePort gave its ports back to the pool, and putting it back drew new
+  ones — 30003 became 30027, and 30003 could go to the next server: the
+  address its players knew, a box's port forwarding and an SRV record all
+  to redo. A port is freed when it is removed from the server, or the
+  server deleted.
 - **A crash says what the game's log ends with.** A Paper server out of heap
   prints `java.lang.OutOfMemoryError` and exits 0, and its status read "the
   game exited with code 0", which sent nobody towards the memory. The
