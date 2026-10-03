@@ -12,29 +12,30 @@ import (
 // throttle was no help: a single probe is all it takes.
 //
 // Measured as the minimum of several attempts, which is the stable statistic --
-// scheduling noise can only make a run slower, never faster.
+// scheduling noise can only make a run slower, never faster. The attempts on
+// the two accounts alternate: run one series after the other, and a load that
+// changed in between (the other packages' tests, under -race) slowed one
+// series only, and failed the test with nothing wrong.
 func TestLoginDoesNotSayWhetherAnAccountExists(t *testing.T) {
 	srv, admin := newTestServer(t)
 	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
 	createUser(t, admin, srv.URL, map[string]any{"username": "known", "password": "knownpw12345"})
 
-	probe := func(user string) time.Duration {
-		best := time.Hour
-		for i := 0; i < 4; i++ {
-			start := time.Now()
-			r := post(t, &http.Client{}, srv.URL+"/api/login",
-				map[string]string{"username": user, "password": "wrong-password"})
-			d := time.Since(start)
-			if r.StatusCode != http.StatusUnauthorized {
-				t.Fatalf("login as %q = %d, want 401 (a throttled reply would not be timed)", user, r.StatusCode)
-			}
-			if d < best {
-				best = d
-			}
+	attempt := func(user string) time.Duration {
+		start := time.Now()
+		r := post(t, &http.Client{}, srv.URL+"/api/login",
+			map[string]string{"username": user, "password": "wrong-password"})
+		d := time.Since(start)
+		if r.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("login as %q = %d, want 401 (a throttled reply would not be timed)", user, r.StatusCode)
 		}
-		return best
+		return d
 	}
-	known, unknown := probe("known"), probe("no-such-account")
+	known, unknown := time.Hour, time.Hour
+	for i := 0; i < 4; i++ {
+		known = min(known, attempt("known"))
+		unknown = min(unknown, attempt("no-such-account"))
+	}
 
 	// The unknown path must do comparable work. Half is a wide margin: before the
 	// decoy hash it was doing none, and came back ~7x faster.
