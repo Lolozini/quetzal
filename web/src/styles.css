@@ -170,6 +170,11 @@ button.link:hover { background: none; color: var(--accent); }
 }
 .tabs a:hover { color: var(--ink); }
 .tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+/* On a phone the tabs go onto a second line rather than scrolling sideways
+   behind a hidden scrollbar, where nothing said there were more. */
+@media (max-width: 600px) {
+  .tabs { flex-wrap: wrap; overflow-x: visible; }
+}
 
 .error { color: var(--danger); margin: 8px 0; }
 .notice {

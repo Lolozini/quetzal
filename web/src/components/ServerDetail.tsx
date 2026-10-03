@@ -405,7 +405,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
   const powerNotice: Record<PowerAction, string> = {
     start: "Start requested — the server is spinning up.",
     stop: "Stop requested — the server is shutting down gracefully.",
-    restart: "Restart requested — the pod is being recreated; it will come back shortly.",
+    restart: "Restart requested — the game gets its stop command, and starts again once it is down.",
     kill: "Kill requested — forcing the pod to stop immediately.",
   };
 
@@ -451,6 +451,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
   }
 
   const phase = srv.status?.phase ?? "";
+  const running = srv.desiredState === "Running";
   // The page is in tabs, the console first: it is what a server is opened for,
   // and it used to come last, below everything else on a page 7,000 to 10,000
   // pixels high. Each tab has its own address, so a reload stays on it.
@@ -534,16 +535,18 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
         <div className="row" style={{ marginTop: 12 }}>
           {may("power") && (
             <>
-              <button className="primary" disabled={busy !== "" || transferring} onClick={() => power("start")}>
+              {/* Each action is offered when it does something: Start was
+                  live next to a server already running. */}
+              <button className="primary" disabled={busy !== "" || transferring || (running && !srv.hibernated)} onClick={() => power("start")}>
                 {busy === "start" ? t("Starting…") : t("Start")}
               </button>
-              <button disabled={busy !== "" || transferring} onClick={() => power("stop")}>
+              <button disabled={busy !== "" || transferring || !running} onClick={() => power("stop")}>
                 {busy === "stop" ? t("Stopping…") : t("Stop")}
               </button>
-              <button disabled={busy !== "" || transferring} onClick={() => power("restart")}>
+              <button disabled={busy !== "" || transferring || !running || !!srv.hibernated} onClick={() => power("restart")}>
                 {busy === "restart" ? t("Restarting…") : t("Restart")}
               </button>
-              <button className="danger" disabled={busy !== "" || transferring} onClick={() => power("kill")}>
+              <button className="danger" disabled={busy !== "" || transferring || OFFLINE_PHASES.includes(phase)} onClick={() => power("kill")}>
                 {busy === "kill" ? t("Killing…") : t("Kill")}
               </button>
               {srv.hibernated && (

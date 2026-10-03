@@ -348,8 +348,8 @@ export const fr: Record<string, string> = {
   "Start requested — the server is spinning up.": "Démarrage demandé — le serveur monte.",
   "Stop requested — the server is shutting down gracefully.":
     "Arrêt demandé — le serveur s'éteint proprement.",
-  "Restart requested — the pod is being recreated; it will come back shortly.":
-    "Redémarrage demandé — le pod est recréé, il revient dans un instant.",
+  "Restart requested — the game gets its stop command, and starts again once it is down.":
+    "Redémarrage demandé — le jeu reçoit sa commande d'arrêt, puis redémarre une fois arrêté.",
   "Kill requested — forcing the pod to stop immediately.":
     "Arrêt forcé demandé — le pod est stoppé immédiatement.",
   "Transfer this server to {name}?\n\nIt will be stopped, its data backed up and restored on the destination, then the source removed. This can take a while.":
@@ -504,6 +504,8 @@ export const fr: Record<string, string> = {
     "Un élément de la page n'a pas pu s'afficher. Le reste du panneau fonctionne ; un rapport de bug avec l'erreur ci-dessous aide.",
   "Back to the servers": "Retour aux serveurs",
   "Setup code": "Code d'installation",
+  Security: "Sécurité",
+  Administration: "Administration",
   "The panel prints it in its log:": "Le panneau l'écrit dans son journal :",
   "You were not given this server's console.": "La console de ce serveur ne vous a pas été confiée.",
   "If you replace it, a server that is running keeps the version it started with until it restarts.":

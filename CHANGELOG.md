@@ -54,6 +54,13 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **The administration is in tabs, and a phone shows every tab.** Its eleven
+  cards made one page over 5,000 pixels high with nothing to find one by;
+  each has a tab and an address of its own now (`#/admin/users`,
+  `#/admin/templates`…), as a server's page does. On a phone, tabs that do
+  not fit go onto a second line, where they used to scroll sideways behind a
+  hidden scrollbar. And a server's power buttons are offered when they do
+  something: Start was live next to a running server.
 - **Requests the panel makes on a caller's word are bounded.** Inspecting a
   Pterodactyl server has the panel call an address the caller gives, and
   any signed-in account could, without limit, even one allowed no server; a

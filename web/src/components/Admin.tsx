@@ -8,25 +8,46 @@ import { DatabaseHosts } from "./DatabaseHosts";
 import { Notifications } from "./Notifications";
 import { Templates } from "./Templates";
 
-// section puts one card first, open: #/admin/templates is where the create
-// form sends an admin while there is no template to create a server from.
+// The administration is in tabs, each with its own address (#/admin/<section>),
+// as a server's page is: its eleven cards made one page over 5,000 pixels high,
+// with nothing to find one by. #/admin/templates is where the create form
+// sends an admin while there is no template to create a server from.
 export function Admin({ user, section }: { user: User; section?: string }) {
+  const { t } = useT();
   const can = (p: string) => hasAdminPerm(user, p);
-  const templatesFirst = section === "templates" && can("templates");
+  const sections: { key: string; label: string; show: boolean; body: () => JSX.Element }[] = [
+    { key: "users", label: t("Users"), show: can("users"), body: () => <Users me={user} /> },
+    { key: "roles", label: t("Admin roles"), show: user.isAdmin, body: () => <Roles /> },
+    { key: "templates", label: t("Eggs / templates"), show: can("templates"), body: () => <Templates open /> },
+    {
+      key: "security", label: t("Security"), show: can("settings"),
+      body: () => (
+        <>
+          <SecuritySettingsCard isSuperadmin={user.isAdmin} hasTwoFactor={!!user.twoFactorEnabled} />
+          <InviteSettingsCard isSuperadmin={user.isAdmin} />
+        </>
+      ),
+    },
+    { key: "network", label: t("Network"), show: can("settings"), body: () => <NetworkSettingsCard /> },
+    { key: "email", label: t("Email"), show: can("settings"), body: () => <EmailSettingsCard /> },
+    { key: "databases", label: t("Database hosts"), show: can("database-hosts"), body: () => <DatabaseHosts /> },
+    { key: "clusters", label: t("Clusters"), show: can("clusters"), body: () => <Clusters /> },
+    { key: "notifications", label: t("Notifications"), show: can("notifications"), body: () => <Notifications serverId={0} /> },
+    { key: "activity", label: t("Activity log"), show: can("audit"), body: () => <GlobalAudit /> },
+  ].filter((x) => x.show);
+  if (sections.length === 0) return null;
+  // An address for a section this admin does not have lands on the first one.
+  const current = sections.find((x) => x.key === section) ?? sections[0];
   return (
     <>
-      {templatesFirst && <Templates open />}
-      {can("users") && <Users me={user} />}
-      {user.isAdmin && <Roles />}
-      {can("templates") && !templatesFirst && <Templates />}
-      {can("settings") && <SecuritySettingsCard isSuperadmin={user.isAdmin} hasTwoFactor={!!user.twoFactorEnabled} />}
-      {can("settings") && <InviteSettingsCard isSuperadmin={user.isAdmin} />}
-      {can("settings") && <NetworkSettingsCard />}
-      {can("settings") && <EmailSettingsCard />}
-      {can("database-hosts") && <DatabaseHosts />}
-      {can("clusters") && <Clusters />}
-      {can("notifications") && <Notifications serverId={0} />}
-      {can("audit") && <GlobalAudit />}
+      <nav className="tabs" aria-label={t("Administration")}>
+        {sections.map((x) => (
+          <a key={x.key} href={`#/admin/${x.key}`} aria-current={x.key === current.key ? "page" : undefined}>
+            {x.label}
+          </a>
+        ))}
+      </nav>
+      {current.body()}
     </>
   );
 }
