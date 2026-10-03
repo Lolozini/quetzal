@@ -57,8 +57,8 @@ func Parse(log string, since time.Time) []Op {
 	return ops
 }
 
-// parseLine reads `<RFC3339 time> sftp: <user> <op> "<path>"`. The user is
-// quoted when the sidecar quotes it, and bare in the sidecars of 0.10.
+// parseLine reads `<RFC3339 time> sftp: "<user>" <op> "<path>"`. The user is
+// read bare too, as the first sidecars to log changes wrote it.
 func parseLine(line string) (Op, bool) {
 	ts, rest, ok := strings.Cut(strings.TrimRight(line, "\r"), " ")
 	if !ok {

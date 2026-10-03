@@ -17,7 +17,10 @@ releases may include breaking changes).
   `sftp.delete`, `sftp.rename`, `sftp.mkdir`, `sftp.symlink` and
   `sftp.link`, which a notification channel can also follow. Many changes
   of one kind made together read as one entry — a folder of a thousand
-  files is one line, naming the first few.
+  files is one line, naming the first few. A data manager keeps the SFTP
+  server it started with across an upgrade, and 0.10.0's logs no changes:
+  its server's SFTP activity starts when it restarts, which turning SFTP off
+  and on again does.
 - **An email address is confirmed by a link mailed to it.** Anyone could give
   their account any address, someone else's included, which then held it:
   the address's owner could not use it for an account of their own. A new
@@ -126,8 +129,7 @@ releases may include breaking changes).
   account page, by an administrator, and from an invitation, whose reader is
   asked to sign in to the account that has it — and an address two older
   accounts still share resets neither, until one changes it; both can still
-  be reset by name. Addresses are not confirmed by mail, as Pterodactyl's
-  are not.
+  be reset by name. An address is also confirmed by mail now: see *Added*.
 - **Accented and non-Latin text comes through the console whole.** The log
   was read in 4 KiB blocks and each sent as text, and a character of two to
   four bytes that a block ended in the middle of turned into two `�` —
