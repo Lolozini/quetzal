@@ -201,7 +201,15 @@ the schema).
 ## First run
 
 Open the panel and complete the first-run admin setup (create the initial admin
-account). From there you can register clusters, import templates/eggs, and create
+account). It asks for a setup code, so that whoever reaches a freshly published
+panel first cannot make themselves its administrator: the panel prints the code
+in its log until the account exists.
+
+```sh
+kubectl -n quetzal logs deploy/quetzal -c apiserver | grep "setup code"
+```
+
+From there you can register clusters, import templates/eggs, and create
 servers. Coming from Pterodactyl, see [Migrating from Pterodactyl](MIGRATING.md) to bring your
 eggs and servers over.
 

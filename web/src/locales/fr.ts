@@ -503,6 +503,8 @@ export const fr: Record<string, string> = {
   "Something on it failed to render. The rest of the panel still works; a bug report with the error below helps.":
     "Un élément de la page n'a pas pu s'afficher. Le reste du panneau fonctionne ; un rapport de bug avec l'erreur ci-dessous aide.",
   "Back to the servers": "Retour aux serveurs",
+  "Setup code": "Code d'installation",
+  "The panel prints it in its log:": "Le panneau l'écrit dans son journal :",
   "You were not given this server's console.": "La console de ce serveur ne vous a pas été confiée.",
   "If you replace it, a server that is running keeps the version it started with until it restarts.":
     "Si vous le remplacez, un serveur en marche garde la version avec laquelle il a démarré jusqu'à son prochain redémarrage.",

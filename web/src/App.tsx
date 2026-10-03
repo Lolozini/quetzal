@@ -11,6 +11,7 @@ export function App() {
   const { t } = useT();
   const [loading, setLoading] = useState(true);
   const [setupNeeded, setSetupNeeded] = useState(false);
+  const [setupCodeRequired, setSetupCodeRequired] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   // A reset link (emailed as <panel>/#reset=<token>) lands here. The token is in
   // the URL fragment so it's never sent to the server (or upstream proxy logs).
@@ -43,6 +44,7 @@ export function App() {
       try {
         const s = await api.setupStatus();
         setSetupNeeded(s.needed);
+        setSetupCodeRequired(!!s.codeRequired);
         if (!s.needed) {
           try {
             setUser(await api.me());
@@ -83,6 +85,7 @@ export function App() {
     return (
       <Auth
         setupNeeded={setupNeeded}
+        setupCodeRequired={setupCodeRequired}
         onAuthed={(u) => {
           setUser(u);
           setSetupNeeded(false);

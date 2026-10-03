@@ -100,7 +100,7 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"needed": n == 0})
+	writeJSON(w, http.StatusOK, map[string]bool{"needed": n == 0, "codeRequired": n == 0 && s.RequireSetupCode})
 }
 
 type credentials struct {
@@ -111,6 +111,8 @@ type credentials struct {
 	// Code is an optional TOTP or recovery code, supplied on the second step of
 	// login when the account has two-factor authentication enabled.
 	Code string `json:"code"`
+	// SetupCode is the code the first-run setup asks for (RequireSetupCode).
+	SetupCode string `json:"setupCode"`
 }
 
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +129,25 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
+	}
+	// The first account is a superadmin, and the install guide publishes the
+	// panel before anyone has made it: whoever reached the page first could
+	// claim the install. The setup asks for a code only the panel's log has.
+	if s.RequireSetupCode {
+		ip := s.authAddress(r)
+		if !s.AuthIPLimiter.Allow(ip) {
+			tooManyRequests(w, s.AuthIPLimiter.RetryAfter(ip))
+			return
+		}
+		code, err := s.Store.SetupCode()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if !store.SameSetupCode(req.SetupCode, code) {
+			writeError(w, http.StatusForbidden, "the setup code is missing or wrong: the panel prints it in its log (kubectl logs deploy/quetzal -c apiserver)")
+			return
+		}
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	if err := models.ValidUsername(req.Username); err != nil {
@@ -151,6 +172,9 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	if err := s.Store.CreateUser(u); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	if err := s.Store.ClearSetupCode(); err != nil {
+		log.Printf("setup: clear the setup code: %v", err)
 	}
 	if err := s.startSession(w, u); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

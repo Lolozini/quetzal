@@ -719,9 +719,9 @@ export interface VersionInfo {
 }
 
 export const api = {
-  setupStatus: () => req<{ needed: boolean }>("GET", "/api/setup/status"),
-  setup: (username: string, password: string, email?: string) =>
-    req<User>("POST", "/api/setup", { username, password, email }),
+  setupStatus: () => req<{ needed: boolean; codeRequired?: boolean }>("GET", "/api/setup/status"),
+  setup: (username: string, password: string, email?: string, setupCode?: string) =>
+    req<User>("POST", "/api/setup", { username, password, email, setupCode }),
   login: (username: string, password: string, code?: string) =>
     req<LoginResult>("POST", "/api/login", { username, password, code }),
   logout: () => req<void>("POST", "/api/logout"),

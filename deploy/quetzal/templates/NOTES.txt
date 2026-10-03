@@ -10,7 +10,10 @@ Port-forward the panel:
 then open http://localhost:8080/
 {{- end }}
 
-On first visit you will create the admin account (setup wizard).
+On first visit you will create the admin account (setup wizard). It asks for
+a setup code, which the panel prints in its log until the account exists:
+
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "quetzal.fullname" . }} -c apiserver | grep "setup code"
 
 Metrics: container port 9090 (/metrics) on the controller, named "metrics", and
 9091 on the apiserver, named "api-metrics" (a port name has to be unique across

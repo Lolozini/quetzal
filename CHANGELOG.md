@@ -27,6 +27,13 @@ releases may include breaking changes).
 
 ### Security
 
+- **The first account needs a code from the panel's log.** Until someone had
+  made it, the first-run setup made a superadmin of whoever reached the
+  panel first, and the install guide publishes the panel on an Ingress
+  from the start. The setup asks for a setup code now, which the panel
+  prints in its log until the account exists; the chart's notes and the
+  install guide say how to read it. An install already set up sees nothing
+  of it.
 - **A rename can no longer move a file out of the server's data directory.**
   Renaming onto a symbolic link to a folder put the file inside the link's
   target, as `mv` does with a folder: through a link aimed outside the data

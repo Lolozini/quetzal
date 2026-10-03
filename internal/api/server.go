@@ -87,6 +87,11 @@ type Server struct {
 	// request the panel makes, from its own address, where the caller says.
 	InspectLimiter  *ratelimit.Limiter
 	TestMailLimiter *ratelimit.Limiter
+
+	// RequireSetupCode makes the first-run setup ask for the code the store
+	// keeps (Store.SetupCode), which the apiserver prints in its log. Off in
+	// tests that drive the setup themselves.
+	RequireSetupCode bool
 	// DevOrigin accepts WebSocket upgrades from localhost on top of same-origin,
 	// for a web dev server running against this API. Off by default: a deployed
 	// panel has no reason to take them.

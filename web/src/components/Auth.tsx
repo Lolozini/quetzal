@@ -5,12 +5,18 @@ import { Lockup } from "./Brand";
 
 export function Auth({
   setupNeeded,
+  setupCodeRequired = false,
   onAuthed,
 }: {
   setupNeeded: boolean;
+  // The first account is a superadmin: its setup asks for the code the
+  // panel prints in its log, so that whoever reaches the page first cannot
+  // claim the install.
+  setupCodeRequired?: boolean;
   onAuthed: (u: User) => void;
 }) {
   const { t } = useT();
+  const [setupCode, setSetupCode] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
@@ -26,7 +32,7 @@ export function Auth({
     setError("");
     try {
       if (setupNeeded) {
-        onAuthed(await api.setup(username, password, email.trim() || undefined));
+        onAuthed(await api.setup(username, password, email.trim() || undefined, setupCode.trim() || undefined));
         return;
       }
       const res = await api.login(username, password, twoFactor ? code : undefined);
@@ -61,10 +67,25 @@ export function Auth({
               ? t("Enter your authentication code")
               : t("Sign in to continue")}
         </p>
+        {setupNeeded && setupCodeRequired && (
+          <>
+            <label>{t("Setup code")}</label>
+            <input
+              value={setupCode}
+              onChange={(e) => setSetupCode(e.target.value)}
+              autoComplete="off"
+              autoFocus
+              placeholder="XXXX-XXXX-XXXX"
+            />
+            <p className="muted" style={{ fontSize: 12 }}>
+              {t("The panel prints it in its log:")} <code>kubectl -n quetzal logs deploy/quetzal -c apiserver</code>
+            </p>
+          </>
+        )}
         {!twoFactor && (
           <>
             <label>{t("Username")}</label>
-            <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus />
+            <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus={!(setupNeeded && setupCodeRequired)} />
             <label>{t("Password")}</label>
             {/* Says to a password manager which password this is: the one to
                 fill in, or a new one to save on the setup screen. */}

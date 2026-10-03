@@ -86,6 +86,14 @@ func main() {
 	apiSrv.DevOrigin = env("QUETZAL_DEV_ORIGIN", "") == "true"
 	// Where to run Jobs that must outlive the namespace they act on.
 	apiSrv.Namespace = env("POD_NAMESPACE", "")
+	// Until someone has made the first account, the setup asks for a code only
+	// this log shows: the panel may be public before then.
+	apiSrv.RequireSetupCode = true
+	if code, err := st.SetupCode(); err != nil {
+		log.Printf("setup code: %v", err)
+	} else if code != "" {
+		log.Printf("Quetzal is not set up yet: open the panel and enter the setup code %s", code)
+	}
 
 	// The notification dispatcher drains the event outbox to configured channels.
 	dispatcher := notify.New(st)
