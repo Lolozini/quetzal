@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -90,6 +91,23 @@ type Template struct {
 
 	// SecurityContext defaults for the workload (overridable per server).
 	SecurityContext SecurityContext `gorm:"serializer:json" json:"securityContext"`
+}
+
+// MarshalJSON writes a template's images and variables as lists, empty ones
+// included. A template without variables -- a simple egg, `variables: []` --
+// went out as "variables": null, and the panel's create form, which reads it
+// as a list, crashed into a blank page for every account the moment that
+// template came first.
+func (t Template) MarshalJSON() ([]byte, error) {
+	type plain Template // no methods: marshals without coming back here
+	p := plain(t)
+	if p.Images == nil {
+		p.Images = []TemplateImage{}
+	}
+	if p.Variables == nil {
+		p.Variables = []TemplateVariable{}
+	}
+	return json.Marshal(p)
 }
 
 // HasFeature reports whether the template declares the given egg feature flag

@@ -1,6 +1,10 @@
 package models
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestDetectPorts(t *testing.T) {
 	tmpl := &Template{Variables: []TemplateVariable{
@@ -77,5 +81,21 @@ func TestDetectPortsNoneWhenNoPortVars(t *testing.T) {
 	}}
 	if got := DetectPorts(tmpl); got != nil {
 		t.Errorf("expected no suggested ports, got %+v", got)
+	}
+}
+
+// A template without variables or images is sent with empty lists: the panel
+// reads them as lists, and "variables": null crashed its create form into a
+// blank page.
+func TestTemplateJSONListsAreNeverNull(t *testing.T) {
+	for _, v := range []any{Template{Slug: "bare"}, &Template{Slug: "bare"}, []Template{{Slug: "bare"}}} {
+		b, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(b)
+		if !strings.Contains(s, `"variables":[]`) || !strings.Contains(s, `"images":[]`) {
+			t.Errorf("%T marshals to %s, want empty lists", v, s)
+		}
 	}
 }

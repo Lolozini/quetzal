@@ -61,26 +61,27 @@ export function CreateServer({
 
   function selectTemplate(t: Template, from: PterodactylInspect | null = ptero) {
     setTplSlug(t.slug);
-    const def = t.images.find((i) => i.default) || t.images[0];
+    const images = t.images ?? [];
+    const def = images.find((i) => i.default) || images[0];
     setImage(def ? def.ref : "");
     // Seed only editable variables: the form renders these, and they're what we
     // submit. Non-editable defaults (e.g. TYPE=PAPER) are applied server-side, so
     // sending them would trip the "variable is not editable" guard.
     const e: Record<string, string> = {};
-    t.variables.forEach((v) => {
+    (t.variables ?? []).forEach((v) => {
       if (v.editable && v.default) e[v.envVariable] = v.default;
     });
     // Imported: the source's values win, for whichever template is picked (an
     // enum value the template does not offer keeps the default).
     if (from) {
-      t.variables.forEach((v) => {
+      (t.variables ?? []).forEach((v) => {
         const val = from.draft.variables[v.envVariable];
         if (!v.editable || val === undefined) return;
         if (v.type === "enum" && v.options && !v.options.includes(val)) return;
         e[v.envVariable] = val;
       });
       const src = from.source.dockerImage;
-      if (src && t.images.some((i) => i.ref === src)) setImage(src);
+      if (src && images.some((i) => i.ref === src)) setImage(src);
     }
     setEnv(e);
     // Pre-fill the ports editor: templates that declare no ports (imported eggs)
@@ -206,7 +207,7 @@ export function CreateServer({
     }
   }
 
-  const editable = tpl?.variables.filter((v) => v.editable) ?? [];
+  const editable = (tpl?.variables ?? []).filter((v) => v.editable);
   // Templates with no ports (imported eggs) let the user define them per server,
   // matching Pterodactyl's per-server allocations.
   const tplPorts = tpl?.ports ?? [];
@@ -350,7 +351,7 @@ export function CreateServer({
 
         <label>{t("Image")}</label>
         <select value={image} onChange={(e) => setImage(e.target.value)}>
-          {tpl?.images.map((i) => (
+          {(tpl?.images ?? []).map((i) => (
             <option key={i.ref} value={i.ref}>
               {i.displayName} ({i.ref})
             </option>

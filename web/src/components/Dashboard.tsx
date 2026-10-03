@@ -7,6 +7,7 @@ import { ServerDetail } from "./ServerDetail";
 import { Admin } from "./Admin";
 import { Account } from "./Account";
 import { Lockup } from "./Brand";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 type View =
   | { name: "list" }
@@ -86,25 +87,41 @@ export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void
         </div>
       </div>
       <div className="container">
-        {view.name === "list" && (
-          <ServerList
-            onCreate={() => go({ name: "create" })}
-            onOpen={(id) => go({ name: "detail", id })}
-          />
-        )}
-        {view.name === "create" && (
-          <CreateServer
-            memoryRequired={!hasAdminPerm(user, "servers")}
-            canImportTemplates={hasAdminPerm(user, "templates")}
-            onDone={() => go({ name: "list" })}
-            onCancel={() => go({ name: "list" })}
-          />
-        )}
-        {view.name === "detail" && (
-          <ServerDetail id={view.id} tab={view.tab} user={user} onBack={() => go({ name: "list" })} />
-        )}
-        {view.name === "admin" && (isAnyAdmin(user) ? <Admin user={user} section={view.section} /> : <ServerList onCreate={() => go({ name: "create" })} onOpen={(id) => go({ name: "detail", id })} />)}
-        {view.name === "account" && <Account user={user} />}
+        {/* Keyed by the page, so going elsewhere gives it a fresh start: by
+            the server, not its tab, which would remount the console. */}
+        <ErrorBoundary
+          key={view.name === "detail" ? `detail-${view.id}` : view.name}
+          fallback={(err) => (
+            <div className="card">
+              <h3>{t("This page could not be shown")}</h3>
+              <p className="muted">
+                {t("Something on it failed to render. The rest of the panel still works; a bug report with the error below helps.")}
+              </p>
+              <pre className="error" style={{ whiteSpace: "pre-wrap" }}>{err.message}</pre>
+              <button onClick={() => go({ name: "list" })}>{t("Back to the servers")}</button>
+            </div>
+          )}
+        >
+          {view.name === "list" && (
+            <ServerList
+              onCreate={() => go({ name: "create" })}
+              onOpen={(id) => go({ name: "detail", id })}
+            />
+          )}
+          {view.name === "create" && (
+            <CreateServer
+              memoryRequired={!hasAdminPerm(user, "servers")}
+              canImportTemplates={hasAdminPerm(user, "templates")}
+              onDone={() => go({ name: "list" })}
+              onCancel={() => go({ name: "list" })}
+            />
+          )}
+          {view.name === "detail" && (
+            <ServerDetail id={view.id} tab={view.tab} user={user} onBack={() => go({ name: "list" })} />
+          )}
+          {view.name === "admin" && (isAnyAdmin(user) ? <Admin user={user} section={view.section} /> : <ServerList onCreate={() => go({ name: "create" })} onOpen={(id) => go({ name: "detail", id })} />)}
+          {view.name === "account" && <Account user={user} />}
+        </ErrorBoundary>
       </div>
       <VersionFooter />
     </>

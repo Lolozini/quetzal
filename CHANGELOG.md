@@ -32,6 +32,12 @@ releases may include breaking changes).
   minutes. A restore still waiting can be cancelled from the backups, and one
   whose volume is still held 15 minutes after the request is called off and
   reported as failed.
+- **A template without variables no longer blanks the panel.** Its variables
+  went out as `null`, and the create form, which reads a list, crashed: the
+  whole panel turned into an empty page, for every account as soon as such a
+  template came first in the list. They go out as an empty list now, the
+  forms cope with a missing one, and a page that fails to render shows the
+  error with a way back instead of taking the panel down.
 - **A node port that another Service already holds is replaced.** The pool
   only knows Quetzal's own allocations, and draws by default from the
   cluster's whole range, which an ingress controller's LoadBalancer Service

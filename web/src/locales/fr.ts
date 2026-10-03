@@ -499,6 +499,10 @@ export const fr: Record<string, string> = {
   "Deleting…": "Suppression…",
   "Wait for this operation to finish.": "Attendez la fin de cette opération.",
   "Cancel this operation? It has not started yet.": "Annuler cette opération ? Elle n'a pas encore commencé.",
+  "This page could not be shown": "Cette page n'a pas pu s'afficher",
+  "Something on it failed to render. The rest of the panel still works; a bug report with the error below helps.":
+    "Un élément de la page n'a pas pu s'afficher. Le reste du panneau fonctionne ; un rapport de bug avec l'erreur ci-dessous aide.",
+  "Back to the servers": "Retour aux serveurs",
   "S3 endpoint (host:port)": "Endpoint S3 (hôte:port)",
   Bucket: "Bucket",
   "Prefix (optional)": "Préfixe (optionnel)",

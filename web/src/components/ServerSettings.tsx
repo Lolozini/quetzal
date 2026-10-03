@@ -284,7 +284,7 @@ function Reinstall({ server, current, onSaved }: { server: Server; current: Temp
   // template, without a default. The rest carry over or take their defaults,
   // and can be edited afterwards like any other.
   const needed = switching
-    ? target.variables.filter((v) => v.editable && v.required && !(v.default ?? "").trim())
+    ? (target.variables ?? []).filter((v) => v.editable && v.required && !(v.default ?? "").trim())
     : [];
 
   function pick(next: string) {
@@ -292,10 +292,11 @@ function Reinstall({ server, current, onSaved }: { server: Server; current: Temp
     if (!x) return;
     setSlug(next);
     // Keep the current image when the new template offers it, as the API does.
-    const offered = x.images.some((i) => i.ref === server.image);
-    setImage(offered ? server.image : (x.images.find((i) => i.default) ?? x.images[0])?.ref ?? "");
+    const images = x.images ?? [];
+    const offered = images.some((i) => i.ref === server.image);
+    setImage(offered ? server.image : (images.find((i) => i.default) ?? images[0])?.ref ?? "");
     const v: Record<string, string> = {};
-    for (const nv of x.variables) {
+    for (const nv of x.variables ?? []) {
       if (nv.editable && nv.required && !(nv.default ?? "").trim()) v[nv.envVariable] = nv.secret ? "" : server.env?.[nv.envVariable] ?? "";
     }
     setValues(v);
@@ -355,7 +356,7 @@ function Reinstall({ server, current, onSaved }: { server: Server; current: Temp
       {!switching && !installs && <p className="muted">{t("This template has no install step. Pick another template to switch to.")}</p>}
       <label>{t("Image")}</label>
       <select value={image} onChange={(e) => setImage(e.target.value)}>
-        {target.images.map((i) => (
+        {(target.images ?? []).map((i) => (
           <option key={i.ref} value={i.ref}>
             {i.displayName} ({i.ref})
           </option>
@@ -471,9 +472,10 @@ function ImageForm({ server, template, onSaved }: { server: Server; template: Te
   const [busy, setBusy] = useState(false);
   useEffect(() => setImage(server.image), [server.image]);
   // An image an administrator set off the list stays selectable as it is.
-  const options = template.images.some((i) => i.ref === server.image)
-    ? template.images
-    : [{ displayName: t("current"), ref: server.image }, ...template.images];
+  const images = template.images ?? [];
+  const options = images.some((i) => i.ref === server.image)
+    ? images
+    : [{ displayName: t("current"), ref: server.image }, ...images];
   if (options.length < 2) return null;
   const dirty = image !== server.image;
 
