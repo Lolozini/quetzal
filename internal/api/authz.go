@@ -22,6 +22,42 @@ func (s *Server) can(u *models.User, srv *models.Server, perm string) bool {
 	return acc.Has(perm)
 }
 
+// serverView is a server as the API answers one user about it: with what that
+// user may do on it. The panel showed the owner's page to everyone and let the
+// API refuse: a subuser given the files saw no Files tab, and one without
+// power saw power buttons that answered 403.
+type serverView struct {
+	*models.Server
+	// MyPermissions is every permission for the owner and the servers'
+	// administrators, a subuser's grant otherwise.
+	MyPermissions []string `json:"myPermissions"`
+}
+
+func (s *Server) viewOf(u *models.User, srv *models.Server) serverView {
+	return serverView{Server: srv, MyPermissions: s.permissionsOn(u, srv)}
+}
+
+// permissionsOn lists the permissions u holds on srv, as can decides them.
+func (s *Server) permissionsOn(u *models.User, srv *models.Server) []string {
+	out := []string{}
+	if u == nil {
+		return out
+	}
+	if u.HasAdminPerm(models.AdminPermServers) || srv.OwnerID == u.ID {
+		return append(out, models.AllPermissions...)
+	}
+	acc, err := s.Store.GetServerAccess(srv.ID, u.ID)
+	if err != nil {
+		return out
+	}
+	for _, p := range models.AllPermissions {
+		if acc.Has(p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // requireServer loads the server in the path and checks the current user holds
 // `perm` on it. To avoid leaking existence, a user with no access at all gets
 // 404; one who can view but lacks the specific permission gets 403, and 409

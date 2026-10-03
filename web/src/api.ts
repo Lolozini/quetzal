@@ -300,6 +300,9 @@ export interface Server {
   namespace: string;
   desiredState: string;
   ownerId?: number;
+  // What the signed-in user may do on this server: every permission for its
+  // owner and the servers' administrators, a subuser's grant otherwise.
+  myPermissions?: string[];
   templateId?: number;
   image: string;
   env?: Record<string, string>;

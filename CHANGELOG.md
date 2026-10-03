@@ -33,6 +33,14 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A server's page shows a subuser what they were given, and nothing
+  else.** It was drawn for the owner whoever opened it: a subuser given the
+  files had no Files tab — only SFTP worked — and none could reach the
+  databases or the settings they were given, while one without power saw the
+  power buttons and the delete card, which answered 403. A server now comes
+  with `myPermissions`, what the reader may do on it, and the page follows
+  it: tabs, power buttons, settings, SFTP switch, delete. Access and the
+  choice of template stay with the owner and the administrators.
 - **Restart, and any change that replaces a server's pod, give the game its
   stop command first.** Only a stop did: a restart — from the panel, the API
   or a schedule — deleted the pod, and a new setting (memory, image,

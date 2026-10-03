@@ -2672,6 +2672,17 @@ components:
         namespace: { type: string }
         desiredState: { type: string, enum: [Running, Stopped, Suspended] }
         ownerId: { type: integer }
+        myPermissions:
+          type: array
+          items: { type: string, enum: [view, power, console, schedules, backups, files, settings, databases, delete] }
+          description: >-
+            What the requesting user may do on this server: every permission for
+            its owner and the servers' administrators, a subuser's grant
+            otherwise. Set on a single server (GET, PATCH, POST), not in lists.
+        restartRequestedAt:
+          type: string
+          format: date-time
+          description: A restart under way, stopping the game before it starts again
         image: { type: string }
         resources: { $ref: "#/components/schemas/Resources" }
         storage: { $ref: "#/components/schemas/Storage" }

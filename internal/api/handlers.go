@@ -304,7 +304,7 @@ func (s *Server) handleGetServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	srv.Import = srv.Import.Effective(time.Now())
-	writeJSON(w, http.StatusOK, srv)
+	writeJSON(w, http.StatusOK, s.viewOf(userFrom(r.Context()), srv))
 }
 
 type createServerRequest struct {
@@ -559,7 +559,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		srv.Import = st
 		s.audit(r, srv.ID, "server.import", st.Source)
 	}
-	writeJSON(w, http.StatusCreated, srv)
+	writeJSON(w, http.StatusCreated, s.viewOf(userFrom(r.Context()), srv))
 }
 
 // resolveCluster maps a requested cluster slug to its ID, defaulting to the
@@ -1106,7 +1106,7 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Ports == nil && req.Expose == nil {
-		writeJSON(w, http.StatusOK, srv) // nothing else to change
+		writeJSON(w, http.StatusOK, s.viewOf(userFrom(r.Context()), srv)) // nothing else to change
 		return
 	}
 
@@ -1172,7 +1172,7 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	srv.Expose = expose
 	srv.Ports = ports
 	s.audit(r, srv.ID, "server.update", fmt.Sprintf("expose=%s ports=%d", expose.ServiceType(), len(ports)))
-	writeJSON(w, http.StatusOK, srv)
+	writeJSON(w, http.StatusOK, s.viewOf(userFrom(r.Context()), srv))
 }
 
 // handleReinstallServer re-runs a server's install script (egg

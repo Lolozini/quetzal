@@ -388,7 +388,13 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
   // A server an administrator suspended is frozen for everyone else: they may
   // look at it, and the API refuses the rest.
   const frozen = !!srv && srv.desiredState === "Suspended" && !hasAdminPerm(user, "servers");
-  const canManage = !!srv && !frozen && (hasAdminPerm(user, "servers") || srv.ownerId === user.id);
+  // What this user may do here, as the API decides it: the page used to be the
+  // owner's for everyone, hiding the files from a subuser given them and
+  // showing power buttons to one without power.
+  const may = (perm: string) => !!srv && !frozen && (srv.myPermissions ?? []).includes(perm);
+  // Who has access, and what the server is (its template), are the owner's
+  // business, or an administrator's.
+  const isOwnerOrAdmin = !!srv && !frozen && (hasAdminPerm(user, "servers") || srv.ownerId === user.id);
   // A running import blocks power like a transfer does (the API answers 409).
   const importing = !!srv?.import && (srv.import.phase === "Preparing" || srv.import.phase === "Downloading");
   const transferring = !!srv?.transfer || importing;
@@ -450,9 +456,10 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
   // pixels high. Each tab has its own address, so a reload stays on it.
   const tabs: { key: ServerTab; label: string }[] = [];
   if (!frozen) tabs.push({ key: "console", label: t("Console") });
-  if (canManage) tabs.push({ key: "files", label: t("Files") });
+  if (may("files")) tabs.push({ key: "files", label: t("Files") });
   tabs.push({ key: "backups", label: t("Backups") }, { key: "schedules", label: t("Schedules") });
-  if (canManage) tabs.push({ key: "databases", label: t("Databases") }, { key: "access", label: t("Access") });
+  if (may("databases")) tabs.push({ key: "databases", label: t("Databases") });
+  if (isOwnerOrAdmin) tabs.push({ key: "access", label: t("Access") });
   tabs.push({ key: "settings", label: t("Settings") }, { key: "activity", label: t("Activity") });
   // An address for a tab this user does not have lands on the first one.
   const current = tabs.find((x) => x.key === tab)?.key ?? tabs[0].key;
@@ -498,7 +505,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
             {srv.transfer.cancelled ? (
               <span className="muted">{t("Cancelling…")}</span>
             ) : (
-              canManage && (
+              hasAdminPerm(user, "servers") && (
                 <button
                   type="button"
                   onClick={async () => {
@@ -520,25 +527,29 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
           <ImportBanner
             id={id}
             imp={srv.import}
-            canRetry={canManage}
+            canRetry={may("files") && may("settings")}
             onChange={async () => setSrv(await api.server(id))}
           />
         )}
         <div className="row" style={{ marginTop: 12 }}>
-          <button className="primary" disabled={busy !== "" || transferring || frozen} onClick={() => power("start")}>
-            {busy === "start" ? t("Starting…") : t("Start")}
-          </button>
-          <button disabled={busy !== "" || transferring || frozen} onClick={() => power("stop")}>
-            {busy === "stop" ? t("Stopping…") : t("Stop")}
-          </button>
-          <button disabled={busy !== "" || transferring || frozen} onClick={() => power("restart")}>
-            {busy === "restart" ? t("Restarting…") : t("Restart")}
-          </button>
-          <button className="danger" disabled={busy !== "" || transferring || frozen} onClick={() => power("kill")}>
-            {busy === "kill" ? t("Killing…") : t("Kill")}
-          </button>
-          {srv.hibernated && (
-            <button className="primary" disabled={busy !== "" || transferring || frozen} onClick={() => power("start")}>{t("Wake")}</button>
+          {may("power") && (
+            <>
+              <button className="primary" disabled={busy !== "" || transferring} onClick={() => power("start")}>
+                {busy === "start" ? t("Starting…") : t("Start")}
+              </button>
+              <button disabled={busy !== "" || transferring} onClick={() => power("stop")}>
+                {busy === "stop" ? t("Stopping…") : t("Stop")}
+              </button>
+              <button disabled={busy !== "" || transferring} onClick={() => power("restart")}>
+                {busy === "restart" ? t("Restarting…") : t("Restart")}
+              </button>
+              <button className="danger" disabled={busy !== "" || transferring} onClick={() => power("kill")}>
+                {busy === "kill" ? t("Killing…") : t("Kill")}
+              </button>
+              {srv.hibernated && (
+                <button className="primary" disabled={busy !== "" || transferring} onClick={() => power("start")}>{t("Wake")}</button>
+              )}
+            </>
           )}
           {hasAdminPerm(user, "servers") && (
             <>
@@ -567,24 +578,28 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
           finds the same session and scrollback, not a reconnect. */}
       {!frozen && (
         <div hidden={current !== "console"}>
-          {setupFirst && <SetupLog id={id} phase={phase} />}
+          {may("console") && setupFirst && <SetupLog id={id} phase={phase} />}
           <div className="card">
-            <Console id={id} phase={phase} visible={current === "console"} />
+            {may("console") ? (
+              <Console id={id} phase={phase} visible={current === "console"} />
+            ) : (
+              <p className="muted">{t("You were not given this server's console.")}</p>
+            )}
           </div>
           <div className="card">
             <StatsPanel stats={stats} history={history} phase={phase} limits={srv.resources} />
           </div>
-          {!setupFirst && <SetupLog id={id} phase={phase} />}
+          {may("console") && !setupFirst && <SetupLog id={id} phase={phase} />}
         </div>
       )}
       {current === "files" && (
         <>
           <Files id={id} offline={["Stopped", "Suspended", "Hibernated"].includes(phase)} />
-          <SFTPCard id={id} initialEnabled={!!srv.sftp?.enabled} username={user.username} />
+          <SFTPCard id={id} initialEnabled={!!srv.sftp?.enabled} username={user.username} canToggle={may("settings")} />
         </>
       )}
-      {current === "backups" && <Backups id={id} readOnly={frozen} />}
-      {current === "schedules" && <Schedules id={id} readOnly={frozen} />}
+      {current === "backups" && <Backups id={id} readOnly={!may("backups")} />}
+      {current === "schedules" && <Schedules id={id} readOnly={!may("schedules")} />}
       {current === "databases" && <Databases serverId={id} />}
       {current === "access" && <Access id={id} />}
       {current === "settings" && (
@@ -619,7 +634,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
                 <span>
                   <select
                     value={srv.expose?.type || "ClusterIP"}
-                    disabled={frozen}
+                    disabled={!may("settings")}
                     onChange={(e) => changeExpose(e.target.value as ExposeType)}
                   >
                     <option value="ClusterIP">ClusterIP</option>
@@ -645,7 +660,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
                 </span>
               </div>
             )}
-            {canManage && hasPorts && (
+            {may("settings") && hasPorts && (
               <div className="kv">
                 <span className="k">{t("Hibernation")}</span>
                 <span>
@@ -710,9 +725,9 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
               </div>
             )}
           </div>
-          {canManage && <ServerSettings server={srv} onSaved={setSrv} />}
-          {canManage && <Notifications serverId={id} />}
-          {!frozen && (
+          {may("settings") && <ServerSettings server={srv} onSaved={setSrv} canSwitchTemplate={isOwnerOrAdmin} />}
+          {may("settings") && <Notifications serverId={id} />}
+          {may("delete") && (
             <div className="card">
               <h2>{t("Delete this server")}</h2>
               <p className="muted">{t("Its data volume and every backup snapshot it owns go with it. This cannot be undone.")}</p>
@@ -802,7 +817,9 @@ function SetupLog({ id, phase }: { id: number; phase: string }) {
   );
 }
 
-function SFTPCard({ id, initialEnabled, username }: { id: number; initialEnabled: boolean; username: string }) {
+// canToggle: turning SFTP on or off is a setting of the server; reaching its
+// files over SFTP comes with the files.
+function SFTPCard({ id, initialEnabled, username, canToggle }: { id: number; initialEnabled: boolean; username: string; canToggle: boolean }) {
   const { t } = useT();
   const [enabled, setEnabled] = useState(initialEnabled);
   const [port, setPort] = useState(0);
@@ -867,7 +884,7 @@ function SFTPCard({ id, initialEnabled, username }: { id: number; initialEnabled
         {t("Access this server's files over SFTP using an SSH key from your Account → SSH keys. Available while the server is running.")}
       </p>
       <label className="row">
-        <input type="checkbox" style={{ width: "auto" }} checked={enabled} disabled={busy} onChange={toggle} />
+        <input type="checkbox" style={{ width: "auto" }} checked={enabled} disabled={busy || !canToggle} onChange={toggle} />
         &nbsp;{t("Enable SFTP")}
       </label>
       {enabled && (

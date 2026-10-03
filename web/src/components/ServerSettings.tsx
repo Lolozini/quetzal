@@ -7,7 +7,10 @@ import { RestartHint } from "./RestartHint";
 
 // ServerSettings edits a running server's startup variables and resource limits.
 // Both apply on the next reconcile, which restarts the server.
-export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (s: Server) => void }) {
+// canSwitchTemplate: changing what the server is -- another template -- is its
+// owner's call or an administrator's; a subuser trusted with its settings may
+// reinstall it as it is.
+export function ServerSettings({ server, onSaved, canSwitchTemplate }: { server: Server; onSaved: (s: Server) => void; canSwitchTemplate: boolean }) {
   const { t } = useT();
   const [tmpl, setTmpl] = useState<Template | null>(null);
 
@@ -29,7 +32,7 @@ export function ServerSettings({ server, onSaved }: { server: Server; onSaved: (
       <ResourcesForm server={server} onSaved={onSaved} />
       {tmpl && (tmpl.ports?.length ?? 0) === 0 && <ServerPorts server={server} onSaved={onSaved} />}
       {tmpl?.features?.includes("eula") && <EULAToggle server={server} onSaved={onSaved} />}
-      {tmpl && <Reinstall server={server} current={tmpl} onSaved={onSaved} />}
+      {tmpl && <Reinstall server={server} current={tmpl} onSaved={onSaved} canSwitch={canSwitchTemplate} />}
     </div>
     </>
   );
@@ -256,8 +259,8 @@ function ServerPorts({ server, onSaved }: { server: Server; onSaved: (s: Server)
 // Reinstall re-runs the install script, and can move the server to another
 // template on the way -- another egg for the same game (Paper to Fabric, keeping
 // the world) or another game -- and to another of its images. Only the owner or
-// an administrator sees this panel, which is also who the API lets switch.
-function Reinstall({ server, current, onSaved }: { server: Server; current: Template; onSaved: (s: Server) => void }) {
+// an administrator may switch (canSwitch), which is also who the API lets.
+function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; current: Template; onSaved: (s: Server) => void; canSwitch: boolean }) {
   const { t } = useT();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [slug, setSlug] = useState(current.slug);
@@ -341,19 +344,27 @@ function Reinstall({ server, current, onSaved }: { server: Server; current: Temp
   const blocked = (!switching && !installs) || needed.some((v) => !(values[v.envVariable] ?? "").trim() && !v.secret);
   return (
     <div style={{ marginTop: 12 }}>
-      <h3>{t("Reinstall or change template")}</h3>
+      <h3>{canSwitch ? t("Reinstall or change template") : t("Reinstall")}</h3>
       <p className="muted">
         {t("Re-runs the template's install script, optionally on another template or image. Applied on the next reconcile, which restarts the server.")}
       </p>
-      <label>{t("Template")}</label>
-      <Combobox
-        options={templates.map((x) => ({ value: x.slug, label: x.slug === current.slug ? `${x.name} ${t("(current)")}` : x.name }))}
-        value={slug}
-        placeholder={t("Search or select a template…")}
-        emptyLabel={t("No templates match your search.")}
-        onChange={pick}
-      />
-      {!switching && !installs && <p className="muted">{t("This template has no install step. Pick another template to switch to.")}</p>}
+      {canSwitch && (
+        <>
+          <label>{t("Template")}</label>
+          <Combobox
+            options={templates.map((x) => ({ value: x.slug, label: x.slug === current.slug ? `${x.name} ${t("(current)")}` : x.name }))}
+            value={slug}
+            placeholder={t("Search or select a template…")}
+            emptyLabel={t("No templates match your search.")}
+            onChange={pick}
+          />
+        </>
+      )}
+      {!switching && !installs && (
+        <p className="muted">
+          {canSwitch ? t("This template has no install step. Pick another template to switch to.") : t("This template has no install step.")}
+        </p>
+      )}
       <label>{t("Image")}</label>
       <select value={image} onChange={(e) => setImage(e.target.value)}>
         {(target.images ?? []).map((i) => (
