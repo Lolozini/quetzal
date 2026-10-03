@@ -382,6 +382,7 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 		rec := reconciler.New(clients.Client, st)
 		rec.OnStop = onStopFor(clients)
 		rec.StartupSeen = startupSeenFor(watcher, clients)
+		rec.LogTail = logTailFor(clients)
 		rec.ActivatorImage = actCfg.image
 		rec.WakeURL = actCfg.wakeURL
 		rec.ActiveURL = actCfg.activeURL
@@ -453,6 +454,17 @@ func startupSeenFor(w *startup.Watcher, clients cluster.Clients) func(ns, pod, c
 				Follow:    true,
 			}).Stream(ctx)
 		})
+	}
+}
+
+// logTailFor reads the last lines of a container's log on the given cluster.
+func logTailFor(clients cluster.Clients) func(ctx context.Context, ns, pod, container string, previous bool, lines int64) (string, error) {
+	return func(ctx context.Context, ns, pod, container string, previous bool, lines int64) (string, error) {
+		limit := int64(64 << 10)
+		b, err := clients.Clientset.CoreV1().Pods(ns).GetLogs(pod, &corev1.PodLogOptions{
+			Container: container, Previous: previous, TailLines: &lines, LimitBytes: &limit,
+		}).DoRaw(ctx)
+		return string(b), err
 	}
 }
 

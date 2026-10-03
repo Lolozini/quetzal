@@ -47,6 +47,15 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A crash says what the game's log ends with.** A Paper server out of heap
+  prints `java.lang.OutOfMemoryError` and exits 0, and its status read "the
+  game exited with code 0", which sent nobody towards the memory. The
+  message quotes the last error line of the run's log now, and says to give
+  the server more memory when that line is an out-of-memory error.
+- **An unknown API route answers in JSON.** Every error of the API is
+  `{"error": …}` but the ones no route took, answered "404 page not found"
+  in plain text; a known route called with another method still answers
+  405, with the methods it takes.
 - **SFTP lets a key in under its account's name only, and logs what it is
   used for.** The SFTP server took any name with any key it knew, so the
   name a session gave said nothing about whose key it was, and nothing

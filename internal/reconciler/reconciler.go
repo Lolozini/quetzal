@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -60,6 +61,11 @@ type Reconciler struct {
 	// console attach path). It is best-effort. Injected by the controller to
 	// avoid an import cycle with the console package.
 	OnStop func(ctx context.Context, namespace, slug, stopCommand string) error
+
+	// LogTail, if set, returns the last lines of a container's log, its previous
+	// run's when previous is true. A crash's message quotes the error it ends
+	// with. Injected by the controller, which holds the clientset logs need.
+	LogTail func(ctx context.Context, namespace, pod, container string, previous bool, lines int64) (string, error)
 
 	// StartupSeen, if set, reports whether a game container has printed one of
 	// its template's done lines, following its output in the background until it
@@ -1170,7 +1176,7 @@ func (r *Reconciler) inspectPods(ctx context.Context, ns, slug string) podHealth
 			h.restarts += int(cs.RestartCount)
 			if cs.State.Waiting != nil && cs.State.Waiting.Reason == "CrashLoopBackOff" {
 				h.crashloop = true
-				h.msg = crashMessage(cs)
+				h.msg = r.crashMessageWithLog(ctx, ns, p.Name, cs)
 			}
 			// Down after a failed run is a crash too, whatever the kubelet calls
 			// the wait before the next one. Kubernetes 1.35 reports the failed
@@ -1179,7 +1185,7 @@ func (r *Reconciler) inspectPods(ctx context.Context, ns, slug string) podHealth
 			// at every start stayed "Starting" for five minutes.
 			if t := cs.State.Terminated; t != nil && t.ExitCode != 0 && current {
 				h.crashloop = true
-				h.msg = crashMessage(cs)
+				h.msg = r.crashMessageWithLog(ctx, ns, p.Name, cs)
 			}
 			// The previous run's exit explains a restart even once the container is
 			// back up; a container terminated right now is captured too.
@@ -1194,6 +1200,53 @@ func (r *Reconciler) inspectPods(ctx context.Context, ns, slug string) podHealth
 	}
 	return h
 }
+
+// crashMessageWithLog is crashMessage with the last error line of the run's
+// log, when LogTail can read it. How a run ended is not always why: Paper out
+// of heap prints java.lang.OutOfMemoryError and exits 0, and its server read
+// "the game exited with code 0", which sent nobody towards the memory.
+func (r *Reconciler) crashMessageWithLog(ctx context.Context, ns, pod string, cs corev1.ContainerStatus) string {
+	msg := crashMessage(cs)
+	if r.LogTail == nil || cs.Name != workloadName {
+		return msg
+	}
+	// The run that ended is the current container while it is down, the
+	// previous one once the kubelet has started another.
+	previous := cs.State.Terminated == nil
+	tail, err := r.LogTail(ctx, ns, pod, cs.Name, previous, 50)
+	if err != nil {
+		return msg
+	}
+	line := lastErrorLine(tail)
+	switch {
+	case line == "":
+		return msg
+	case strings.Contains(line, "OutOfMemoryError"):
+		return msg + ", out of memory: " + line + " — give it more memory"
+	}
+	return msg + "; its log ends with: " + line
+}
+
+// errorLine is what a line that says why a game stopped tends to hold.
+var errorLine = regexp.MustCompile(`(?i)(exception|error|fatal|panic|out of memory|segmentation fault|killed)`)
+
+// lastErrorLine is the last line of a log that reads as an error, cut short.
+func lastErrorLine(log string) string {
+	lines := strings.Split(strings.TrimRight(log, "\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		l := strings.TrimSpace(ansi.ReplaceAllString(lines[i], ""))
+		if errorLine.MatchString(l) {
+			if len(l) > 200 {
+				l = l[:200] + "…"
+			}
+			return l
+		}
+	}
+	return ""
+}
+
+// ansi matches the colour codes a game's log is full of.
+var ansi = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 
 // crashMessage says how the game's last run ended. The kubelet's own message
 // ("back-off 2m40s restarting failed container=server pod=...") said neither
