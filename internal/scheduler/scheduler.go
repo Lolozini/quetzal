@@ -8,7 +8,9 @@
 // (Tick is called serially alongside reconciliation/backups/hibernation), each
 // due chain runs in its own goroutine; an in-flight guard prevents a schedule
 // from overlapping itself, and next_run is advanced up front so a long chain
-// can't re-fire.
+// can't re-fire. How far a chain has got is kept in the database (Schedule.Run),
+// and a controller that starts finds the chains a previous one left half done
+// and carries them on.
 package scheduler
 
 import (
@@ -119,6 +121,14 @@ func (s *Scheduler) Tick(ctx context.Context) {
 	}
 	for i := range scs {
 		sc := &scs[i]
+		// A chain under way that nothing here runs was left by a controller
+		// that went away mid-chain: carry it on.
+		if sc.Run != nil {
+			if s.acquire(sc.ID) {
+				s.launch(ctx, *sc, *sc.Run, true)
+			}
+			continue
+		}
 		// A schedule with no computed NextRun (freshly enabled / migrated) gets one
 		// now and fires on a later tick — never retroactively.
 		if sc.NextRun == nil {
@@ -145,29 +155,51 @@ func (s *Scheduler) Tick(ctx context.Context) {
 		if !s.acquire(sc.ID) {
 			continue
 		}
-		scCopy := *sc
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			defer s.release(scCopy.ID)
-			// Isolate a panicking task: a chain runs detached, so an unrecovered
-			// panic here would take down the whole controller (and all
-			// reconciliation) rather than just failing this schedule.
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("scheduler: chain %d panicked: %v", scCopy.ID, r)
-					status := fmt.Sprintf("error: panic: %v", r)
-					_ = s.Store.MarkScheduleResult(scCopy.ID, now, status)
-					s.record(&scCopy, status)
-				}
-			}()
-			status := s.runChain(ctx, &scCopy)
-			if err := s.Store.MarkScheduleResult(scCopy.ID, now, status); err != nil {
-				log.Printf("scheduler: mark result %d: %v", scCopy.ID, err)
-			}
-			s.record(&scCopy, status)
-		}()
+		run := models.ScheduleRun{Fired: now, Due: now}
+		if tasks := sc.TaskChain(); len(tasks) > 0 {
+			run.Due = now.Add(time.Duration(tasks[0].TimeOffset) * time.Second)
+		}
+		if err := s.Store.SetScheduleRun(sc.ID, &run); err != nil {
+			log.Printf("scheduler: start chain %d: %v", sc.ID, err)
+			s.release(sc.ID)
+			continue
+		}
+		s.launch(ctx, *sc, run, false)
 	}
+}
+
+// launch runs a chain in its own goroutine, from where run says.
+func (s *Scheduler) launch(ctx context.Context, sc models.Schedule, run models.ScheduleRun, resumed bool) {
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		defer s.release(sc.ID)
+		// Isolate a panicking task: a chain runs detached, so an unrecovered
+		// panic here would take down the whole controller (and all
+		// reconciliation) rather than just failing this schedule.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("scheduler: chain %d panicked: %v", sc.ID, r)
+				s.finish(&sc, run.Fired, fmt.Sprintf("error: panic: %v", r))
+			}
+		}()
+		status, ended := s.runChain(ctx, &sc, &run, resumed)
+		if !ended {
+			return // the controller is going away: the next one carries on
+		}
+		s.finish(&sc, run.Fired, status)
+	}()
+}
+
+// finish closes a chain: its run is over, and its result recorded.
+func (s *Scheduler) finish(sc *models.Schedule, fired time.Time, status string) {
+	if err := s.Store.SetScheduleRun(sc.ID, nil); err != nil {
+		log.Printf("scheduler: end chain %d: %v", sc.ID, err)
+	}
+	if err := s.Store.MarkScheduleResult(sc.ID, fired, status); err != nil {
+		log.Printf("scheduler: mark result %d: %v", sc.ID, err)
+	}
+	s.record(sc, status)
 }
 
 // Wait blocks until all in-flight chains finish (for graceful shutdown / tests).
@@ -196,48 +228,110 @@ func (s *Scheduler) record(sc *models.Schedule, status string) {
 	}
 }
 
-// runChain executes a schedule's task chain in order and returns a status
-// summary. Each task may wait TimeOffset seconds first; a failing task aborts
-// the rest unless it is ContinueOnFailure. The server is re-loaded before each
-// task so a mid-chain suspension or deletion is respected.
-func (s *Scheduler) runChain(ctx context.Context, sc *models.Schedule) string {
+// resumeLimit is how late a chain left half done may still be carried on:
+// past it, the rest of the chain is closer to the schedule's next firing than
+// to the one it belongs to.
+const resumeLimit = 24 * time.Hour
+
+// runChain executes a schedule's task chain in order, from the task run says,
+// and returns a status summary and whether the chain ended. Each task may wait
+// TimeOffset seconds first; a failing task aborts the rest unless it is
+// ContinueOnFailure. The server is re-loaded before each task so a mid-chain
+// suspension or deletion is respected. Progress is written to run, and to the
+// database, after each task; a cancelled context leaves the chain where it
+// was, for the next controller to carry on.
+func (s *Scheduler) runChain(ctx context.Context, sc *models.Schedule, run *models.ScheduleRun, resumed bool) (string, bool) {
 	if _, err := s.Store.GetServer(sc.ServerID); err != nil {
 		// The server is gone (deleted out from under the schedule): remove the
 		// orphan so it stops firing and spamming errors.
 		if errors.Is(err, store.ErrNotFound) {
 			_ = s.Store.DeleteSchedule(sc.ID)
-			return "removed (server deleted)"
+			return "removed (server deleted)", true
 		}
-		return "error: server: " + err.Error()
+		return "error: server: " + err.Error(), true
 	}
 	tasks := sc.TaskChain()
 	if len(tasks) == 0 {
-		return "error: no tasks"
+		return "error: no tasks", true
 	}
-	var b strings.Builder
-	for i, t := range tasks {
-		if i > 0 {
-			b.WriteString("; ")
+	if resumed {
+		if late := s.now().Sub(run.Due); late > resumeLimit {
+			return summary(run, fmt.Sprintf("the controller restarted mid-chain and the rest was %s overdue; not run", late.Round(time.Minute))), true
 		}
-		if t.TimeOffset > 0 {
-			if err := s.sleep(ctx, time.Duration(t.TimeOffset)*time.Second); err != nil {
-				fmt.Fprintf(&b, "#%d %s: cancelled", i+1, t.Action)
-				break
+		log.Printf("scheduler: carrying on chain %d at task %d", sc.ID, run.Next+1)
+	}
+	for first := true; run.Next < len(tasks); first = false {
+		i, t := run.Next, tasks[run.Next]
+		wait := time.Duration(t.TimeOffset) * time.Second
+		if first && resumed {
+			wait = run.Due.Sub(s.now())
+		}
+		if wait > 0 {
+			if err := s.sleep(ctx, wait); err != nil {
+				return "", false
 			}
 		}
 		srv, err := s.Store.GetServer(sc.ServerID)
 		if err != nil {
-			fmt.Fprintf(&b, "#%d %s: error: server unavailable", i+1, t.Action)
+			run.Done = append(run.Done, fmt.Sprintf("#%d %s: error: server unavailable", i+1, t.Action))
 			break
 		}
-		ok, msg := s.runTask(ctx, srv, t)
-		fmt.Fprintf(&b, "#%d %s: %s", i+1, t.Action, msg)
+		var ok bool
+		var msg string
+		if t.Action == models.SchedBackup && run.Backup != 0 {
+			// Carried on while waiting for its backup: that one, not another.
+			ok, msg = result(s.awaitBackup(ctx, run.Backup))
+		} else {
+			ok, msg = s.runTask(ctx, srv, t, func(id uint) {
+				run.Backup = id
+				s.saveRun(sc.ID, run)
+			})
+		}
+		if !ok && ctx.Err() != nil {
+			return "", false // cut short by the controller going away: run it again
+		}
+		entry := fmt.Sprintf("#%d %s: %s", i+1, t.Action, msg)
 		if !ok && !t.ContinueOnFailure {
-			b.WriteString(" — chain aborted")
+			run.Done = append(run.Done, entry+" — chain aborted")
 			break
 		}
+		run.Done = append(run.Done, entry)
+		run.Next, run.Backup = i+1, 0
+		if run.Next < len(tasks) {
+			run.Due = s.now().Add(time.Duration(tasks[run.Next].TimeOffset) * time.Second)
+		}
+		s.saveRun(sc.ID, run)
 	}
-	return b.String()
+	if resumed {
+		return summary(run, "carried on after the controller restarted"), true
+	}
+	return summary(run, ""), true
+}
+
+// summary is a chain's status: what each task did, and a note.
+func summary(run *models.ScheduleRun, note string) string {
+	out := strings.Join(run.Done, "; ")
+	switch {
+	case note == "":
+	case out == "":
+		out = note
+	default:
+		out += " (" + note + ")"
+	}
+	return out
+}
+
+func (s *Scheduler) saveRun(id uint, run *models.ScheduleRun) {
+	if err := s.Store.SetScheduleRun(id, run); err != nil {
+		log.Printf("scheduler: save chain %d: %v", id, err)
+	}
+}
+
+func result(err error) (bool, string) {
+	if err != nil {
+		return false, "error: " + err.Error()
+	}
+	return true, "ok"
 }
 
 // runTask performs a single task and reports whether it succeeded plus a short
@@ -245,7 +339,7 @@ func (s *Scheduler) runChain(ctx context.Context, sc *models.Schedule) string {
 // not touch any more than they can: a power action would lift the suspension,
 // and each backup's retention pushes out a snapshot from before it (skipped,
 // not a failure).
-func (s *Scheduler) runTask(ctx context.Context, srv *models.Server, t models.ScheduleTask) (bool, string) {
+func (s *Scheduler) runTask(ctx context.Context, srv *models.Server, t models.ScheduleTask, backupRequested func(uint)) (bool, string) {
 	if srv.DesiredState == models.StateSuspended {
 		return true, "skipped (server suspended)"
 	}
@@ -274,15 +368,13 @@ func (s *Scheduler) runTask(ctx context.Context, srv *models.Server, t models.Sc
 	case models.SchedBackup:
 		var id uint
 		if id, err = s.Exec.Backup(ctx, srv); err == nil {
+			backupRequested(id)
 			err = s.awaitBackup(ctx, id)
 		}
 	default:
 		return false, "error: unknown action " + string(t.Action)
 	}
-	if err != nil {
-		return false, "error: " + err.Error()
-	}
-	return true, "ok"
+	return result(err)
 }
 
 // awaitBackup waits for the backup a step requested to end, so that the next

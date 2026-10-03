@@ -298,7 +298,12 @@ func TestChainContinueOnFailure(t *testing.T) {
 	}
 }
 
-func TestChainCancelledByContext(t *testing.T) {
+// A controller that goes away mid-chain -- an upgrade, a rollout, a node
+// drain -- used to drop the rest of it: the recette of 0.10.0 restarted the
+// controller between the two steps of a chain, and the second never ran
+// (R-20). The chain is left where it was, and the next controller carries it
+// on, its delay kept.
+func TestAChainLeftHalfDoneIsCarriedOn(t *testing.T) {
 	st := testStore(t)
 	srv := &models.Server{Slug: "s", Namespace: "ns", DesiredState: models.StateRunning}
 	_ = st.CreateServer(srv)
@@ -307,7 +312,7 @@ func TestChainCancelledByContext(t *testing.T) {
 		ServerID: srv.ID, Name: "x", Cron: "* * * * *", Enabled: true, NextRun: &past,
 		Tasks: []models.ScheduleTask{
 			{Action: models.SchedStop},                  // runs (offset 0)
-			{Action: models.SchedStart, TimeOffset: 30}, // delay aborts on cancel
+			{Action: models.SchedStart, TimeOffset: 30}, // the controller goes away during its delay
 		},
 	}
 	_ = st.CreateSchedule(sc)
@@ -318,13 +323,83 @@ func TestChainCancelledByContext(t *testing.T) {
 	s := New(st, m)
 	s.Sleep = func(c context.Context, _ time.Duration) error { return c.Err() }
 	runTick(s, ctx)
-
 	if m.stopped != 1 || m.started != 0 {
-		t.Errorf("cancelled chain: stopped=%d started=%d, want 1/0", m.stopped, m.started)
+		t.Fatalf("before the restart: stopped=%d started=%d, want 1/0", m.stopped, m.started)
 	}
 	got, _ := st.GetSchedule(sc.ID)
-	if !strings.Contains(got.LastStatus, "cancelled") {
-		t.Errorf("status = %q, want it to mention cancelled", got.LastStatus)
+	if got.Run == nil || got.Run.Next != 1 {
+		t.Fatalf("the chain's progress was not kept: %+v", got.Run)
+	}
+
+	// The next controller.
+	var slept []time.Duration
+	next := New(st, m)
+	next.Sleep = func(_ context.Context, d time.Duration) error { slept = append(slept, d); return nil }
+	runTick(next, context.Background())
+	if m.started != 1 || m.stopped != 1 {
+		t.Errorf("after the restart: stopped=%d started=%d, want 1/1", m.stopped, m.started)
+	}
+	if len(slept) != 1 || slept[0] <= 0 || slept[0] > 30*time.Second {
+		t.Errorf("waited %v before the start, want what was left of its 30s", slept)
+	}
+	got, _ = st.GetSchedule(sc.ID)
+	if got.Run != nil || !strings.Contains(got.LastStatus, "#2 start: ok") || !strings.Contains(got.LastStatus, "carried on") {
+		t.Errorf("run %+v, status %q: want the chain ended, both steps told", got.Run, got.LastStatus)
+	}
+}
+
+// A backup step carried on waits for the backup it asked for, rather than
+// taking another one.
+func TestACarriedOnBackupStepWaitsForItsBackup(t *testing.T) {
+	st := testStore(t)
+	srv := &models.Server{Slug: "s", Namespace: "ns", DesiredState: models.StateRunning}
+	_ = st.CreateServer(srv)
+	past := time.Now().Add(-time.Minute)
+	sc := &models.Schedule{
+		ServerID: srv.ID, Name: "x", Cron: "* * * * *", Enabled: true, NextRun: &past,
+		Tasks: []models.ScheduleTask{{Action: models.SchedBackup}, {Action: models.SchedStart}},
+	}
+	_ = st.CreateSchedule(sc)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	m := &mockExec{st: st, pending: true}
+	s := New(st, m)
+	s.Sleep = func(c context.Context, _ time.Duration) error { cancel(); return c.Err() }
+	runTick(s, ctx)
+	got, _ := st.GetSchedule(sc.ID)
+	if got.Run == nil || got.Run.Backup == 0 {
+		t.Fatalf("the backup the step waits for was not kept: %+v", got.Run)
+	}
+	b, _ := st.GetBackup(got.Run.Backup)
+	b.Phase = models.BackupSucceeded
+	_ = st.UpdateBackup(b)
+
+	next := New(st, m)
+	next.Sleep = func(context.Context, time.Duration) error { return nil }
+	runTick(next, context.Background())
+	if m.backedup != 1 || m.started != 1 {
+		t.Errorf("backups taken %d, starts %d: want the one backup waited for, then the start", m.backedup, m.started)
+	}
+}
+
+// A chain left far too long is not replayed.
+func TestAChainLeftADayAgoIsNotCarriedOn(t *testing.T) {
+	st := testStore(t)
+	srv := &models.Server{Slug: "s", Namespace: "ns", DesiredState: models.StateRunning}
+	_ = st.CreateServer(srv)
+	future := time.Now().Add(time.Hour)
+	stale := time.Now().Add(-resumeLimit - time.Hour)
+	sc := &models.Schedule{
+		ServerID: srv.ID, Name: "x", Cron: "* * * * *", Enabled: true, NextRun: &future,
+		Tasks: []models.ScheduleTask{{Action: models.SchedStop}, {Action: models.SchedStart}},
+		Run:   &models.ScheduleRun{Fired: stale, Next: 1, Due: stale, Done: []string{"#1 stop: ok"}},
+	}
+	_ = st.CreateSchedule(sc)
+	m := &mockExec{st: st}
+	runTick(New(st, m), context.Background())
+	got, _ := st.GetSchedule(sc.ID)
+	if m.started != 0 || got.Run != nil || !strings.Contains(got.LastStatus, "not run") {
+		t.Errorf("started %d, run %+v, status %q: want it closed without running", m.started, got.Run, got.LastStatus)
 	}
 }
 

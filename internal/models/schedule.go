@@ -64,6 +64,25 @@ type Schedule struct {
 	NextRun    *time.Time `json:"nextRun,omitempty"`
 	LastRun    *time.Time `json:"lastRun,omitempty"`
 	LastStatus string     `json:"lastStatus,omitempty"`
+
+	// Run is the chain under way, nil when none is. It is kept in the
+	// database so that a controller restarted mid-chain -- an upgrade, a
+	// rollout, a node drain -- carries on where it was: the chain lived in the
+	// controller's memory, and a restart during a delay or a backup dropped
+	// the rest of it, so a nightly stop, backup, start left the server stopped
+	// until the next night.
+	Run *ScheduleRun `gorm:"serializer:json" json:"run,omitempty"`
+}
+
+// ScheduleRun is how far a chain has got.
+type ScheduleRun struct {
+	Fired time.Time `json:"fired"` // when the schedule fired
+	Next  int       `json:"next"`  // index of the task to run next
+	Due   time.Time `json:"due"`   // when it runs, its delay included
+	// Backup is the backup the next task requested and waits for, so that a
+	// chain picked up again waits for it rather than taking another one.
+	Backup uint     `json:"backup,omitempty"`
+	Done   []string `json:"done,omitempty"` // what each task before it did
 }
 
 // TaskChain returns the schedule's ordered tasks, normalizing a legacy

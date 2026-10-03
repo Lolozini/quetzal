@@ -2932,6 +2932,19 @@ components:
         nextRun: { type: string, format: date-time }
         lastRun: { type: string, format: date-time }
         lastStatus: { type: string }
+        run:
+          type: object
+          description: >-
+            The chain under way, absent when none is. It is kept so that a
+            controller restarted mid-chain carries it on where it was.
+          properties:
+            fired: { type: string, format: date-time }
+            next: { type: integer, description: Index of the task to run next }
+            due: { type: string, format: date-time, description: When that task runs, its delay included }
+            backup: { type: integer, description: The backup that task waits for }
+            done:
+              type: array
+              items: { type: string }
     ScheduleInput:
       type: object
       required: [name, cron, enabled]

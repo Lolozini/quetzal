@@ -33,6 +33,14 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A schedule's chain survives a restart of the controller.** A chain ran
+  in the controller's memory: restarted during a delay or a backup — by an
+  upgrade, a rollout, a node drain — it dropped the rest, and a nightly
+  stop, backup, start left the server stopped until the next night, with
+  nothing said. How far a chain has got is kept now, and the next
+  controller carries it on where it was, its delay kept and its backup
+  waited for rather than taken again; one left more than a day is closed
+  without running, and disabling the schedule drops it.
 - **Usernames are told apart, and kept readable.** Any name of three
   characters or more was taken: next to the superadmin `Lolozini` came
   `lolozini` and `LOLOZINI`, names with spaces, HTML, control characters and

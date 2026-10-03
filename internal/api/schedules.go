@@ -166,6 +166,16 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// A chain left half done by a controller that went away is not carried on
+	// once its schedule is disabled: switching it back on later would replay
+	// the rest of a chain from another day.
+	if !sc.Enabled && sc.Run != nil {
+		if err := s.Store.SetScheduleRun(sc.ID, nil); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		sc.Run = nil
+	}
 	detail := sc.Name + " (" + summarizeTasks(tasks) + " @ " + sc.Cron + ")"
 	if !sc.Enabled {
 		detail += ", disabled"

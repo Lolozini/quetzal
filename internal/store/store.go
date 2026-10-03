@@ -1294,6 +1294,12 @@ func (s *Store) MarkScheduleResult(id uint, lastRun time.Time, status string) er
 		Updates(map[string]any{"last_run": lastRun, "last_status": status}).Error
 }
 
+// SetScheduleRun records how far a schedule's chain has got; nil ends it.
+func (s *Store) SetScheduleRun(id uint, run *models.ScheduleRun) error {
+	return s.db.Model(&models.Schedule{}).Where("id = ?", id).
+		Select("run").Updates(models.Schedule{Run: run}).Error
+}
+
 // SetScheduleNextRun stores only the computed next run (e.g. on create/enable).
 func (s *Store) SetScheduleNextRun(id uint, nextRun *time.Time) error {
 	return s.db.Model(&models.Schedule{}).Where("id = ?", id).
