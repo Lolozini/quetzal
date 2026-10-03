@@ -63,6 +63,7 @@ func TestPasswordReset(t *testing.T) {
 func TestWithin(t *testing.T) {
 	for d, want := range map[time.Duration]string{
 		time.Hour: "within the next hour", 3 * time.Hour: "within 3 hours", 7 * 24 * time.Hour: "within 7 days",
+		24 * time.Hour: "within a day",
 	} {
 		if got := within(d); got != want {
 			t.Errorf("within(%v) = %q, want %q", d, got, want)

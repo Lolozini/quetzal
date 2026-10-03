@@ -109,6 +109,8 @@ func within(d time.Duration) string {
 	switch {
 	case d == time.Hour:
 		return "within the next hour"
+	case d == 24*time.Hour:
+		return "within a day"
 	case d%(24*time.Hour) == 0:
 		return fmt.Sprintf("within %d days", d/(24*time.Hour))
 	case d%time.Hour == 0:
