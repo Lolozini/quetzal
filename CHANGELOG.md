@@ -21,6 +21,14 @@ releases may include breaking changes).
 
 ### Security
 
+- **A rename can no longer move a file out of the server's data directory.**
+  Renaming onto a symbolic link to a folder put the file inside the link's
+  target, as `mv` does with a folder: through a link aimed outside the data
+  directory, the file left the volume for the data manager's own
+  filesystem, past the guard, which allows a link as the last part of a
+  destination. A rename onto a name already taken — a file, a folder, a
+  link — is refused now, as moving files already was, which also stops a
+  rename from overwriting a file without a word.
 - **A server whose Service the cluster refuses no longer runs without its
   network policy.** The policy that keeps a game's code — a tenant's mods and
   plugins — off the cluster network was written last, after the server's

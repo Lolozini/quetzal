@@ -273,3 +273,28 @@ func TestListingKeepsNamesWithANewlineWhole(t *testing.T) {
 		}
 	}
 }
+
+// Renaming onto a symbolic link to a folder moved the file into the link's
+// target: out of the data directory, when the link pointed there (R-07). A
+// name already taken -- a file, a folder, a link -- is refused instead.
+func TestRenameRefusesATakenName(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	mkfile(t, filepath.Join(root, "a.txt"), "secret")
+	mkfile(t, filepath.Join(root, "b.txt"), "keep")
+	if err := os.Symlink(outside, filepath.Join(root, "out")); err != nil {
+		t.Fatal(err)
+	}
+	for _, to := range []string{"out", "b.txt"} {
+		_, stderr, code := runScript(t, root, renameScript, filepath.Join(root, "a.txt"), filepath.Join(root, to))
+		if code != fileOpBadRequest || !strings.Contains(stderr, "already exists") {
+			t.Errorf("rename onto %s: exit %d (%s), want refused", to, code, strings.TrimSpace(stderr))
+		}
+	}
+	if exists(filepath.Join(outside, "a.txt")) || !exists(filepath.Join(root, "a.txt")) {
+		t.Fatal("the file left the data directory through the link")
+	}
+	if _, _, code := runScript(t, root, renameScript, filepath.Join(root, "a.txt"), filepath.Join(root, "c.txt")); code != 0 || !exists(filepath.Join(root, "c.txt")) {
+		t.Errorf("a plain rename exited %d", code)
+	}
+}

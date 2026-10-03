@@ -623,6 +623,16 @@ exec rm -rf -- "$1"`), root, full}, nil, io.Discard); err != nil {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// renameScript renames $1 to $2. A name already taken is refused, as moving
+// files is: mv onto a folder, or onto a symbolic link to one, puts the file
+// inside it, and through a link aimed out of the data directory the file left
+// the volume, past the guard, which allows a link as the destination's last
+// part (recette of 0.10.0, R-07).
+const renameScript = `qz_guard link "$0" "$1" "$2"
+qz_exists "$1"
+if [ -e "$2" ] || [ -L "$2" ]; then echo "$(basename -- "$2") already exists" >&2; exit 4; fi
+exec mv -- "$1" "$2"`
+
 func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
 	if !ok {
@@ -635,9 +645,7 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	to := jail(root, toRel)
-	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", guarded(`qz_guard link "$0" "$1" "$2"
-qz_exists "$1"
-exec mv -- "$1" "$2"`), root, from, to}, nil, io.Discard); err != nil {
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", guarded(renameScript), root, from, to}, nil, io.Discard); err != nil {
 		writeFileOpError(w, "rename failed", err)
 		return
 	}
