@@ -182,3 +182,31 @@ func TestResolveEnvUpdateRejectsBadInput(t *testing.T) {
 		t.Error("required empty EULA should error")
 	}
 }
+
+// A value the egg's rules refuse is refused when it is given, as Pterodactyl
+// does, rather than accepted and failing the server at its next start
+// (recette of 0.10.0, R-04). A switch to a template whose rules refuse a
+// carried value resets it to the new default instead.
+func TestResolveEnvAppliesTheEggRules(t *testing.T) {
+	tmpl := &models.Template{Variables: []models.TemplateVariable{
+		{EnvVariable: "SERVER_JARFILE", Default: "server.jar", Editable: true, Required: true,
+			Rules: `required|regex:/^([\w\d._-]+)(\.jar)$/`},
+		{EnvVariable: "MINECRAFT_VERSION", Default: "latest", Editable: true, Rules: "nullable|string|max:20"},
+	}}
+	if _, err := resolveEnv(tmpl, map[string]string{"SERVER_JARFILE": "foo bar; echo pwned"}); err == nil {
+		t.Error("create: a jar name the egg's pattern refuses was accepted")
+	}
+	if _, err := resolveEnvUpdate(tmpl, map[string]string{}, map[string]string{"MINECRAFT_VERSION": "not a version at all !!"}); err == nil {
+		t.Error("edit: a version longer than the egg's max was accepted")
+	}
+	if _, err := resolveEnvUpdate(tmpl, map[string]string{}, map[string]string{"SERVER_JARFILE": "paper-1.21.jar"}); err != nil {
+		t.Errorf("edit: a valid jar name was refused: %v", err)
+	}
+	env, reset, err := resolveEnvSwitch(tmpl, map[string]string{"SERVER_JARFILE": "my server.jar"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["SERVER_JARFILE"] != "server.jar" || len(reset) != 1 || reset[0] != "SERVER_JARFILE" {
+		t.Errorf("switch: env %v, reset %v; want the refused value back at the default, and said", env, reset)
+	}
+}

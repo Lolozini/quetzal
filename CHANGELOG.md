@@ -33,6 +33,16 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A variable's value is checked against its egg's rules.** Quetzal kept an
+  egg's validation rules but checked only that a required value was there and
+  that a choice was one of the list: Paper's jar name took
+  `foo bar; echo pwned` and its version `not a version at all !!`, and the
+  server failed at its next start. A value is now refused when it is given,
+  with what the rule asks, for the rules eggs use: `regex`, `max`, `min`,
+  `between`, `size`, `integer`, `numeric`, `boolean`, `in`, `digits`,
+  `alpha_dash`, `url`, `email`, `ip` and the like. A pattern RE2 cannot read
+  is let through rather than refused. Switching template resets a value the
+  new template's rules refuse to its default, and says so.
 - **A server's page shows a subuser what they were given, and nothing
   else.** It was drawn for the owner whoever opened it: a subuser given the
   files had no Files tab — only SFTP worked — and none could reach the

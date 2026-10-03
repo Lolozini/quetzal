@@ -609,6 +609,9 @@ func resolveEnv(tmpl *models.Template, reqEnv map[string]string) (map[string]str
 		if v.Type == models.VarEnum && len(v.Options) > 0 && !slices.Contains(v.Options, val) {
 			return nil, fmt.Errorf("variable %q must be one of %v", k, v.Options)
 		}
+		if err := v.Validate(val); err != nil {
+			return nil, err
+		}
 		env[k] = val
 	}
 	for _, v := range tmpl.Variables {
@@ -800,6 +803,8 @@ func resolveEnvSwitch(tmpl *models.Template, current, reqEnv map[string]string) 
 			}
 		case v.Type == models.VarEnum && len(v.Options) > 0 && !slices.Contains(v.Options, cur):
 			reset = append(reset, v.EnvVariable)
+		case v.Validate(cur) != nil:
+			reset = append(reset, v.EnvVariable) // the new template's rules refuse it
 		default:
 			carry[v.EnvVariable] = cur
 		}
@@ -849,6 +854,9 @@ func resolveEnvUpdate(tmpl *models.Template, current, reqEnv map[string]string) 
 		}
 		if v.Type == models.VarEnum && len(v.Options) > 0 && !slices.Contains(v.Options, val) {
 			return nil, fmt.Errorf("variable %q must be one of %v", k, v.Options)
+		}
+		if err := v.Validate(val); err != nil {
+			return nil, err
 		}
 		env[k] = val
 	}
