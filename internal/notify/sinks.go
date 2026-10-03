@@ -318,6 +318,20 @@ func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, 
 	return Send(ctx, cfg, to, Mail{Subject: subject, Text: body})
 }
 
+// RecipientError is an address the relay refused, as opposed to a relay that
+// could not be reached, or would not take mail from the panel at all: the
+// first is the address's fault, the others the settings'.
+type RecipientError struct {
+	Addr string
+	Err  error
+}
+
+func (e *RecipientError) Error() string {
+	return fmt.Sprintf("email: the server refused the recipient %s: %v", e.Addr, e.Err)
+}
+
+func (e *RecipientError) Unwrap() error { return e.Err }
+
 // Mail is a message: its text, and optionally an HTML version of it with the
 // images it shows. A client that does not display HTML shows the text.
 type Mail struct {
@@ -430,7 +444,12 @@ func Send(ctx context.Context, cfg map[string]string, to []string, m Mail) error
 	}
 	for _, rcpt := range to {
 		if err := client.Rcpt(rcpt); err != nil {
-			return err
+			rerr := &RecipientError{Addr: rcpt, Err: err}
+			var te *textproto.Error
+			if errors.As(err, &te) && te.Code >= 500 {
+				return permanent(rerr)
+			}
+			return rerr
 		}
 	}
 	wc, err := client.Data()

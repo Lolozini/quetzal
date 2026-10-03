@@ -3,6 +3,7 @@ package notify
 import (
 	"bufio"
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -158,5 +159,25 @@ func TestNoneModeStillSendsInCleartext(t *testing.T) {
 	}
 	if lines := <-got; !sent(lines, "DATA") {
 		t.Errorf("nothing was sent; conversation: %q", lines)
+	}
+}
+
+// A recipient the relay refuses is told apart from a relay that failed: the
+// panel blamed its email settings for an address the server would not take
+// (recette of 0.10.0, R-28).
+func TestARefusedRecipientIsTheAddresss(t *testing.T) {
+	host, port, got := fakeSMTP(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := SendMail(ctx, map[string]string{"host": host, "port": port, "from": "panel@example.test", "tls": "none"},
+		[]string{"not an address"}, "Invitation", "hello")
+	<-got
+	var rcpt *RecipientError
+	if !errors.As(err, &rcpt) || rcpt.Addr != "not an address" {
+		t.Fatalf("err = %v, want a refused recipient", err)
+	}
+	var perm permanentError
+	if !errors.As(err, &perm) {
+		t.Errorf("a 5xx refusal is retried: %v", err)
 	}
 }

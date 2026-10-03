@@ -317,6 +317,19 @@ func TestInvitationNeedsWorkingEmail(t *testing.T) {
 		t.Errorf("%d invitations kept after the mail failed", n)
 	}
 
+	// An address the mail server refuses is the address's fault: the
+	// recette of 0.10.0 invited x@localhost and was told to check the email
+	// settings, which were fine (R-28).
+	h.srv.Mailer = func(context.Context, map[string]string, []string, notify.Mail) error {
+		return &notify.RecipientError{Addr: "x@localhost", Err: errors.New("550 5.1.1 <x@localhost>: Recipient address rejected")}
+	}
+	r := post(t, h.alice, h.url+"/invites", map[string]any{"email": "x@localhost", "permissions": []string{"view"}})
+	body, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	if r.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), "refused this address") || strings.Contains(string(body), "settings") {
+		t.Errorf("a refused address = %d %s, want 400 blaming the address", r.StatusCode, body)
+	}
+
 	h.srv.Mailer = h.mail.send
 	if err := h.st.SetSetting(store.SettingPublicURL, ""); err != nil {
 		t.Fatal(err)

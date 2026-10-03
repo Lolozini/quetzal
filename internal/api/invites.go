@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/lolozini/quetzal/internal/auth"
 	"github.com/lolozini/quetzal/internal/mailtmpl"
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/store"
 )
 
@@ -136,6 +138,13 @@ func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
 	if err := s.Mailer(ctx, cfg, []string{email}, m); err != nil {
 		_ = s.Store.DeleteServerInvite(inv.ID)
 		log.Printf("invitation to server %d: send: %v", srv.ID, err)
+		// An address the mail server refuses is the address's fault, not the
+		// settings': saying to check them sent an administrator after nothing.
+		var rcpt *notify.RecipientError
+		if errors.As(err, &rcpt) {
+			writeError(w, http.StatusBadRequest, "the mail server refused this address: "+rcpt.Err.Error())
+			return
+		}
 		writeError(w, http.StatusBadGateway, "the invitation could not be sent; an administrator can check the email settings")
 		return
 	}

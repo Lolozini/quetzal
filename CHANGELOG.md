@@ -47,6 +47,11 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **An invitation to an address the mail server refuses says so.** It
+  answered that the invitation could not be sent and that an administrator
+  could check the email settings, which were fine: it was the address. A
+  recipient the relay refuses is told apart from a relay that failed, and
+  the inviter is told the server refused that address, with its reply.
 - **A server keeps its node ports while it exists.** Taking a server off
   NodePort gave its ports back to the pool, and putting it back drew new
   ones — 30003 became 30027, and 30003 could go to the next server: the
