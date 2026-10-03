@@ -7,6 +7,38 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-03
+
+A full test pass of 0.10.0 turned up thirty findings, and this release
+answers them. A server's network policy is in place before anything of its
+tenant runs, and the first-run setup asks for a code from the panel's log. A
+restart gives the game its stop command, a restore can no longer be left
+waiting under a running server, and a schedule's chain survives the controller
+restarting. What SFTP sessions change now shows in a server's activity, and an
+email address is confirmed by a link mailed to it.
+
+**Upgrading from 0.10.0** — several things behave differently:
+
+- Game servers run in the panel's time zone, the controller's `TZ` (UTC when
+  unset), each from its next start. See *Changed*.
+- A template's update reaches a running server at its next restart, and its
+  status says a newer version waits. See *Changed*.
+- A new install's first-run setup asks for the setup code the apiserver
+  prints in its log; an install already set up sees nothing of it. See
+  *Security*.
+- A rename onto a name already taken is refused. See *Security*.
+- A restart is a stop, with the template's stop command, then a start: it
+  takes as long as the game does to stop. See *Fixed*.
+- New usernames are ASCII letters, digits, dots, dashes and underscores; an
+  email address is one account's, and one given from the account page waits
+  for its owner to confirm it when the panel can send mail. Existing names
+  and addresses are left as they are. See *Added* and *Fixed*.
+- Inspecting a Pterodactyl server takes the right to create servers, and an
+  account gets 30 inspections and 10 test mails an hour. See *Fixed*.
+- A data manager keeps the SFTP server it runs until it restarts, which
+  turning SFTP off and on does: until then, it lets a key in under any name
+  and records no SFTP activity. See *Added* and *Fixed*.
+
 ### Added
 
 - **What SFTP sessions change shows in the server's activity.** An upload, a
@@ -50,36 +82,6 @@ releases may include breaking changes).
   goes anyway — a stop, a restart, hibernation, a crash, a change to its own
   settings — or when it is reinstalled. Earlier versions are kept only while a
   server runs them.
-
-### Security
-
-- **The first account needs a code from the panel's log.** Until someone had
-  made it, the first-run setup made a superadmin of whoever reached the
-  panel first, and the install guide publishes the panel on an Ingress
-  from the start. The setup asks for a setup code now, which the panel
-  prints in its log until the account exists; the chart's notes and the
-  install guide say how to read it. An install already set up sees nothing
-  of it.
-- **A rename can no longer move a file out of the server's data directory.**
-  Renaming onto a symbolic link to a folder put the file inside the link's
-  target, as `mv` does with a folder: through a link aimed outside the data
-  directory, the file left the volume for the data manager's own
-  filesystem, past the guard, which allows a link as the last part of a
-  destination. A rename onto a name already taken — a file, a folder, a
-  link — is refused now, as moving files already was, which also stops a
-  rename from overwriting a file without a word.
-- **A server whose Service the cluster refuses no longer runs without its
-  network policy.** The policy that keeps a game's code — a tenant's mods and
-  plugins — off the cluster network was written last, after the server's
-  Service, and a Service the cluster refused stopped the pass before it, on
-  every pass. A node port that a Service outside Quetzal already held was
-  enough: the game could reach the panel, the Kubernetes API and the other
-  servers, while the panel showed it *Stopped*. The policy now goes in right
-  after the namespace, and nothing that runs a tenant's code is created or
-  changed while it cannot be written.
-
-### Fixed
-
 - **The administration is in tabs, and a phone shows every tab.** Its eleven
   cards made one page over 5,000 pixels high with nothing to find one by;
   each has a tab and an address of its own now (`#/admin/users`,
@@ -87,112 +89,9 @@ releases may include breaking changes).
   not fit go onto a second line, where they used to scroll sideways behind a
   hidden scrollbar. And a server's power buttons are offered when they do
   something: Start was live next to a running server.
-- **Requests the panel makes on a caller's word are bounded.** Inspecting a
-  Pterodactyl server has the panel call an address the caller gives, and
-  any signed-in account could, without limit, even one allowed no server; a
-  test mail goes from the operator's domain to any address, and a settings
-  administrator could send them without end. An account that may create no
-  server cannot inspect one any more, and each account gets 30 inspections
-  and 10 test mails an hour.
-- **An invitation to an address the mail server refuses says so.** It
-  answered that the invitation could not be sent and that an administrator
-  could check the email settings, which were fine: it was the address. A
-  recipient the relay refuses is told apart from a relay that failed, and
-  the inviter is told the server refused that address, with its reply.
-- **A server keeps its node ports while it exists.** Taking a server off
-  NodePort gave its ports back to the pool, and putting it back drew new
-  ones — 30003 became 30027, and 30003 could go to the next server: the
-  address its players knew, a box's port forwarding and an SRV record all
-  to redo. A port is freed when it is removed from the server, or the
-  server deleted.
-- **A crash says what the game's log ends with.** A Paper server out of heap
-  prints `java.lang.OutOfMemoryError` and exits 0, and its status read "the
-  game exited with code 0", which sent nobody towards the memory. The
-  message quotes the last error line of the run's log now, and says to give
-  the server more memory when that line is an out-of-memory error.
-- **An unknown API route answers in JSON.** Every error of the API is
-  `{"error": …}` but the ones no route took, answered "404 page not found"
-  in plain text; a known route called with another method still answers
-  405, with the methods it takes.
-- **SFTP lets a key in under its account's name only, and logs what it is
-  used for.** The SFTP server took any name with any key it knew, so the
-  name a session gave said nothing about whose key it was, and nothing
-  recorded what a session changed. Each key in a server's authorized_keys
-  now carries the accounts it belongs to, and a session signing in under
-  another name is refused; the SFTP container's log has a line for every
-  write, removal, rename, new folder and link, with the account that made
-  it. A data manager still running the previous release's SFTP binary
-  accepts any name until it restarts.
-- **An email address belongs to one account.** Any account could set any
-  address, another account's included, and a password reset by address went
-  to the oldest of the accounts that had it: one account could divert
-  another's resets. An address another account has is refused now — on the
-  account page, by an administrator, and from an invitation, whose reader is
-  asked to sign in to the account that has it — and an address two older
-  accounts still share resets neither, until one changes it; both can still
-  be reset by name. An address is also confirmed by mail now: see *Added*.
-- **Accented and non-Latin text comes through the console whole.** The log
-  was read in 4 KiB blocks and each sent as text, and a character of two to
-  four bytes that a block ended in the middle of turned into two `�` —
-  accented chat, Cyrillic or CJK logs had holes in them where the pod's log
-  had none. A block is cut between characters now.
-- **The upgrade guide no longer promises a backup Quetzal does not take.** It
-  said Quetzal could back the panel's database up to the S3 target, and an
-  operator could skip the snapshot of the one thing that is the source of
-  truth; nothing does that. It now shows how to copy the SQLite database out
-  with the panel stopped, in a pod the `restricted` Pod Security level
-  admits. The README no longer says a deleted server's snapshots stay in the
-  bucket — they are purged — nor that a server is one pod; the install guide
-  says the chart is one Deployment of two containers, that it needs
-  Kubernetes 1.30 and is tested on 1.35, and that SFTP runs in the
-  data-manager pod, not the game's.
-- **The SFTP card no longer says it works only while the server runs.** SFTP
-  runs in the data-manager pod, which is up whether the game is or not: the
-  card discouraged the very use it is for, putting a world in place before
-  the first start.
-- **Large directories list in a blink.** A listing ran `stat` and `wc` for
-  each entry, about 2 ms apiece in a server's pod: a directory of 3,000
-  files took six seconds, and one of 30,000 — playerdata, a plugin's cache —
-  outlasted the request and could not be listed at all. Where the game's
-  image has GNU find, as the Debian and Ubuntu images most eggs use do, one
-  `find` reads the whole directory now: 30,000 entries in about 150 ms. An
-  image with busybox alone is still gone through an entry at a time.
-- **A schedule's chain survives a restart of the controller.** A chain ran
-  in the controller's memory: restarted during a delay or a backup — by an
-  upgrade, a rollout, a node drain — it dropped the rest, and a nightly
-  stop, backup, start left the server stopped until the next night, with
-  nothing said. How far a chain has got is kept now, and the next
-  controller carries it on where it was, its delay kept and its backup
-  waited for rather than taken again; one left more than a day is closed
-  without running, and disabling the schedule drops it.
-- **Usernames are told apart, and kept readable.** Any name of three
-  characters or more was taken: next to the superadmin `Lolozini` came
-  `lolozini` and `LOLOZINI`, names with spaces, HTML, control characters and
-  a newline, and one of 204 characters that PostgreSQL would have refused
-  with a 500 — names that then read as someone else's in access lists,
-  activity and notifications. A new name is ASCII letters, digits, dots,
-  dashes and underscores, starting with a letter or a digit, 3 to 64 of
-  them, at setup, by an administrator and from an invitation alike; a name
-  another account has, case aside, is taken; and signing in finds the
-  account whatever the case typed. Existing names are left as they are.
-- **A variable's value is checked against its egg's rules.** Quetzal kept an
-  egg's validation rules but checked only that a required value was there and
-  that a choice was one of the list: Paper's jar name took
-  `foo bar; echo pwned` and its version `not a version at all !!`, and the
-  server failed at its next start. A value is now refused when it is given,
-  with what the rule asks, for the rules eggs use: `regex`, `max`, `min`,
-  `between`, `size`, `integer`, `numeric`, `boolean`, `in`, `digits`,
-  `alpha_dash`, `url`, `email`, `ip` and the like. A pattern RE2 cannot read
-  is let through rather than refused. Switching template resets a value the
-  new template's rules refuse to its default, and says so.
-- **A server's page shows a subuser what they were given, and nothing
-  else.** It was drawn for the owner whoever opened it: a subuser given the
-  files had no Files tab — only SFTP worked — and none could reach the
-  databases or the settings they were given, while one without power saw the
-  power buttons and the delete card, which answered 403. A server now comes
-  with `myPermissions`, what the reader may do on it, and the page follows
-  it: tabs, power buttons, settings, SFTP switch, delete. Access and the
-  choice of template stay with the owner and the administrators.
+
+### Fixed
+
 - **Restart, and any change that replaces a server's pod, give the game its
   stop command first.** Only a stop did: a restart — from the panel, the API
   or a schedule — deleted the pod, and a new setting (memory, image,
@@ -214,6 +113,14 @@ releases may include breaking changes).
   minutes. A restore still waiting can be cancelled from the backups, and one
   whose volume is still held 15 minutes after the request is called off and
   reported as failed.
+- **A schedule's chain survives a restart of the controller.** A chain ran
+  in the controller's memory: restarted during a delay or a backup — by an
+  upgrade, a rollout, a node drain — it dropped the rest, and a nightly
+  stop, backup, start left the server stopped until the next night, with
+  nothing said. How far a chain has got is kept now, and the next
+  controller carries it on where it was, its delay kept and its backup
+  waited for rather than taken again; one left more than a day is closed
+  without running, and disabling the schedule drops it.
 - **A template without variables no longer blanks the panel.** Its variables
   went out as `null`, and the create form, which reads a list, crashed: the
   whole panel turned into an empty page, for every account as soon as such a
@@ -228,6 +135,12 @@ releases may include breaking changes).
   publishes the server — or its SFTP — on another one in the same pass, and
   records a `server.port-moved` event, which notification channels can
   select, since the address players use changes.
+- **A server keeps its node ports while it exists.** Taking a server off
+  NodePort gave its ports back to the pool, and putting it back drew new
+  ones — 30003 became 30027, and 30003 could go to the next server: the
+  address its players knew, a box's port forwarding and an SRV record all
+  to redo. A port is freed when it is removed from the server, or the
+  server deleted.
 - **A server's status says what the cluster refused.** A step of the
   reconcile that failed kept the status from being written, so the panel
   went on showing what an earlier pass had found: *Stopped*, without a
@@ -235,6 +148,125 @@ releases may include breaking changes).
   runs, and its message gives Kubernetes's answer — the Service refused for
   a port already allocated, say. Connection errors are left to the
   controller's log, since they name the cluster's address.
+- **A crash says what the game's log ends with.** A Paper server out of heap
+  prints `java.lang.OutOfMemoryError` and exits 0, and its status read "the
+  game exited with code 0", which sent nobody towards the memory. The
+  message quotes the last error line of the run's log now, and says to give
+  the server more memory when that line is an out-of-memory error.
+- **A server's page shows a subuser what they were given, and nothing
+  else.** It was drawn for the owner whoever opened it: a subuser given the
+  files had no Files tab — only SFTP worked — and none could reach the
+  databases or the settings they were given, while one without power saw the
+  power buttons and the delete card, which answered 403. A server now comes
+  with `myPermissions`, what the reader may do on it, and the page follows
+  it: tabs, power buttons, settings, SFTP switch, delete. Access and the
+  choice of template stay with the owner and the administrators.
+- **A variable's value is checked against its egg's rules.** Quetzal kept an
+  egg's validation rules but checked only that a required value was there and
+  that a choice was one of the list: Paper's jar name took
+  `foo bar; echo pwned` and its version `not a version at all !!`, and the
+  server failed at its next start. A value is now refused when it is given,
+  with what the rule asks, for the rules eggs use: `regex`, `max`, `min`,
+  `between`, `size`, `integer`, `numeric`, `boolean`, `in`, `digits`,
+  `alpha_dash`, `url`, `email`, `ip` and the like. A pattern RE2 cannot read
+  is let through rather than refused. Switching template resets a value the
+  new template's rules refuse to its default, and says so.
+- **Usernames are told apart, and kept readable.** Any name of three
+  characters or more was taken: next to the superadmin `Lolozini` came
+  `lolozini` and `LOLOZINI`, names with spaces, HTML, control characters and
+  a newline, and one of 204 characters that PostgreSQL would have refused
+  with a 500 — names that then read as someone else's in access lists,
+  activity and notifications. A new name is ASCII letters, digits, dots,
+  dashes and underscores, starting with a letter or a digit, 3 to 64 of
+  them, at setup, by an administrator and from an invitation alike; a name
+  another account has, case aside, is taken; and signing in finds the
+  account whatever the case typed. Existing names are left as they are.
+- **An email address belongs to one account.** Any account could set any
+  address, another account's included, and a password reset by address went
+  to the oldest of the accounts that had it: one account could divert
+  another's resets. An address another account has is refused now — on the
+  account page, by an administrator, and from an invitation, whose reader is
+  asked to sign in to the account that has it — and an address two older
+  accounts still share resets neither, until one changes it; both can still
+  be reset by name. An address is also confirmed by mail now: see *Added*.
+- **SFTP lets a key in under its account's name only, and logs what it is
+  used for.** The SFTP server took any name with any key it knew, so the
+  name a session gave said nothing about whose key it was, and nothing
+  recorded what a session changed. Each key in a server's authorized_keys
+  now carries the accounts it belongs to, and a session signing in under
+  another name is refused; the SFTP container's log has a line for every
+  write, removal, rename, new folder and link, with the account that made
+  it. A data manager still running the previous release's SFTP binary
+  accepts any name until it restarts.
+- **Requests the panel makes on a caller's word are bounded.** Inspecting a
+  Pterodactyl server has the panel call an address the caller gives, and
+  any signed-in account could, without limit, even one allowed no server; a
+  test mail goes from the operator's domain to any address, and a settings
+  administrator could send them without end. An account that may create no
+  server cannot inspect one any more, and each account gets 30 inspections
+  and 10 test mails an hour.
+- **An invitation to an address the mail server refuses says so.** It
+  answered that the invitation could not be sent and that an administrator
+  could check the email settings, which were fine: it was the address. A
+  recipient the relay refuses is told apart from a relay that failed, and
+  the inviter is told the server refused that address, with its reply.
+- **Large directories list in a blink.** A listing ran `stat` and `wc` for
+  each entry, about 2 ms apiece in a server's pod: a directory of 3,000
+  files took six seconds, and one of 30,000 — playerdata, a plugin's cache —
+  outlasted the request and could not be listed at all. Where the game's
+  image has GNU find, as the Debian and Ubuntu images most eggs use do, one
+  `find` reads the whole directory now: 30,000 entries in about 150 ms. An
+  image with busybox alone is still gone through an entry at a time.
+- **Accented and non-Latin text comes through the console whole.** The log
+  was read in 4 KiB blocks and each sent as text, and a character of two to
+  four bytes that a block ended in the middle of turned into two `�` —
+  accented chat, Cyrillic or CJK logs had holes in them where the pod's log
+  had none. A block is cut between characters now.
+- **An unknown API route answers in JSON.** Every error of the API is
+  `{"error": …}` but the ones no route took, answered "404 page not found"
+  in plain text; a known route called with another method still answers
+  405, with the methods it takes.
+- **The SFTP card no longer says it works only while the server runs.** SFTP
+  runs in the data-manager pod, which is up whether the game is or not: the
+  card discouraged the very use it is for, putting a world in place before
+  the first start.
+- **The upgrade guide no longer promises a backup Quetzal does not take.** It
+  said Quetzal could back the panel's database up to the S3 target, and an
+  operator could skip the snapshot of the one thing that is the source of
+  truth; nothing does that. It now shows how to copy the SQLite database out
+  with the panel stopped, in a pod the `restricted` Pod Security level
+  admits. The README no longer says a deleted server's snapshots stay in the
+  bucket — they are purged — nor that a server is one pod; the install guide
+  says the chart is one Deployment of two containers, that it needs
+  Kubernetes 1.30 and is tested on 1.35, and that SFTP runs in the
+  data-manager pod, not the game's.
+
+### Security
+
+- **A server whose Service the cluster refuses no longer runs without its
+  network policy.** The policy that keeps a game's code — a tenant's mods and
+  plugins — off the cluster network was written last, after the server's
+  Service, and a Service the cluster refused stopped the pass before it, on
+  every pass. A node port that a Service outside Quetzal already held was
+  enough: the game could reach the panel, the Kubernetes API and the other
+  servers, while the panel showed it *Stopped*. The policy now goes in right
+  after the namespace, and nothing that runs a tenant's code is created or
+  changed while it cannot be written.
+- **The first account needs a code from the panel's log.** Until someone had
+  made it, the first-run setup made a superadmin of whoever reached the
+  panel first, and the install guide publishes the panel on an Ingress
+  from the start. The setup asks for a setup code now, which the panel
+  prints in its log until the account exists; the chart's notes and the
+  install guide say how to read it. An install already set up sees nothing
+  of it.
+- **A rename can no longer move a file out of the server's data directory.**
+  Renaming onto a symbolic link to a folder put the file inside the link's
+  target, as `mv` does with a folder: through a link aimed outside the data
+  directory, the file left the volume for the data manager's own
+  filesystem, past the guard, which allows a link as the last part of a
+  destination. A rename onto a name already taken — a file, a folder, a
+  link — is refused now, as moving files already was, which also stops a
+  rename from overwriting a file without a word.
 
 ## [0.10.0] - 2026-10-02
 
@@ -1815,7 +1847,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/lolozini/quetzal/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/lolozini/quetzal/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/lolozini/quetzal/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/lolozini/quetzal/compare/v0.7.0...v0.8.0
