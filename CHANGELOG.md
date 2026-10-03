@@ -33,6 +33,16 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Usernames are told apart, and kept readable.** Any name of three
+  characters or more was taken: next to the superadmin `Lolozini` came
+  `lolozini` and `LOLOZINI`, names with spaces, HTML, control characters and
+  a newline, and one of 204 characters that PostgreSQL would have refused
+  with a 500 — names that then read as someone else's in access lists,
+  activity and notifications. A new name is ASCII letters, digits, dots,
+  dashes and underscores, starting with a letter or a digit, 3 to 64 of
+  them, at setup, by an administrator and from an invitation alike; a name
+  another account has, case aside, is taken; and signing in finds the
+  account whatever the case typed. Existing names are left as they are.
 - **A variable's value is checked against its egg's rules.** Quetzal kept an
   egg's validation rules but checked only that a required value was there and
   that a choice was one of the list: Paper's jar name took

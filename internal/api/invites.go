@@ -271,8 +271,12 @@ func (s *Server) handleRegisterFromInvite(w http.ResponseWriter, r *http.Request
 		return
 	}
 	username := strings.TrimSpace(req.Username)
-	if len(username) < 3 || len(req.Password) < 8 {
-		writeError(w, http.StatusBadRequest, "username >=3 and password >=8 chars required")
+	if err := models.ValidUsername(username); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(req.Password) < 8 {
+		writeError(w, http.StatusBadRequest, "a password is at least 8 characters")
 		return
 	}
 	if _, err := s.Store.GetUserByUsername(username); err == nil {

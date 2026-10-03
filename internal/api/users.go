@@ -77,8 +77,13 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "only a superadmin can create admin accounts")
 		return
 	}
-	if len(req.Username) < 3 || len(req.Password) < 8 {
-		writeError(w, http.StatusBadRequest, "username >=3 and password >=8 chars required")
+	req.Username = strings.TrimSpace(req.Username)
+	if err := models.ValidUsername(req.Username); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(req.Password) < 8 {
+		writeError(w, http.StatusBadRequest, "a password is at least 8 characters")
 		return
 	}
 	if _, err := s.Store.GetUserByUsername(req.Username); err == nil {
@@ -117,6 +122,10 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		MaxServers: maxServers, MaxMemoryMB: maxMem, MaxCPUMilli: maxCPU,
 	}
 	if err := s.Store.CreateUser(u); err != nil {
+		if errors.Is(err, store.ErrDuplicate) {
+			writeError(w, http.StatusConflict, "username already taken")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -128,8 +128,13 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if len(req.Username) < 3 || len(req.Password) < 8 {
-		writeError(w, http.StatusBadRequest, "username >=3 and password >=8 chars required")
+	req.Username = strings.TrimSpace(req.Username)
+	if err := models.ValidUsername(req.Username); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(req.Password) < 8 {
+		writeError(w, http.StatusBadRequest, "a password is at least 8 characters")
 		return
 	}
 	email := strings.TrimSpace(req.Email)

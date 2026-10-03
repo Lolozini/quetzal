@@ -1321,9 +1321,20 @@ func (s *Store) CountUsers() (int64, error) {
 	return n, nil
 }
 
-// CreateUser inserts a new user.
+// CreateUser inserts a new user. A name another account already has, case
+// aside, is ErrDuplicate: Lolozini and lolozini are one name to whoever reads
+// it, and login finds an account whatever the case typed.
 func (s *Store) CreateUser(u *models.User) error {
-	return s.db.Create(u).Error
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var n int64
+		if err := tx.Model(&models.User{}).Where("lower(username) = lower(?)", u.Username).Count(&n).Error; err != nil {
+			return err
+		}
+		if n > 0 {
+			return ErrDuplicate
+		}
+		return tx.Create(u).Error
+	})
 }
 
 // ListUsers returns all users (admin view), with admin permissions resolved.
@@ -1746,13 +1757,24 @@ func (s *Store) resolveAdminPerms(u *models.User) {
 	}
 }
 
-// GetUserByUsername returns a user by username, with admin permissions resolved.
+// GetUserByUsername returns a user by username, with admin permissions
+// resolved. The name is matched as typed first, then case aside, which finds
+// the account when only one has that name: accounts made before names were
+// told apart case aside may share one, and are then found as typed only.
 func (s *Store) GetUserByUsername(username string) (*models.User, error) {
 	var u models.User
-	if err := s.db.Where("username = ?", username).First(&u).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	err := s.db.Where("username = ?", username).First(&u).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		var us []models.User
+		if err := s.db.Where("lower(username) = lower(?)", username).Limit(2).Find(&us).Error; err != nil {
+			return nil, err
+		}
+		if len(us) != 1 {
 			return nil, ErrNotFound
 		}
+		u, err = us[0], nil
+	}
+	if err != nil {
 		return nil, err
 	}
 	s.resolveAdminPerms(&u)
