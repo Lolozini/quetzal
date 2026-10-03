@@ -40,19 +40,44 @@ func mkfile(t *testing.T, p, body string) {
 
 func exists(p string) bool { _, err := os.Lstat(p); return err == nil }
 
+// A listing gives each entry's type, size and time, whether the image's find
+// reads the directory in one go (GNU) or the shell goes through it an entry at
+// a time (busybox, played here by a find without -printf). The second took
+// about 2 ms an entry, and a directory of 30,000 files outlasted the request
+// (recette of 0.10.0, R-08).
 func TestListScriptReportsModTime(t *testing.T) {
 	root := t.TempDir()
 	mkfile(t, filepath.Join(root, "a b.txt"), "hello")
 	when := time.Date(2025, 3, 1, 12, 0, 0, 0, time.UTC)
 	os.Chtimes(filepath.Join(root, "a b.txt"), when, when)
 	os.Mkdir(filepath.Join(root, "sub"), 0o755)
-	out, _, code := runScript(t, root, listScript, root)
-	if code != 0 {
-		t.Fatalf("list exited %d", code)
+	mkfile(t, filepath.Join(root, "line\nbreak"), "x")
+
+	noPrintf := t.TempDir()
+	if err := os.WriteFile(filepath.Join(noPrintf, "find"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	want := "f\t5\t" + "1740830400" + "\ta b.txt"
-	if !strings.Contains(out, want) || !strings.Contains(out, "d\t0\t") {
-		t.Errorf("listing = %q, want a line %q", out, want)
+	for name, path := range map[string]string{"one find": os.Getenv("PATH"), "entry by entry": noPrintf + ":" + os.Getenv("PATH")} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("PATH", path)
+			out, _, code := runScript(t, root, listScript, root)
+			if code != 0 {
+				t.Fatalf("list exited %d", code)
+			}
+			got := map[string]fileEntry{}
+			for _, e := range parseListing(out) {
+				got[e.Name] = e
+			}
+			if f := got["a b.txt"]; f.Dir || f.Size != 5 || f.ModTime != 1740830400 {
+				t.Errorf("a b.txt = %+v, want a file of 5 bytes from 1740830400", f)
+			}
+			if d := got["sub"]; !d.Dir || d.Size != 0 {
+				t.Errorf("sub = %+v, want a directory", d)
+			}
+			if _, ok := got["line\nbreak"]; !ok || len(got) != 3 {
+				t.Errorf("entries = %v, want the three, the one with a newline whole", got)
+			}
+		})
 	}
 }
 

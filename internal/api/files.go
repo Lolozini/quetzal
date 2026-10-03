@@ -342,9 +342,20 @@ func guarded(body string) string { return guardScript + body }
 // newline, a name with a newline in it (which the game or a plugin can create)
 // came out cut in two, its first half listed as a file that was not there and
 // the real one out of the panel's reach.
+//
+// GNU find reads the whole directory in one process. The loop below it, for an
+// image whose find has no -printf (busybox), runs stat and wc for each entry:
+// about 2 ms an entry, so a directory of 30,000 files -- playerdata, a plugin's
+// cache -- outlasted the request and could not be listed at all. Symbolic links
+// are followed for the type, size and time, as the loop does; find's exit code
+// is not the listing's, since one unreadable entry makes it 1.
 const listScript = `qz_guard deref "$0" "$1"
 qz_exists "$1"
 cd "$1" 2>/dev/null || { echo "not a directory" >&2; exit 4; }
+if find . -maxdepth 0 -printf '' >/dev/null 2>&1; then
+  find -L . -mindepth 1 -maxdepth 1 -printf '%y\t%s\t%T@\t%f\0' 2>/dev/null
+  exit 0
+fi
 for e in * .*; do
   [ "$e" = "." ] && continue
   [ "$e" = ".." ] && continue
@@ -363,8 +374,14 @@ func parseListing(out string) []fileEntry {
 			continue
 		}
 		size, _ := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
-		mtime, _ := strconv.ParseInt(strings.TrimSpace(parts[2]), 10, 64)
-		entries = append(entries, fileEntry{Name: parts[3], Size: size, ModTime: mtime, Dir: parts[0] == "d"})
+		// find gives the time with its fraction ("1727800000.1234567890").
+		secs, _, _ := strings.Cut(strings.TrimSpace(parts[2]), ".")
+		mtime, _ := strconv.ParseInt(secs, 10, 64)
+		dir := parts[0] == "d"
+		if dir {
+			size = 0 // find gives a directory's own size, the loop none
+		}
+		entries = append(entries, fileEntry{Name: parts[3], Size: size, ModTime: mtime, Dir: dir})
 	}
 	return entries
 }

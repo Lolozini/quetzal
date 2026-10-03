@@ -33,6 +33,13 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Large directories list in a blink.** A listing ran `stat` and `wc` for
+  each entry, about 2 ms apiece in a server's pod: a directory of 3,000
+  files took six seconds, and one of 30,000 — playerdata, a plugin's cache —
+  outlasted the request and could not be listed at all. Where the game's
+  image has GNU find, as the Debian and Ubuntu images most eggs use do, one
+  `find` reads the whole directory now: 30,000 entries in about 150 ms. An
+  image with busybox alone is still gone through an entry at a time.
 - **A schedule's chain survives a restart of the controller.** A chain ran
   in the controller's memory: restarted during a delay or a backup — by an
   upgrade, a rollout, a node drain — it dropped the rest, and a nightly
