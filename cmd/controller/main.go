@@ -115,6 +115,10 @@ func main() {
 	// per-server policy denies private address space so the cluster network is
 	// out of reach; this is the operator's way to allow what their servers
 	// genuinely need there.
+	// Game servers run in the control plane's zone, as Wings's run in its host's.
+	if err := reconciler.SetServerZone(os.Getenv("TZ")); err != nil {
+		log.Printf("TZ %q: %v; game servers run in UTC", os.Getenv("TZ"), err)
+	}
 	egressAllow := parseCIDRList(env("QUETZAL_EGRESS_ALLOW", ""))
 	// The resolver this pod was given is the one game servers are given too.
 	var dnsServers []string

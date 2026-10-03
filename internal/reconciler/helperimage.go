@@ -102,7 +102,23 @@ func activatorTakesNewHelpers(s *models.Server) bool {
 // each such change restarts every running server with the upgrade that brings
 // it, players and all.
 var renderingChanges = []func(*appsv1.Deployment){
+	undoTimeZone,
 	undoResources07,
+}
+
+// undoTimeZone is a pod as 0.10 and earlier rendered it: in UTC, whatever the
+// panel's zone.
+func undoTimeZone(d *appsv1.Deployment) {
+	spec := &d.Spec.Template.Spec
+	for _, cs := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
+		for i := range cs {
+			for j := range cs[i].Env {
+				if cs[i].Env[j].Name == "TZ" {
+					cs[i].Env[j].Value = "UTC"
+				}
+			}
+		}
+	}
 }
 
 // undoResources07 is a pod as 0.6 rendered it: no resources on the install

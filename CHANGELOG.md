@@ -9,6 +9,12 @@ releases may include breaking changes).
 
 ### Changed
 
+- **Game servers run in the panel's time zone.** They ran in UTC whatever
+  the panel's `TZ`: a game in Paris logged 12:36 at 14:36, and a plugin's
+  daily restart or timed message came two hours off. A server gets the
+  controller's zone, as Wings gives its host's, UTC when none is set. A
+  server already running keeps UTC until its next start, rather than every
+  server restarting with the upgrade.
 - **An updated template reaches a running server at its next restart, not at
   once.** Replacing or editing a template replaced the pod of every running
   server that used it, within seconds and with players on, where

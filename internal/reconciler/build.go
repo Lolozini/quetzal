@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -944,16 +945,39 @@ func wingsEnv(s *models.Server, t *models.Template) []corev1.EnvVar {
 		out = append(out, corev1.EnvVar{Name: "SERVER_PORT", Value: strconv.Itoa(int(p))})
 	}
 	out = append(out, corev1.EnvVar{Name: "SERVER_IP", Value: "0.0.0.0"})
-	// TZ: Wings always injects a timezone; default to UTC (servers log in a stable
-	// zone). STARTUP: the resolved invocation, which Wings exports so an image
-	// entrypoint or wrapper can `eval "$STARTUP"`. We keep the shell ${VAR} form so
-	// it expands against the env injected above (only set when a startup is defined;
-	// entrypoint-driven images leave it empty, as Wings does).
-	out = append(out, corev1.EnvVar{Name: "TZ", Value: "UTC"})
+	// TZ: Wings always injects a timezone, its host's; the panel's here
+	// (SetServerZone). STARTUP: the resolved invocation, which Wings exports so an
+	// image entrypoint or wrapper can `eval "$STARTUP"`. We keep the shell ${VAR}
+	// form so it expands against the env injected above (only set when a startup
+	// is defined; entrypoint-driven images leave it empty, as Wings does).
+	out = append(out, corev1.EnvVar{Name: "TZ", Value: serverZone})
 	if t.Startup != "" {
 		out = append(out, corev1.EnvVar{Name: "STARTUP", Value: startupShell(t.Startup)})
 	}
 	return out
+}
+
+// serverZone is the time zone game servers run in, their TZ: UTC until
+// SetServerZone sets it.
+var serverZone = "UTC"
+
+// SetServerZone gives game servers a time zone, an IANA name: the control
+// plane's own, as Wings gives them its host's. They ran in UTC whatever the
+// panel's zone, so a game logged 12:36 at 14:36 in Paris and a plugin's daily
+// restart or timed message came two hours off. An empty zone keeps UTC, as
+// does one this build cannot load, which it returns. It is set once, before
+// anything is reconciled.
+func SetServerZone(tz string) error {
+	tz = strings.TrimSpace(tz)
+	serverZone = "UTC"
+	if tz == "" {
+		return nil
+	}
+	if _, err := time.LoadLocation(tz); err != nil {
+		return err
+	}
+	serverZone = tz
+	return nil
 }
 
 // serverMemoryMiB parses a Kubernetes memory quantity (e.g. "4Gi", "512Mi") into

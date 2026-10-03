@@ -128,7 +128,7 @@ Common ones:
 | `persistence.existingClaim` | Mount a claim you made yourself instead (a pre-provisioned volume, or an existing install you are moving onto this chart). |
 | `secretKey.existingSecret` | Take the encryption key from your own Secret rather than one the chart generates. |
 | `db.existingSecret` | Take the PostgreSQL DSN from your own Secret rather than from `db.dsn`. |
-| `extraEnv` | Extra environment for every container. `TZ` sets the zone shown in logs and used by a schedule that names none of its own — each schedule can carry its own IANA zone instead. |
+| `extraEnv` | Extra environment for every container. `TZ` sets the zone shown in logs, the one game servers run in (a running server takes it at its next start), and the one a schedule that names none of its own is read in — each schedule can carry its own IANA zone instead. |
 | `nodePort.min` / `nodePort.max` | The node ports servers and their SFTP are published on. On a shared cluster, give Quetzal a block of its own: see *Node ports* below. |
 | `retention.eventDays` | How long delivered events are kept (default 30; 0 keeps everything). The event table is written on every power action, crash and restart. |
 | `retention.auditDays` | How long audit entries are kept. **0 by default — nothing is deleted**; set a number of days if you would rather bound the table. |

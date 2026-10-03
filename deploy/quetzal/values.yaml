@@ -124,7 +124,9 @@ secretKey:
 
 # Extra environment for the apiserver, the controller and the migration step, in
 # the usual Kubernetes form. TZ is the one most installs want: schedules are
-# evaluated in the process's local time, which is UTC unless you say otherwise.
+# evaluated in the process's local time, which is UTC unless you say otherwise,
+# and game servers run in the controller's zone (a running one takes a new zone
+# at its next start).
 #   extraEnv:
 #     - name: TZ
 #       value: Europe/Paris

@@ -235,3 +235,36 @@ func TestARenderingChangeLeavesRunningPodsAlone(t *testing.T) {
 		}
 	}
 }
+
+// Game servers ran in UTC whatever the panel's zone: a game logged 12:36 at
+// 14:36 in Paris, and a plugin's daily restart came two hours off (recette of
+// 0.10.0, R-06). They take the panel's zone now -- and a pod already running
+// keeps UTC until it restarts, rather than every server restarting with the
+// upgrade that brings the zone.
+func TestServersTakeThePanelZoneAtTheirNextStart(t *testing.T) {
+	t.Cleanup(func() { _ = SetServerZone("") })
+	s, tmpl := serverWithHelpers()
+	live := BuildDeployment(s, tmpl, panelV1, nil) // rendered in UTC
+	keepHelperImage(nil, live, panelV1)
+
+	if err := SetServerZone("Europe/Paris"); err != nil {
+		t.Fatal(err)
+	}
+	want := BuildDeployment(s, tmpl, panelV2, nil)
+	if !keepHelperImage(live, want, panelV2) || !equality.Semantic.DeepEqual(want.Spec.Template, live.Spec.Template) {
+		t.Fatal("the new zone restarted a running server")
+	}
+
+	s.DesiredState = models.StateStopped
+	stopped := BuildDeployment(s, tmpl, panelV2, nil)
+	keepHelperImage(live, stopped, panelV2)
+	for _, e := range stopped.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "TZ" && e.Value != "Europe/Paris" {
+			t.Errorf("TZ = %q at the next start, want the panel's zone", e.Value)
+		}
+	}
+
+	if err := SetServerZone("Mars/Olympus_Mons"); err == nil || serverZone != "UTC" {
+		t.Errorf("an unknown zone: err %v, zone %q; want refused, and UTC", err, serverZone)
+	}
+}
