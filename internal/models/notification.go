@@ -82,6 +82,8 @@ var EventTypes = []string{
 	"schedule.create", "schedule.update", "schedule.delete",
 	"files.write", "files.delete", "files.rename", "files.move", "files.copy", "files.mkdir",
 	"files.compress", "files.decompress", "files.extract",
+	// Seen by the controller in the SFTP sidecar's log.
+	"sftp.write", "sftp.mkdir", "sftp.delete", "sftp.rename", "sftp.symlink", "sftp.link",
 	"database.create", "database.rotate", "database.delete",
 	"dbhost.create", "dbhost.update", "dbhost.delete",
 	"access.grant", "access.revoke", "access.invite", "access.invite-revoke",

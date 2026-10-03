@@ -7,6 +7,18 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **What SFTP sessions change shows in the server's activity.** An upload, a
+  deletion, a rename or a new folder made over SFTP went to the sidecar's
+  log and nowhere a server's owner could see it, where the file manager's
+  own changes were in the activity feed. The controller reads that log now
+  and records each change under the account that made it, as `sftp.write`,
+  `sftp.delete`, `sftp.rename`, `sftp.mkdir`, `sftp.symlink` and
+  `sftp.link`, which a notification channel can also follow. Many changes
+  of one kind made together read as one entry — a folder of a thousand
+  files is one line, naming the first few.
+
 ### Changed
 
 - **Game servers run in the panel's time zone.** They ran in UTC whatever

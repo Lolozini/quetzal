@@ -622,6 +622,8 @@ export const EVENT_TYPES = [
   "schedule.run",
   "server.transfer",
   "server.port-moved",
+  "sftp.write",
+  "sftp.delete",
 ] as const;
 
 export type PowerAction = "start" | "stop" | "restart" | "kill";

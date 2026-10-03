@@ -47,7 +47,7 @@ func main() {
 		},
 		// The pod's log says who changed what, one line a change.
 		LogOp: func(user, op, path string) {
-			log.Printf("%s %s %q", user, op, path)
+			log.Printf("%q %s %q", user, op, path)
 		},
 	})
 	if err != nil {

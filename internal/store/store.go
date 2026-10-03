@@ -267,7 +267,7 @@ func (s *Store) autoMigrate() error {
 		&models.SSHKey{}, &models.PasswordReset{},
 		&models.DatabaseHost{}, &models.ServerDatabase{},
 		&models.RateCounter{}, &models.ServerInvite{}, &models.FileUpload{},
-		&models.TemplateRevision{},
+		&models.TemplateRevision{}, &models.SFTPCursor{},
 	)
 }
 
@@ -780,6 +780,9 @@ func (s *Store) DeleteServer(id uint) error {
 		}
 		// Unfinished uploads went with the volume their pieces were in.
 		if err := tx.Where("server_id = ?", id).Delete(&models.FileUpload{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("server_id = ?", id).Delete(&models.SFTPCursor{}).Error; err != nil {
 			return err
 		}
 		return tx.Delete(&models.Server{}, id).Error

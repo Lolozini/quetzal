@@ -42,6 +42,7 @@ import (
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/scheduler"
+	"github.com/lolozini/quetzal/internal/sftpactivity"
 	"github.com/lolozini/quetzal/internal/startup"
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/internal/transfer"
@@ -176,6 +177,7 @@ func main() {
 			_ = guarded("transfers", func() error { tmgr.Process(ctx); return nil })
 			_ = guarded("backups", func() error { bmgr.Process(ctx); return nil })
 			_ = guarded("hibernation", func() error { hmgr.Tick(ctx); return nil })
+			_ = guarded("sftp activity", func() error { collectSFTPActivity(ctx, reg, st); return nil })
 			_ = guarded("cluster refresh", func() error { refreshClusters(ctx, reg, st); return nil })
 		}
 		tick()
@@ -465,6 +467,75 @@ func logTailFor(clients cluster.Clients) func(ctx context.Context, ns, pod, cont
 			Container: container, Previous: previous, TailLines: &lines, LimitBytes: &limit,
 		}).DoRaw(ctx)
 		return string(b), err
+	}
+}
+
+// collectSFTPActivity records what SFTP sessions changed, read from each
+// sidecar's log, in the servers' activity.
+func collectSFTPActivity(ctx context.Context, reg *cluster.Registry, st *store.Store) {
+	servers, err := st.ListServers()
+	if err != nil {
+		return
+	}
+	collectors := map[uint]*sftpactivity.Collector{}
+	for i := range servers {
+		s := &servers[i]
+		if !s.SFTP.Enabled || s.Namespace == "" {
+			continue
+		}
+		c, ok := collectors[s.ClusterID]
+		if !ok {
+			clients, err := reg.For(s.ClusterID)
+			if err != nil {
+				collectors[s.ClusterID] = nil
+				continue
+			}
+			c = sftpCollectorFor(st, clients)
+			collectors[s.ClusterID] = c
+		}
+		if c == nil {
+			continue
+		}
+		if err := c.Collect(ctx, s, s.Namespace); err != nil {
+			log.Printf("sftp activity of %s: %v", s.Slug, err)
+		}
+	}
+}
+
+// sftpCollectorFor reads the SFTP sidecars' logs on the given cluster.
+func sftpCollectorFor(st *store.Store, clients cluster.Clients) *sftpactivity.Collector {
+	return &sftpactivity.Collector{
+		Store: st,
+		Pods: func(ctx context.Context, ns, slug string) ([]string, error) {
+			pods, err := clients.Clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
+				LabelSelector: reconciler.DataLabel + "=" + slug,
+			})
+			if err != nil {
+				return nil, err
+			}
+			var names []string
+			for _, p := range pods.Items {
+				// A sidecar still waiting to start has no log to read yet.
+				for _, cs := range p.Status.ContainerStatuses {
+					if cs.Name == "sftp" && (cs.State.Running != nil || cs.State.Terminated != nil) {
+						names = append(names, p.Name)
+					}
+				}
+			}
+			return names, nil
+		},
+		Logs: func(ctx context.Context, ns, pod string, since time.Time) (string, error) {
+			// A long session's worth at most; the rest is read on the next pass,
+			// from the last change this one found.
+			limit := int64(1 << 20)
+			opts := &corev1.PodLogOptions{Container: "sftp", Timestamps: true, LimitBytes: &limit}
+			if !since.IsZero() {
+				t := metav1.NewTime(since)
+				opts.SinceTime = &t
+			}
+			b, err := clients.Clientset.CoreV1().Pods(ns).GetLogs(pod, opts).DoRaw(ctx)
+			return string(b), err
+		},
 	}
 }
 
