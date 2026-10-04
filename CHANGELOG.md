@@ -7,14 +7,23 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-05
+
+PostgreSQL can be given field by field — host, port, database, account, a
+password kept in a Secret, and TLS checked against the server's CA — rather
+than as a DSN, which a password with an `@` or a `/` broke. The unit tests run
+on PostgreSQL 14 and 18 as well as SQLite now, and the two-factor setup shows a
+QR code to scan.
+
+**Upgrading from 0.11.0** — one thing behaves differently:
+
+- The chart refuses, when it is rendered, database settings the panel cannot
+  run with — `db.driver=postgres` with neither `db.host` nor a DSN among
+  them — where they used to render and leave the pods crashlooping. See
+  *Changed*.
+
 ### Added
 
-- **The two-factor setup shows a QR code.** Adding the account to an
-  authenticator app meant typing the setup key, or pasting the otpauth URI
-  into an app that takes one, where phone apps expect to scan a code. The
-  account page draws the code now, in the browser itself — the secret goes to
-  no image service — black on white in either theme; the key and the URI stay
-  below it for entering by hand.
 - **PostgreSQL can be given field by field.** A DSN was the only way, and a
   password with an `@`, a `:` or a `/` broke one written by hand. The chart
   takes `db.host`, `db.port`, `db.name` and `db.user`, the password from
@@ -25,6 +34,12 @@ releases may include breaking changes).
   `_PASSWORD`, `_SSLMODE` and `_SSLROOTCERT`. Each process names itself to the
   server (`application_name`) and stops trying to connect after 10 seconds. A
   DSN works as before.
+- **The two-factor setup shows a QR code.** Adding the account to an
+  authenticator app meant typing the setup key, or pasting the otpauth URI
+  into an app that takes one, where phone apps expect to scan a code. The
+  account page draws the code now, in the browser itself — the secret goes to
+  no image service — black on white in either theme; the key and the URI stay
+  below it for entering by hand.
 
 ### Changed
 
@@ -1874,7 +1889,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/lolozini/quetzal/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/lolozini/quetzal/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/lolozini/quetzal/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/lolozini/quetzal/compare/v0.8.0...v0.9.0
