@@ -46,8 +46,9 @@ network policy, and a multi-cluster API.
   [migration guide](docs/MIGRATING.md).
 - **Multi-tenant and secure by default.** Namespace-per-server, NetworkPolicy,
   hardened `securityContext`, encrypted secrets, scoped subusers and admin roles.
-- **Self-hostable, no lock-in.** SQLite or Postgres, any storageClass (a local
-  provisioner for single-node), any S3-compatible backup target, AGPL-3.0.
+- **Self-hostable, no lock-in.** SQLite or PostgreSQL (its server given field
+  by field or as a DSN, TLS included), any storageClass (a local provisioner
+  for single-node), any S3-compatible backup target, AGPL-3.0.
   Nothing hardcoded to one environment.
 
 ### Compared with Pterodactyl and Pelican
@@ -172,7 +173,7 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   handing out full control.
 - Admin **suspend**, per-user **quotas**, an append-only **audit log**, and
   **API keys** for the documented REST API.
-- **Two-factor auth** (TOTP + recovery codes) and **self-service password reset**
+- **Two-factor auth** (TOTP, set up by scanning a QR code, + recovery codes) and **self-service password reset**
   by email, to an address its owner confirms by a link.
 
 ### Security by default
