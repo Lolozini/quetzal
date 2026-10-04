@@ -15,6 +15,24 @@ releases may include breaking changes).
   account page draws the code now, in the browser itself — the secret goes to
   no image service — black on white in either theme; the key and the URI stay
   below it for entering by hand.
+- **PostgreSQL can be given field by field.** A DSN was the only way, and a
+  password with an `@`, a `:` or a `/` broke one written by hand. The chart
+  takes `db.host`, `db.port`, `db.name` and `db.user`, the password from
+  `db.password` or from a Secret of yours (`db.existingPasswordSecret`, which
+  can be a CloudNativePG app Secret), and TLS as libpq reads it: `db.sslMode`,
+  with the CA that checks the server's certificate in `db.sslRootCertSecret`.
+  Outside the chart these are `QUETZAL_DB_HOST`, `_PORT`, `_NAME`, `_USER`,
+  `_PASSWORD`, `_SSLMODE` and `_SSLROOTCERT`. Each process names itself to the
+  server (`application_name`) and stops trying to connect after 10 seconds. A
+  DSN works as before.
+
+### Changed
+
+- **The chart refuses database settings it cannot run with**: PostgreSQL
+  with neither `db.host` nor a DSN (`db.dsn` still naming the SQLite file),
+  `db.host` with SQLite or with `db.existingSecret`, and `db.sslMode` with a
+  DSN, which carries its own. Each used to render, and the panel to crashloop
+  on it.
 
 ## [0.11.0] - 2026-10-03
 

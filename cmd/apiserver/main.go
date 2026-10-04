@@ -32,8 +32,15 @@ func main() {
 	version.HandleFlag()
 	log.Printf("starting %s", version.String())
 	addr := env("QUETZAL_ADDR", ":8080")
-	dbDriver := store.Driver(env("QUETZAL_DB_DRIVER", "sqlite"))
-	dbDSN := env("QUETZAL_DB_DSN", "quetzal.db")
+	// The migration step is this binary too; the database tells the two apart.
+	app := "quetzal-apiserver"
+	if env("QUETZAL_MIGRATE_ONLY", "") == "true" {
+		app = "quetzal-migrate"
+	}
+	dbDriver, dbDSN, err := store.DatabaseFromEnv(os.Getenv, app)
+	if err != nil {
+		log.Fatalf("database settings: %v", err)
+	}
 
 	st, err := store.Open(store.Config{
 		Driver:    dbDriver,

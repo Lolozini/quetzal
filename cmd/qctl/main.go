@@ -54,14 +54,17 @@ Usage:
   qctl set-state --slug <slug> --state Running|Stopped|Suspended
   qctl rm --slug <slug>                Delete a server (controller tears it down)
 
-DB config via env: QUETZAL_DB_DRIVER (sqlite), QUETZAL_DB_DSN (quetzal.db)
+DB config via env: QUETZAL_DB_DRIVER (sqlite), then QUETZAL_DB_DSN (quetzal.db) or,
+for PostgreSQL, QUETZAL_DB_HOST, _PORT, _NAME, _USER, _PASSWORD, _SSLMODE, _SSLROOTCERT
 `)
 }
 
 func openStore() *store.Store {
+	driver, dsn, err := store.DatabaseFromEnv(os.Getenv, "qctl")
+	must(err)
 	st, err := store.Open(store.Config{
-		Driver: store.Driver(env("QUETZAL_DB_DRIVER", "sqlite")),
-		DSN:    env("QUETZAL_DB_DSN", "quetzal.db"),
+		Driver: driver,
+		DSN:    dsn,
 		Silent: true,
 	})
 	must(err)

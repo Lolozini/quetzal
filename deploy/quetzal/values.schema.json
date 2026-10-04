@@ -37,7 +37,17 @@
         "driver": { "type": "string", "enum": ["sqlite", "postgres"] },
         "dsn": { "type": "string", "minLength": 1 },
         "existingSecret": { "type": "string" },
-        "existingSecretKey": { "type": "string", "minLength": 1 }
+        "existingSecretKey": { "type": "string", "minLength": 1 },
+        "host": { "type": "string" },
+        "port": { "$ref": "#/definitions/port" },
+        "name": { "type": "string", "minLength": 1 },
+        "user": { "type": "string", "minLength": 1 },
+        "password": { "type": "string" },
+        "existingPasswordSecret": { "type": "string" },
+        "existingPasswordSecretKey": { "type": "string", "minLength": 1 },
+        "sslMode": { "type": "string", "enum": ["", "disable", "allow", "prefer", "require", "verify-ca", "verify-full"] },
+        "sslRootCertSecret": { "type": "string" },
+        "sslRootCertSecretKey": { "type": "string", "minLength": 1 }
       }
     },
     "persistence": {

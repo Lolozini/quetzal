@@ -81,6 +81,28 @@ jobs:
           echo "$byo" | grep -q 'name: "my-db"'  || fail db.existingSecret
           echo "$byo" | grep -q 'key: "my-dsn"'  || fail db.existingSecretKey
           ! echo "$byo" | grep -q 'quetzal-db$'  || fail "DSN Secret generated anyway"
+          # PostgreSQL field by field: no DSN at all, the password from a Secret,
+          # and the server's CA mounted where QUETZAL_DB_SSLROOTCERT points.
+          fl="$(helm template quetzal deploy/quetzal --set persistence.enabled=false \
+            --set db.driver=postgres --set db.host=pg.example --set db.password=hunter2 \
+            --set db.sslMode=verify-full --set db.sslRootCertSecret=pg-ca)"
+          ! echo "$fl" | sed -n '/^kind: Deployment/,/^---/p' | grep -q hunter2 || fail "the password is in the Deployment"
+          ! echo "$fl" | grep -q 'QUETZAL_DB_DSN' || fail "a DSN rendered next to the fields"
+          [ "$(echo "$fl" | grep -c 'name: QUETZAL_DB_HOST')" = 3 ] || fail "db.host missed a container"
+          [ "$(echo "$fl" | grep -c 'key: password')" = 3 ] || fail "the password Secret is not what the containers read"
+          [ "$(echo "$fl" | grep -c 'mountPath: /etc/quetzal/db-ca')" = 3 ] || fail "the CA missed a container"
+          echo "$fl" | grep -q 'secretName: "pg-ca"' || fail db.sslRootCertSecret
+          echo "$fl" | grep -q '"/etc/quetzal/db-ca/ca.crt"' || fail "QUETZAL_DB_SSLROOTCERT"
+          own="$(helm template quetzal deploy/quetzal --set persistence.enabled=false \
+            --set db.driver=postgres --set db.host=pg --set db.existingPasswordSecret=pg-app)"
+          echo "$own" | grep -q 'name: "pg-app"' || fail db.existingPasswordSecret
+          ! echo "$own" | grep -q 'quetzal-db$'  || fail "password Secret generated anyway"
+          # What cannot run is refused when rendered, not found by a crashloop.
+          ! helm template quetzal deploy/quetzal --set db.host=pg >/dev/null 2>&1 || fail "db.host accepted on SQLite"
+          ! helm template quetzal deploy/quetzal --set persistence.enabled=false --set db.driver=postgres >/dev/null 2>&1 \
+            || fail "PostgreSQL accepted with the SQLite file for a DSN"
+          ! helm template quetzal deploy/quetzal --set persistence.enabled=false --set db.driver=postgres \
+            --set db.host=pg --set db.existingSecret=x >/dev/null 2>&1 || fail "db.host and a DSN Secret both accepted"
           # apiserver, controller and the migration step all need it.
           [ "$(echo "$out" | grep -c 'Europe/Paris')" = 3 ] || fail extraEnv
           # The apiserver allocates game ports and the controller the SFTP one,
@@ -96,8 +118,8 @@ jobs:
           # database. The chart must refuse the second case rather than let it be
           # discovered in production.
           ! helm template quetzal deploy/quetzal --set replicaCount=2 >/dev/null 2>&1             || fail "replicaCount=2 accepted on sqlite"
-          ! helm template quetzal deploy/quetzal --set replicaCount=2 --set db.driver=postgres >/dev/null 2>&1             || fail "replicaCount=2 accepted with a ReadWriteOnce claim"
-          ha="$(helm template quetzal deploy/quetzal --set replicaCount=2             --set db.driver=postgres --set persistence.enabled=false)"
+          ! helm template quetzal deploy/quetzal --set replicaCount=2 --set db.driver=postgres --set db.host=db >/dev/null 2>&1             || fail "replicaCount=2 accepted with a ReadWriteOnce claim"
+          ha="$(helm template quetzal deploy/quetzal --set replicaCount=2             --set db.driver=postgres --set db.host=db --set persistence.enabled=false)"
           echo "$ha" | grep -q 'replicas: 2'      || fail "replicaCount ignored"
           echo "$ha" | grep -q 'type: RollingUpdate' || fail "two replicas still roll with Recreate"
           # Metrics must stay off the port the Ingress publishes at "/" prefix.
@@ -240,7 +262,8 @@ jobs:
           kubectl create namespace "$ns"
           for args in "" \
               "--set ingress.enabled=true --set ingress.host=panel.example.test" \
-              "--set replicaCount=2 --set db.driver=postgres --set persistence.enabled=false"; do
+              "--set replicaCount=2 --set db.driver=postgres --set db.host=db --set persistence.enabled=false" \
+              "--set db.driver=postgres --set db.host=db --set db.password=pw --set db.sslMode=verify-full --set db.sslRootCertSecret=db-ca --set persistence.enabled=false"; do
             echo "== helm template $args"
             # shellcheck disable=SC2086 # $args is a list of flags on purpose
             helm template quetzal deploy/quetzal --namespace "$ns" $args \

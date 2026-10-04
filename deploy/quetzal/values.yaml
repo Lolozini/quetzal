@@ -17,6 +17,8 @@ imagePullSecrets: []
 # apiserver and controller; use Postgres for production / HA.
 db:
   driver: sqlite
+  # SQLite: the database file. PostgreSQL: a whole DSN, if you would rather
+  # give one than the fields further down.
   dsn: "/data/quetzal.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
   # A PostgreSQL DSN carries the database's password, so the chart keeps it in
   # a Secret rather than in the Deployment, which more people can read. To hold
@@ -25,6 +27,28 @@ db:
   # it when they start: restart them after changing it.
   existingSecret: ""
   existingSecretKey: dsn
+  # PostgreSQL field by field, instead of a DSN: set host, and the chart hands
+  # the panel the server's address, its database and its account one by one,
+  # with nothing to escape. host is an address -- a Service name, a host name or
+  # an IP -- not a URL.
+  host: ""
+  port: 5432
+  name: quetzal
+  user: quetzal
+  # The password goes into a Secret the chart creates. To keep it out of your
+  # values, name a Secret of your own and its key instead: the app Secret of a
+  # CloudNativePG cluster holds it under "password", for one.
+  password: ""
+  existingPasswordSecret: ""
+  existingPasswordSecretKey: password
+  # TLS, as libpq reads sslmode: disable, allow, prefer, require, verify-ca or
+  # verify-full. Empty keeps PostgreSQL's default, prefer: TLS when the server
+  # offers it, its certificate unchecked. To check it, use verify-full and
+  # name the Secret that holds the CA that signed it; the chart mounts it
+  # read-only at /etc/quetzal/db-ca (also where a DSN's sslrootcert can point).
+  sslMode: ""
+  sslRootCertSecret: ""
+  sslRootCertSecretKey: ca.crt
 
 persistence:
   enabled: true

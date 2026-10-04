@@ -52,8 +52,10 @@ import (
 func main() {
 	version.HandleFlag()
 	log.Printf("starting %s", version.String())
-	dbDriver := store.Driver(env("QUETZAL_DB_DRIVER", "sqlite"))
-	dbDSN := env("QUETZAL_DB_DSN", "quetzal.db")
+	dbDriver, dbDSN, err := store.DatabaseFromEnv(os.Getenv, "quetzal-controller")
+	if err != nil {
+		log.Fatalf("database settings: %v", err)
+	}
 	resync := envDuration("QUETZAL_RESYNC", 15*time.Second)
 	metricsAddr := env("QUETZAL_METRICS_ADDR", ":9090")
 	leaderEnabled := env("QUETZAL_LEADER_ELECTION", "false") == "true"

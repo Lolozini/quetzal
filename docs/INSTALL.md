@@ -127,7 +127,10 @@ Common ones:
 | `persistence.*` | PVC for the SQLite database (the source of truth). |
 | `persistence.existingClaim` | Mount a claim you made yourself instead (a pre-provisioned volume, or an existing install you are moving onto this chart). |
 | `secretKey.existingSecret` | Take the encryption key from your own Secret rather than one the chart generates. |
-| `db.existingSecret` | Take the PostgreSQL DSN from your own Secret rather than from `db.dsn`. |
+| `db.host`, `db.port`, `db.name`, `db.user` | PostgreSQL field by field: see *Database* below. |
+| `db.password` / `db.existingPasswordSecret` | Its password, in a Secret the chart creates or in one of yours. |
+| `db.sslMode` / `db.sslRootCertSecret` | TLS to the database, and the CA that checks its certificate. |
+| `db.existingSecret` | Or a whole PostgreSQL DSN, from your own Secret rather than from `db.dsn`. |
 | `extraEnv` | Extra environment for every container. `TZ` sets the zone shown in logs, the one game servers run in (a running server takes it at its next start), and the one a schedule that names none of its own is read in — each schedule can carry its own IANA zone instead. |
 | `nodePort.min` / `nodePort.max` | The node ports servers and their SFTP are published on. On a shared cluster, give Quetzal a block of its own: see *Node ports* below. |
 | `retention.eventDays` | How long delivered events are kept (default 30; 0 keeps everything). The event table is written on every power action, crash and restart. |
@@ -181,18 +184,42 @@ key migrated across, not a fresh one issued.
 ### Database
 
 - **SQLite** (default): single file on a PVC; simplest for homelab/single-node.
-- **PostgreSQL**: `--set db.driver=postgres --set db.dsn=postgres://…` for
-  multi-replica / production. The DSN carries the database's password, so the
-  chart puts it in a Secret rather than in the Deployment. To keep it out of
-  your values as well — in SOPS, or an external secret operator — hold it in a
-  Secret of your own and point the chart at it:
+- **PostgreSQL**, for multi-replica / production. Give the server field by
+  field: nothing to escape, and only the password is secret.
 
-  ```sh
-  --set db.existingSecret=my-quetzal-db \
-  --set db.existingSecretKey=dsn
+  ```yaml
+  db:
+    driver: postgres
+    host: postgres.databases.svc.cluster.local   # an address, not a URL
+    port: 5432          # the default
+    name: quetzal       # the default
+    user: quetzal       # the default
+    existingPasswordSecret: quetzal-db   # a Secret of yours, or db.password
+    existingPasswordSecretKey: password  # the default
+    sslMode: verify-full                 # libpq's sslmode; empty = prefer
+    sslRootCertSecret: postgres-ca       # the CA that signed the server's certificate
   ```
 
-  The pods read the DSN when they start: restart them after changing it.
+  `db.password` puts the password in a Secret the chart creates;
+  `db.existingPasswordSecret` reads it from one you keep yourself — in SOPS,
+  from an external secret operator, or the app Secret of a CloudNativePG
+  cluster, which holds it under `password`. `db.sslMode` is libpq's: `disable`,
+  `allow`, `prefer` (PostgreSQL's default, what an empty value keeps: TLS when
+  the server offers it, its certificate unchecked), `require`, `verify-ca` or
+  `verify-full`; the CA in `db.sslRootCertSecret` is mounted read-only at
+  `/etc/quetzal/db-ca`. Each process names itself to the server
+  (`application_name`: `quetzal-apiserver`, `quetzal-controller`,
+  `quetzal-migrate`) and gives up connecting after 10 seconds.
+
+  A whole DSN still works instead: `db.dsn=postgres://…`, which the chart
+  also keeps in a Secret, or `db.existingSecret` and `db.existingSecretKey`
+  for one of yours. The chart refuses both ways at once, and PostgreSQL given
+  neither.
+
+  The pods read these settings when they start: restart them after changing
+  one. Outside the chart, the same settings are environment variables:
+  `QUETZAL_DB_DRIVER`, then `QUETZAL_DB_DSN` or `QUETZAL_DB_HOST`, `_PORT`,
+  `_NAME`, `_USER`, `_PASSWORD`, `_SSLMODE` and `_SSLROOTCERT`.
 
 Schema migrations run automatically (a `migrate`-only init container runs before
 the app starts, so the API server and the controller never race to migrate

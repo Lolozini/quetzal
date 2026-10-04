@@ -49,8 +49,12 @@ instead of being ignored. The ones most installs set:
 | Value | Default | What it does |
 |---|---|---|
 | `ingress.enabled`, `ingress.host`, `ingress.tls` | off | Publish the panel. With TLS, also set `secureCookies=true`. |
-| `db.driver`, `db.dsn` | SQLite on the volume | `postgres` for production, and for more than one replica. A PostgreSQL DSN goes into a Secret the chart creates, not into the Deployment. |
-| `db.existingSecret`, `db.existingSecretKey` | — | Read the DSN from your own Secret instead (SOPS, External Secrets); `db.dsn` is then ignored. |
+| `db.driver` | `sqlite`, on the volume | `postgres` for production, and for more than one replica. |
+| `db.host`, `db.port`, `db.name`, `db.user` | —, 5432, quetzal, quetzal | The PostgreSQL server field by field. |
+| `db.password`, `db.existingPasswordSecret`, `db.existingPasswordSecretKey` | —, —, password | Its password: in a Secret the chart creates, or read from one of yours. |
+| `db.sslMode`, `db.sslRootCertSecret`, `db.sslRootCertSecretKey` | prefer, —, ca.crt | TLS as libpq reads it, and the Secret holding the CA that signed the server's certificate. |
+| `db.dsn` | the SQLite file | Or a whole PostgreSQL DSN, which goes into a Secret the chart creates, not into the Deployment. |
+| `db.existingSecret`, `db.existingSecretKey` | — | Read that DSN from your own Secret instead (SOPS, External Secrets); `db.dsn` is then ignored. |
 | `persistence.size`, `persistence.storageClass` | 1Gi, the default class | The volume that holds the SQLite database. |
 | `persistence.existingClaim` | none | Mount a claim you made instead. |
 | `secretKey.existingSecret` | generated | The key that encrypts stored credentials. Generated on first install and kept on upgrade; point it at your own Secret to manage it with SOPS or an external secret operator. |
