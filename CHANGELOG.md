@@ -12,8 +12,9 @@ releases may include breaking changes).
 PostgreSQL can be given field by field — host, port, database, account, a
 password kept in a Secret, and TLS checked against the server's CA — rather
 than as a DSN, which a password with an `@` or a `/` broke. The unit tests run
-on PostgreSQL 14 and 18 as well as SQLite now, and the two-factor setup shows a
-QR code to scan.
+on PostgreSQL 14 and 18 as well as SQLite now — and found that servers created
+at the same moment there could draw the same node port, fixed here — and the
+two-factor setup shows a QR code to scan.
 
 **Upgrading from 0.11.0** — one thing behaves differently:
 
@@ -48,6 +49,16 @@ QR code to scan.
   `db.host` with SQLite or with `db.existingSecret`, and `db.sslMode` with a
   DSN, which carries its own. Each used to render, and the panel to crashloop
   on it.
+
+### Fixed
+
+- **Servers created at the same moment on PostgreSQL each get a node port of
+  their own.** Two allocations read the same free port and both took it: the
+  database's unique index refused the second, and the creation of its server
+  with it — the likelier the narrower the `nodePort` pool. SQLite, which runs
+  one write at a time, never showed it; the tests on PostgreSQL did. The pool
+  now hands out one port at a time.
+
 
 ## [0.11.0] - 2026-10-03
 

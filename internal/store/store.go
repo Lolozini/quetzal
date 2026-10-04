@@ -816,7 +816,26 @@ func (s *Store) AllocateNodePort(serverID uint, name string, min, max int32) (in
 	return port, nil
 }
 
+// nodePortLock is the PostgreSQL advisory lock that keeps changes to the node
+// port pool one at a time. SQLite needs none: it runs one write transaction at
+// a time. PostgreSQL runs them side by side, and two read the same free port
+// and both take it -- the unique index then fails the second, and the
+// creation of a server with it.
+const nodePortLock = 0x51554e50 // "QUNP"
+
+// lockNodePorts holds nodePortLock until tx ends. Taking it again in the same
+// transaction is harmless.
+func lockNodePorts(tx *gorm.DB) error {
+	if tx.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return tx.Exec("SELECT pg_advisory_xact_lock(?)", nodePortLock).Error
+}
+
 func allocateNodePort(tx *gorm.DB, serverID uint, name string, min, max int32) (int32, error) {
+	if err := lockNodePorts(tx); err != nil {
+		return 0, err
+	}
 	if min <= 0 {
 		min = DefaultNodePortMin
 	}
@@ -888,6 +907,9 @@ const TakenNodePort = "taken-outside"
 func (s *Store) SetAsideNodePort(serverID uint, key string, taken, min, max int32) (int32, error) {
 	var port int32
 	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := lockNodePorts(tx); err != nil {
+			return err
+		}
 		var held models.PortAllocation
 		err := tx.Where("node_port = ?", taken).First(&held).Error
 		switch {

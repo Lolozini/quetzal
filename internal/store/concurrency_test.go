@@ -158,3 +158,52 @@ func TestAStartAndARestoreNeverBothWin(t *testing.T) {
 		}
 	}
 }
+
+// Allocations racing for a narrow pool each get a port of their own. On
+// PostgreSQL two of them read the same free port and took it both, until the
+// pool was locked: the second insert then broke the unique index, and the
+// creation of its server with it.
+func TestConcurrentAllocationsTakeDistinctPorts(t *testing.T) {
+	st := newTestStore(t)
+	const n = 30
+	ids := make([]uint, n)
+	for i := range ids {
+		srv := &models.Server{Slug: fmt.Sprintf("a%d", i), Namespace: fmt.Sprintf("quetzal-srv-a%d", i)}
+		if err := st.CreateServer(srv); err != nil {
+			t.Fatal(err)
+		}
+		ids[i] = srv.ID
+	}
+	var wg sync.WaitGroup
+	ready := make(chan struct{})
+	errs := make(chan error, n)
+	ports := make(chan int32, n)
+	for _, id := range ids {
+		wg.Add(1)
+		go func(id uint) {
+			defer wg.Done()
+			<-ready
+			// 40 ports for 30 servers: unlocked, a collision is all but certain.
+			p, err := st.AllocateNodePort(id, "p25565", 30000, 30039)
+			if err != nil {
+				errs <- err
+				return
+			}
+			ports <- p
+		}(id)
+	}
+	close(ready)
+	wg.Wait()
+	close(errs)
+	close(ports)
+	for err := range errs {
+		t.Errorf("allocation: %v", err)
+	}
+	seen := map[int32]bool{}
+	for p := range ports {
+		if seen[p] {
+			t.Errorf("port %d handed out twice", p)
+		}
+		seen[p] = true
+	}
+}
