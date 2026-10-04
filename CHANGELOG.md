@@ -7,6 +7,15 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **The two-factor setup shows a QR code.** Adding the account to an
+  authenticator app meant typing the setup key, or pasting the otpauth URI
+  into an app that takes one, where phone apps expect to scan a code. The
+  account page draws the code now, in the browser itself — the secret goes to
+  no image service — black on white in either theme; the key and the URI stay
+  below it for entering by hand.
+
 ## [0.11.0] - 2026-10-03
 
 A full test pass of 0.10.0 turned up thirty findings, and this release

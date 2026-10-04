@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { api, APIKey, ApiError, SSHKey, User } from "../api";
 import { useT } from "../i18n";
+import { QRCode } from "./QRCode";
 
 export function Account({ user }: { user: User }) {
   const { t } = useT();
@@ -136,12 +137,13 @@ export function TwoFactor({
       {!recovery && !enabled && enroll && (
         <div>
           <p className="muted">
-            {t("Add this account to your authenticator app, then enter the current code to confirm.")}
+            {t("Scan this QR code with your authenticator app, or enter the setup key by hand, then type the code it shows to confirm.")}
           </p>
+          <QRCode value={enroll.uri} label={t("QR code that adds this account to an authenticator app")} />
           <div className="kv"><span className="k">{t("Account")}</span><span>{username}</span></div>
           <label>{t("Setup key (manual entry)")}</label>
           <code style={{ display: "block", wordBreak: "break-all", marginBottom: 8 }}>{enroll.secret}</code>
-          <label>{t("otpauth URI (scan or paste)")}</label>
+          <label>{t("otpauth URI (to paste)")}</label>
           <code style={{ display: "block", wordBreak: "break-all" }}>{enroll.uri}</code>
           <label style={{ marginTop: 12 }}>{t("Verification code")}</label>
           <input value={code} autoComplete="one-time-code" onChange={(e) => setCode(e.target.value)} />

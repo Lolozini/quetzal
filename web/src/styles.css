@@ -241,6 +241,8 @@ pre.log {
 .console-input input { font-family: var(--font-mono); font-size: 12.5px; }
 
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* A QR code keeps its white tile and margin in either theme (see QRCode.tsx). */
+.qr { display: block; max-width: 100%; height: auto; margin: 8px 0 12px; border-radius: 4px; }
 .kv { display: grid; grid-template-columns: 140px 1fr; gap: 6px; margin: 4px 0; font-variant-numeric: tabular-nums; }
 .kv .k { color: var(--ink-muted); }
 /* A long address or image reference wraps instead of pushing the page wider. */
