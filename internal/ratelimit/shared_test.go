@@ -2,17 +2,17 @@ package ratelimit_test
 
 import (
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/lolozini/quetzal/internal/ratelimit"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 )
 
 func newStore(t *testing.T) *store.Store {
 	t.Helper()
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "r.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "r.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}

@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 	"github.com/lolozini/quetzal/templates"
 )
 
@@ -62,7 +62,7 @@ func (c *captureMailer) waitFor(n int) []sentMail {
 
 func newResetHarness(t *testing.T) (*httptest.Server, *http.Client, *store.Store, *captureMailer) {
 	t.Helper()
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "r.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "r.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}

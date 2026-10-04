@@ -2,7 +2,6 @@ package store
 
 import (
 	"errors"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -10,14 +9,14 @@ import (
 	"time"
 
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/testdb"
 )
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "test.db")
 	s, err := Open(Config{
-		Driver:    DriverSQLite,
-		DSN:       dsn,
+		Driver:    Driver(testdb.Driver()),
+		DSN:       testdb.DSN(t, "test.db"),
 		Silent:    true,
 		SecretKey: []byte("0123456789abcdef0123456789abcdef"),
 	})
@@ -943,7 +942,7 @@ func TestWithImmediateWrites(t *testing.T) {
 // becomes QuotaUnlimited, once. An account created afterwards with 0 servers
 // is closed, and a later start must leave it so.
 func TestQuotaMigrationRunsOnce(t *testing.T) {
-	s, err := Open(Config{Driver: DriverSQLite, DSN: filepath.Join(t.TempDir(), "q.db"), Silent: true})
+	s, err := Open(Config{Driver: Driver(testdb.Driver()), DSN: testdb.DSN(t, "q.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

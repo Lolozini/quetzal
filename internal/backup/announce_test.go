@@ -2,18 +2,18 @@ package backup
 
 import (
 	"fmt"
-	"path/filepath"
 	"testing"
 
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 )
 
 // A backup or a restore that ends is an event, which the notification channels
 // and the server's activity log read. Only the request that started one used
 // to be, so a scheduled backup that failed every night was told to no one.
 func TestFinishAnnouncesTheOutcome(t *testing.T) {
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "b.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "b.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}

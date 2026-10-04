@@ -2,7 +2,6 @@ package backup
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 )
 
 // restic ends a missing-repository error by pointing at the repository, and
@@ -76,7 +76,7 @@ func TestTargetIDIsTheLocation(t *testing.T) {
 // to another, and drops a backup of another target without a snapshot deletion
 // that could only fail.
 func TestManagerKnowsWhereABackupWent(t *testing.T) {
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "m.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "m.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestFailureMessageHidesTheObjectStore(t *testing.T) {
 // game was still saving the world on its way out; it now waits for the game's
 // pod to be gone, and no longer than stopWait.
 func TestABackupWaitsForAStoppingServer(t *testing.T) {
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "m.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "m.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}

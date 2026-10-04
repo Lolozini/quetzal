@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 )
 
 type mockExec struct {
@@ -81,7 +81,7 @@ func (m *mockExec) sequence() []string {
 
 func testStore(t *testing.T) *store.Store {
 	t.Helper()
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "s.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "s.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"github.com/lolozini/quetzal/internal/api"
 	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 	"github.com/lolozini/quetzal/templates"
 )
 
@@ -113,7 +113,7 @@ func TestNotificationDeliveryEndToEnd(t *testing.T) {
 	}))
 	defer recv.Close()
 
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "n.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "n.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}

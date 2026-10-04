@@ -3,12 +3,12 @@ package store
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/testdb"
 )
 
 // Writes racing on the chart's SQLite database (WAL, a 5 s busy timeout) failed
@@ -18,12 +18,17 @@ import (
 // lands in between, so the busy timeout never applied. Transactions now take
 // the write lock when they begin, where it does.
 func TestConcurrentWritesWaitForTheLock(t *testing.T) {
-	for _, dsn := range []string{
+	dsns := []string{
 		"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)", // the chart's
 		"", // a bare path, as a hand-written install might have
-	} {
+	}
+	if testdb.Postgres() {
+		// The pragmas are SQLite's; the race is the same on PostgreSQL.
+		dsns = []string{""}
+	}
+	for _, dsn := range dsns {
 		t.Run(fmt.Sprintf("dsn%q", dsn), func(t *testing.T) {
-			st, err := Open(Config{Driver: DriverSQLite, DSN: filepath.Join(t.TempDir(), "q.db") + dsn, Silent: true})
+			st, err := Open(Config{Driver: Driver(testdb.Driver()), DSN: testdb.DSN(t, "q.db") + dsn, Silent: true})
 			if err != nil {
 				t.Fatalf("open: %v", err)
 			}
@@ -111,5 +116,45 @@ func TestQuotaCheckAndInsertAreOne(t *testing.T) {
 	}
 	if created != 1 || refused != n-1 {
 		t.Errorf("created %d, refused %d; want 1 and %d", created, refused, n-1)
+	}
+}
+
+// A start and a restore asked for at the same moment: one of them wins, never
+// both, or the restore would wait under a running server and roll its world
+// back later (R-11 of the 0.10.0 test pass). On SQLite one write transaction
+// runs at a time; on PostgreSQL the server's row lock is what keeps them apart,
+// which only this test, run there, exercises.
+func TestAStartAndARestoreNeverBothWin(t *testing.T) {
+	st := newTestStore(t)
+	for round := 0; round < 40; round++ {
+		srv := &models.Server{Slug: fmt.Sprintf("r%d", round), Namespace: fmt.Sprintf("quetzal-srv-r%d", round),
+			DesiredState: models.StateStopped}
+		if err := st.CreateServer(srv); err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		ready := make(chan struct{})
+		var startErr, restoreErr error
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-ready
+			startErr = st.StartServer(srv.ID, time.Now())
+		}()
+		go func() {
+			defer wg.Done()
+			<-ready
+			restoreErr = st.CreateRestore(&models.Backup{ServerID: srv.ID, Direction: models.DirRestore, Phase: models.BackupPending})
+		}()
+		close(ready)
+		wg.Wait()
+		if startErr == nil && restoreErr == nil {
+			t.Fatalf("round %d: the start and the restore both went through", round)
+		}
+		for _, err := range []error{startErr, restoreErr} {
+			if err != nil && !errors.Is(err, ErrRestoreActive) && !errors.Is(err, ErrServerRunning) {
+				t.Fatalf("round %d: %v", round, err)
+			}
+		}
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 	"github.com/lolozini/quetzal/internal/api"
 	"github.com/lolozini/quetzal/internal/ratelimit"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 	"github.com/lolozini/quetzal/templates"
 )
 
@@ -23,7 +23,7 @@ import (
 // limits), and serves it.
 func securedServer(t *testing.T, tune func(*api.Server)) (*httptest.Server, *http.Client) {
 	t.Helper()
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "s.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "s.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}

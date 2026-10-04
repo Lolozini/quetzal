@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +17,7 @@ import (
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 	"github.com/lolozini/quetzal/templates"
 )
 
@@ -58,7 +58,7 @@ func (m *relayMailer) wait(t *testing.T) (map[string]string, string) {
 
 func newMailHarness(t *testing.T) (*httptest.Server, *http.Client, *relayMailer) {
 	t.Helper()
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "e.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "e.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}

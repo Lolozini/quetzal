@@ -2,7 +2,6 @@ package backup
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 )
 
 // pendingRestore stores a stopped server with a backup to restore and a
@@ -22,7 +22,7 @@ import (
 // holds pods.
 func pendingRestore(t *testing.T, pods ...*corev1.Pod) (*Manager, *store.Store, *models.Backup, *fake.Clientset) {
 	t.Helper()
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "b.db"), Silent: true,
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "b.db"), Silent: true,
 		SecretKey: []byte("0123456789abcdef0123456789abcdef")})
 	if err != nil {
 		t.Fatalf("store: %v", err)

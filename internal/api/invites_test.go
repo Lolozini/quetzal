@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/ratelimit"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 	"github.com/lolozini/quetzal/templates"
 )
 
@@ -41,7 +41,7 @@ type inviteHarness struct {
 // alice, who owns one server.
 func newInviteHarness(t *testing.T) *inviteHarness {
 	t.Helper()
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "i.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "i.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}

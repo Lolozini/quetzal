@@ -53,12 +53,15 @@ The CI runs the same checks as these commands:
 ```sh
 make lint                   # gofmt + go vet
 make test                   # unit tests, with the race detector
+make test-postgres          # the same on PostgreSQL, if you touched the store
 npm --prefix web run build  # type check, translation coverage, production build
 helm lint deploy/quetzal    # if you touched the chart
 ```
 
-`make e2e` runs the end-to-end suite against the cluster in your kubeconfig
-(the CI uses kind).
+`make test-postgres` needs a PostgreSQL server to create its test databases
+on, named by `QUETZAL_TEST_POSTGRES`; the Makefile shows a one-line one in
+Docker. `make e2e` runs the end-to-end suite against the cluster in your
+kubeconfig (the CI uses kind).
 
 - **Commits** follow [Conventional Commits](https://www.conventionalcommits.org):
   `fix(console): …`, `feat(web): …`, `docs: …`. Explain the why in the body.

@@ -7,13 +7,21 @@ KIND_CLUSTER ?= quetzal-e2e
 # life, and an older apiserver also knows fewer things to object to.
 KIND_NODE_IMAGE ?= kindest/node:v1.35.0
 
-.PHONY: build test lint fmt vet e2e e2e-kind-up e2e-kind-down kind-node-image tidy
+.PHONY: build test test-postgres lint fmt vet e2e e2e-kind-up e2e-kind-down kind-node-image tidy
 
 build: ## Build all binaries
 	go build ./...
 
 test: ## Run unit tests
 	go test -race ./...
+
+# The same tests on PostgreSQL, as CI runs them too: each test gets a database
+# of its own on the server QUETZAL_TEST_POSTGRES names (see internal/testdb).
+#   docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=quetzal postgres:14
+#   QUETZAL_TEST_POSTGRES='postgres://postgres:quetzal@localhost:5432/postgres?sslmode=disable' make test-postgres
+test-postgres: ## Run unit tests on PostgreSQL
+	@test -n "$$QUETZAL_TEST_POSTGRES" || { echo "set QUETZAL_TEST_POSTGRES (see the Makefile)"; exit 1; }
+	go test -race ./internal/...
 
 lint: fmt-check vet ## gofmt check + go vet
 

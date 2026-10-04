@@ -2,7 +2,6 @@ package reconciler
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,13 +12,14 @@ import (
 
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 )
 
 func reconStore(t *testing.T) *store.Store {
 	t.Helper()
 	st, err := store.Open(store.Config{
-		Driver:    store.DriverSQLite,
-		DSN:       filepath.Join(t.TempDir(), "recon.db"),
+		Driver:    store.Driver(testdb.Driver()),
+		DSN:       testdb.DSN(t, "recon.db"),
 		Silent:    true,
 		SecretKey: []byte("0123456789abcdef0123456789abcdef"),
 	})

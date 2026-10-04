@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,6 +12,7 @@ import (
 
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 	"github.com/lolozini/quetzal/templates"
 )
 
@@ -25,7 +25,7 @@ const eggJSON = `{
 
 func eggTestServer(t *testing.T) *Server {
 	t.Helper()
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "egg.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "egg.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}

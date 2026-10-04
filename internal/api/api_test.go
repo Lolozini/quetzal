@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,6 +23,7 @@ import (
 
 	"github.com/lolozini/quetzal/internal/api"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 	"github.com/lolozini/quetzal/templates"
 )
 
@@ -37,7 +37,7 @@ func newTestServer(t *testing.T) (*httptest.Server, *http.Client) {
 // (e.g. a succeeded backup, which normally requires the controller + a cluster).
 func newTestServerStore(t *testing.T) (*httptest.Server, *http.Client, *store.Store) {
 	t.Helper()
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "api.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "api.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
@@ -61,7 +61,7 @@ func newTestServerStore(t *testing.T) (*httptest.Server, *http.Client, *store.St
 // tests that check what the handlers created in the cluster.
 func newTestServerFull(t *testing.T) (*httptest.Server, *http.Client, *store.Store, *api.Server, *fake.Clientset) {
 	t.Helper()
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "api.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "api.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}
@@ -369,7 +369,7 @@ func TestCreateServerDuplicateNames(t *testing.T) {
 // the bound PV keeps its reclaim policy (so the cluster reclaims it) rather than
 // being switched to Retain, and the namespace is torn down — no orphans.
 func TestDeleteServerDropsDataVolume(t *testing.T) {
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "k.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "k.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}

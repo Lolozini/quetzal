@@ -7,6 +7,7 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/pkg/sftp v1.13.11
 	github.com/prometheus/client_golang v1.24.1
 	github.com/robfig/cron/v3 v3.0.1
@@ -49,7 +50,6 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.10.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect

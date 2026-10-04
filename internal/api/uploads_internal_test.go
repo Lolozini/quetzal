@@ -29,6 +29,7 @@ import (
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 	"github.com/lolozini/quetzal/templates"
 )
 
@@ -45,7 +46,7 @@ type uploadHarness struct {
 
 func newUploadHarness(t *testing.T) (*uploadHarness, *http.Client) {
 	t.Helper()
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "up.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "up.db"), Silent: true})
 	if err != nil {
 		t.Fatalf("store: %v", err)
 	}

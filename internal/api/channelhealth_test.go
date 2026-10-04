@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"github.com/lolozini/quetzal/internal/api"
 	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/store"
+	"github.com/lolozini/quetzal/internal/testdb"
 )
 
 type channelView struct {
@@ -39,7 +39,7 @@ func TestChannelHealthIsVisibleAndClearedByAGoodTest(t *testing.T) {
 	}))
 	defer recv.Close()
 
-	st, err := store.Open(store.Config{Driver: store.DriverSQLite, DSN: filepath.Join(t.TempDir(), "h.db"), Silent: true})
+	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "h.db"), Silent: true})
 	if err != nil {
 		t.Fatal(err)
 	}

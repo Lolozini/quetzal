@@ -155,6 +155,39 @@ jobs:
           GOARCH=386 go build ./...
           GOARCH=386 go test ./internal/api/
 
+  # The unit tests again, on PostgreSQL: the chart offers it for production,
+  # and every test opened SQLite until then, so the row locks that keep a
+  # start and a restore apart -- SQLite ignores them -- had never run. Each
+  # test gets a database of its own on this server (internal/testdb). 14 is
+  # the oldest major still supported upstream, 18 the newest.
+  test-postgres:
+    name: test (postgres ${{ matrix.postgres }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ["14", "18"]
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: quetzal
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: unit tests on PostgreSQL
+        env:
+          QUETZAL_TEST_POSTGRES: postgres://postgres:quetzal@localhost:5432/postgres?sslmode=disable
+        run: go test -race ./internal/...
+
   # The same suite on both architectures the image ships for, each on a native
   # runner. The amd64 job keeps the plain name "e2e": it is a required check.
   e2e:
@@ -260,7 +293,7 @@ jobs:
   # built with stamped version metadata by the separate release workflow.
   image:
     runs-on: ubuntu-latest
-    needs: [lint, test, web]
+    needs: [lint, test, test-postgres, web]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read

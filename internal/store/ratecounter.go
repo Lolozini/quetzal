@@ -20,6 +20,9 @@ func (s *Store) RateAllow(key string, limit int, window time.Duration, now time.
 		allowed bool
 		resetAt time.Time
 	)
+	// PostgreSQL keeps a time to the microsecond: the end of the window handed
+	// back is then the one stored, read back the same on the next attempt.
+	now = now.Truncate(time.Microsecond)
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		var c models.RateCounter
 		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
