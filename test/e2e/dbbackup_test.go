@@ -183,7 +183,7 @@ func deployMariaDB(ctx context.Context, t *testing.T, cs kubernetes.Interface, n
 	}
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "mariadb", Namespace: ns},
-		Spec: corev1.ServiceSpec{Selector: labels, Ports: []corev1.ServicePort{{Port: 3306, TargetPort: intstr.FromInt32(3306)}}},
+		Spec:       corev1.ServiceSpec{Selector: labels, Ports: []corev1.ServicePort{{Port: 3306, TargetPort: intstr.FromInt32(3306)}}},
 	}
 	if _, err := cs.CoreV1().Services(ns).Create(ctx, svc, metav1.CreateOptions{}); err != nil {
 		t.Fatalf("mariadb svc: %v", err)
