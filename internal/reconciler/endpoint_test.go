@@ -42,14 +42,14 @@ func TestNodePortAddressIsThePodsNode(t *testing.T) {
 	r := &Reconciler{Client: cl, Store: st}
 	ctx := context.Background()
 
-	if _, addr := r.endpointsFor(ctx, s, tmpl); addr != "172.18.0.2:30150" {
+	if _, addr, _ := r.endpointsFor(ctx, s, tmpl); addr != "172.18.0.2:30150" {
 		t.Errorf("address = %q, want the pods' node 172.18.0.2:30150", addr)
 	}
 
 	// Without the player's address kept, every node answers: any will do.
 	no := false
 	s.Expose.PreserveClientIP = &no
-	if _, addr := r.endpointsFor(ctx, s, tmpl); addr != "172.18.0.4:30150" {
+	if _, addr, _ := r.endpointsFor(ctx, s, tmpl); addr != "172.18.0.4:30150" {
 		t.Errorf("address = %q, want the first node 172.18.0.4:30150", addr)
 	}
 	s.Expose.PreserveClientIP = nil
@@ -58,7 +58,7 @@ func TestNodePortAddressIsThePodsNode(t *testing.T) {
 	if err := st.SetSetting(store.SettingEndpointHost, "play.example.com"); err != nil {
 		t.Fatalf("setting: %v", err)
 	}
-	if _, addr := r.endpointsFor(ctx, s, tmpl); addr != "play.example.com:30150" {
+	if _, addr, _ := r.endpointsFor(ctx, s, tmpl); addr != "play.example.com:30150" {
 		t.Errorf("address = %q, want the configured hostname", addr)
 	}
 }
@@ -106,7 +106,52 @@ func TestAnIPv6AddressIsBracketed(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := &Reconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), Store: st}
-	if _, addr := r.endpointsFor(context.Background(), s, tmpl); addr != "[fd00::1]:30150" {
+	if _, addr, _ := r.endpointsFor(context.Background(), s, tmpl); addr != "[fd00::1]:30150" {
 		t.Errorf("address = %q, want [fd00::1]:30150", addr)
+	}
+}
+
+// Each address says which of the server's ports it reaches. A TeamSpeak on
+// node ports showed lolozini.fr:30025, lolozini.fr:30023, and nothing told the
+// voice port from the file transfer one -- which is what a box's port
+// forwarding has to be told.
+func TestEachEndpointNamesItsPort(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("scheme: %v", err)
+	}
+	s, tmpl := testServerAndTemplate()
+	s.Expose = models.Expose{Type: models.ExposeNodePort}
+	s.Ports = []models.PortSpec{
+		{Name: "p9987", Port: 9987, Protocol: "UDP", Primary: true, NodePort: 30025},
+		{Name: "p30033", Port: 30033, Protocol: "TCP", NodePort: 30023},
+	}
+	st := reconStore(t)
+	if err := st.SetSetting(store.SettingEndpointHost, "lolozini.fr"); err != nil {
+		t.Fatalf("setting: %v", err)
+	}
+	r := &Reconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), Store: st}
+	eps, addr, ports := r.endpointsFor(context.Background(), s, tmpl)
+	want := []models.PortEndpoint{
+		{Port: 9987, Protocol: "UDP", Address: "lolozini.fr:30025", Primary: true},
+		{Port: 30033, Protocol: "TCP", Address: "lolozini.fr:30023"},
+	}
+	if len(ports) != len(want) {
+		t.Fatalf("port endpoints = %+v, want %+v", ports, want)
+	}
+	for i := range want {
+		if ports[i] != want[i] {
+			t.Errorf("port endpoint %d = %+v, want %+v", i, ports[i], want[i])
+		}
+	}
+	if addr != "lolozini.fr:30025" || len(eps) != 2 {
+		t.Errorf("endpoints = %v, address %q", eps, addr)
+	}
+
+	// In the cluster only, each port is reached at its own number.
+	s.Expose = models.Expose{}
+	_, _, ports = r.endpointsFor(context.Background(), s, tmpl)
+	if len(ports) != 2 || ports[1].Address != "server."+s.Namespace+".svc.cluster.local:30033" || ports[1].Protocol != "TCP" {
+		t.Errorf("in-cluster port endpoints = %+v", ports)
 	}
 }

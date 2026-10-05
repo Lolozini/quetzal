@@ -138,10 +138,15 @@ type Status struct {
 	Endpoints []string `json:"endpoints,omitempty"`
 	// Address is the primary address players connect to (the primary port's
 	// external endpoint when exposed).
-	Address    string `json:"address,omitempty"`
-	Message    string `json:"message,omitempty"`
-	CrashCount int    `json:"crashCount,omitempty"`
-	DiskUsed   int64  `json:"diskUsed,omitempty"` // bytes
+	Address string `json:"address,omitempty"`
+	// PortEndpoints says which of the server's ports each address reaches:
+	// 9987/UDP at lolozini.fr:30025. Endpoints lists the addresses alone, and a
+	// server published on node ports showed lolozini.fr:30025, lolozini.fr:30023
+	// with nothing to tell the voice port from the file transfer one.
+	PortEndpoints []PortEndpoint `json:"portEndpoints,omitempty"`
+	Message       string         `json:"message,omitempty"`
+	CrashCount    int            `json:"crashCount,omitempty"`
+	DiskUsed      int64          `json:"diskUsed,omitempty"` // bytes
 	// InstalledGeneration is the install generation last seen come up: a pod of
 	// the current Deployment revision reached Ready, so its install step either
 	// ran for that generation or found it already done. The controller uses it
@@ -156,6 +161,14 @@ type Status struct {
 	// start is then reported Running as soon as its container is up, rather
 	// than after the same long wait, until a done line shows again.
 	StartupMissed bool `json:"startupMissed,omitempty"`
+}
+
+// PortEndpoint is where one of a server's ports is reached from.
+type PortEndpoint struct {
+	Port     int32  `json:"port"`
+	Protocol string `json:"protocol"`
+	Address  string `json:"address"`
+	Primary  bool   `json:"primary,omitempty"`
 }
 
 // Server is a deployable game server instance. The database row is the source

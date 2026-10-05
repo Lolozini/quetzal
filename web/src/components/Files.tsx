@@ -98,6 +98,28 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
     }
   }
 
+  // newFile creates an empty file and opens it in the editor: a config file a
+  // game needs (TeamSpeak's ts3db_mariadb.ini) had to be written elsewhere and
+  // uploaded.
+  async function newFile() {
+    const name = window.prompt(t("New file name:"))?.trim();
+    if (!name) return;
+    if (entries.some((e) => e.name === name)) {
+      setError(t('"{name}" already exists.', { name }));
+      return;
+    }
+    const p = join(path, name);
+    setError("");
+    try {
+      await api.writeFile(id, p, "");
+      changed();
+      setEditing({ path: p, content: "" });
+      setSaved("");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
   async function newFolder() {
     const name = window.prompt(t("New folder name:"));
     if (!name) return;
@@ -266,6 +288,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
         })}
         <span style={{ flex: 1 }} />
         <button onClick={load} disabled={busy}>{t("Refresh")}</button>
+        <button onClick={newFile}>{t("New file")}</button>
         <button onClick={newFolder}>{t("New folder")}</button>
         <button onClick={() => uploadRef.current?.click()} disabled={!!transfer}>{t("Upload")}</button>
         <button onClick={() => archiveRef.current?.click()} disabled={busy || !!transfer}>{t("Upload archive")}</button>

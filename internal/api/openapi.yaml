@@ -2793,6 +2793,16 @@ components:
           type: array
           items: { type: string }
         address: { type: string }
+        portEndpoints:
+          type: array
+          description: Which of the server's ports each address reaches (9987/UDP at lolozini.fr:30025)
+          items:
+            type: object
+            properties:
+              port: { type: integer, description: The server's port }
+              protocol: { type: string, enum: [TCP, UDP] }
+              address: { type: string, description: Where it is reached from }
+              primary: { type: boolean }
         message:
           type: string
           description: >-

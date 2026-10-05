@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, Cluster, EventEntry, ExposeType, hasAdminPerm, ImportState, InstallLog, OFFLINE_PHASES, PowerAction, Server, ServerStats, User, wakesOnMinecraftLogin } from "../api";
+import { api, ApiError, Cluster, endpointLines, EventEntry, ExposeType, hasAdminPerm, ImportState, InstallLog, OFFLINE_PHASES, PowerAction, Server, ServerStats, User, wakesOnMinecraftLogin } from "../api";
 import { useT } from "../i18n";
 import { Access } from "./Access";
 import { Backups } from "./Backups";
@@ -392,6 +392,9 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
   // owner's for everyone, hiding the files from a subuser given them and
   // showing power buttons to one without power.
   const may = (perm: string) => !!srv && !frozen && (srv.myPermissions ?? []).includes(perm);
+  // Each address with the port it reaches: what a box's port forwarding needs.
+  const endpoints = srv ? endpointLines(srv.status) : [];
+  const primaryPort = endpoints.find((e) => e.primary && e.address === srv?.status.address);
   // Who has access, and what the server is (its template), are the owner's
   // business, or an administrator's.
   const isOwnerOrAdmin = !!srv && !frozen && (hasAdminPerm(user, "servers") || srv.ownerId === user.id);
@@ -486,6 +489,9 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
             <span className="k">{t("Connect")}</span>
             <span>
               <code>{srv.status.address}</code>
+              {primaryPort && (
+                <span className="muted"> {t("port {port}", { port: `${primaryPort.port}/${primaryPort.protocols.join("+")}` })}</span>
+              )}
             </span>
           </div>
         )}
@@ -629,7 +635,18 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
             )}
             <div className="kv">
               <span className="k">{t("Endpoints")}</span>
-              <span>{(srv.status.endpoints || []).join(", ") || "—"}</span>
+              {endpoints.length > 0 ? (
+                <span>
+                  {endpoints.map((e) => (
+                    <div key={`${e.port}-${e.address}`}>
+                      {e.port}/{e.protocols.join("+")} → <code>{e.address}</code>
+                      {e.primary && endpoints.length > 1 && <span className="muted"> · {t("primary")}</span>}
+                    </div>
+                  ))}
+                </span>
+              ) : (
+                <span>{(srv.status.endpoints || []).join(", ") || "—"}</span>
+              )}
             </div>
             {hasPorts && (
               <div className="kv">

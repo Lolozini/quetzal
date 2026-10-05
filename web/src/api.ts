@@ -288,7 +288,33 @@ export interface ServerStatus {
   phase: string;
   endpoints?: string[];
   address?: string;
+  // Which of the server's ports each address reaches: 9987/UDP at
+  // lolozini.fr:30025.
+  portEndpoints?: PortEndpoint[];
   message?: string;
+}
+
+export interface PortEndpoint {
+  port: number;
+  protocol: string;
+  address: string;
+  primary?: boolean;
+}
+
+// endpointLines groups a server's addresses by the port they reach, one line
+// for a port served on TCP and UDP at the same address.
+export function endpointLines(st: ServerStatus): { port: number; protocols: string[]; address: string; primary: boolean }[] {
+  const out: { port: number; protocols: string[]; address: string; primary: boolean }[] = [];
+  for (const pe of st.portEndpoints ?? []) {
+    const same = out.find((o) => o.port === pe.port && o.address === pe.address);
+    if (same) {
+      if (!same.protocols.includes(pe.protocol)) same.protocols.push(pe.protocol);
+      same.primary = same.primary || !!pe.primary;
+      continue;
+    }
+    out.push({ port: pe.port, protocols: [pe.protocol], address: pe.address, primary: !!pe.primary });
+  }
+  return out;
 }
 
 export type ExposeType = "ClusterIP" | "NodePort" | "LoadBalancer";

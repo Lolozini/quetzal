@@ -851,10 +851,11 @@ func (r *Reconciler) updateStatus(ctx context.Context, s *models.Server, t *mode
 // writeStatus is updateStatus with a notice, which says what this pass could
 // not put in place and is added to the message.
 func (r *Reconciler) writeStatus(ctx context.Context, s *models.Server, t *models.Template, notice string) error {
-	eps, addr := r.endpointsFor(ctx, s, t)
+	eps, addr, portEps := r.endpointsFor(ctx, s, t)
 	// A missed done line is remembered while the server is stopped or asleep:
 	// it is about the next start.
-	st := models.Status{Endpoints: eps, Address: addr, InstalledGeneration: s.Status.InstalledGeneration, StartupMissed: s.Status.StartupMissed}
+	st := models.Status{Endpoints: eps, Address: addr, PortEndpoints: portEps,
+		InstalledGeneration: s.Status.InstalledGeneration, StartupMissed: s.Status.StartupMissed}
 
 	switch {
 	case s.DesiredState == models.StateSuspended:
@@ -1300,13 +1301,17 @@ func noteInit(h *podHealth, statuses []corev1.ContainerStatus) {
 // endpointsFor computes the reachable addresses for a server and picks a primary
 // one (the primary port, or the sole port). External exposure (NodePort/
 // LoadBalancer) yields node/LB addresses; otherwise the in-cluster DNS names.
-func (r *Reconciler) endpointsFor(ctx context.Context, s *models.Server, t *models.Template) (eps []string, addr string) {
+func (r *Reconciler) endpointsFor(ctx context.Context, s *models.Server, t *models.Template) (eps []string, addr string, portEps []models.PortEndpoint) {
 	ports := serverPorts(s, t)
 	add := func(p models.PortSpec, ep string) {
 		eps = append(eps, ep)
-		if addr == "" && (p.Primary || len(ports) == 1) {
+		primary := p.Primary || len(ports) == 1
+		if addr == "" && primary {
 			addr = ep
 		}
+		portEps = append(portEps, models.PortEndpoint{
+			Port: p.Port, Protocol: string(protocol(p.Protocol)), Address: ep, Primary: primary,
+		})
 	}
 
 	switch s.Expose.ServiceType() {
@@ -1337,7 +1342,7 @@ func (r *Reconciler) endpointsFor(ctx context.Context, s *models.Server, t *mode
 	if addr == "" && len(eps) > 0 {
 		addr = eps[0]
 	}
-	return eps, addr
+	return eps, addr, portEps
 }
 
 // endpointHost is the host published in a server's external NodePort endpoints:

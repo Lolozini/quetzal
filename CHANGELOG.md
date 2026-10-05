@@ -7,6 +7,19 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **Each address of a server says which port it reaches.** A server
+  published on node ports listed `lolozini.fr:30025, lolozini.fr:30023`, and
+  nothing told the voice port from the file transfer one — which is what a
+  box's port forwarding has to be given. The server page now reads
+  `9987/UDP → lolozini.fr:30025`, `30033/TCP → lolozini.fr:30023`, the address
+  to connect to with its port, and the API gives the same in
+  `status.portEndpoints`.
+- **The file manager creates files.** A config file a game needs — TeamSpeak's
+  `ts3db_mariadb.ini` — had to be written elsewhere and uploaded. *New file*
+  makes an empty one and opens it in the editor.
+
 ## [0.13.0] - 2026-10-05
 
 A server's databases now go into its backups — each backup dumps them next to
