@@ -664,6 +664,53 @@ paths:
       summary: Drop the database and its user
       responses:
         "204": { description: Deleted }
+        "409": { description: An import into the database is waiting or running }
+  /api/servers/{id}/databases/{dbid}/import:
+    parameters:
+      - $ref: "#/components/parameters/ServerId"
+      - { name: dbid, in: path, required: true, schema: { type: integer } }
+    post:
+      tags: [Databases]
+      summary: Load an SQL file of the server's into the database
+      description: >-
+        The file is one of the server's, uploaded first with the file manager
+        or SFTP: a dump of one database, plain or gzipped (.gz). The controller
+        loads it with the server's own account, in a Job, after emptying the
+        database unless wipe is false. Lines that switch to another database
+        (CREATE DATABASE, USE) and the definers of views, triggers and
+        routines are left out, so a dump made elsewhere -- with --databases,
+        or as root -- loads into this one. It waits for the server's game to
+        be gone, and the server cannot be started until it ends; one still
+        waiting can be cancelled. Its outcome is the database's lastImport,
+        and the database.imported or database.import-failed event. Takes the
+        files permission as well as the databases one: the file's content ends
+        up readable in the database.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path: { type: string, description: "The file, from the server's data directory (/dump.sql)" }
+                wipe: { type: boolean, default: true, description: Empty the database first }
+      responses:
+        "202":
+          description: Import queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DatabaseImport" }
+        "400": { description: No path, or one that leaves the data directory }
+        "403": { description: The caller lacks the databases or the files permission }
+        "409": { description: "The server is not stopped, or a restore or an import is already waiting or running" }
+    delete:
+      tags: [Databases]
+      summary: Cancel an import that has not started
+      responses:
+        "204": { description: Cancelled }
+        "404": { description: No import is waiting for the database }
+        "409": { description: The import is already loading the file }
   /api/servers/{id}/databases/{dbid}/rotate:
     parameters:
       - $ref: "#/components/parameters/ServerId"
@@ -1708,14 +1755,27 @@ paths:
         its phase says how it ends. It waits for the server's pods to be gone,
         and is called off if its volume is still held 15 minutes later. Until
         it ends, or is cancelled by deleting it while still Pending, the server
-        cannot be started and its files are unavailable.
+        cannot be started and its files are unavailable. With databases, the
+        backup's databases are loaded back too, each emptied first: those the
+        server still has, by name (the others are named in the record's
+        message). Without it the files alone are restored.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                databases: { type: boolean, description: Load the backup's databases back too (takes the databases permission) }
       responses:
         "202":
           description: Restore requested
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Backup" }
-        "409": { description: The server is not stopped, or a restore is already waiting or running }
+        "400": { description: The body does not parse }
+        "403": { description: Databases asked for without the databases permission }
+        "409": { description: "The server is not stopped, or a restore or a database import is already waiting or running" }
   /api/servers/{id}/backups/{bid}:
     parameters:
       - $ref: "#/components/parameters/ServerId"
@@ -2901,6 +2961,19 @@ components:
         port: { type: integer }
         hostName: { type: string }
         createdAt: { type: string, format: date-time }
+        lastImport:
+          allOf: [{ $ref: "#/components/schemas/DatabaseImport" }]
+          description: The database's latest import (in the list only)
+    DatabaseImport:
+      type: object
+      properties:
+        id: { type: integer }
+        phase: { type: string, enum: [Pending, Running, Succeeded, Failed] }
+        path: { type: string }
+        wipe: { type: boolean }
+        message: { type: string, description: Why it failed, naming the line of the file when the client says }
+        createdAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time }
     ServerStats:
       type: object
       properties:
@@ -3071,6 +3144,13 @@ components:
         message: { type: string }
         createdAt: { type: string, format: date-time }
         completedAt: { type: string, format: date-time }
+        databases:
+          type: array
+          items: { type: string }
+          description: >-
+            A backup: the server's databases dumped into its snapshot with the
+            files. A restore: those it loads back.
+        withDatabases: { type: boolean, description: A restore asked to load the backup's databases back }
     BackupConfig:
       type: object
       properties:

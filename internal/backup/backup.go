@@ -60,6 +60,13 @@ type Params struct {
 	// has no affinity to the server's cluster or namespace, so it can run in the
 	// control plane's own namespace and outlive the namespace being torn down.
 	Purge bool
+	// Databases are the server's databases a backup dumps into its snapshot,
+	// a restore loads back, or -- the one -- an import loads a file into.
+	Databases []DatabaseParams
+	// ImportPath is the file an import loads, relative to the volume's root;
+	// ImportWipe empties the database first.
+	ImportPath string
+	ImportWipe bool
 }
 
 // repoOnly reports whether the operation touches only the restic repository, and
@@ -144,22 +151,35 @@ func SecretName(p Params) string {
 	return CredsSecretName
 }
 
-// BuildSecret renders the restic credentials Secret for an operation.
+// BuildSecret renders the credentials Secret for an operation: restic's, and
+// the password of each database it works on. An import talks to its database
+// only, and gets nothing of the backup target.
 func BuildSecret(p Params) *corev1.Secret {
-	return &corev1.Secret{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
-		ObjectMeta: metav1.ObjectMeta{Name: SecretName(p), Namespace: p.Namespace, Labels: labels(p)},
-		StringData: map[string]string{
+	data := map[string]string{}
+	if !importsDirection(p) {
+		data = map[string]string{
 			"RESTIC_REPOSITORY":     p.Repository,
 			"RESTIC_PASSWORD":       p.RepoPassword,
 			"AWS_ACCESS_KEY_ID":     p.AccessKey,
 			"AWS_SECRET_ACCESS_KEY": p.SecretKey,
 			"AWS_DEFAULT_REGION":    p.Region,
-		},
+		}
+	}
+	for i, db := range p.Databases {
+		data[dbPasswordKey(i)] = db.Password
+	}
+	return &corev1.Secret{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
+		ObjectMeta: metav1.ObjectMeta{Name: SecretName(p), Namespace: p.Namespace, Labels: labels(p)},
+		StringData: data,
 	}
 }
 
-// BuildJob renders the one-shot restic Job for a backup or restore.
+// BuildJob renders the one-shot Job for an operation: restic for a backup, a
+// restore or a snapshot deletion, the MariaDB client for a database import. A
+// backup of a server with databases dumps them first, in init containers, and
+// restic copies the dumps with the files; a restore asked for them extracts
+// the dumps with the files, and init containers load them back after restic.
 func BuildJob(p Params) *batchv1.Job {
 	tag := fmt.Sprintf("bid-%d", p.BackupID)
 	var script string
@@ -229,6 +249,11 @@ marker=%s/.quetzal-installed
 printf '%%s' %q > "$marker"
 chown "$(stat -c %%u:%%g %s)" "$marker" 2>/dev/null || true
 `, p.Slug, srcTag, mountPath, mountPath, strconv.Itoa(p.InstallGen), mountPath)
+		if len(p.Databases) > 0 {
+			// The dumps go beside the volume, for the load steps that follow.
+			script += fmt.Sprintf("restic restore latest --host %q --tag %q --target %s --include %s\n",
+				p.Slug, srcTag, restorePath, dumpsPath)
+		}
 	default: // backup
 		keep := p.KeepLast
 		if keep <= 0 {
@@ -250,7 +275,7 @@ elif [ "$rc" != 0 ]; then
 fi
 restic backup %s --host %q --tag quetzal --tag %q --json
 restic forget --host %q --keep-last %d --prune
-`, mountPath, p.Slug, tag, p.Slug, keep)
+`, backupPaths(p), p.Slug, tag, p.Slug, keep)
 	}
 
 	backoff := int32(1)
@@ -266,7 +291,34 @@ restic forget --host %q --keep-last %d --prune
 	// megabytes a second) and far less than never, and hitting it fails the
 	// operation with a reason rather than leaving it hanging.
 	deadline := int64(6 * 60 * 60)
-	ro := p.Direction == models.DirBackup
+
+	return &batchv1.Job{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "batch/v1", Kind: "Job"},
+		ObjectMeta: metav1.ObjectMeta{Name: JobName(p), Namespace: p.Namespace, Labels: labels(p)},
+		Spec: batchv1.JobSpec{
+			BackoffLimit:            &backoff,
+			TTLSecondsAfterFinished: &ttl,
+			ActiveDeadlineSeconds:   &deadline,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: labels(p)},
+				Spec:       podSpec(p, script),
+			},
+		},
+	}
+}
+
+// backupPaths is what a backup copies: the volume, and the dumps of the
+// server's databases when it has some.
+func backupPaths(p Params) string {
+	if len(p.Databases) > 0 {
+		return mountPath + " " + dumpsPath
+	}
+	return mountPath
+}
+
+// podSpec lays out an operation's pod around its restic script.
+func podSpec(p Params, script string) corev1.PodSpec {
+	ro := p.Direction == models.DirBackup || importsDirection(p)
 
 	// Mount the same data the server uses: its PVC. A forget only rewrites the
 	// repository, so it takes no volume at all — which also keeps it off the
@@ -287,16 +339,17 @@ restic forget --host %q --keep-last %d --prune
 	}
 
 	// A backup mounts the volume read-only while the data-manager still holds the
-	// ReadWriteOnce mount, so the Job must land on the same node. A restore runs
-	// only after every data-mounting pod is gone (the manager defers it), so the
-	// volume is free and node placement is left to the volume/NodeSelector.
-	// A forget mounts nothing, so it must not inherit the volume's node pinning.
+	// ReadWriteOnce mount, so the Job must land on the same node -- and so does
+	// an import, which reads its file from there. A restore runs only after
+	// every data-mounting pod is gone (the manager defers it), so the volume is
+	// free and node placement is left to the volume/NodeSelector. A forget
+	// mounts nothing, so it must not inherit the volume's node pinning.
 	nodeSelector := p.NodeSelector
 	if p.repoOnly() {
 		nodeSelector = nil
 	}
 	var affinity *corev1.Affinity
-	if p.Direction == models.DirBackup && !p.repoOnly() {
+	if ro && !p.repoOnly() {
 		affinity = &corev1.Affinity{PodAffinity: &corev1.PodAffinity{
 			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
 				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{reconciler.DataLabel: p.Slug}},
@@ -304,36 +357,53 @@ restic forget --host %q --keep-last %d --prune
 			}},
 		}}
 	}
-
-	return &batchv1.Job{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "batch/v1", Kind: "Job"},
-		ObjectMeta: metav1.ObjectMeta{Name: JobName(p), Namespace: p.Namespace, Labels: labels(p)},
-		Spec: batchv1.JobSpec{
-			BackoffLimit:            &backoff,
-			TTLSecondsAfterFinished: &ttl,
-			ActiveDeadlineSeconds:   &deadline,
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: labels(p)},
-				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyNever,
-					NodeSelector:  nodeSelector,
-					Affinity:      affinity,
-					Containers: []corev1.Container{{
-						Name:    "restic",
-						Image:   p.Image,
-						Command: []string{"/bin/sh", "-c", script},
-						EnvFrom: []corev1.EnvFromSource{{
-							SecretRef: &corev1.SecretEnvSource{
-								LocalObjectReference: corev1.LocalObjectReference{Name: SecretName(p)},
-							},
-						}},
-						VolumeMounts: mounts,
-					}},
-					Volumes: volumes,
-				},
-			},
-		},
+	// Nothing here talks to the Kubernetes API.
+	noToken := false
+	spec := corev1.PodSpec{
+		RestartPolicy:                corev1.RestartPolicyNever,
+		NodeSelector:                 nodeSelector,
+		Affinity:                     affinity,
+		AutomountServiceAccountToken: &noToken,
+		Volumes:                      volumes,
 	}
+	restic := corev1.Container{
+		Name:    "restic",
+		Image:   p.Image,
+		Command: []string{"/bin/sh", "-c", script},
+		EnvFrom: []corev1.EnvFromSource{{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: SecretName(p)},
+			},
+		}},
+		VolumeMounts: mounts,
+	}
+
+	switch {
+	case importsDirection(p):
+		spec.Containers = []corev1.Container{importContainer(p, mounts)}
+	case p.repoOnly() || len(p.Databases) == 0:
+		spec.Containers = []corev1.Container{restic}
+	case p.Direction == models.DirBackup:
+		// The dumps first, then restic copies them with the files.
+		spec.Volumes = append(spec.Volumes, dumpsVolumeSource())
+		spec.InitContainers = dumpContainers(p)
+		restic.VolumeMounts = append(restic.VolumeMounts, corev1.VolumeMount{Name: dumpsVolume, MountPath: dumpsPath, ReadOnly: true})
+		spec.Containers = []corev1.Container{restic}
+	default:
+		// restic first -- the files, and the dumps beside them -- then the
+		// databases, one after the other. Init containers run in order and
+		// stop at the first that fails; the pod's own container only marks the
+		// end of it.
+		spec.Volumes = append(spec.Volumes, dumpsVolumeSource())
+		restic.VolumeMounts = append(restic.VolumeMounts, corev1.VolumeMount{Name: dumpsVolume, MountPath: restorePath})
+		spec.InitContainers = append([]corev1.Container{restic}, loadContainers(p)...)
+		spec.Containers = []corev1.Container{{
+			Name:    "done",
+			Image:   p.Image,
+			Command: []string{"/bin/sh", "-c", "echo restored"},
+		}}
+	}
+	return spec
 }
 
 // ParseBackupSize extracts the total bytes processed from restic's --json

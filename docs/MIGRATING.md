@@ -102,6 +102,10 @@ wait until it is done.
 - **The address.** Quetzal assigns its own ports and addresses: players need the
   new one.
 - Databases, subusers, schedules and existing backups. Recreate them in Quetzal.
+  A database's content follows by hand: dump it on the old host
+  (`mariadb-dump <database> > dump.sql`), create the server's database in
+  Quetzal, upload the dump with its files, and load it with **Import SQL** on
+  the server's Databases tab, server stopped.
 - Variables the key cannot see (hidden by the egg) take the template's default.
 
 ### Requirements

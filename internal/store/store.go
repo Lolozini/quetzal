@@ -38,6 +38,11 @@ var ErrNoFreeNodePort = errors.New("no free node port")
 // restore, because a restore is waiting for its data volume or writing it.
 var ErrRestoreActive = errors.New("a restore of this server's data is waiting or running")
 
+// ErrDatabaseImportActive is a server that cannot be started, or given a
+// restore or another import, because an SQL file is being loaded into one of
+// its databases: the game would write to the database while it is replaced.
+var ErrDatabaseImportActive = errors.New("a database import of this server is waiting or running")
+
 // ErrServerRunning is a restore refused because the server is meant to run.
 var ErrServerRunning = errors.New("the server is running")
 
@@ -541,16 +546,15 @@ func (s *Store) Wake(id uint, when time.Time) error {
 // A restore waits for the server to be down, then writes over its data, and a
 // start under it used to be accepted: the restore waited -- days, if need be --
 // and rolled the world back the next time the server stopped. The server's row
-// is locked as CreateRestore locks it, so the two cannot both go through.
+// is locked as CreateRestore locks it, so the two cannot both go through. A
+// database import holds it down the same way (ErrDatabaseImportActive).
 func (s *Store) StartServer(id uint, when time.Time) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if _, err := lockServer(tx, id); err != nil {
 			return err
 		}
-		if active, err := hasActiveRestore(tx, id); err != nil {
+		if err := offlineOperationActive(tx, id); err != nil {
 			return err
-		} else if active {
-			return ErrRestoreActive
 		}
 		return tx.Model(&models.Server{}).Where("id = ?", id).
 			Updates(map[string]any{
@@ -1122,8 +1126,22 @@ func (s *Store) CreateBackup(b *models.Backup) error {
 // (ErrServerRunning otherwise). It locks the server's row as StartServer does,
 // so a start and a restore sent together cannot both be accepted. A restore
 // already waiting or running is ErrRestoreActive: a second one would only
-// replace the first, whichever finished last.
+// replace the first, whichever finished last. A database import waiting or
+// running is ErrDatabaseImportActive: the restore would load the same
+// database under it.
 func (s *Store) CreateRestore(b *models.Backup) error {
+	return s.createWhileStopped(b)
+}
+
+// CreateDatabaseImport queues the load of an SQL file into one of a server's
+// databases, under CreateRestore's rules: the server must not be meant to run,
+// it cannot be started until the import is done, and only one restore or
+// import runs at a time.
+func (s *Store) CreateDatabaseImport(b *models.Backup) error {
+	return s.createWhileStopped(b)
+}
+
+func (s *Store) createWhileStopped(b *models.Backup) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		srv, err := lockServer(tx, b.ServerID)
 		if err != nil {
@@ -1132,10 +1150,8 @@ func (s *Store) CreateRestore(b *models.Backup) error {
 		if srv.DesiredState == models.StateRunning {
 			return ErrServerRunning
 		}
-		if active, err := hasActiveRestore(tx, b.ServerID); err != nil {
+		if err := offlineOperationActive(tx, b.ServerID); err != nil {
 			return err
-		} else if active {
-			return ErrRestoreActive
 		}
 		return tx.Create(b).Error
 	})
@@ -1154,12 +1170,24 @@ func (s *Store) CancelPendingBackup(id uint) (bool, error) {
 // when the operation is no longer pending, cancelled meanwhile: it must not get
 // a Job nobody tracks, which for a restore would write over the volume while
 // the file manager is back on it.
-func (s *Store) ClaimBackup(id uint, jobName, target string) (bool, error) {
-	fields := map[string]any{"phase": models.BackupRunning, "job_name": jobName}
+//
+// databases records, for a backup, the databases its Job dumps and, for a
+// restore, those it loads back; nil leaves the column alone.
+func (s *Store) ClaimBackup(id uint, jobName, target string, databases []string) (bool, error) {
+	// Struct-shaped, with the columns named, so Databases goes through its
+	// JSON serializer.
+	cols := []string{"phase", "job_name"}
+	upd := models.Backup{Phase: models.BackupRunning, JobName: jobName}
 	if target != "" {
-		fields["target"] = target
+		cols = append(cols, "target")
+		upd.Target = target
 	}
-	res := s.db.Model(&models.Backup{}).Where("id = ? AND phase = ?", id, models.BackupPending).Updates(fields)
+	if databases != nil {
+		cols = append(cols, "databases")
+		upd.Databases = databases
+	}
+	res := s.db.Model(&models.Backup{}).Where("id = ? AND phase = ?", id, models.BackupPending).
+		Select(cols).Updates(upd)
 	return res.RowsAffected == 1, res.Error
 }
 
@@ -1175,13 +1203,48 @@ func (s *Store) GetBackup(id uint) (*models.Backup, error) {
 	return &b, nil
 }
 
-// ListBackupsForServer returns a server's operations, newest first.
+// ListBackupsForServer returns a server's backups and restores, newest first.
+// Its database imports are listed with its databases (LatestDatabaseImports).
 func (s *Store) ListBackupsForServer(serverID uint) ([]models.Backup, error) {
 	var bs []models.Backup
-	if err := s.db.Where("server_id = ?", serverID).Order("id desc").Find(&bs).Error; err != nil {
+	if err := s.db.Where("server_id = ? AND direction <> ?", serverID, models.DirDatabaseImport).
+		Order("id desc").Find(&bs).Error; err != nil {
 		return nil, err
 	}
 	return bs, nil
+}
+
+// LatestDatabaseImports returns, for each of a server's databases that has
+// one, its most recent import.
+func (s *Store) LatestDatabaseImports(serverID uint) (map[uint]models.Backup, error) {
+	var bs []models.Backup
+	if err := s.db.Where("server_id = ? AND direction = ?", serverID, models.DirDatabaseImport).
+		Order("id asc").Find(&bs).Error; err != nil {
+		return nil, err
+	}
+	out := map[uint]models.Backup{}
+	for _, b := range bs {
+		out[b.DatabaseID] = b // ascending: the last one wins
+	}
+	return out, nil
+}
+
+// DatabaseImportActive reports whether an import into a database is waiting
+// or running.
+func (s *Store) DatabaseImportActive(databaseID uint) (bool, error) {
+	var n int64
+	err := s.db.Model(&models.Backup{}).
+		Where("database_id = ? AND direction = ? AND phase IN ?", databaseID, models.DirDatabaseImport,
+			[]models.BackupPhase{models.BackupPending, models.BackupRunning}).
+		Count(&n).Error
+	return n > 0, err
+}
+
+// DeleteDatabaseImports drops the import records of a database (when the
+// database itself goes).
+func (s *Store) DeleteDatabaseImports(databaseID uint) error {
+	return s.db.Where("database_id = ? AND direction = ?", databaseID, models.DirDatabaseImport).
+		Delete(&models.Backup{}).Error
 }
 
 // ListBackupsByPhase returns all operations in a phase (used by the controller).
@@ -1208,6 +1271,41 @@ func hasActiveRestore(tx *gorm.DB, serverID uint) (bool, error) {
 			[]models.BackupPhase{models.BackupPending, models.BackupRunning}).
 		Count(&n).Error
 	return n > 0, err
+}
+
+// HasActiveDatabaseImport reports whether an import into one of a server's
+// databases is waiting or running.
+func (s *Store) HasActiveDatabaseImport(serverID uint) (bool, error) {
+	var n int64
+	err := s.db.Model(&models.Backup{}).
+		Where("server_id = ? AND direction = ? AND phase IN ?",
+			serverID, models.DirDatabaseImport,
+			[]models.BackupPhase{models.BackupPending, models.BackupRunning}).
+		Count(&n).Error
+	return n > 0, err
+}
+
+// offlineOperationActive refuses what an operation that needs the server down
+// forbids while it waits or runs: ErrRestoreActive for a restore,
+// ErrDatabaseImportActive for a database import.
+func offlineOperationActive(tx *gorm.DB, serverID uint) error {
+	var dirs []models.BackupDirection
+	if err := tx.Model(&models.Backup{}).
+		Where("server_id = ? AND direction IN ? AND phase IN ?",
+			serverID, []models.BackupDirection{models.DirRestore, models.DirDatabaseImport},
+			[]models.BackupPhase{models.BackupPending, models.BackupRunning}).
+		Pluck("direction", &dirs).Error; err != nil {
+		return err
+	}
+	for _, d := range dirs {
+		if d == models.DirRestore {
+			return ErrRestoreActive
+		}
+	}
+	if len(dirs) > 0 {
+		return ErrDatabaseImportActive
+	}
+	return nil
 }
 
 // UpdateBackup persists the mutable fields of an operation.

@@ -127,7 +127,7 @@ func (s *Server) handleTransferServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "a transfer is already in progress")
 		return
 	}
-	if importInProgress(w, srv) || s.restoreInProgress(w, srv) {
+	if importInProgress(w, srv) || s.restoreInProgress(w, srv) || s.databaseImportInProgress(w, srv) {
 		return
 	}
 	var req transferRequest

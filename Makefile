@@ -7,7 +7,7 @@ KIND_CLUSTER ?= quetzal-e2e
 # life, and an older apiserver also knows fewer things to object to.
 KIND_NODE_IMAGE ?= kindest/node:v1.35.0
 
-.PHONY: build test test-postgres lint fmt vet e2e e2e-kind-up e2e-kind-down kind-node-image tidy
+.PHONY: build test test-postgres test-mariadb lint fmt vet e2e e2e-kind-up e2e-kind-down kind-node-image tidy
 
 build: ## Build all binaries
 	go build ./...
@@ -22,6 +22,12 @@ test: ## Run unit tests
 test-postgres: ## Run unit tests on PostgreSQL
 	@test -n "$$QUETZAL_TEST_POSTGRES" || { echo "set QUETZAL_TEST_POSTGRES (see the Makefile)"; exit 1; }
 	go test -race ./internal/...
+
+# The database dump, load and import scripts against a real MariaDB, run in
+# Docker as their Jobs run them. MARIADB picks the image (default: the release
+# the panel deploys).
+test-mariadb: ## Run the database scripts against MariaDB in Docker
+	QUETZAL_TEST_MARIADB=$${MARIADB:-1} go test -count=1 -run TestDatabaseScriptsAgainstMariaDB ./internal/backup/
 
 lint: fmt-check vet ## gofmt check + go vet
 

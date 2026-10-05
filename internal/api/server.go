@@ -387,6 +387,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/servers/{id}/databases/{dbid}", s.auth(s.handleGetServerDatabase))
 	mux.Handle("POST /api/servers/{id}/databases/{dbid}/rotate", s.auth(s.handleRotateServerDatabase))
 	mux.Handle("DELETE /api/servers/{id}/databases/{dbid}", s.auth(s.handleDeleteServerDatabase))
+	mux.Handle("POST /api/servers/{id}/databases/{dbid}/import", s.auth(s.handleImportDatabase))
+	mux.Handle("DELETE /api/servers/{id}/databases/{dbid}/import", s.auth(s.handleCancelDatabaseImport))
 
 	// Two-factor authentication (opt-in TOTP) for the current user, plus an
 	// admin reset for the lost-device lockout case.

@@ -601,9 +601,9 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
           <SFTPCard id={id} initialEnabled={!!srv.sftp?.enabled} username={user.username} canToggle={may("settings")} />
         </>
       )}
-      {current === "backups" && <Backups id={id} readOnly={!may("backups")} />}
+      {current === "backups" && <Backups id={id} readOnly={!may("backups")} canDatabases={may("databases")} />}
       {current === "schedules" && <Schedules id={id} readOnly={!may("schedules")} />}
-      {current === "databases" && <Databases serverId={id} />}
+      {current === "databases" && <Databases serverId={id} canImport={may("files")} />}
       {current === "access" && <Access id={id} />}
       {current === "settings" && (
         <>

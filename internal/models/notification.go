@@ -51,14 +51,17 @@ const (
 	EventBackupFailed     = "backup.failed"
 	EventRestoreSucceeded = "restore.succeeded"
 	EventRestoreFailed    = "restore.failed"
-	EventScheduleCreate   = "schedule.create"
-	EventScheduleDelete   = "schedule.delete"
-	EventUserCreate       = "user.create"
-	EventUserUpdate       = "user.update"
-	EventUserDelete       = "user.delete"
-	EventClusterCreate    = "cluster.create"
-	EventClusterUpdate    = "cluster.update"
-	EventClusterDelete    = "cluster.delete"
+	// How an SQL file's load into a server's database ended.
+	EventDatabaseImported     = "database.imported"
+	EventDatabaseImportFailed = "database.import-failed"
+	EventScheduleCreate       = "schedule.create"
+	EventScheduleDelete       = "schedule.delete"
+	EventUserCreate           = "user.create"
+	EventUserUpdate           = "user.update"
+	EventUserDelete           = "user.delete"
+	EventClusterCreate        = "cluster.create"
+	EventClusterUpdate        = "cluster.update"
+	EventClusterDelete        = "cluster.delete"
 )
 
 // EventTypes is every event a channel can filter on: the controller's
@@ -72,6 +75,7 @@ var EventTypes = []string{
 	EventServerOOMKilled, EventServerInstallFailed, EventServerHibernated, EventServerTransfer,
 	EventServerPortMoved,
 	EventBackupSucceeded, EventBackupFailed, EventRestoreSucceeded, EventRestoreFailed,
+	EventDatabaseImported, EventDatabaseImportFailed,
 	EventScheduleRun,
 	// Done through the panel.
 	"server.create", "server.delete", "server.power", "server.update", "server.rename",
@@ -84,7 +88,7 @@ var EventTypes = []string{
 	"files.compress", "files.decompress", "files.extract",
 	// Seen by the controller in the SFTP sidecar's log.
 	"sftp.write", "sftp.mkdir", "sftp.delete", "sftp.rename", "sftp.symlink", "sftp.link",
-	"database.create", "database.rotate", "database.delete",
+	"database.create", "database.rotate", "database.delete", "database.import", "database.import-cancel",
 	"dbhost.create", "dbhost.update", "dbhost.delete",
 	"access.grant", "access.revoke", "access.invite", "access.invite-revoke",
 	"user.create", "user.update", "user.delete", "user.email", "user.password",
@@ -101,26 +105,28 @@ var EventTypes = []string{
 // eventTitles names the events people read about, in a mail's subject or a
 // Discord embed's title. The others read from their type (EventTitle).
 var eventTitles = map[string]string{
-	EventServerRunning:       "Server is up",
-	EventServerStopped:       "Server stopped",
-	EventServerCrashed:       "Server crashed",
-	EventServerRestarted:     "Server restarted",
-	EventServerOOMKilled:     "Server ran out of memory",
-	EventServerInstallFailed: "Install failed",
-	EventServerHibernated:    "Server went to sleep",
-	EventServerTransfer:      "Server transfer",
-	EventServerPortMoved:     "Server port changed",
-	EventBackupSucceeded:     "Backup done",
-	EventBackupFailed:        "Backup failed",
-	EventRestoreSucceeded:    "Restore done",
-	EventRestoreFailed:       "Restore failed",
-	EventScheduleRun:         "Schedule ran",
-	"server.create":          "Server created",
-	"server.delete":          "Server deleted",
-	"server.power":           "Power action",
-	"server.wake":            "Server woken",
-	"backup.create":          "Backup started",
-	"backup.restore":         "Restore started",
+	EventServerRunning:        "Server is up",
+	EventServerStopped:        "Server stopped",
+	EventServerCrashed:        "Server crashed",
+	EventServerRestarted:      "Server restarted",
+	EventServerOOMKilled:      "Server ran out of memory",
+	EventServerInstallFailed:  "Install failed",
+	EventServerHibernated:     "Server went to sleep",
+	EventServerTransfer:       "Server transfer",
+	EventServerPortMoved:      "Server port changed",
+	EventBackupSucceeded:      "Backup done",
+	EventBackupFailed:         "Backup failed",
+	EventRestoreSucceeded:     "Restore done",
+	EventRestoreFailed:        "Restore failed",
+	EventDatabaseImported:     "Database imported",
+	EventDatabaseImportFailed: "Database import failed",
+	EventScheduleRun:          "Schedule ran",
+	"server.create":           "Server created",
+	"server.delete":           "Server deleted",
+	"server.power":            "Power action",
+	"server.wake":             "Server woken",
+	"backup.create":           "Backup started",
+	"backup.restore":          "Restore started",
 }
 
 // EventTitle is an event type as a person reads it: "Server crashed", where

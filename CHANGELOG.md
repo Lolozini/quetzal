@@ -9,6 +9,30 @@ releases may include breaking changes).
 
 ### Added
 
+- **Backups take a server's databases along.** A backup copied the server's
+  volume and nothing else: a server whose state lives in a database —
+  TeamSpeak, a Minecraft server's plugins — lost all of it with the database
+  host, backups or not. Each backup now dumps the server's databases, managed
+  or external, into its snapshot next to the files, with the server's own
+  account (`mariadb-dump --single-transaction`, routines, triggers and events
+  included); the backup lists them, and one that cannot be dumped fails the
+  backup and says which. A restore can load them back — an option of the
+  restore, which takes the databases permission — each emptied first, then
+  loaded; a database the server no longer has is named in the restore's
+  message. A restore asked without it (the API's default) restores the files
+  alone, as before.
+- **An SQL dump can be imported into a server's database.** Moving a game's
+  database in — TeamSpeak's, a plugin's — took kubectl and a MySQL client of
+  one's own. Upload the dump with the server's files, plain or gzipped, and
+  load it from the Databases tab (`POST /api/servers/{id}/databases/{dbid}/import`),
+  the database emptied first unless asked otherwise. A dump made elsewhere
+  fits: the lines that switch to its own database (`--databases`) and the
+  definers of a dump taken as root are left out. It runs in a Job with the
+  server's own account, on a stopped server that cannot start until it is
+  done, as a restore; a failure says where the file stopped, and the
+  outcome is the `database.imported` or `database.import-failed` event. It
+  takes the files permission as well as the databases one.
+
 - **A server can have a startup command of its own.** The startup came from
   the template alone: an argument its egg has no variable for — the four that
   put TeamSpeak on MariaDB, a JVM flag for one server — meant copying the

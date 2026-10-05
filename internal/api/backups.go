@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -257,6 +258,18 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "can only restore from a succeeded backup")
 		return
 	}
+	var req struct {
+		// Databases loads the backup's databases back too, emptied first, as
+		// the files are made the backup's. Without it the files alone are
+		// restored, as before databases were backed up.
+		Databases bool `json:"databases"`
+	}
+	// The body is optional; one that does not parse is refused rather than
+	// read as a restore of the files alone.
+	if err := decodeJSON(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
 	if cfg, err := s.Store.GetBackupConfig(); err == nil && otherTarget(src, cfg) {
 		writeError(w, http.StatusConflict, backup.OtherTargetMessage)
 		return
@@ -271,11 +284,18 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	if transferInProgress(w, srv) || importInProgress(w, srv) {
 		return
 	}
+	// Writing over the databases is the databases permission's, as dropping
+	// one is: the backups permission alone restores the files.
+	if req.Databases && !s.can(userFrom(r.Context()), srv, models.PermDatabases) {
+		writeError(w, http.StatusForbidden, "restoring the databases takes the databases permission")
+		return
+	}
 	b := &models.Backup{
-		ServerID:  src.ServerID,
-		Direction: models.DirRestore,
-		Phase:     models.BackupPending,
-		SourceID:  src.ID,
+		ServerID:      src.ServerID,
+		Direction:     models.DirRestore,
+		Phase:         models.BackupPending,
+		SourceID:      src.ID,
+		WithDatabases: req.Databases && len(src.Databases) > 0,
 	}
 	// A restore overwrites the data volume in place. If the server is running, its
 	// pod and the restore Job would mount the same volume read-write at the same
@@ -289,11 +309,18 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrRestoreActive):
 		writeError(w, http.StatusConflict, "a restore is already waiting or running for this server; cancel it, or wait for it to finish")
 		return
+	case errors.Is(err, store.ErrDatabaseImportActive):
+		writeError(w, http.StatusConflict, databaseImportActiveMessage)
+		return
 	case err != nil:
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	s.audit(r, src.ServerID, "backup.restore", "from #"+strconv.FormatUint(uint64(src.ID), 10))
+	detail := "from #" + strconv.FormatUint(uint64(src.ID), 10)
+	if b.WithDatabases {
+		detail += ", with its databases"
+	}
+	s.audit(r, src.ServerID, "backup.restore", detail)
 	writeJSON(w, http.StatusAccepted, b)
 }
 

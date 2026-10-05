@@ -279,6 +279,20 @@ panel could reach them afterwards — no row references them — so leaving them
 would mean paying to store data that can no longer be listed or restored. Take a
 copy first if you want to keep a deleted server's history.
 
+**A server's databases go into its backups.** Before restic runs, each of the
+server's databases is dumped (`mariadb-dump --single-transaction`, with its
+routines, triggers and events) into the snapshot, next to the files; a restore
+can load them back, each emptied first. The dump and the load run in the
+backup Job, in the server's namespace, with the server's own database account,
+and use the MariaDB client tools of an image: a managed host's own image, and
+`mariadb:11.4` for an external host — mirror it for a cluster that cannot pull
+from Docker Hub, and run a managed host on the mirror. They reach the database
+at the address handed to servers (the host's connect address), with TLS when
+the database offers it. A database that cannot be dumped fails the backup, and
+the message names it: a backup that skipped it would read as one that has it.
+Importing an SQL file into a database runs the same way, without needing a
+backup target.
+
 ## Registering another cluster
 
 Quetzal reaches a remote cluster with a kubeconfig you paste into the panel
@@ -448,7 +462,12 @@ kill it; `console` for the live console and the setup log, commands included;
 delete backups; `files` for its files, in the panel and over SFTP; `settings`
 for its variables, resources, ports, exposure, hibernation and reinstall;
 `databases` for its databases and their passwords; `delete` to delete it. The
-server's Access tab says the same next to each one.
+server's Access tab says the same next to each one. Two actions take two of
+them: restoring a backup's databases takes `databases` as well as `backups`,
+and importing an SQL file into a database takes `files` as well as
+`databases` -- the file's content ends up readable in the database. The
+startup command itself is the administrators' (the servers permission); a
+server's `settings` edit its variables.
 
 **A subuser's permissions bound what their schedules may do.** A scheduled task
 is checked against the permission the action itself needs — `console` for a

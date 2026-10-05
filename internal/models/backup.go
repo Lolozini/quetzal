@@ -27,12 +27,18 @@ type BackupConfig struct {
 	RunnerImage string `json:"runnerImage"`
 }
 
-// BackupDirection distinguishes a backup from a restore operation.
+// BackupDirection distinguishes a backup from a restore operation, and both
+// from a database import.
 type BackupDirection string
 
 const (
 	DirBackup  BackupDirection = "backup"
 	DirRestore BackupDirection = "restore"
+	// DirDatabaseImport loads an SQL file from the server's files into one of
+	// its databases. It is driven like a restore -- a Job, on a stopped server
+	// that cannot start until it is done -- but it lives with the databases,
+	// not in the server's list of backups.
+	DirDatabaseImport BackupDirection = "db-import"
 )
 
 // BackupPhase is the lifecycle of a backup/restore operation.
@@ -50,9 +56,9 @@ const (
 	BackupDeleting BackupPhase = "Deleting"
 )
 
-// Backup records one backup or restore operation for a server. It maps to a
-// restic snapshot (tagged with the backup ID) and is driven to completion by the
-// controller via a one-shot Job.
+// Backup records one operation on a server's data -- a backup, a restore, or a
+// database import -- driven to completion by the controller via a one-shot Job.
+// A backup maps to a restic snapshot (tagged with the backup ID).
 type Backup struct {
 	ID          uint       `gorm:"primaryKey" json:"id"`
 	CreatedAt   time.Time  `json:"createdAt"`
@@ -74,4 +80,19 @@ type Backup struct {
 	// OtherTarget is set in API answers for a backup made to a target the
 	// panel no longer uses: it cannot be restored from the current one.
 	OtherTarget bool `gorm:"-" json:"otherTarget,omitempty"`
+
+	// Databases names, for a backup, the server's databases dumped into its
+	// snapshot alongside its files; for a restore, those it loads back (set
+	// when it starts: the snapshot's that the server still has).
+	Databases []string `gorm:"serializer:json" json:"databases,omitempty"`
+	// WithDatabases is a restore asked to load the snapshot's databases back,
+	// and not only its files.
+	WithDatabases bool `json:"withDatabases,omitempty"`
+
+	// A database import: the database it loads (a ServerDatabase ID), the file
+	// of the server's it loads from, relative to the data volume's root, and
+	// whether the database is emptied first.
+	DatabaseID uint   `json:"databaseId,omitempty"`
+	Path       string `json:"path,omitempty"`
+	Wipe       bool   `json:"wipe,omitempty"`
 }

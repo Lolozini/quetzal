@@ -271,9 +271,18 @@ func (s *Server) handleListServerDatabases(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	imports, err := s.Store.LatestDatabaseImports(srv.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	out := make([]map[string]any, 0, len(ds))
 	for i := range ds {
-		out = append(out, s.databaseView(&ds[i], false))
+		v := s.databaseView(&ds[i], false)
+		if b, ok := imports[ds[i].ID]; ok {
+			v["lastImport"] = importView(b)
+		}
+		out = append(out, v)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -431,6 +440,13 @@ func (s *Server) handleDeleteServerDatabase(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
+	if active, err := s.Store.DatabaseImportActive(d.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	} else if active {
+		writeError(w, http.StatusConflict, "an import into this database is waiting or running; cancel it, or wait for it to finish")
+		return
+	}
 	if host, err := s.Store.GetDatabaseHost(d.HostID); err == nil {
 		if conn, err := s.adminConn(host); err == nil {
 			ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
@@ -441,6 +457,10 @@ func (s *Server) handleDeleteServerDatabase(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	if err := s.Store.DeleteServerDatabase(d.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := s.Store.DeleteDatabaseImports(d.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

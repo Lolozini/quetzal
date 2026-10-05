@@ -116,7 +116,7 @@ func TestAPendingOperationIsClaimedBeforeItsJob(t *testing.T) {
 	if ok, _ := st.CancelPendingBackup(b.ID); ok {
 		t.Error("a running restore was cancelled")
 	}
-	if ok, _ := st.ClaimBackup(b.ID, "again", ""); ok {
+	if ok, _ := st.ClaimBackup(b.ID, "again", "", nil); ok {
 		t.Error("a running restore was taken up a second time")
 	}
 }

@@ -491,8 +491,15 @@ export const fr: Record<string, string> = {
     "Aucune cible de sauvegarde configurée — définissez-en une ci-dessous pour activer les sauvegardes.",
   "No backups yet.": "Aucune sauvegarde pour l'instant.",
   Restore: "Restaurer",
-  "Restore this backup into the server's volume? Current data will be overwritten by the snapshot.\n\nThe server must be stopped first (a live restore would corrupt the data), and cannot be started again until the restore has finished or been cancelled.":
-    "Restaurer cette sauvegarde dans le volume du serveur ? Les données actuelles seront écrasées par le snapshot.\n\nLe serveur doit d'abord être arrêté (une restauration à chaud corromprait les données), et ne pourra pas redémarrer avant la fin ou l'annulation de la restauration.",
+  "Restore backup #{id}?": "Restaurer la sauvegarde n° {id} ?",
+  "Current data will be overwritten by the snapshot. The server must be stopped first (a live restore would corrupt the data), and cannot be started again until the restore has finished or been cancelled.":
+    "Les données actuelles seront remplacées par l'instantané. Le serveur doit d'abord être arrêté (une restauration à chaud corromprait les données), et il ne pourra pas redémarrer avant la fin ou l'annulation de la restauration.",
+  "Also restore its databases ({names}): each is emptied, then loaded from the backup.":
+    "Restaurer aussi ses bases de données ({names}) : chacune est vidée, puis rechargée depuis la sauvegarde.",
+  "Its databases are left as they are: restoring them takes the databases permission.":
+    "Ses bases de données restent telles quelles : les restaurer demande la permission bases de données.",
+  "+ {n} database(s)": "+ {n} base(s) de données",
+  "+ databases loaded back: {names}": "+ bases rechargées : {names}",
   "Delete this backup? Its snapshot is removed from the repository and the data cannot be recovered.":
     "Supprimer cette sauvegarde ? Son snapshot est retiré du dépôt et les données seront irrécupérables.",
   "Delete this record?": "Supprimer cet enregistrement ?",
@@ -600,6 +607,22 @@ export const fr: Record<string, string> = {
   "Startup command saved.": "Commande de démarrage enregistrée.",
   "The server runs its template's startup command again.": "Le serveur reprend la commande de démarrage de son modèle.",
   "Save startup command": "Enregistrer la commande",
+  "Import SQL…": "Importer du SQL…",
+  "Cancel the import": "Annuler l'import",
+  "Last import": "Dernier import",
+  "Empty the database first": "Vider la base d'abord",
+  "SQL file, from the server's files": "Fichier SQL, parmi les fichiers du serveur",
+  "Upload it first with the file manager or SFTP: a dump of one database (mysqldump, mariadb-dump), plain or gzipped. Lines that switch to another database and the definers of a dump made as root are left out, so a dump taken elsewhere fits.":
+    "Envoyez-le d'abord avec le gestionnaire de fichiers ou en SFTP : le dump d'une base (mysqldump, mariadb-dump), brut ou compressé en gzip. Les lignes qui changent de base et les définisseurs d'un dump fait en root sont ignorés, pour qu'un dump pris ailleurs convienne.",
+  "The server has to be stopped: the import waits for it, and the server cannot be started until the import is done.":
+    "Le serveur doit être arrêté : l'import l'attend, et le serveur ne peut pas redémarrer avant la fin de l'import.",
+  "Waiting for the server to be stopped. It cannot be started until the import is done.":
+    "En attente de l'arrêt du serveur. Il ne peut pas démarrer avant la fin de l'import.",
+  "Load {path} into \"{name}\"? The database is emptied first: everything it holds now is replaced by the file.":
+    "Charger {path} dans « {name} » ? La base est vidée d'abord : tout ce qu'elle contient est remplacé par le fichier.",
+  "Load {path} into \"{name}\", on top of what it holds?": "Charger {path} dans « {name} », par-dessus ce qu'elle contient ?",
+  "A server's backups take its databases with its files: each backup holds a dump of them.":
+    "Les sauvegardes d'un serveur emportent ses bases de données avec ses fichiers : chaque sauvegarde en contient un dump.",
   "Use the template's": "Reprendre celle du modèle",
   "Its own startup command was dropped: it runs the new template's.": "Sa propre commande de démarrage a été retirée : il prend celle du nouveau modèle.",
   current: "actuelle",

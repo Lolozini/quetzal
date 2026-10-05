@@ -155,7 +155,10 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   the row in the panel, so the data really goes.
 - **Per-server databases**: provision a MySQL/MariaDB database + scoped user from
   the panel, against a registered **external** host *or* a **managed MariaDB**
-  Quetzal deploys and owns in-cluster.
+  Quetzal deploys and owns in-cluster. **Backups take them along**: each backup
+  holds a dump of the server's databases next to its files, and a restore can
+  load them back. **Import an SQL dump** made elsewhere into one — a TeamSpeak
+  or plugin database moving in — from the server's files.
 
 ### Automation
 - **Scheduled tasks** (cron) as ordered **chains** — e.g. *warn players → wait

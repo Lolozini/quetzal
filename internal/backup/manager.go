@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -77,25 +78,26 @@ func (m *Manager) processPending(ctx context.Context) {
 	if err != nil || len(pend) == 0 {
 		return
 	}
+	// A database import talks to the database alone, and runs whether backups
+	// are configured or not; everything else needs the target.
+	var access, secret, pass, unusable string
 	cfg, err := m.Store.GetBackupConfig()
 	if err != nil {
-		for i := range pend {
-			m.finish(&pend[i], models.BackupFailed, 0, "backups are not configured")
-		}
-		return
-	}
-	access, secret, pass, err := m.Store.BackupSecrets(cfg)
-	if err != nil {
-		for i := range pend {
-			m.finish(&pend[i], models.BackupFailed, 0, "decrypt backup credentials: "+err.Error())
-		}
-		return
+		unusable = "backups are not configured"
+	} else if access, secret, pass, err = m.Store.BackupSecrets(cfg); err != nil {
+		unusable = "decrypt backup credentials: " + err.Error()
 	}
 	// Serialize per server: never run two operations for the same server at once
-	// (they would contend on that server's restic repository lock).
+	// (they would contend on that server's restic repository lock, or load a
+	// database a backup is dumping).
 	busy := m.busyServers()
 	for i := range pend {
 		b := &pend[i]
+		imports := b.Direction == models.DirDatabaseImport
+		if !imports && unusable != "" {
+			m.finish(b, models.BackupFailed, 0, unusable)
+			continue
+		}
 		if busy[b.ServerID] {
 			continue
 		}
@@ -141,6 +143,23 @@ func (m *Manager) processPending(ctx context.Context) {
 				continue
 			}
 		}
+		// An import waits for the game to be gone: it would go on writing to
+		// the database while the file replaces it. The server cannot be started
+		// while an import waits, so this covers the stop's grace period, and a
+		// pod that will not go calls the import off, as it does a restore.
+		if imports {
+			up, err := gameHasPods(ctx, cs, srv.Namespace, srv.Slug)
+			if err != nil {
+				continue
+			}
+			if up {
+				if m.now().Sub(b.CreatedAt) > restoreWait {
+					m.finish(b, models.BackupFailed, 0, fmt.Sprintf(
+						"it never started: the server was still running %s after the request, so nothing was imported", restoreWait))
+				}
+				continue
+			}
+		}
 		// A backup of a server on its way down waits for the game to be gone,
 		// so that stopping a server and backing it up gives the copy of a
 		// stopped server it was meant to: started at once, it copied the world
@@ -152,12 +171,25 @@ func (m *Manager) processPending(ctx context.Context) {
 				continue
 			}
 		}
+		dbs, err := m.operationDatabases(srv, b)
+		var stop opFailure
+		if errors.As(err, &stop) {
+			m.finish(b, models.BackupFailed, 0, stop.msg)
+			continue
+		}
+		if err != nil {
+			log.Printf("backup %d: %v (retrying)", b.ID, err)
+			continue
+		}
 		p := Params{
-			Image: Image(cfg), Namespace: srv.Namespace, Slug: srv.Slug,
+			Namespace: srv.Namespace, Slug: srv.Slug,
 			BackupID: b.ID, Direction: b.Direction, SourceID: b.SourceID,
-			KeepLast: cfg.KeepLast, Repository: Repository(cfg, srv.Slug), Region: cfg.Region,
-			AccessKey: access, SecretKey: secret, RepoPassword: pass,
 			NodeSelector: srv.NodeSelector, InstallGen: srv.InstallGeneration,
+			Databases: dbs, ImportPath: b.Path, ImportWipe: b.Wipe,
+		}
+		if !imports {
+			p.Image, p.KeepLast, p.Repository, p.Region = Image(cfg), cfg.KeepLast, Repository(cfg, srv.Slug), cfg.Region
+			p.AccessKey, p.SecretKey, p.RepoPassword = access, secret, pass
 		}
 		// Take the operation up before its Job exists: one cancelled meanwhile
 		// is gone, and gets no Job.
@@ -165,7 +197,11 @@ func (m *Manager) processPending(ctx context.Context) {
 		if b.Direction == models.DirBackup {
 			target = TargetID(cfg)
 		}
-		claimed, err := m.Store.ClaimBackup(b.ID, JobName(p), target)
+		var names []string
+		if !imports && len(dbs) > 0 {
+			names = DatabaseNames(dbs)
+		}
+		claimed, err := m.Store.ClaimBackup(b.ID, JobName(p), target, names)
 		if err != nil {
 			log.Printf("backup: claim %d: %v", b.ID, err)
 			continue
@@ -176,6 +212,9 @@ func (m *Manager) processPending(ctx context.Context) {
 		b.Phase, b.JobName = models.BackupRunning, JobName(p)
 		if target != "" {
 			b.Target = target
+		}
+		if names != nil {
+			b.Databases = names
 		}
 		busy[b.ServerID] = true
 		if err := ensureSecret(ctx, cs, BuildSecret(p)); err != nil {
@@ -216,7 +255,7 @@ func (m *Manager) processRunning(ctx context.Context) {
 		cs := clients.Clientset
 		job, err := cs.BatchV1().Jobs(srv.Namespace).Get(ctx, b.JobName, metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
-			m.finish(b, models.BackupFailed, 0, "backup job disappeared")
+			m.finish(b, models.BackupFailed, 0, string(b.Direction)+" job disappeared")
 			continue
 		}
 		if err != nil {
@@ -229,7 +268,7 @@ func (m *Manager) processRunning(ctx context.Context) {
 			if b.Direction == models.DirBackup {
 				size = ParseBackupSize(podLogs(ctx, cs, srv.Namespace, b.JobName))
 			}
-			m.finish(b, models.BackupSucceeded, size, "")
+			m.finish(b, models.BackupSucceeded, size, m.restoreNote(b))
 			if b.Direction == models.DirBackup {
 				if err := m.Store.PruneBackups(srv.ID, keepLast); err != nil {
 					log.Printf("backup: prune %d: %v", srv.ID, err)
@@ -237,16 +276,122 @@ func (m *Manager) processRunning(ctx context.Context) {
 			}
 			cleanup(ctx, cs, srv.Namespace, b.JobName)
 		case failed:
-			logs := podLogs(ctx, cs, srv.Namespace, b.JobName)
-			log.Printf("backup: %s #%d of %s failed: %s", b.Direction, b.ID, srv.Slug, failureLine(logs, Repository(cfg, srv.Slug)))
-			msg := failureMessage(logs, Repository(cfg, srv.Slug))
+			step, logs := failedStep(ctx, cs, srv.Namespace, b.JobName)
+			var msg string
+			if isDatabaseContainer(step) {
+				msg = databaseFailure(logs)
+				log.Printf("backup: %s #%d of %s failed in %s: %s", b.Direction, b.ID, srv.Slug, step, msg)
+			} else {
+				log.Printf("backup: %s #%d of %s failed: %s", b.Direction, b.ID, srv.Slug, failureLine(logs, Repository(cfg, srv.Slug)))
+				msg = failureMessage(logs, Repository(cfg, srv.Slug))
+			}
 			if msg == "" {
-				msg = "backup job failed"
+				msg = string(b.Direction) + " job failed"
 			}
 			m.finish(b, models.BackupFailed, 0, msg)
 			cleanup(ctx, cs, srv.Namespace, b.JobName)
 		}
 	}
+}
+
+// opFailure ends an operation that cannot run as asked -- its database, or
+// that database's host, is gone -- where any other error is waited out.
+type opFailure struct{ msg string }
+
+func (e opFailure) Error() string { return e.msg }
+
+// operationDatabases resolves the databases an operation works on: every
+// database of the server for a backup; for a restore asked for them, those of
+// its snapshot the server still has (by name); for an import, the one it
+// loads.
+func (m *Manager) operationDatabases(srv *models.Server, b *models.Backup) ([]DatabaseParams, error) {
+	var dbs []models.ServerDatabase
+	switch {
+	case b.Direction == models.DirBackup:
+		all, err := m.Store.ListServerDatabases(srv.ID)
+		if err != nil {
+			return nil, fmt.Errorf("list the server's databases: %w", err)
+		}
+		dbs = all
+	case b.Direction == models.DirRestore && b.WithDatabases:
+		src, err := m.Store.GetBackup(b.SourceID)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, opFailure{"the backup it restores no longer exists"}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read the backup: %w", err)
+		}
+		all, err := m.Store.ListServerDatabases(srv.ID)
+		if err != nil {
+			return nil, fmt.Errorf("list the server's databases: %w", err)
+		}
+		for _, d := range all {
+			if slices.Contains(src.Databases, d.DatabaseName) {
+				dbs = append(dbs, d)
+			}
+		}
+	case b.Direction == models.DirDatabaseImport:
+		d, err := m.Store.GetServerDatabase(b.DatabaseID)
+		if errors.Is(err, store.ErrNotFound) || (err == nil && d.ServerID != srv.ID) {
+			return nil, opFailure{"the database it was to load no longer exists"}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read the database: %w", err)
+		}
+		dbs = []models.ServerDatabase{*d}
+	}
+	out := make([]DatabaseParams, 0, len(dbs))
+	for i := range dbs {
+		d := &dbs[i]
+		host, err := m.Store.GetDatabaseHost(d.HostID)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, opFailure{fmt.Sprintf("the host of database %s no longer exists", d.DatabaseName)}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read the host of database %s: %w", d.DatabaseName, err)
+		}
+		pw, err := m.Store.ServerDatabasePassword(d)
+		if err != nil {
+			return nil, opFailure{fmt.Sprintf("the password of database %s cannot be read: %v", d.DatabaseName, err)}
+		}
+		// A managed host's own image: the admin's choice of registry and
+		// release, already on the cluster. Any other host is reached with the
+		// MariaDB release the panel deploys.
+		image := reconciler.DefaultMariaDBImage
+		if host.Kind == models.DBHostManaged && strings.TrimSpace(host.Image) != "" {
+			image = host.Image
+		}
+		out = append(out, DatabaseParams{
+			Name: d.DatabaseName, Host: host.ClientHost(), Port: host.ClientPort(),
+			User: d.Username, Password: pw, Image: image,
+		})
+	}
+	return out, nil
+}
+
+// restoreNote says which of its snapshot's databases a restore did not load
+// back: those the server no longer has.
+func (m *Manager) restoreNote(b *models.Backup) string {
+	if b.Direction != models.DirRestore || !b.WithDatabases {
+		return ""
+	}
+	src, err := m.Store.GetBackup(b.SourceID)
+	if err != nil {
+		return ""
+	}
+	var gone []string
+	for _, name := range src.Databases {
+		if !slices.Contains(b.Databases, name) {
+			gone = append(gone, name)
+		}
+	}
+	switch len(gone) {
+	case 0:
+		return ""
+	case 1:
+		return fmt.Sprintf("database %s was not restored: the server no longer has it", gone[0])
+	}
+	return fmt.Sprintf("databases %s were not restored: the server no longer has them", strings.Join(gone, ", "))
 }
 
 // processDeleting drives snapshot deletions. A row in the Deleting phase has
@@ -494,11 +639,57 @@ func podLogs(ctx context.Context, cs kubernetes.Interface, ns, jobName string) s
 	return ""
 }
 
+// failedStep finds where a failed Job stopped: the container that failed in
+// the last attempt that ran one, and what it printed. A pod with init
+// containers stops at the first of them that fails -- a database that could
+// not be dumped, before restic ever ran -- and its own logs say nothing of it.
+// Without a failed container it falls back to the pod's logs (podLogs).
+func failedStep(ctx context.Context, cs kubernetes.Interface, ns, jobName string) (container, logs string) {
+	pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: "job-name=" + jobName})
+	if err == nil {
+		order := make([]*corev1.Pod, 0, len(pods.Items))
+		for i := range pods.Items {
+			order = append(order, &pods.Items[i])
+		}
+		sort.SliceStable(order, func(i, j int) bool {
+			return order[j].CreationTimestamp.Before(&order[i].CreationTimestamp)
+		})
+		for _, p := range order {
+			name := failedContainer(p)
+			if name == "" {
+				continue
+			}
+			data, err := cs.CoreV1().Pods(ns).GetLogs(p.Name, &corev1.PodLogOptions{Container: name}).DoRaw(ctx)
+			if err == nil && strings.TrimSpace(string(data)) != "" {
+				return name, string(data)
+			}
+			if reason := containerFailure(p); reason != "" {
+				return name, reason
+			}
+		}
+	}
+	return "", podLogs(ctx, cs, ns, jobName)
+}
+
+// failedContainer names the container of a pod that exited in error, init
+// containers first: they run in order and the first to fail ends the pod.
+func failedContainer(pod *corev1.Pod) string {
+	for _, list := range [][]corev1.ContainerStatus{pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses} {
+		for _, st := range list {
+			if t := st.State.Terminated; t != nil && t.ExitCode != 0 {
+				return st.Name
+			}
+		}
+	}
+	return ""
+}
+
 // containerFailure returns why a pod's container did not run, if that is known:
 // the waiting or terminated reason Kubernetes recorded. Empty when the container
-// started normally (the failure is then in the logs, not here).
+// started normally (the failure is then in the logs, not here). Init containers
+// come first: an image they cannot pull holds the whole pod.
 func containerFailure(pod *corev1.Pod) string {
-	for _, cs := range pod.Status.ContainerStatuses {
+	for _, cs := range append(append([]corev1.ContainerStatus{}, pod.Status.InitContainerStatuses...), pod.Status.ContainerStatuses...) {
 		st := cs.State
 		switch {
 		case st.Waiting != nil && st.Waiting.Reason != "":
@@ -534,8 +725,24 @@ func (m *Manager) announce(b *models.Backup) {
 	}
 	var typ, text string
 	switch {
+	case b.Direction == models.DirDatabaseImport:
+		db := fmt.Sprintf("#%d", b.DatabaseID)
+		if d, err := m.Store.GetServerDatabase(b.DatabaseID); err == nil {
+			db = d.DatabaseName
+		}
+		if b.Phase == models.BackupSucceeded {
+			typ, text = models.EventDatabaseImported, fmt.Sprintf("%s loaded into database %s", b.Path, db)
+		} else {
+			typ, text = models.EventDatabaseImportFailed, fmt.Sprintf("loading %s into database %s failed: %s", b.Path, db, b.Message)
+		}
 	case b.Direction == models.DirRestore && b.Phase == models.BackupSucceeded:
 		typ, text = models.EventRestoreSucceeded, fmt.Sprintf("restored backup #%d", b.SourceID)
+		if len(b.Databases) > 0 {
+			text += ", with " + databaseList(b.Databases)
+		}
+		if b.Message != "" {
+			text += "; " + b.Message
+		}
 	case b.Direction == models.DirRestore:
 		typ, text = models.EventRestoreFailed, fmt.Sprintf("restoring backup #%d failed: %s", b.SourceID, b.Message)
 	case b.Phase == models.BackupSucceeded:
@@ -543,12 +750,24 @@ func (m *Manager) announce(b *models.Backup) {
 		if b.SizeBytes > 0 {
 			text += fmt.Sprintf(" (%s)", byteSize(b.SizeBytes))
 		}
+		if len(b.Databases) > 0 {
+			text += ", with " + databaseList(b.Databases)
+		}
 	default:
 		typ, text = models.EventBackupFailed, fmt.Sprintf("backup #%d failed: %s", b.ID, b.Message)
 	}
 	if err := m.Store.AddEvent(&models.Event{ServerID: srv.ID, Type: typ, Message: srv.Slug + ": " + text}); err != nil {
 		log.Printf("backup: announce %d: %v", b.ID, err)
 	}
+}
+
+// databaseList names databases in a sentence: "database s4_x", "databases
+// s4_x, s4_y".
+func databaseList(names []string) string {
+	if len(names) == 1 {
+		return "database " + names[0]
+	}
+	return "databases " + strings.Join(names, ", ")
 }
 
 // byteSize writes a size the way the panel shows one: 1.4 GiB, 292 MiB.

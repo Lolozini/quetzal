@@ -3,14 +3,19 @@ import { api, ApiError, Backup, BackupConfig, BackupConfigInput } from "../api";
 import { useT } from "../i18n";
 
 // readOnly lists the backups without the means to make, restore or delete one,
-// for a server an administrator has suspended.
-export function Backups({ id, readOnly = false }: { id: number; readOnly?: boolean }) {
+// for a server an administrator has suspended. canDatabases: the user may load
+// a backup's databases back (the databases permission).
+export function Backups({ id, readOnly = false, canDatabases = false }: { id: number; readOnly?: boolean; canDatabases?: boolean }) {
   const { t } = useT();
   const [cfg, setCfg] = useState<BackupConfig | null>(null);
   const [list, setList] = useState<Backup[]>([]);
   const [error, setError] = useState("");
   const [showCfg, setShowCfg] = useState(false);
   const [busy, setBusy] = useState("");
+  // The backup about to be restored, asked for confirmation in the page: the
+  // choice of its databases does not fit a browser dialog.
+  const [restoring, setRestoring] = useState<Backup | null>(null);
+  const [withDatabases, setWithDatabases] = useState(true);
 
   async function load() {
     try {
@@ -41,14 +46,17 @@ export function Backups({ id, readOnly = false }: { id: number; readOnly?: boole
     }
   }
 
-  async function restore(b: Backup) {
-    if (!window.confirm(t("Restore this backup into the server's volume? Current data will be overwritten by the snapshot.\n\nThe server must be stopped first (a live restore would corrupt the data), and cannot be started again until the restore has finished or been cancelled."))) return;
+  async function restore(b: Backup, databases: boolean) {
     setError("");
+    setBusy("restore");
     try {
-      await api.restoreBackup(id, b.id);
+      await api.restoreBackup(id, b.id, databases);
+      setRestoring(null);
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy("");
     }
   }
 
@@ -108,7 +116,16 @@ export function Backups({ id, readOnly = false }: { id: number; readOnly?: boole
               {list.map((b) => (
                 <tr key={b.id}>
                   <td>{b.id}</td>
-                  <td>{b.direction}{b.direction === "restore" && b.sourceId ? ` ←#${b.sourceId}` : ""}</td>
+                  <td>
+                    {b.direction}{b.direction === "restore" && b.sourceId ? ` ←#${b.sourceId}` : ""}
+                    {(b.databases?.length ?? 0) > 0 && (
+                      <div className="muted" style={{ fontSize: 11, marginTop: 2 }} title={b.databases!.join(", ")}>
+                        {b.direction === "backup"
+                          ? t("+ {n} database(s)", { n: b.databases!.length })
+                          : t("+ databases loaded back: {names}", { names: b.databases!.join(", ") })}
+                      </div>
+                    )}
+                  </td>
                   <td title={b.message}>
                     <span className={`badge ${phaseClass(b.phase)}`}>{t(b.phase)}</span>
                     {b.message && (
@@ -128,7 +145,14 @@ export function Backups({ id, readOnly = false }: { id: number; readOnly?: boole
                     {!readOnly && (
                       <>
                     {b.direction === "backup" && b.phase === "Succeeded" && !b.otherTarget && (
-                      <button onClick={() => restore(b)}>{t("Restore")}</button>
+                      <button
+                        onClick={() => {
+                          setRestoring(b);
+                          setWithDatabases(true);
+                        }}
+                      >
+                        {t("Restore")}
+                      </button>
                     )}{" "}
                     {/* A running operation owns a Job (and, for a restore, the
                         exclusive write mount); the API refuses to drop it. One
@@ -148,6 +172,31 @@ export function Backups({ id, readOnly = false }: { id: number; readOnly?: boole
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {restoring && (
+        <div className="notice warn" style={{ marginTop: 12 }}>
+          <strong>{t("Restore backup #{id}?", { id: restoring.id })}</strong>
+          <p style={{ margin: "6px 0" }}>
+            {t("Current data will be overwritten by the snapshot. The server must be stopped first (a live restore would corrupt the data), and cannot be started again until the restore has finished or been cancelled.")}
+          </p>
+          {(restoring.databases?.length ?? 0) > 0 &&
+            (canDatabases ? (
+              <label className="row" style={{ alignItems: "flex-start" }}>
+                <input type="checkbox" style={{ width: "auto" }} checked={withDatabases} onChange={(e) => setWithDatabases(e.target.checked)} />
+                &nbsp;{t("Also restore its databases ({names}): each is emptied, then loaded from the backup.", { names: restoring.databases!.join(", ") })}
+              </label>
+            ) : (
+              <p className="muted" style={{ margin: "6px 0" }}>
+                {t("Its databases are left as they are: restoring them takes the databases permission.")}
+              </p>
+            ))}
+          <div className="row" style={{ gap: 8, marginTop: 8 }}>
+            <button className="danger" disabled={busy !== ""} onClick={() => restore(restoring, canDatabases && withDatabases && (restoring.databases?.length ?? 0) > 0)}>
+              {busy === "restore" ? t("Queuing…") : t("Restore")}
+            </button>
+            <button onClick={() => setRestoring(null)}>{t("Cancel")}</button>
+          </div>
         </div>
       )}
       {error && <div className="error">{error}</div>}

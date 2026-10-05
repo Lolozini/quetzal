@@ -1802,6 +1802,10 @@ func (s *Server) handlePower(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusConflict, restoreActiveMessage)
 				return
 			}
+			if errors.Is(err, store.ErrDatabaseImportActive) {
+				writeError(w, http.StatusConflict, databaseImportActiveMessage)
+				return
+			}
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

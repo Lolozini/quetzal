@@ -160,6 +160,14 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: unit tests
         run: go test -race ./...
+      # The scripts that dump, load and import a server's databases run in a
+      # MariaDB image, against a MariaDB: here they run as their Jobs run them,
+      # in Docker, on the release the panel deploys and on the oldest still
+      # maintained (10.6, which offers no TLS).
+      - name: database scripts against MariaDB
+        run: |
+          QUETZAL_TEST_MARIADB=1 go test -count=1 -run TestDatabaseScriptsAgainstMariaDB ./internal/backup/
+          QUETZAL_TEST_MARIADB=mariadb:10.6 go test -count=1 -run TestDatabaseScriptsAgainstMariaDB ./internal/backup/
       - name: build
         run: go build ./...
       # Where uint is 32 bits, an id parsed as 64 and converted does not fail --

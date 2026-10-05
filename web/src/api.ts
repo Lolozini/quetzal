@@ -172,6 +172,20 @@ export interface ServerDatabase {
   hostName?: string;
   password?: string; // only present on create/get/rotate
   createdAt: string;
+  // The database's latest import of an SQL file (listed databases only).
+  lastImport?: DatabaseImport;
+}
+
+// DatabaseImport is the load of an SQL file of the server's into a database,
+// run on a stopped server that cannot start until it is done.
+export interface DatabaseImport {
+  id: number;
+  phase: BackupPhase;
+  path: string;
+  wipe: boolean;
+  message?: string;
+  createdAt: string;
+  completedAt?: string;
 }
 
 export interface FileEntry {
@@ -513,6 +527,11 @@ export interface Backup {
   completedAt?: string;
   // Made to a backup target the panel no longer uses: it can't be restored.
   otherTarget?: boolean;
+  // A backup: the server's databases dumped into it with the files. A
+  // restore: those it loads back.
+  databases?: string[];
+  // A restore asked to load the backup's databases back too.
+  withDatabases?: boolean;
 }
 
 export interface ClusterSetup {
@@ -630,6 +649,8 @@ export const EVENT_TYPES = [
   "backup.failed",
   "restore.succeeded",
   "restore.failed",
+  "database.imported",
+  "database.import-failed",
   "schedule.create",
   "schedule.run",
   "server.transfer",
@@ -827,8 +848,9 @@ export const api = {
     req<{ warning?: string } | undefined>("PUT", "/api/backup-config", body),
   backups: (id: number) => req<Backup[]>("GET", `/api/servers/${id}/backups`),
   createBackup: (id: number) => req<Backup>("POST", `/api/servers/${id}/backups`),
-  restoreBackup: (id: number, bid: number) =>
-    req<Backup>("POST", `/api/servers/${id}/backups/${bid}/restore`),
+  // databases loads the backup's databases back too (the databases permission).
+  restoreBackup: (id: number, bid: number, databases = false) =>
+    req<Backup>("POST", `/api/servers/${id}/backups/${bid}/restore`, databases ? { databases } : undefined),
   deleteBackup: (id: number, bid: number) =>
     req<void>("DELETE", `/api/servers/${id}/backups/${bid}`),
 
@@ -1042,6 +1064,12 @@ export const api = {
     req<ServerDatabase>("POST", `/api/servers/${id}/databases/${dbid}/rotate`),
   deleteServerDatabase: (id: number, dbid: number) =>
     req<void>("DELETE", `/api/servers/${id}/databases/${dbid}`),
+  // Loads an SQL file of the server's (path from its data directory) into the
+  // database, emptied first unless wipe is false. The server must be stopped.
+  importDatabase: (id: number, dbid: number, path: string, wipe: boolean) =>
+    req<DatabaseImport>("POST", `/api/servers/${id}/databases/${dbid}/import`, { path, wipe }),
+  cancelDatabaseImport: (id: number, dbid: number) =>
+    req<void>("DELETE", `/api/servers/${id}/databases/${dbid}/import`),
 
   // Notifications.
   channels: () => req<NotificationChannel[]>("GET", "/api/notifications/channels"),
