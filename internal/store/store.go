@@ -615,6 +615,12 @@ func (s *Store) UpdateServerImage(id uint, image string) error {
 	return s.db.Model(&models.Server{}).Where("id = ?", id).Update("image", image).Error
 }
 
+// UpdateServerStartup persists a server's own startup command ("" for its
+// template's).
+func (s *Store) UpdateServerStartup(id uint, startup string) error {
+	return s.db.Model(&models.Server{}).Where("id = ?", id).Update("startup", startup).Error
+}
+
 // UpdateServerResources persists only the CPU/memory limits.
 func (s *Store) UpdateServerResources(id uint, r models.Resources) error {
 	return s.db.Model(&models.Server{}).Where("id = ?", id).
@@ -720,6 +726,8 @@ type ServerReinstall struct {
 	// template with no install script has nothing to run, so it leaves both off.
 	Install bool
 	Wipe    bool
+	// DropStartup takes the server back to its template's startup command.
+	DropStartup bool
 }
 
 // ReinstallServer applies a reinstall in one transaction. The controller must
@@ -736,6 +744,11 @@ func (s *Store) ReinstallServer(id uint, r ServerReinstall) error {
 				Env: r.Env, SecretEnvEnc: r.SecretEnvEnc, InstallWipe: r.Install && r.Wipe,
 			}).Error; err != nil {
 			return err
+		}
+		if r.DropStartup {
+			if err := tx.Model(&models.Server{}).Where("id = ?", id).Update("startup", "").Error; err != nil {
+				return err
+			}
 		}
 		if !r.Install {
 			return nil

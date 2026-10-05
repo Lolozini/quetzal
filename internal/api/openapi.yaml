@@ -992,11 +992,12 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
     patch:
       tags: [Servers]
-      summary: Update settings (name, exposure, hibernation, SFTP, startup variables, resources, image)
+      summary: Update settings (name, exposure, hibernation, SFTP, startup variables, resources, image, startup command)
       description: >-
         All fields are optional; only the present ones change. A rename changes
-        the displayed name only, never the slug. Editing env, resources or the
-        image is applied on the next reconcile, which restarts the server.
+        the displayed name only, never the slug. Editing env, resources, the
+        image or the startup command is applied on the next reconcile, which
+        restarts the server.
         env is validated against the template's variable contract; a blank
         secret variable keeps the stored value. resources are re-checked against
         the owner's quota.
@@ -1027,6 +1028,16 @@ paths:
                     The image to run, one of the template's (400 otherwise)
                     unless the caller is an administrator. Nothing is
                     reinstalled.
+                startup:
+                  type: string
+                  maxLength: 8192
+                  description: >-
+                    A startup command of the server's own, run instead of its
+                    template's, with the same {{VARIABLE}} placeholders.
+                    Administrators with the servers permission only (403
+                    otherwise). Empty, or the template's own command, takes the
+                    server back to its template's. Moving the server to
+                    another template drops it.
                 reaches:
                   type: array
                   items: { type: string }
@@ -1142,6 +1153,9 @@ paths:
                     type: array
                     items: { type: string }
                     description: New-template variables that took their default instead of the current value
+                  startupDropped:
+                    type: boolean
+                    description: The server had a startup command of its own, dropped by the template change
         "400": { description: "No install script, unknown template, image off the list, missing required variable, or an unreadable body" }
         "403": { description: A template change by someone other than the owner or an administrator }
   /api/servers/{id}/stats:
@@ -2752,6 +2766,9 @@ components:
           format: date-time
           description: A restart under way, stopping the game before it starts again
         image: { type: string }
+        startup:
+          type: string
+          description: The server's own startup command, set by an administrator; absent when it runs its template's
         resources: { $ref: "#/components/schemas/Resources" }
         storage: { $ref: "#/components/schemas/Storage" }
         ports:

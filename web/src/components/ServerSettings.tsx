@@ -9,8 +9,9 @@ import { RestartHint } from "./RestartHint";
 // Both apply on the next reconcile, which restarts the server.
 // canSwitchTemplate: changing what the server is -- another template -- is its
 // owner's call or an administrator's; a subuser trusted with its settings may
-// reinstall it as it is.
-export function ServerSettings({ server, onSaved, canSwitchTemplate }: { server: Server; onSaved: (s: Server) => void; canSwitchTemplate: boolean }) {
+// reinstall it as it is. canEditStartup: the startup command itself is the
+// administrators' (servers permission), as the API has it.
+export function ServerSettings({ server, onSaved, canSwitchTemplate, canEditStartup }: { server: Server; onSaved: (s: Server) => void; canSwitchTemplate: boolean; canEditStartup: boolean }) {
   const { t } = useT();
   const [tmpl, setTmpl] = useState<Template | null>(null);
 
@@ -28,6 +29,7 @@ export function ServerSettings({ server, onSaved, canSwitchTemplate }: { server:
       <h2>{t("Startup & resources")}</h2>
       <p className="muted">{t("Edit this server's configuration. A ↻ marker appears on a pending change that will restart the server.")}</p>
       {editable.length > 0 && <Variables serverId={server.id} vars={editable} env={server.env ?? {}} onSaved={onSaved} />}
+      {tmpl && <StartupForm server={server} template={tmpl} onSaved={onSaved} canEdit={canEditStartup} />}
       {tmpl && <ImageForm server={server} template={tmpl} onSaved={onSaved} />}
       <ResourcesForm server={server} onSaved={onSaved} />
       {tmpl && (tmpl.ports?.length ?? 0) === 0 && <ServerPorts server={server} onSaved={onSaved} />}
@@ -332,6 +334,7 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
           (res.status === "reinstalling" ? t("Its install runs on the next start.") : t("It has no install step: the image does the work at start."))
         : t("Reinstall triggered — the server will re-run its install script on the next start/reconcile.");
       if (res.reset.length) done += " " + t("Reset to the new template's defaults: {vars}.", { vars: res.reset.join(", ") });
+      if (res.startupDropped) done += " " + t("Its own startup command was dropped: it runs the new template's.");
       setMsg(done);
       onSaved(await api.server(server.id));
     } catch (e) {
@@ -468,6 +471,89 @@ function Variables({
       {msg && <div className="notice">{msg}</div>}
       {error && <div className="error">{error}</div>}
       <button className="primary" style={{ marginTop: 8 }} disabled={busy}>{busy ? t("Saving…") : t("Save variables")}</button>
+    </form>
+  );
+}
+
+// StartupForm shows the command the server's game starts with, and lets an
+// administrator give the server one of its own, as Pterodactyl does: an
+// argument its template has no variable for (TeamSpeak on MariaDB, a JVM flag
+// for one server) took a copy of the template. Everyone else sees the command,
+// and edits its variables above.
+function StartupForm({ server, template, onSaved, canEdit }: { server: Server; template: Template; onSaved: (s: Server) => void; canEdit: boolean }) {
+  const { t } = useT();
+  const own = server.startup ?? "";
+  const effective = own || template.startup || "";
+  const [value, setValue] = useState(effective);
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setValue(effective), [effective]);
+  const dirty = value.trim() !== effective.trim();
+  if (!canEdit && !effective) return null;
+
+  async function save(startup: string) {
+    setMsg("");
+    setError("");
+    setBusy(true);
+    try {
+      const saved = await api.setServerStartup(server.id, startup);
+      onSaved(saved);
+      setMsg(saved.startup ? t("Startup command saved.") : t("The server runs its template's startup command again."));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        save(value);
+      }}
+      style={{ marginTop: 12 }}
+    >
+      <h3>
+        {t("Startup command")} {own && <span className="badge warn">{t("custom")}</span>} {dirty && <RestartHint />}
+      </h3>
+      {canEdit ? (
+        <textarea
+          value={value}
+          rows={3}
+          onChange={(e) => setValue(e.target.value)}
+          aria-label={t("Startup command")}
+          placeholder={t("Empty: the image's own entrypoint starts the server.")}
+          style={{ fontFamily: "var(--font-mono)", fontSize: 12.5 }}
+        />
+      ) : (
+        <pre className="log" style={{ maxHeight: 160 }}>{effective}</pre>
+      )}
+      <p className="muted">
+        {own
+          ? t("This server has a startup command of its own, set by an administrator: it no longer follows its template's.")
+          : t("The template's startup command.")}{" "}
+        {t("{{VARIABLE}} placeholders are filled in with the server's variables.")}
+      </p>
+      {own && template.startup && (
+        <details>
+          <summary className="muted">{t("The template's command")}</summary>
+          <pre className="log" style={{ maxHeight: 160 }}>{template.startup}</pre>
+        </details>
+      )}
+      {msg && <div className="notice">{msg}</div>}
+      {error && <div className="error">{error}</div>}
+      {canEdit && (
+        <div className="row" style={{ marginTop: 8, gap: 8 }}>
+          <button className="primary" disabled={busy || !dirty}>{busy ? t("Saving…") : t("Save startup command")}</button>
+          {own && (
+            <button type="button" disabled={busy} onClick={() => save("")}>
+              {t("Use the template's")}
+            </button>
+          )}
+        </div>
+      )}
     </form>
   );
 }

@@ -924,6 +924,53 @@ func (s *Server) updateServerImage(r *http.Request, srv *models.Server, image st
 	return nil
 }
 
+// maxStartupBytes bounds a server's own startup command. Egg startups run to a
+// few hundred bytes; this leaves room for a long JVM line and nothing silly.
+const maxStartupBytes = 8 << 10
+
+// updateServerStartup gives a server a startup command of its own, or takes it
+// back to its template's (empty). It is the administrators' to change, as on
+// Pterodactyl, where users see the startup but only edit its variables: the
+// command is what runs in the server's container, and a subuser trusted with
+// its settings is not thereby trusted to run anything there. A command that is
+// the template's own, word for word, is stored as none, so the server goes on
+// following the template.
+func (s *Server) updateServerStartup(r *http.Request, srv *models.Server, startup string) *httpErr {
+	if u := userFrom(r.Context()); u == nil || !u.HasAdminPerm(models.AdminPermServers) {
+		return &httpErr{http.StatusForbidden, "only an administrator can change a server's startup command; its variables are edited with the server's settings"}
+	}
+	startup = strings.TrimSpace(strings.ReplaceAll(startup, "\r\n", "\n"))
+	if len(startup) > maxStartupBytes {
+		return &httpErr{http.StatusBadRequest, fmt.Sprintf("the startup command is longer than %d bytes", maxStartupBytes)}
+	}
+	if strings.ContainsRune(startup, 0) {
+		return &httpErr{http.StatusBadRequest, "the startup command contains a NUL byte"}
+	}
+	tmpl, err := s.Store.GetTemplate(srv.TemplateID)
+	if err != nil {
+		return &httpErr{http.StatusInternalServerError, "could not load template"}
+	}
+	if startup == strings.TrimSpace(tmpl.Startup) {
+		startup = ""
+	}
+	if startup == srv.Startup {
+		return nil
+	}
+	if err := s.Store.UpdateServerStartup(srv.ID, startup); err != nil {
+		return &httpErr{http.StatusInternalServerError, err.Error()}
+	}
+	detail := "back to the template's"
+	if startup != "" {
+		detail = startup
+		if len(detail) > 300 {
+			detail = detail[:300] + "…"
+		}
+	}
+	s.audit(r, srv.ID, "server.startup", detail)
+	srv.Startup = startup
+	return nil
+}
+
 // updateServerResources validates and persists new CPU/memory limits, enforcing
 // the owner's quota (admins bypass).
 func (s *Server) updateServerResources(r *http.Request, srv *models.Server, rsc models.Resources) *httpErr {
@@ -1041,6 +1088,10 @@ type updateServerRequest struct {
 	// template's, unless an administrator names another). Applied on the next
 	// reconcile, which restarts the pod.
 	Image *string `json:"image"`
+	// Startup, when present, gives the server a startup command of its own
+	// (administrators only); empty goes back to the template's. Applied on the
+	// next reconcile, which restarts the pod.
+	Startup *string `json:"startup"`
 }
 
 func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
@@ -1138,6 +1189,12 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Image != nil {
 		if err := s.updateServerImage(r, srv, strings.TrimSpace(*req.Image)); err != nil {
+			writeError(w, err.code, err.msg)
+			return
+		}
+	}
+	if req.Startup != nil {
+		if err := s.updateServerStartup(r, srv, *req.Startup); err != nil {
 			writeError(w, err.code, err.msg)
 			return
 		}
@@ -1340,9 +1397,13 @@ func (s *Server) handleReinstallServer(w http.ResponseWriter, r *http.Request) {
 		env = plain
 	}
 
+	// A startup command of the server's own was written for the template it
+	// leaves -- its jar, its arguments -- and would start the new one wrong.
+	dropStartup := switching && srv.Startup != ""
 	if err := s.Store.ReinstallServer(srv.ID, store.ServerReinstall{
 		TemplateID: target.ID, TemplateVersion: target.Version, Image: image,
 		Env: env, SecretEnvEnc: secretEnc, Install: installs, Wipe: req.WipeData,
+		DropStartup: dropStartup,
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1350,6 +1411,9 @@ func (s *Server) handleReinstallServer(w http.ResponseWriter, r *http.Request) {
 	detail := fmt.Sprintf("wipeData=%v", req.WipeData)
 	if switching {
 		detail = fmt.Sprintf("template %s -> %s, image %s, %s", current.Slug, target.Slug, image, detail)
+		if dropStartup {
+			detail += ", its own startup command dropped"
+		}
 	} else if image != srv.Image {
 		detail = fmt.Sprintf("image %s -> %s, %s", srv.Image, image, detail)
 	}
@@ -1366,6 +1430,9 @@ func (s *Server) handleReinstallServer(w http.ResponseWriter, r *http.Request) {
 		// Variables of the new template whose current value was not carried over
 		// and took the template's default instead.
 		"reset": reset,
+		// The server had a startup command of its own, and runs the new
+		// template's from now on.
+		"startupDropped": dropStartup,
 	})
 }
 

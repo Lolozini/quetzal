@@ -103,7 +103,10 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   running server keeps the template version it started with until it
   restarts.
 - Edit startup variables and CPU/RAM limits after creation (validated against the
-  template; secrets preserved).
+  template; secrets preserved). An administrator can give one server a **startup
+  command of its own** — an argument its egg has no variable for — without
+  copying the template; the panel marks it, and one click goes back to the
+  template's.
 - **Reinstall** on demand (optionally wiping data) without surprise re-installs on
   normal restarts.
 - **Hibernation**: scale idle servers to zero and **wake them on connect** — a

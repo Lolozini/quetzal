@@ -75,7 +75,7 @@ var EventTypes = []string{
 	EventScheduleRun,
 	// Done through the panel.
 	"server.create", "server.delete", "server.power", "server.update", "server.rename",
-	"server.env", "server.resources", "server.image", "server.hibernation", "server.sftp",
+	"server.env", "server.resources", "server.image", "server.startup", "server.hibernation", "server.sftp",
 	"server.reaches", "server.eula", "server.reinstall", "server.import", "server.suspend",
 	"server.unsuspend", "server.wake",
 	"backup.create", "backup.restore", "backup.delete", "backup.settings.update",

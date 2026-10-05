@@ -173,6 +173,12 @@ type Server struct {
 	TemplateVersion int  `json:"templateVersion"`
 	// Image is the selected template image ref.
 	Image string `json:"image"`
+	// Startup is the server's own startup command, run in place of its
+	// template's: an argument the template has no variable for, given to one
+	// server -- TeamSpeak on MariaDB, a JVM flag -- without copying the
+	// template for it. An administrator sets it, as on Pterodactyl. Empty runs
+	// the template's. Its {{VARIABLES}} are filled in as the template's are.
+	Startup string `json:"startup,omitempty"`
 
 	// Namespace is the per-server Kubernetes namespace the controller manages.
 	Namespace string `gorm:"size:253" json:"namespace"`

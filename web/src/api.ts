@@ -247,6 +247,9 @@ export interface Template {
   version?: number;
   images: TemplateImage[];
   variables: TemplateVariable[];
+  // The command the game starts with, {{VARIABLES}} included; empty when the
+  // image's entrypoint starts it.
+  startup?: string;
   ports?: { name: string; port: number; protocol: string }[];
   // Ports inferred from port-like variables when the template declares none
   // (imported eggs), each on TCP and UDP; used to pre-fill the create form's
@@ -309,6 +312,9 @@ export interface Server {
   myPermissions?: string[];
   templateId?: number;
   image: string;
+  // The server's own startup command, set by an administrator; absent when it
+  // runs its template's.
+  startup?: string;
   env?: Record<string, string>;
   resources: { memory?: string; cpu?: string };
   storage: { type: string; size?: string; storageClass?: string };
@@ -562,6 +568,8 @@ export interface ReinstallResult {
   template: string;
   image: string;
   reset: string[];
+  // The server had a startup command of its own; it runs the new template's.
+  startupDropped?: boolean;
 }
 
 export interface NotificationChannel {
@@ -786,6 +794,8 @@ export const api = {
     req<Server>("PATCH", `/api/servers/${id}`, { env }),
   renameServer: (id: number, name: string) => req<Server>("PATCH", `/api/servers/${id}`, { name }),
   setServerImage: (id: number, image: string) => req<Server>("PATCH", `/api/servers/${id}`, { image }),
+  // An empty startup takes the server back to its template's (administrators).
+  setServerStartup: (id: number, startup: string) => req<Server>("PATCH", `/api/servers/${id}`, { startup }),
   setServerReaches: (id: number, reaches: string[]) => req<Server>("PATCH", `/api/servers/${id}`, { reaches }),
   setServerResources: (id: number, resources: { memory: string; cpu: string }) =>
     req<Server>("PATCH", `/api/servers/${id}`, { resources }),

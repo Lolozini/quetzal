@@ -728,7 +728,9 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
               </div>
             )}
           </div>
-          {may("settings") && <ServerSettings server={srv} onSaved={setSrv} canSwitchTemplate={isOwnerOrAdmin} />}
+          {may("settings") && (
+            <ServerSettings server={srv} onSaved={setSrv} canSwitchTemplate={isOwnerOrAdmin} canEditStartup={hasAdminPerm(user, "servers")} />
+          )}
           {may("settings") && <Notifications serverId={id} />}
           {may("delete") && (
             <div className="card">

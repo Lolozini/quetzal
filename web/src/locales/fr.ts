@@ -589,6 +589,19 @@ export const fr: Record<string, string> = {
   "Save resources": "Enregistrer les ressources",
   "Image saved.": "Image enregistrée.",
   "Save image": "Enregistrer l'image",
+  "Startup command": "Commande de démarrage",
+  custom: "personnalisée",
+  "Empty: the image's own entrypoint starts the server.": "Vide : le point d'entrée de l'image démarre le serveur.",
+  "This server has a startup command of its own, set by an administrator: it no longer follows its template's.":
+    "Ce serveur a sa propre commande de démarrage, définie par un administrateur : il ne suit plus celle de son modèle.",
+  "The template's startup command.": "La commande de démarrage du modèle.",
+  "{{VARIABLE}} placeholders are filled in with the server's variables.": "Les {{VARIABLE}} y sont remplacées par les variables du serveur.",
+  "The template's command": "La commande du modèle",
+  "Startup command saved.": "Commande de démarrage enregistrée.",
+  "The server runs its template's startup command again.": "Le serveur reprend la commande de démarrage de son modèle.",
+  "Save startup command": "Enregistrer la commande",
+  "Use the template's": "Reprendre celle du modèle",
+  "Its own startup command was dropped: it runs the new template's.": "Sa propre commande de démarrage a été retirée : il prend celle du nouveau modèle.",
   current: "actuelle",
 
   // Access (subusers)

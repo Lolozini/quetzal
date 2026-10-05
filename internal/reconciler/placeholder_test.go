@@ -25,7 +25,7 @@ func TestStartupTranslatesWingsPlaceholders(t *testing.T) {
 		"--motd ${MOTD} --name ${SERVER_NAME} --level ${LEVEL} " +
 		"--keep {{not.a.known.thing}} {{bad name}}"
 
-	cmd := startupCommand(tmpl)
+	cmd := startupCommand(s, tmpl)
 	if len(cmd) == 0 || cmd[len(cmd)-1] != want {
 		t.Errorf("startup command = %q\nwant              %q", cmd, want)
 	}
@@ -43,9 +43,9 @@ func TestStartupTranslatesWingsPlaceholders(t *testing.T) {
 // What the translation produces has to run: the shell expands it against the
 // environment the container actually gets.
 func TestTranslatedStartupExpandsInAShell(t *testing.T) {
-	_, tmpl := testServerAndTemplate()
+	s, tmpl := testServerAndTemplate()
 	tmpl.Startup = `printf '%s|%s|%s' {{server.build.env.SERVER_JARFILE}} {{server.build.default.port}} {{server.build.memory}}`
-	cmd := startupCommand(tmpl)
+	cmd := startupCommand(s, tmpl)
 	sh := exec.Command(cmd[0], cmd[1:]...)
 	sh.Env = append(os.Environ(), "SERVER_JARFILE=server.jar", "SERVER_PORT=25565", "SERVER_MEMORY=1024")
 	out, err := sh.CombinedOutput()
@@ -105,5 +105,48 @@ func TestEveryPublishedPlaceholderFormIsTranslated(t *testing.T) {
 		if got := toShellTemplate(f, 25565); strings.Contains(got, "{{") {
 			t.Errorf("%s is left as %q", f, got)
 		}
+	}
+}
+
+// A server given a startup command of its own runs it, in the container's
+// command and in STARTUP alike, with its placeholders filled in as the
+// template's are. One without runs its template's. TeamSpeak on MariaDB needs
+// four arguments its egg has no variable for, and the template had to be
+// copied for that one server.
+func TestAServerRunsItsOwnStartup(t *testing.T) {
+	s, tmpl := testServerAndTemplate()
+	startup := func() (cmd, env string) {
+		c := startupCommand(s, tmpl)
+		if len(c) > 0 {
+			cmd = c[len(c)-1]
+		}
+		for _, e := range wingsEnv(s, tmpl) {
+			if e.Name == "STARTUP" {
+				env = e.Value
+			}
+		}
+		return cmd, env
+	}
+	if cmd, env := startup(); cmd != "echo ${MSG}; sleep 1" || env != cmd {
+		t.Errorf("without a startup of its own: command %q, STARTUP %q, want the template's", cmd, env)
+	}
+
+	s.Startup = "./ts3server default_voice_port={{SERVER_PORT}} dbplugin=ts3db_mariadb"
+	if cmd, env := startup(); cmd != "./ts3server default_voice_port=${SERVER_PORT} dbplugin=ts3db_mariadb" || env != cmd {
+		t.Errorf("with one: command %q, STARTUP %q, want the server's", cmd, env)
+	}
+	if got := BuildDeployment(s, tmpl, "", nil).Spec.Template.Spec.Containers[0].Command; !strings.Contains(strings.Join(got, " "), "dbplugin=ts3db_mariadb") {
+		t.Errorf("the game container runs %q, not the server's startup", got)
+	}
+
+	// A template that leaves the start to its image's entrypoint still runs a
+	// command the server was given.
+	tmpl.Startup = ""
+	if cmd, _ := startup(); !strings.Contains(cmd, "dbplugin") {
+		t.Errorf("on an entrypoint-driven template, the server's startup was dropped: %q", cmd)
+	}
+	s.Startup = "  "
+	if c := startupCommand(s, tmpl); c != nil {
+		t.Errorf("a blank startup of its own ran %q instead of the image's entrypoint", c)
 	}
 }

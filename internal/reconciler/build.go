@@ -167,11 +167,12 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 		Name:            workloadName,
 		Image:           s.Image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
-		// Interim startup shim: when a template defines a startup command, run it
-		// via a shell with {{VAR}} -> ${VAR} substitution. The full shim (config
-		// file rendering + sanitization, per the plan) lands in a later phase.
-		// When empty (e.g. itzg images), the image entrypoint is used as-is.
-		Command: startupCommand(t),
+		// Interim startup shim: when the server or its template defines a startup
+		// command, run it via a shell with {{VAR}} -> ${VAR} substitution. The full
+		// shim (config file rendering + sanitization, per the plan) lands in a
+		// later phase. When empty (e.g. itzg images), the image entrypoint is used
+		// as-is.
+		Command: startupCommand(s, t),
 		// Run in the data directory: egg startup commands use paths relative to it
 		// (e.g. `java -jar server.jar`), matching how Pterodactyl runs from the
 		// server's working dir. Harmless for entrypoint-driven images (itzg /data).
@@ -951,8 +952,8 @@ func wingsEnv(s *models.Server, t *models.Template) []corev1.EnvVar {
 	// form so it expands against the env injected above (only set when a startup
 	// is defined; entrypoint-driven images leave it empty, as Wings does).
 	out = append(out, corev1.EnvVar{Name: "TZ", Value: serverZone})
-	if t.Startup != "" {
-		out = append(out, corev1.EnvVar{Name: "STARTUP", Value: startupShell(t.Startup)})
+	if startup := serverStartup(s, t); startup != "" {
+		out = append(out, corev1.EnvVar{Name: "STARTUP", Value: startupShell(startup)})
 	}
 	return out
 }
@@ -1728,15 +1729,25 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 // parse it verbatim with no re-quoting.
 const startupBashWrapper = `if command -v bash >/dev/null 2>&1; then exec bash -c "$0"; else exec sh -c "$0"; fi`
 
-// startupCommand builds the container command from a template's startup string,
+// startupCommand builds the container command from the server's startup string,
 // substituting {{VAR}} with the shell ${VAR} so env values expand at runtime.
 // Returns nil when no startup is defined (use the image entrypoint).
-func startupCommand(t *models.Template) []string {
-	if t.Startup == "" {
+func startupCommand(s *models.Server, t *models.Template) []string {
+	startup := serverStartup(s, t)
+	if startup == "" {
 		return nil
 	}
-	cmd := startupShell(t.Startup)
+	cmd := startupShell(startup)
 	return []string{"/bin/sh", "-c", startupBashWrapper, cmd}
+}
+
+// serverStartup is the command a server's game runs: the one an administrator
+// gave the server, or else its template's.
+func serverStartup(s *models.Server, t *models.Template) string {
+	if strings.TrimSpace(s.Startup) != "" {
+		return s.Startup
+	}
+	return t.Startup
 }
 
 func protocol(p string) corev1.Protocol {

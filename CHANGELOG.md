@@ -7,6 +7,19 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **A server can have a startup command of its own.** The startup came from
+  the template alone: an argument its egg has no variable for — the four that
+  put TeamSpeak on MariaDB, a JVM flag for one server — meant copying the
+  template for that one server, a copy that no longer followed the original.
+  An administrator with the servers permission can now write the server's
+  command in its settings (`startup` in `PATCH /api/servers/{id}`), with the
+  same `{{VARIABLE}}` placeholders, and take it back to the template's in one
+  click. Everyone who can see the server's settings sees the command it runs,
+  marked *custom* when it is its own; only an administrator changes it, as on
+  Pterodactyl. Moving the server to another template drops it, and says so.
+
 ## [0.12.0] - 2026-10-05
 
 PostgreSQL can be given field by field — host, port, database, account, a
