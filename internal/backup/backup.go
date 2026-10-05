@@ -279,6 +279,13 @@ restic forget --host %q --keep-last %d --prune
 	}
 
 	backoff := int32(1)
+	// An import runs once. Its file is not idempotent -- without the wipe, its
+	// INSERTs landed twice when a failed first attempt was retried -- and the
+	// retry's own error ("PROCEDURE ... already exists", for what the first
+	// attempt created) took the place of the one that said what was wrong.
+	if importsDirection(p) {
+		backoff = 0
+	}
 	// Safety net only: the controller deletes finished Jobs itself. It is kept
 	// long because a Job that vanishes before the controller has read its result
 	// is reported as a failure — a day gives an offline or non-leader controller

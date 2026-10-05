@@ -168,6 +168,14 @@ func TestAnImportReadsTheVolumeAndKnowsOnlyItsDatabase(t *testing.T) {
 	if len(sec.StringData) != 1 || sec.StringData[dbPasswordKey(0)] != "pwA" {
 		t.Errorf("an import's secret = %v, want the database's password alone", sec.StringData)
 	}
+	// It runs once: a second attempt would load the file twice, and report
+	// its own error in place of the first's.
+	if b := job.Spec.BackoffLimit; b == nil || *b != 0 {
+		t.Errorf("an import's backoff limit = %v, want 0", b)
+	}
+	if b := BuildJob(Params{Slug: "s4", BackupID: 31, Direction: models.DirBackup}).Spec.BackoffLimit; b == nil || *b != 1 {
+		t.Errorf("a backup's backoff limit = %v, want its retry kept", b)
+	}
 }
 
 func containerNames(cs []corev1.Container) []string {
