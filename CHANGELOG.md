@@ -7,6 +7,22 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-05
+
+The server page says which of a server's ports each address reaches — what a
+box's port forwarding has to be given — and the file manager creates files.
+New managed database hosts run MariaDB 12.3, the current LTS, and Quetzal now
+runs and is tested on maintained releases only: Alpine 3.24, PostgreSQL 17
+and 18, MariaDB 11.4 to 12.3, Kubernetes 1.37.
+
+**Upgrading from 0.13.0** — one thing behaves differently:
+
+- The images Quetzal pulls on its own have moved on: `mariadb:12.3` (it was
+  11.4) for new managed hosts and to dump and load an external host's
+  databases, and `alpine:3.24` (it was 3.20) for the install steps that name
+  no image. A cluster that cannot reach Docker Hub needs them mirrored. See
+  *Changed*.
+
 ### Added
 
 - **Each address of a server says which port it reaches.** A server
@@ -1977,7 +1993,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/lolozini/quetzal/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/lolozini/quetzal/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/lolozini/quetzal/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/lolozini/quetzal/compare/v0.10.0...v0.11.0
