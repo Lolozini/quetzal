@@ -62,8 +62,8 @@ helm lint deploy/quetzal    # if you touched the chart
 `make test-postgres` needs a PostgreSQL server to create its test databases
 on, named by `QUETZAL_TEST_POSTGRES`; the Makefile shows a one-line one in
 Docker. `make test-mariadb` needs Docker: it starts a MariaDB and runs the
-scripts in the same image (`MARIADB=mariadb:10.6 make test-mariadb` for
-another release). `make e2e` runs the end-to-end suite against the cluster in your
+scripts in the same image (`MARIADB=mariadb:11.4 MARIADB_CLIENT=mariadb:12.3 make test-mariadb` for
+an older server dumped with the panel's client). `make e2e` runs the end-to-end suite against the cluster in your
 kubeconfig (the CI uses kind).
 
 - **Commits** follow [Conventional Commits](https://www.conventionalcommits.org):

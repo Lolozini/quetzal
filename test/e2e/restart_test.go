@@ -53,7 +53,7 @@ func TestE2ERestartAndTemplateUpdate(t *testing.T) {
 
 	tmpl, err := st.UpsertTemplate(&models.Template{
 		Slug: "e2e-signal", Name: "e2e signal", DataPath: "/data", StopCommand: "save-and-stop",
-		Images:  []models.TemplateImage{{Ref: "alpine:3.20", Default: true}},
+		Images:  []models.TemplateImage{{Ref: "alpine:3.24", Default: true}},
 		Startup: signalStartup("v1"),
 		Console: models.ConsoleConfig{Type: models.ConsoleAttach},
 	})
@@ -62,7 +62,7 @@ func TestE2ERestartAndTemplateUpdate(t *testing.T) {
 	}
 	srv := &models.Server{
 		Slug: "e2e-signal", DisplayName: "signal", TemplateID: tmpl.ID, TemplateVersion: tmpl.Version,
-		Image: "alpine:3.20", Namespace: reconciler.NamespaceFor("e2e-signal"),
+		Image: "alpine:3.24", Namespace: reconciler.NamespaceFor("e2e-signal"),
 		DesiredState: models.StateRunning, Storage: models.Storage{Type: models.StoragePVC, Size: "1Gi"},
 		Resources: models.Resources{Memory: "128Mi"},
 	}

@@ -1638,7 +1638,7 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 	}
 	image := t.Install.Image
 	if image == "" {
-		image = "alpine:3.20"
+		image = "alpine:3.24"
 	}
 	entrypoint := t.Install.Entrypoint
 	if entrypoint == "" {

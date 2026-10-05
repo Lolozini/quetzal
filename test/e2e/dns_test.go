@@ -43,7 +43,7 @@ func TestE2EDNSStaysWithTheClusterResolver(t *testing.T) {
 	if _, err := cs.CoreV1().Pods(ns).Create(ctx, &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "decoy"},
 		Spec: corev1.PodSpec{Containers: []corev1.Container{{
-			Name: "decoy", Image: "alpine:3.20",
+			Name: "decoy", Image: "alpine:3.24",
 			Command: []string{"sh", "-c", "(while true; do echo pong | nc -l -p 53; done) & while true; do echo pong | nc -l -p 8053; done"},
 		}}},
 	}, metav1.CreateOptions{}); err != nil {
@@ -68,7 +68,7 @@ if nc -w 2 %[1]s 8053 </dev/null | grep -q pong; then b=OPEN; else b=SHUT; fi
 echo "$d:$a:$b"; sleep 2; done`, decoyIP)
 	saved, err := st.UpsertTemplate(&models.Template{
 		Slug: "e2e-dns", Name: "e2e-dns", DataPath: "/data",
-		Images:  []models.TemplateImage{{Ref: "alpine:3.20", Default: true}},
+		Images:  []models.TemplateImage{{Ref: "alpine:3.24", Default: true}},
 		Startup: probe,
 		Console: models.ConsoleConfig{Type: models.ConsoleAttach},
 	})
@@ -78,7 +78,7 @@ echo "$d:$a:$b"; sleep 2; done`, decoyIP)
 	slug := fmt.Sprintf("e2e-dns-%d", time.Now().Unix()%100000)
 	srv := &models.Server{
 		Slug: slug, DisplayName: "e2e-dns", TemplateID: saved.ID, TemplateVersion: saved.Version,
-		Image: "alpine:3.20", Namespace: reconciler.NamespaceFor(slug),
+		Image: "alpine:3.24", Namespace: reconciler.NamespaceFor(slug),
 		DesiredState: models.StateRunning, Storage: models.Storage{Type: models.StoragePVC, Size: "1Gi"},
 	}
 	if err := st.CreateServer(srv); err != nil {

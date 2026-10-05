@@ -120,7 +120,7 @@ func TestInstallContainerCarriesTheTimeout(t *testing.T) {
 	srv := &models.Server{Slug: "s1", Namespace: "ns"}
 	tpl := &models.Template{
 		Name:    "t",
-		Install: &models.InstallScript{Image: "alpine:3.20", Script: "echo hi"},
+		Install: &models.InstallScript{Image: "alpine:3.24", Script: "echo hi"},
 	}
 	cs := installInitContainers(srv, tpl, nil)
 	if len(cs) != 1 {

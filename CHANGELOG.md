@@ -20,6 +20,17 @@ releases may include breaking changes).
   `ts3db_mariadb.ini` — had to be written elsewhere and uploaded. *New file*
   makes an empty one and opens it in the editor.
 
+### Changed
+
+- **New managed database hosts run MariaDB 12.3**, the current LTS, maintained
+  until June 2029; it was 11.4. A host keeps the image it was created with, so
+  none changes version on its own; the field takes `mariadb:12.3`, not
+  `mariadb:lts`, which would move a host to the next LTS on a restart. The
+  backups and imports of an external host use the 12.3 client, tested against
+  MariaDB 11.4, 11.8 and 12.3.
+- **The generic template and the install steps that name no image run Alpine
+  3.24**; 3.20 is no longer maintained. A server keeps the image it runs.
+
 ## [0.13.0] - 2026-10-05
 
 A server's databases now go into its backups — each backup dumps them next to

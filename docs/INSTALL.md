@@ -285,7 +285,7 @@ routines, triggers and events) into the snapshot, next to the files; a restore
 can load them back, each emptied first. The dump and the load run in the
 backup Job, in the server's namespace, with the server's own database account,
 and use the MariaDB client tools of an image: a managed host's own image, and
-`mariadb:11.4` for an external host — mirror it for a cluster that cannot pull
+`mariadb:12.3` for an external host — mirror it for a cluster that cannot pull
 from Docker Hub, and run a managed host on the mirror. They reach the database
 at the address handed to servers (the host's connect address), with TLS when
 the database offers it. A database that cannot be dumped fails the backup, and

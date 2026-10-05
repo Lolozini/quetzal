@@ -25,7 +25,7 @@ func testServerAndTemplate() (*models.Server, *models.Template) {
 	}
 	s := &models.Server{
 		Slug:         "s1",
-		Image:        "alpine:3.20",
+		Image:        "alpine:3.24",
 		Namespace:    "quetzal-srv-s1",
 		DesiredState: models.StateRunning,
 		Resources:    models.Resources{Memory: "1Gi", CPU: "1"},
@@ -558,7 +558,7 @@ func TestBuildInstallScriptStripsCRLF(t *testing.T) {
 	// travels to the container in its own variable, so that is where to look.
 	s, tmpl := testServerAndTemplate()
 	tmpl.Install = &models.InstallScript{
-		Image:  "alpine:3.20",
+		Image:  "alpine:3.24",
 		Script: "if [ -n \"$X\" ]; then\r\n echo hi\r\nfi\r\n",
 	}
 	var got string

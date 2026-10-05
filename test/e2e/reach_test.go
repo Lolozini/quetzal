@@ -33,7 +33,7 @@ func TestE2EServerReachesTheServersItWasGiven(t *testing.T) {
 		t.Helper()
 		saved, err := st.UpsertTemplate(&models.Template{
 			Slug: slug, Name: slug, DataPath: "/data",
-			Images:  []models.TemplateImage{{Ref: "alpine:3.20", Default: true}},
+			Images:  []models.TemplateImage{{Ref: "alpine:3.24", Default: true}},
 			Startup: startup,
 			Console: models.ConsoleConfig{Type: models.ConsoleAttach},
 			Ports:   ports,
@@ -43,7 +43,7 @@ func TestE2EServerReachesTheServersItWasGiven(t *testing.T) {
 		}
 		srv := &models.Server{
 			Slug: slug, DisplayName: slug, TemplateID: saved.ID, TemplateVersion: saved.Version,
-			Image: "alpine:3.20", Namespace: reconciler.NamespaceFor(slug),
+			Image: "alpine:3.24", Namespace: reconciler.NamespaceFor(slug),
 			DesiredState: models.StateRunning, Storage: models.Storage{Type: models.StoragePVC, Size: "1Gi"},
 		}
 		if err := st.CreateServer(srv); err != nil {

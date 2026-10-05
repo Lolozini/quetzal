@@ -145,7 +145,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm --prefix web ci
@@ -162,12 +162,15 @@ jobs:
         run: go test -race ./...
       # The scripts that dump, load and import a server's databases run in a
       # MariaDB image, against a MariaDB: here they run as their Jobs run them,
-      # in Docker, on the release the panel deploys and on the oldest still
-      # maintained (10.6, which offers no TLS).
+      # in Docker -- on the release the panel deploys, and with that release's
+      # client against MariaDB's other maintained LTS releases, as an external
+      # host is dumped.
       - name: database scripts against MariaDB
         run: |
           QUETZAL_TEST_MARIADB=1 go test -count=1 -run TestDatabaseScriptsAgainstMariaDB ./internal/backup/
-          QUETZAL_TEST_MARIADB=mariadb:10.6 go test -count=1 -run TestDatabaseScriptsAgainstMariaDB ./internal/backup/
+          for server in mariadb:11.8 mariadb:11.4; do
+            QUETZAL_TEST_MARIADB=$server QUETZAL_TEST_MARIADB_CLIENT=1 go test -count=1 -run TestDatabaseScriptsAgainstMariaDB ./internal/backup/
+          done
       - name: build
         run: go build ./...
       # Where uint is 32 bits, an id parsed as 64 and converted does not fail --
@@ -188,15 +191,16 @@ jobs:
   # The unit tests again, on PostgreSQL: the chart offers it for production,
   # and every test opened SQLite until then, so the row locks that keep a
   # start and a restore apart -- SQLite ignores them -- had never run. Each
-  # test gets a database of its own on this server (internal/testdb). 14 is
-  # the oldest major still supported upstream, 18 the newest.
+  # test gets a database of its own on this server (internal/testdb). The two
+  # newest majors: 14 stops being supported in November 2026, and the panel's
+  # own production runs on 18.
   test-postgres:
     name: test (postgres ${{ matrix.postgres }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        postgres: ["14", "18"]
+        postgres: ["17", "18"]
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}
@@ -311,7 +315,7 @@ jobs:
       - name: Preload the fixture images into kind
         run: |
           set -eux
-          for img in versity/versitygw:v1.8.0 restic/restic:0.19.1 mariadb:11.4; do
+          for img in versity/versitygw:v1.8.0 restic/restic:0.19.1 mariadb:12.3; do
             docker pull "$img"
             kind load docker-image "$img" --name quetzal-e2e
           done

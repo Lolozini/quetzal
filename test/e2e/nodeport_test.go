@@ -33,7 +33,7 @@ func TestE2ENodePortAddressAnswers(t *testing.T) {
 
 	tmpl := &models.Template{
 		Slug: "e2e-nodeport", Name: "e2e node port", DataPath: "/data",
-		Images:  []models.TemplateImage{{Ref: "alpine:3.20", Default: true}},
+		Images:  []models.TemplateImage{{Ref: "alpine:3.24", Default: true}},
 		Startup: "while true; do echo pong | nc -l -p 25565; done",
 		Console: models.ConsoleConfig{Type: models.ConsoleAttach},
 		Ports:   []models.PortSpec{{Name: "game", Port: 25565, Protocol: "TCP", Primary: true}},
@@ -44,7 +44,7 @@ func TestE2ENodePortAddressAnswers(t *testing.T) {
 	}
 	srv := &models.Server{
 		Slug: "e2e-nodeport", DisplayName: "node port", TemplateID: saved.ID, TemplateVersion: saved.Version,
-		Image: "alpine:3.20", Namespace: reconciler.NamespaceFor("e2e-nodeport"),
+		Image: "alpine:3.24", Namespace: reconciler.NamespaceFor("e2e-nodeport"),
 		DesiredState: models.StateRunning, Storage: models.Storage{Type: models.StoragePVC, Size: "1Gi"},
 		Expose: models.Expose{Type: models.ExposeNodePort},
 		Ports:  []models.PortSpec{{Name: "game", Port: 25565, Protocol: "TCP", Primary: true, NodePort: 30555}},

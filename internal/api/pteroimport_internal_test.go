@@ -153,7 +153,7 @@ func pteroTestServer(t *testing.T, p *fakePanel) (*Server, *[]byte) {
 	t.Cleanup(func() { pteroPollEvery = oldPoll })
 	tpl := &models.Template{
 		Slug: "test-egg", Name: "Test Egg", Startup: "run", DataPath: "/home/container",
-		Install: &models.InstallScript{Image: "alpine:3.20", Script: "echo install"},
+		Install: &models.InstallScript{Image: "alpine:3.24", Script: "echo install"},
 		Images: []models.TemplateImage{
 			{DisplayName: "Java 17", Ref: "ghcr.io/example/java:17", Default: true},
 			{DisplayName: "Java 21", Ref: "ghcr.io/example/java:21"},

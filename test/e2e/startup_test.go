@@ -39,7 +39,7 @@ func TestE2EStartupDoneLine(t *testing.T) {
 
 	tmpl := &models.Template{
 		Slug: "e2e-startup", Name: "e2e startup", DataPath: "/data",
-		Images:  []models.TemplateImage{{Ref: "alpine:3.20", Default: true}},
+		Images:  []models.TemplateImage{{Ref: "alpine:3.24", Default: true}},
 		Startup: "echo loading the world; sleep 25; echo 'Done (25.0s)! For help, type help'; while true; do sleep 5; done",
 		Done:    []string{")! For help, type "},
 		Console: models.ConsoleConfig{Type: models.ConsoleAttach},
@@ -50,7 +50,7 @@ func TestE2EStartupDoneLine(t *testing.T) {
 	}
 	srv := &models.Server{
 		Slug: "e2e-startup", DisplayName: "startup", TemplateID: saved.ID, TemplateVersion: saved.Version,
-		Image: "alpine:3.20", Namespace: reconciler.NamespaceFor("e2e-startup"),
+		Image: "alpine:3.24", Namespace: reconciler.NamespaceFor("e2e-startup"),
 		DesiredState: models.StateRunning, Storage: models.Storage{Type: models.StoragePVC, Size: "1Gi"},
 	}
 	if err := st.CreateServer(srv); err != nil {

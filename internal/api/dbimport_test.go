@@ -33,7 +33,7 @@ func dbServer(t *testing.T) (url string, admin, alice, mallory, dave *http.Clien
 		t.Fatal(err)
 	}
 	srv = &models.Server{Slug: "ts-a1b2", DisplayName: "ts", Namespace: reconciler.NamespaceFor("ts-a1b2"),
-		OwnerID: owner.ID, TemplateID: gen.ID, Image: "alpine:3.20", DesiredState: models.StateStopped}
+		OwnerID: owner.ID, TemplateID: gen.ID, Image: "alpine:3.24", DesiredState: models.StateStopped}
 	if err := st.CreateServer(srv); err != nil {
 		t.Fatal(err)
 	}

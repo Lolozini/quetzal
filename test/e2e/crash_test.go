@@ -21,7 +21,7 @@ func TestE2ECrashIsReportedQuickly(t *testing.T) {
 	ctx, _, st, rec := setup(t)
 	tmpl := &models.Template{
 		Slug: "e2e-crash", Name: "e2e crash", DataPath: "/data",
-		Images:  []models.TemplateImage{{Ref: "alpine:3.20", Default: true}},
+		Images:  []models.TemplateImage{{Ref: "alpine:3.24", Default: true}},
 		Startup: "echo 'Error: this world needs Java 25'; exit 1",
 		Console: models.ConsoleConfig{Type: models.ConsoleAttach},
 	}
@@ -31,7 +31,7 @@ func TestE2ECrashIsReportedQuickly(t *testing.T) {
 	}
 	srv := &models.Server{
 		Slug: "e2e-crash", DisplayName: "crash", TemplateID: saved.ID, TemplateVersion: saved.Version,
-		Image: "alpine:3.20", Namespace: reconciler.NamespaceFor("e2e-crash"),
+		Image: "alpine:3.24", Namespace: reconciler.NamespaceFor("e2e-crash"),
 		DesiredState: models.StateRunning, Storage: models.Storage{Type: models.StoragePVC, Size: "1Gi"},
 	}
 	if err := st.CreateServer(srv); err != nil {

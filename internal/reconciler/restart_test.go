@@ -33,14 +33,14 @@ func runningServer(t *testing.T) (*Reconciler, *store.Store, client.Client, *mod
 	st := reconStore(t)
 	tmpl, err := st.UpsertTemplate(&models.Template{
 		Slug: "signal", Name: "Signal", Startup: "run-game", DataPath: "/data", StopCommand: "save-and-stop",
-		Images:  []models.TemplateImage{{Ref: "alpine:3.20", Default: true}},
+		Images:  []models.TemplateImage{{Ref: "alpine:3.24", Default: true}},
 		Console: models.ConsoleConfig{Type: models.ConsoleAttach},
 	})
 	if err != nil {
 		t.Fatalf("template: %v", err)
 	}
 	srv := &models.Server{
-		Slug: "sig", TemplateID: tmpl.ID, TemplateVersion: tmpl.Version, Image: "alpine:3.20",
+		Slug: "sig", TemplateID: tmpl.ID, TemplateVersion: tmpl.Version, Image: "alpine:3.24",
 		Namespace: NamespaceFor("sig"), DesiredState: models.StateRunning,
 		Resources: models.Resources{Memory: "1Gi"},
 		Storage:   models.Storage{Type: models.StoragePVC, Size: "1Gi"},

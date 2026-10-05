@@ -17,7 +17,12 @@ import (
 
 // EnvMariaDB turns on the tests that run the database scripts against a real
 // MariaDB in Docker: "1" for the release the panel deploys, or an image.
-const EnvMariaDB = "QUETZAL_TEST_MARIADB"
+// EnvMariaDBClient runs the scripts in another image than the server's, as an
+// external host is dumped with the panel's release ("1" for it).
+const (
+	EnvMariaDB       = "QUETZAL_TEST_MARIADB"
+	EnvMariaDBClient = "QUETZAL_TEST_MARIADB_CLIENT"
+)
 
 // The dump, load and import scripts run here as their Jobs run them -- in a
 // MariaDB image, as the server's own account, provisioned as the panel
@@ -31,6 +36,14 @@ func TestDatabaseScriptsAgainstMariaDB(t *testing.T) {
 	if image == "1" {
 		image = reconciler.DefaultMariaDBImage
 	}
+	clientImage := os.Getenv(EnvMariaDBClient)
+	switch clientImage {
+	case "":
+		clientImage = image
+	case "1":
+		clientImage = reconciler.DefaultMariaDBImage
+	}
+	t.Logf("server %s, client %s", image, clientImage)
 	docker := func(stdin string, args ...string) (string, error) {
 		cmd := exec.Command("docker", args...)
 		if stdin != "" {
@@ -120,7 +133,7 @@ CREATE PROCEDURE p_count() SELECT COUNT(*) FROM clients;`)
 		for _, m := range mounts {
 			args = append(args, "-v", m)
 		}
-		return docker("", append(args, image, "-c", script)...)
+		return docker("", append(args, clientImage, "-c", script)...)
 	}
 	env := map[string]string{"DB_HOST": name, "DB_PORT": "3306", "DB_USER": user, "DB_NAME": dbName,
 		"MYSQL_PWD": password, "WIPE_QUERY": wipeQuery}

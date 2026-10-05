@@ -63,7 +63,7 @@ func TestServerImageMustBeOneTheTemplateOffers(t *testing.T) {
 	}
 	// An admin may still pin something else — that is how a new tag gets tried
 	// before it goes on the menu.
-	if code := create(admin, "docker.io/library/alpine:3.20"); code != http.StatusCreated {
+	if code := create(admin, "docker.io/library/alpine:3.24"); code != http.StatusCreated {
 		t.Errorf("an admin could not pin an image: %d", code)
 	}
 }

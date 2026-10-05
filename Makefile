@@ -5,7 +5,7 @@ KIND_CLUSTER ?= quetzal-e2e
 # The Kubernetes the e2e suite runs on, here and in CI (which reads it from this
 # line): a supported release, not a pin that aged out. 1.31 is long past end of
 # life, and an older apiserver also knows fewer things to object to.
-KIND_NODE_IMAGE ?= kindest/node:v1.35.0
+KIND_NODE_IMAGE ?= kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
 
 .PHONY: build test test-postgres test-mariadb lint fmt vet e2e e2e-kind-up e2e-kind-down kind-node-image tidy
 
@@ -17,17 +17,17 @@ test: ## Run unit tests
 
 # The same tests on PostgreSQL, as CI runs them too: each test gets a database
 # of its own on the server QUETZAL_TEST_POSTGRES names (see internal/testdb).
-#   docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=quetzal postgres:14
+#   docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=quetzal postgres:18
 #   QUETZAL_TEST_POSTGRES='postgres://postgres:quetzal@localhost:5432/postgres?sslmode=disable' make test-postgres
 test-postgres: ## Run unit tests on PostgreSQL
 	@test -n "$$QUETZAL_TEST_POSTGRES" || { echo "set QUETZAL_TEST_POSTGRES (see the Makefile)"; exit 1; }
 	go test -race ./internal/...
 
 # The database dump, load and import scripts against a real MariaDB, run in
-# Docker as their Jobs run them. MARIADB picks the image (default: the release
-# the panel deploys).
+# Docker as their Jobs run them. MARIADB picks the server's image (default: the
+# release the panel deploys), MARIADB_CLIENT the scripts' (default: the same).
 test-mariadb: ## Run the database scripts against MariaDB in Docker
-	QUETZAL_TEST_MARIADB=$${MARIADB:-1} go test -count=1 -run TestDatabaseScriptsAgainstMariaDB ./internal/backup/
+	QUETZAL_TEST_MARIADB=$${MARIADB:-1} QUETZAL_TEST_MARIADB_CLIENT=$${MARIADB_CLIENT:-} go test -count=1 -run TestDatabaseScriptsAgainstMariaDB ./internal/backup/
 
 lint: fmt-check vet ## gofmt check + go vet
 

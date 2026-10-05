@@ -168,7 +168,7 @@ func TestInstallDefaultsToSh(t *testing.T) {
 	if env["QUETZAL_INSTALL_SHELL"] != "sh" {
 		t.Errorf("default shell = %q, want sh", env["QUETZAL_INSTALL_SHELL"])
 	}
-	if cs[0].Image != "alpine:3.20" {
+	if cs[0].Image != "alpine:3.24" {
 		t.Errorf("default install image = %q", cs[0].Image)
 	}
 }

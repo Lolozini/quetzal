@@ -19,7 +19,7 @@ import (
 const eggJSON = `{
   "name": "Catalog Egg",
   "author": "a@b.c",
-  "docker_images": { "img": "alpine:3.20" },
+  "docker_images": { "img": "alpine:3.24" },
   "startup": "run"
 }`
 

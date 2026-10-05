@@ -134,7 +134,7 @@ func TestDoneLinesFromAList(t *testing.T) {
 
 // Exports made before the list keep their single line.
 func TestDoneLineFromAnOlderExport(t *testing.T) {
-	native := `{"name": "Old", "images": [{"ref": "alpine:3.20", "default": true}], "startup": "sh", "doneRegex": "Done (", "dataPath": "/data"}`
+	native := `{"name": "Old", "images": [{"ref": "alpine:3.24", "default": true}], "startup": "sh", "doneRegex": "Done (", "dataPath": "/data"}`
 	tmpl, err := Parse([]byte(native))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -145,7 +145,7 @@ func TestDoneLineFromAnOlderExport(t *testing.T) {
 }
 
 func TestWakeProtocolMustBeKnown(t *testing.T) {
-	native := `{"name": "X", "images": [{"ref": "alpine:3.20", "default": true}], "dataPath": "/data", "wakeProtocol": "telnet"}`
+	native := `{"name": "X", "images": [{"ref": "alpine:3.24", "default": true}], "dataPath": "/data", "wakeProtocol": "telnet"}`
 	if _, err := Parse([]byte(native)); err == nil {
 		t.Error("an unknown wakeProtocol was accepted")
 	}

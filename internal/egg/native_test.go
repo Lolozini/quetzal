@@ -10,10 +10,10 @@ import (
 const minimalEgg = `{
   "name": "Probe Egg",
   "author": "a@b.c",
-  "docker_images": {"alpine": "alpine:3.20"},
+  "docker_images": {"alpine": "alpine:3.24"},
   "startup": "./run",
   "config": {"files": "{}", "startup": "{\"done\":\"ready\"}", "stop": "^C"},
-  "scripts": {"installation": {"script": "#!/bin/sh\necho hi\n", "container": "alpine:3.20", "entrypoint": "sh"}},
+  "scripts": {"installation": {"script": "#!/bin/sh\necho hi\n", "container": "alpine:3.24", "entrypoint": "sh"}},
   "variables": [
     {"name": "Jar", "env_variable": "SERVER_JARFILE", "default_value": "server.jar",
      "user_viewable": true, "user_editable": true, "rules": "required|string"}
@@ -27,7 +27,7 @@ func TestParseStillReadsAnEgg(t *testing.T) {
 	if err != nil {
 		t.Fatalf("egg: %v", err)
 	}
-	if len(tmpl.Images) != 1 || tmpl.Images[0].Ref != "alpine:3.20" {
+	if len(tmpl.Images) != 1 || tmpl.Images[0].Ref != "alpine:3.24" {
 		t.Errorf("images = %+v", tmpl.Images)
 	}
 	if tmpl.Install == nil || tmpl.Install.Script == "" {
@@ -59,7 +59,7 @@ func TestExportedTemplateReimportsIntact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("re-import: %v", err)
 	}
-	if len(back.Images) != 1 || back.Images[0].Ref != "alpine:3.20" {
+	if len(back.Images) != 1 || back.Images[0].Ref != "alpine:3.24" {
 		t.Errorf("images lost on re-import: %+v", back.Images)
 	}
 	if back.Install == nil || back.Install.Script != original.Install.Script {
@@ -102,7 +102,7 @@ func TestNativeImportRejections(t *testing.T) {
 // A native document without a slug gets one from its name, so a hand-written
 // template imports like an egg does.
 func TestNativeImportDerivesASlug(t *testing.T) {
-	tmpl, err := Parse([]byte(`{"name":"My Custom Thing","dataPath":"/data","images":[{"ref":"alpine:3.20","default":true}]}`))
+	tmpl, err := Parse([]byte(`{"name":"My Custom Thing","dataPath":"/data","images":[{"ref":"alpine:3.24","default":true}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}

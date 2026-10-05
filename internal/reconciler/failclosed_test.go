@@ -46,7 +46,7 @@ func publishedServer(t *testing.T, st *store.Store) *models.Server {
 	t.Helper()
 	tmpl, err := st.UpsertTemplate(&models.Template{
 		Slug: "demo", Name: "Demo", Startup: "sleep infinity", DataPath: "/data",
-		Images:  []models.TemplateImage{{Ref: "alpine:3.20", Default: true}},
+		Images:  []models.TemplateImage{{Ref: "alpine:3.24", Default: true}},
 		Console: models.ConsoleConfig{Type: models.ConsoleAttach},
 		Ports:   []models.PortSpec{{Name: "game", Port: 25565, Protocol: "TCP", Primary: true}},
 	})
@@ -54,7 +54,7 @@ func publishedServer(t *testing.T, st *store.Store) *models.Server {
 		t.Fatalf("template: %v", err)
 	}
 	srv := &models.Server{
-		Slug: "np2", TemplateID: tmpl.ID, TemplateVersion: tmpl.Version, Image: "alpine:3.20",
+		Slug: "np2", TemplateID: tmpl.ID, TemplateVersion: tmpl.Version, Image: "alpine:3.24",
 		Namespace: NamespaceFor("np2"), DesiredState: models.StateRunning,
 		Resources: models.Resources{Memory: "1Gi"},
 		Storage:   models.Storage{Type: models.StoragePVC, Size: "1Gi"},

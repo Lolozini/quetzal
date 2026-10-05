@@ -20,8 +20,14 @@ import (
 )
 
 const (
-	// DefaultMariaDBImage backs a managed database host when none is specified.
-	DefaultMariaDBImage = "mariadb:11.4"
+	// DefaultMariaDBImage backs a managed database host when none is specified,
+	// and holds the client tools that dump and load an external host's
+	// databases. 12.3 is MariaDB's current LTS, maintained until June 2029. It
+	// names the release line, not "lts": that tag moves to the next LTS when
+	// one comes out, and a host would then change major version on its next
+	// restart, with nobody having asked. A host keeps the image it was created
+	// with.
+	DefaultMariaDBImage = "mariadb:12.3"
 	// ManagedDBServiceName is the in-cluster Service (and Deployment) name of a
 	// managed database host within its namespace.
 	ManagedDBServiceName = "quetzal-db"

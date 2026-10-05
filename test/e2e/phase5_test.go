@@ -27,10 +27,10 @@ func TestE2EInstallScript(t *testing.T) {
 
 	tmpl := &models.Template{
 		Slug: "e2e-install", Name: "e2e install", DataPath: "/data",
-		Images:  []models.TemplateImage{{Ref: "alpine:3.20", Default: true}},
+		Images:  []models.TemplateImage{{Ref: "alpine:3.24", Default: true}},
 		Startup: "echo up; while true; do sleep 5; done",
 		Console: models.ConsoleConfig{Type: models.ConsoleAttach},
-		Install: &models.InstallScript{Image: "alpine:3.20", Script: "echo hello-from-install > /mnt/server/installed.txt"},
+		Install: &models.InstallScript{Image: "alpine:3.24", Script: "echo hello-from-install > /mnt/server/installed.txt"},
 	}
 	saved, err := st.UpsertTemplate(tmpl)
 	if err != nil {
@@ -38,7 +38,7 @@ func TestE2EInstallScript(t *testing.T) {
 	}
 	srv := &models.Server{
 		Slug: "e2e-install", DisplayName: "install", TemplateID: saved.ID, TemplateVersion: saved.Version,
-		Image: "alpine:3.20", Namespace: reconciler.NamespaceFor("e2e-install"),
+		Image: "alpine:3.24", Namespace: reconciler.NamespaceFor("e2e-install"),
 		DesiredState: models.StateRunning, Storage: models.Storage{Type: models.StoragePVC, Size: "1Gi"},
 	}
 	if err := st.CreateServer(srv); err != nil {

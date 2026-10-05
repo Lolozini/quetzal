@@ -161,7 +161,7 @@ func TestE2EARenderingChangeLeavesRunningServersAlone(t *testing.T) {
 	ctx, c, st, rec := setup(t)
 	saved, err := st.UpsertTemplate(&models.Template{
 		Slug: "e2e-render", Name: "e2e-render", DataPath: "/data",
-		Images:  []models.TemplateImage{{Ref: "alpine:3.20", Default: true}},
+		Images:  []models.TemplateImage{{Ref: "alpine:3.24", Default: true}},
 		Install: &models.InstallScript{Script: "echo installed > /mnt/server/installed"},
 		Startup: "sleep 3600",
 		Console: models.ConsoleConfig{Type: models.ConsoleAttach},
@@ -173,7 +173,7 @@ func TestE2EARenderingChangeLeavesRunningServersAlone(t *testing.T) {
 	slug := fmt.Sprintf("e2e-render-%d", time.Now().Unix()%100000)
 	srv := &models.Server{
 		Slug: slug, DisplayName: "render", TemplateID: saved.ID, TemplateVersion: saved.Version,
-		Image: "alpine:3.20", Namespace: reconciler.NamespaceFor(slug),
+		Image: "alpine:3.24", Namespace: reconciler.NamespaceFor(slug),
 		DesiredState: models.StateRunning, Resources: models.Resources{Memory: "512Mi"},
 		Storage: models.Storage{Type: models.StoragePVC, Size: "1Gi"},
 	}

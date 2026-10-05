@@ -149,7 +149,7 @@ export function DatabaseHosts() {
           <>
             <p className="muted">{t("Quetzal deploys a MariaDB (Deployment + PVC + Service) on the local cluster and owns the root password. Game servers reach it via the in-cluster DNS name.")}</p>
             <div className="grid2">
-              <div><label>{t("Image")}</label><input value={form.image} onChange={set("image")} placeholder="mariadb:11.4" /></div>
+              <div><label>{t("Image")}</label><input value={form.image} onChange={set("image")} placeholder="mariadb:12.3" /></div>
               <div><label>{t("Storage size")}</label><input value={form.storageSize} onChange={set("storageSize")} placeholder="1Gi" /></div>
             </div>
             <div>

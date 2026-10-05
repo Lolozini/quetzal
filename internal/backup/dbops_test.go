@@ -125,7 +125,7 @@ func TestABackupTakesTheServersDatabases(t *testing.T) {
 	if env["DB_HOST"].Value != "db.lan" || env["DB_PORT"].Value != "3307" || env["DB_USER"].Value != dbs[0].Username {
 		t.Errorf("the dump reaches %s:%s as %s, want the servers' address and the server's account", env["DB_HOST"].Value, env["DB_PORT"].Value, env["DB_USER"].Value)
 	}
-	if spec.InitContainers[0].Image != "mariadb:11.4" {
+	if spec.InitContainers[0].Image != reconciler.DefaultMariaDBImage {
 		t.Errorf("an external host is dumped with %s", spec.InitContainers[0].Image)
 	}
 	sec := secretOf(t, cs)

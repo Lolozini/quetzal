@@ -52,7 +52,7 @@ func TestE2ETakenNodePortMoves(t *testing.T) {
 
 	tmpl, err := st.UpsertTemplate(&models.Template{
 		Slug: "e2e-taken-port", Name: "e2e taken port", DataPath: "/data",
-		Images:  []models.TemplateImage{{Ref: "alpine:3.20", Default: true}},
+		Images:  []models.TemplateImage{{Ref: "alpine:3.24", Default: true}},
 		Startup: "while true; do echo pong | nc -l -p 25565; done",
 		Console: models.ConsoleConfig{Type: models.ConsoleAttach},
 		Ports:   []models.PortSpec{{Name: "game", Port: 25565, Protocol: "TCP", Primary: true}},
@@ -62,7 +62,7 @@ func TestE2ETakenNodePortMoves(t *testing.T) {
 	}
 	srv := &models.Server{
 		Slug: "e2e-taken-port", DisplayName: "taken port", TemplateID: tmpl.ID, TemplateVersion: tmpl.Version,
-		Image: "alpine:3.20", Namespace: reconciler.NamespaceFor("e2e-taken-port"),
+		Image: "alpine:3.24", Namespace: reconciler.NamespaceFor("e2e-taken-port"),
 		DesiredState: models.StateRunning, Storage: models.Storage{Type: models.StoragePVC, Size: "1Gi"},
 		Expose: models.Expose{Type: models.ExposeNodePort},
 	}

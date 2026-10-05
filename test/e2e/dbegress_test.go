@@ -43,7 +43,7 @@ func TestE2EServerReachesItsExternalDatabase(t *testing.T) {
 	if _, err := cs.CoreV1().Pods(ns).Create(ctx, &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "fakedb", Labels: labels},
 		Spec: corev1.PodSpec{Containers: []corev1.Container{{
-			Name: "db", Image: "alpine:3.20",
+			Name: "db", Image: "alpine:3.24",
 			Command: []string{"sh", "-c", "(while true; do echo db | nc -l -p 3306; done) & while true; do echo admin | nc -l -p 8080; done"},
 		}}},
 	}, metav1.CreateOptions{}); err != nil {
@@ -69,7 +69,7 @@ func TestE2EServerReachesItsExternalDatabase(t *testing.T) {
 	}
 	saved, err := st.UpsertTemplate(&models.Template{
 		Slug: "e2e-dbegress", Name: "e2e dbegress", DataPath: "/data",
-		Images:  []models.TemplateImage{{Ref: "alpine:3.20", Default: true}},
+		Images:  []models.TemplateImage{{Ref: "alpine:3.24", Default: true}},
 		Startup: "while true; do " + probe("3306", "db") + "; printf ,; " + probe("8080", "admin") + "; echo; sleep 2; done",
 		Console: models.ConsoleConfig{Type: models.ConsoleAttach},
 	})
@@ -78,7 +78,7 @@ func TestE2EServerReachesItsExternalDatabase(t *testing.T) {
 	}
 	srv := &models.Server{
 		Slug: "e2e-dbegress", DisplayName: "dbegress", TemplateID: saved.ID, TemplateVersion: saved.Version,
-		Image: "alpine:3.20", Namespace: reconciler.NamespaceFor("e2e-dbegress"),
+		Image: "alpine:3.24", Namespace: reconciler.NamespaceFor("e2e-dbegress"),
 		DesiredState: models.StateRunning, Storage: models.Storage{Type: models.StoragePVC, Size: "1Gi"},
 	}
 	if err := st.CreateServer(srv); err != nil {

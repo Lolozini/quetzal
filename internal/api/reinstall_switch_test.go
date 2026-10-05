@@ -13,7 +13,7 @@ import (
 
 func seedSwitchTemplates(t *testing.T, st *store.Store) {
 	t.Helper()
-	install := &models.InstallScript{Image: "alpine:3.20", Script: "echo install"}
+	install := &models.InstallScript{Image: "alpine:3.24", Script: "echo install"}
 	for _, tpl := range []*models.Template{
 		{
 			Slug: "egg-paper", Name: "Paper", Startup: "java -jar {{SERVER_JARFILE}}", DataPath: "/home/container",
