@@ -5,8 +5,8 @@ description: >-
   and anything in a container; an alternative to Pterodactyl and Pelican that
   imports their eggs.
 type: application
-version: 0.12.0
-appVersion: "0.12.0"
+version: 0.13.0
+appVersion: "0.13.0"
 # The admission policy (admissionPolicy.enabled) is a ValidatingAdmissionPolicy,
 # GA in 1.30; older releases are out of support upstream anyway.
 kubeVersion: ">=1.30.0-0"
@@ -37,7 +37,7 @@ annotations:
   # The tag follows appVersion (the release skill bumps both).
   artifacthub.io/images: |
     - name: quetzal
-      image: ghcr.io/lolozini/quetzal:0.12.0
+      image: ghcr.io/lolozini/quetzal:0.13.0
       platforms:
         - linux/amd64
         - linux/arm64

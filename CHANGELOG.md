@@ -7,6 +7,23 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-05
+
+A server's databases now go into its backups — each backup dumps them next to
+the files, and a restore can load them back — and an SQL dump made elsewhere
+can be loaded into one from the server's files. An administrator can also give
+a single server a startup command of its own. All three are what moving a
+TeamSpeak server onto Quetzal called for: its state lives in MariaDB, and its
+egg has no way to say so.
+
+**Upgrading from 0.12.0** — one thing behaves differently:
+
+- A backup of a server that has databases dumps them, and fails when one
+  cannot be dumped: a database host that is down now fails the backup it used
+  to leave out. The dump runs in the backup Job with a MariaDB image —
+  `mariadb:11.4`, or a managed host's own image — which a cluster that cannot
+  reach Docker Hub needs mirrored. See *Added*.
+
 ### Added
 
 - **Backups take a server's databases along.** A backup copied the server's
@@ -32,7 +49,6 @@ releases may include breaking changes).
   done, as a restore; a failure says where the file stopped, and the
   outcome is the `database.imported` or `database.import-failed` event. It
   takes the files permission as well as the databases one.
-
 - **A server can have a startup command of its own.** The startup came from
   the template alone: an argument its egg has no variable for — the four that
   put TeamSpeak on MariaDB, a JVM flag for one server — meant copying the
@@ -1937,7 +1953,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/lolozini/quetzal/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/lolozini/quetzal/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/lolozini/quetzal/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/lolozini/quetzal/compare/v0.9.0...v0.10.0
