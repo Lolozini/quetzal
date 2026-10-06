@@ -39,6 +39,12 @@ releases may include breaking changes).
   applied — Satisfactory's player cap, autosave count and connection
   timeouts among them. The stray lines a server got this way stay in its
   file and do nothing; deleting them is safe.
+- **An import from Pterodactyl takes every file.** It asked the panel for a
+  backup of the server, and Wings leaves out of a backup what the server's
+  `.pteroignore` lists: often the game's own files, for a Steam game. The
+  imported server is marked installed, so its install never ran to bring them
+  back, and it could not start. The import now hands Wings a list of its own,
+  which leaves out nothing.
 
 ## [0.14.0] - 2026-10-05
 

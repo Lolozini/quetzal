@@ -2,6 +2,7 @@ package pterodactyl
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -98,6 +99,26 @@ func TestErrorDetail(t *testing.T) {
 	_, err := c.CreateBackup(context.Background(), "1a2b3c4d", "x")
 	if err == nil || !strings.Contains(err.Error(), "Backups are disabled") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// The import's backup takes every file: without a list of its own, Wings
+// would leave out what the server's .pteroignore lists, and the imported
+// server, marked installed, would never get it back.
+func TestTheImportsBackupTakesEveryFile(t *testing.T) {
+	var body map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Write([]byte(`{"object":"backup","attributes":{"uuid":"u1"}}`))
+	}))
+	defer ts.Close()
+	c := &Client{Base: ts.URL, Key: "k", HTTP: ts.Client()}
+	if _, err := c.CreateBackup(context.Background(), "1a2b3c4d", "x"); err != nil {
+		t.Fatal(err)
+	}
+	ignored, _ := body["ignored"].(string)
+	if ignored == "" || !strings.HasPrefix(ignored, "#") || strings.Contains(ignored, "\n") {
+		t.Errorf("ignored = %q: want a list that names no file", ignored)
 	}
 }
 

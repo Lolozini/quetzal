@@ -296,9 +296,15 @@ type Backup struct {
 }
 
 // CreateBackup starts a backup of the whole server.
+//
+// Wings leaves out of a backup what the server's .pteroignore lists, unless
+// the request names files to leave out itself. An import marks its server
+// installed, so the egg's install never brings back what was left out -- a
+// Steam game's own files, typically: the list it sends names none.
 func (c *Client) CreateBackup(ctx context.Context, id, name string) (*Backup, error) {
 	var raw envelope[Backup]
-	if err := c.do(ctx, http.MethodPost, "/api/client/servers/"+id+"/backups", map[string]any{"name": name}, &raw); err != nil {
+	body := map[string]any{"name": name, "ignored": everyFile}
+	if err := c.do(ctx, http.MethodPost, "/api/client/servers/"+id+"/backups", body, &raw); err != nil {
 		return nil, err
 	}
 	if raw.Attributes.UUID == "" {
@@ -306,6 +312,10 @@ func (c *Client) CreateBackup(ctx context.Context, id, name string) (*Backup, er
 	}
 	return &raw.Attributes, nil
 }
+
+// everyFile is a list of files to leave out that leaves out none: a comment.
+// An empty one would let Wings read the server's .pteroignore.
+const everyFile = "# Quetzal import: every file"
 
 // GetBackup reads a backup's state.
 func (c *Client) GetBackup(ctx context.Context, id, uuid string) (*Backup, error) {
