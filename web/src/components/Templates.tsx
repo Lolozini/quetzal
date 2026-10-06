@@ -80,7 +80,9 @@ export function Templates({ open = false }: { open?: boolean }) {
   async function openEdit(slug: string) {
     setError("");
     try {
-      const t = await api.template(slug);
+      // What the panel computes for the forms is not the template's to edit:
+      // saving it back would do nothing, and it reads like a setting.
+      const { suggestedPorts, allocatedPort, effectiveReinstallKeep, ...t } = await api.template(slug);
       setEditing({ slug, json: JSON.stringify(t, null, 2) });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));

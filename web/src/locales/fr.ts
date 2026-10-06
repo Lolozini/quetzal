@@ -579,7 +579,25 @@ export const fr: Record<string, string> = {
   "Changes apply on the next reconcile, which restarts the server.":
     "Les changements s'appliquent à la prochaine réconciliation, qui redémarre le serveur.",
   Reinstall: "Réinstaller",
-  "Also wipe the data volume (delete all files first)": "Effacer aussi le volume de données (supprimer tous les fichiers d'abord)",
+  "The server's files": "Les fichiers du serveur",
+  "Keep them all: the install runs over them": "Tout garder : l'installation passe par-dessus",
+  "Delete them all except the paths below — to update a modpack":
+    "Tout supprimer sauf les chemins ci-dessous — pour mettre à jour un modpack",
+  "The new version goes in clean: what the old one shipped and the new one does not — mods, configs, scripts — is gone, and the world stays. One path per line, from the server's files; * matches any name. The list is remembered for next time. A backup first is wise.":
+    "La nouvelle version s'installe proprement : ce que l'ancienne apportait et que la nouvelle n'a plus — mods, configs, scripts — disparaît, et le monde reste. Un chemin par ligne, depuis les fichiers du serveur ; * remplace n'importe quel nom. La liste est retenue pour la prochaine fois. Mieux vaut faire une sauvegarde avant.",
+  "List at least one path to keep, or delete all the files.":
+    "Indiquez au moins un chemin à garder, ou supprimez tous les fichiers.",
+  "Kept:": "Gardés :",
+  "Kept in part, for the paths listed inside:": "Gardés en partie, pour les chemins listés dedans :",
+  "Deleted:": "Supprimés :",
+  "Nothing matches, so nothing is kept for:": "Rien ne correspond, donc rien n'est gardé pour :",
+  "Delete them all": "Tout supprimer",
+  "Delete all of this server's files except the {n} paths kept, then re-run the install script? What is deleted cannot be recovered without a backup.":
+    "Supprimer tous les fichiers de ce serveur sauf les {n} chemins gardés, puis relancer le script d'installation ? Ce qui est supprimé ne se récupère qu'avec une sauvegarde.",
+  "Clean reinstall triggered — on the next start everything but the kept paths is deleted, then the install script runs.":
+    "Réinstallation propre déclenchée — au prochain démarrage, tout sauf les chemins gardés est supprimé, puis le script d'installation s'exécute.",
+  "Clean reinstall": "Réinstaller proprement",
+  "Switch & clean reinstall": "Changer & réinstaller proprement",
   "Reinstall & wipe": "Réinstaller & effacer",
   "Reinstall AND WIPE all data? This permanently deletes the server's files, then re-runs the install script.":
     "Réinstaller ET EFFACER toutes les données ? Cela supprime définitivement les fichiers du serveur, puis relance le script d'installation.",

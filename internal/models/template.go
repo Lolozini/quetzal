@@ -73,6 +73,17 @@ type Template struct {
 	Features []string `gorm:"serializer:json" json:"features,omitempty"`
 	// FileDenylist lists files the user may not view/edit (egg file_denylist).
 	FileDenylist []string `gorm:"serializer:json" json:"fileDenylist,omitempty"`
+	// ReinstallKeep lists what a clean reinstall keeps on this template's
+	// servers -- the world, the player lists -- as paths relative to the data
+	// volume, shell patterns allowed. A clean reinstall deletes everything
+	// else, then runs the install: what updating a modpack takes, since its
+	// install unpacks the new version over the old one and leaves behind the
+	// mods and scripts the new one dropped. Empty takes the game's default,
+	// see EffectiveReinstallKeep.
+	ReinstallKeep []string `gorm:"serializer:json" json:"reinstallKeep,omitempty"`
+	// EffectiveKeep is EffectiveReinstallKeep, computed for the panel (not
+	// persisted), which offers it for a server's first clean reinstall.
+	EffectiveKeep []string `gorm:"-" json:"effectiveReinstallKeep,omitempty"`
 
 	// Console selects how commands are delivered to the server.
 	Console ConsoleConfig `gorm:"serializer:json" json:"console"`
@@ -119,6 +130,21 @@ func (t *Template) HasFeature(name string) bool {
 		}
 	}
 	return false
+}
+
+// EffectiveReinstallKeep resolves what a clean reinstall keeps by default:
+// the template's own list, else MinecraftJavaKeep for templates with the
+// "eula" feature, which Minecraft Java eggs carry and others do not, else
+// nothing.
+func (t *Template) EffectiveReinstallKeep() []string {
+	switch {
+	case len(t.ReinstallKeep) > 0:
+		return append([]string(nil), t.ReinstallKeep...)
+	case t.HasFeature("eula"):
+		return append([]string(nil), MinecraftJavaKeep...)
+	default:
+		return nil
+	}
 }
 
 // Wake protocols (see Template.WakeProtocol).

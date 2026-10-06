@@ -1535,6 +1535,21 @@ var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // say). That one is the egg's to get right, and the install log is where it
 // shows.
 func buildInstallScript(mount string) string {
+	return installGuard(mount, fmt.Sprintf(`  rm -rf "%[1]s/"* "%[1]s/".[!.]* 2>/dev/null || true
+`, mount))
+}
+
+// buildCleanInstallScript is buildInstallScript for a clean reinstall, whose
+// wipe spares the paths QUETZAL_INSTALL_KEEP lists. Only a server with one
+// pending is given it: every other pod keeps the rendering it had, and is not
+// restarted by the release that brought this one.
+func buildCleanInstallScript(mount string) string {
+	return installGuard(mount, strings.ReplaceAll(keepingWipe, "@MOUNT@", mount))
+}
+
+// installGuard is the script buildInstallScript describes, with wipe as the
+// body of its wipe step.
+func installGuard(mount, wipe string) string {
 	return fmt.Sprintf(`marker="%[1]s/.quetzal-installed"
 if [ -f "$marker" ]; then
   cur="$(cat "$marker" 2>/dev/null)"
@@ -1542,8 +1557,7 @@ if [ -f "$marker" ]; then
   { [ "$QUETZAL_INSTALL_GEN" = "0" ] || [ -z "$QUETZAL_INSTALL_GEN" ]; } && exit 0
 fi
 if [ "$QUETZAL_INSTALL_WIPE" = "1" ]; then
-  rm -rf "%[1]s/"* "%[1]s/".[!.]* 2>/dev/null || true
-fi
+%[2]sfi
 _qz_egg_sh=${QUETZAL_INSTALL_RESOLVED_SHELL:-sh}
 "$_qz_egg_sh" -c "$QUETZAL_INSTALL_USER_SCRIPT"
 _qz_rc=$?
@@ -1552,8 +1566,90 @@ if [ "$_qz_rc" -ne 0 ]; then
   exit "$_qz_rc"
 fi
 printf '%%s' "$QUETZAL_INSTALL_GEN" > "$marker"
-`, mount)
+`, mount, wipe)
 }
+
+// keepingWipe empties the volume but for the paths QUETZAL_INSTALL_KEEP lists,
+// one per line, each a shell pattern matched from the volume's root.
+//
+// It deletes rather than moving the kept paths aside and back: a deletion done
+// twice is the same deletion, so an install stopped halfway -- a node going
+// down, the pod deleted -- picks up where it stopped on the next start, and
+// nothing is ever left parked somewhere the server does not look. It walks
+// down only into the directories that hold a kept path (keeping
+// config/server.toml clears the rest of config/), and takes everything else
+// whole. A symbolic link is never followed: one that leads to a kept path is
+// kept as it is.
+//
+// The patterns are expanded with field splitting on newlines only, so a name
+// with spaces stays one name; expansion never runs what it expands, so a
+// pattern is a pattern and nothing more. Kept paths are compared with
+// globbing off, as the names they are.
+//
+// A path to keep that matches nothing is said in the install log, where a
+// mistyped world name shows. The subshell keeps the walk's cd, IFS and set -f
+// to itself; it fails only when the volume cannot be entered, and then
+// nothing has been deleted and the install does not run.
+const keepingWipe = `  ( cd "@MOUNT@" || { echo "quetzal: cannot enter @MOUNT@ to clear it; nothing was deleted" >&2; exit 1; }
+    _qz_nl='
+'
+    _qz_kept=
+    set -f
+    IFS=$_qz_nl
+    for _qz_pat in $QUETZAL_INSTALL_KEEP; do
+      set +f
+      _qz_hit=
+      for _qz_p in $_qz_pat; do
+        case $_qz_p in .|..|*/.|*/..) continue ;; esac
+        if [ -e "$_qz_p" ] || [ -L "$_qz_p" ]; then
+          _qz_kept=$_qz_kept$_qz_nl$_qz_p
+          _qz_hit=1
+        fi
+      done
+      set -f
+      [ -n "$_qz_hit" ] || printf "quetzal: clean reinstall: nothing matches '%s', so nothing is kept for it\n" "$_qz_pat" >&2
+    done
+    unset IFS
+    set +f
+    if [ -n "$_qz_kept" ]; then
+      echo "quetzal: clean reinstall: deleting the server's files but these:" >&2
+      set -f
+      IFS=$_qz_nl
+      for _qz_k in $_qz_kept; do printf '  %s\n' "$_qz_k" >&2; done
+      unset IFS
+      set +f
+    else
+      echo "quetzal: clean reinstall: none of the paths to keep exists, so all the server's files are deleted" >&2
+    fi
+    # _qz_state returns 0 for a kept path, 2 for a directory that holds one,
+    # and 1 for anything else.
+    _qz_state() {
+      _qz_r=1
+      set -f
+      IFS=$_qz_nl
+      for _qz_k in $_qz_kept; do
+        if [ "$_qz_k" = "$1" ]; then _qz_r=0; break; fi
+        case $_qz_k in "$1"/*) _qz_r=2 ;; esac
+      done
+      unset IFS
+      set +f
+      return $_qz_r
+    }
+    _qz_prune() {
+      for _qz_e in "${1:+$1/}"* "${1:+$1/}".[!.]* "${1:+$1/}"..?*; do
+        [ -e "$_qz_e" ] || [ -L "$_qz_e" ] || continue
+        _qz_state "$_qz_e"
+        case $? in
+          0) ;;
+          2) if [ -d "$_qz_e" ] && [ ! -L "$_qz_e" ]; then _qz_prune "$_qz_e"; fi ;;
+          *) rm -rf -- "$_qz_e" ;;
+        esac
+      done
+    }
+    _qz_prune ""
+    exit 0
+  ) || exit $?
+`
 
 // normalizeScript strips the Windows line endings that Pterodactyl panel egg
 // exports routinely carry. A stray \r breaks POSIX shells (`then\r` is not
@@ -1644,7 +1740,13 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 	if entrypoint == "" {
 		entrypoint = "sh"
 	}
+	// A clean reinstall pending: the wipe spares what the server keeps. The
+	// list goes to the install step only then, so no other pod changes.
+	keep := s.InstallWipe && len(s.InstallKeep) > 0
 	wrapped := buildInstallScript(installMountPath)
+	if keep {
+		wrapped = buildCleanInstallScript(installMountPath)
+	}
 	// Egg install scripts run as root under Wings: their installer images
 	// (eclipse-temurin, ghcr.io/ptero-eggs/installers) `apt-get`/`apk add` build
 	// dependencies, which non-root can't do. So run install as root, then hand the
@@ -1672,6 +1774,9 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 		corev1.EnvVar{Name: "QUETZAL_INSTALL_GEN", Value: strconv.Itoa(s.InstallGeneration)},
 		corev1.EnvVar{Name: "QUETZAL_INSTALL_WIPE", Value: wipe},
 	), installMountPath)
+	if keep {
+		env = append(env, corev1.EnvVar{Name: "QUETZAL_INSTALL_KEEP", Value: strings.Join(s.InstallKeep, "\n")})
+	}
 	rootUID := int64(0)
 	no := false
 	yes := true

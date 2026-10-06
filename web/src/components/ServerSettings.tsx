@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, Server, Template, TemplateVariable } from "../api";
+import { api, ApiError, FileEntry, Server, Template, TemplateVariable } from "../api";
 import { useT } from "../i18n";
+import { keepLines, keepPreview } from "../keep";
 import { Combobox } from "./Combobox";
 import { PortsEditor, PortRow, rowsToPorts } from "./PortsEditor";
 import { RestartHint } from "./RestartHint";
@@ -258,6 +259,11 @@ function ServerPorts({ server, onSaved }: { server: Server; onSaved: (s: Server)
   );
 }
 
+// What a reinstall does with the server's files: install over them, delete
+// all but a list of paths first (a clean reinstall, how a modpack is
+// updated), or delete them all.
+type FilesMode = "keep" | "clean" | "wipe";
+
 // Reinstall re-runs the install script, and can move the server to another
 // template on the way -- another egg for the same game (Paper to Fabric, keeping
 // the world) or another game -- and to another of its images. Only the owner or
@@ -267,7 +273,13 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
   const [templates, setTemplates] = useState<Template[]>([]);
   const [slug, setSlug] = useState(current.slug);
   const [image, setImage] = useState(server.image);
-  const [wipe, setWipe] = useState(false);
+  const [mode, setMode] = useState<FilesMode>("keep");
+  // The paths a clean reinstall keeps: the server's last list, else what its
+  // template offers. A template change offers the new template's.
+  const offeredKeep = (x: Template) => (x.slug === current.slug && server.reinstallKeep?.length ? server.reinstallKeep : x.effectiveReinstallKeep ?? []);
+  const [keepText, setKeepText] = useState(() => offeredKeep(current).join("\n"));
+  // The top of the server's files, for the preview; null when it cannot be read.
+  const [top, setTop] = useState<FileEntry[] | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
@@ -281,6 +293,19 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
     setSlug(current.slug);
     setImage(server.image);
   }, [current.slug, server.image]);
+  // The preview needs the files: read them afresh each time a clean
+  // reinstall is chosen. Without the files permission there is no preview.
+  useEffect(() => {
+    if (mode !== "clean") return;
+    let live = true;
+    api
+      .listFiles(server.id, "")
+      .then((f) => live && setTop(f))
+      .catch(() => live && setTop(null));
+    return () => {
+      live = false;
+    };
+  }, [mode, server.id]);
 
   const target = templates.find((x) => x.slug === slug) ?? current;
   const switching = target.slug !== current.slug;
@@ -305,16 +330,24 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
       if (nv.editable && nv.required && !(nv.default ?? "").trim()) v[nv.envVariable] = nv.secret ? "" : server.env?.[nv.envVariable] ?? "";
     }
     setValues(v);
-    if (!x.install?.script) setWipe(false);
+    if (!x.install?.script) setMode("keep");
+    setKeepText(offeredKeep(x).join("\n"));
   }
 
+  const keep = keepLines(keepText);
+  const wipe = mode !== "keep";
   async function run() {
+    const files =
+      mode === "clean"
+        ? t("Delete all of this server's files except the {n} paths kept, then re-run the install script? What is deleted cannot be recovered without a backup.", { n: keep.length })
+        : mode === "wipe"
+          ? t("Reinstall AND WIPE all data? This permanently deletes the server's files, then re-runs the install script.")
+          : t("Reinstall this server? It re-runs the install script and restarts the server (data is kept).");
     const warning = switching
       ? t('Switch this server to "{name}"? Ports, resources and — unless wiped — its files are kept. Variables with the same name carry over; the others take the new template\'s defaults.', { name: target.name }) +
-        (installs ? " " + t("The new template's install script runs on the next start.") : "")
-      : wipe
-        ? t("Reinstall AND WIPE all data? This permanently deletes the server's files, then re-runs the install script.")
-        : t("Reinstall this server? It re-runs the install script and restarts the server (data is kept).");
+        (installs ? " " + t("The new template's install script runs on the next start.") : "") +
+        (wipe ? " " + files : "")
+      : files;
     if (!window.confirm(warning)) return;
     setBusy(true);
     setMsg("");
@@ -324,6 +357,7 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
       for (const [k, v] of Object.entries(values)) if (v.trim() !== "") env[k] = v;
       const res = await api.reinstallServer(server.id, {
         wipeData: wipe,
+        ...(mode === "clean" ? { keep } : {}),
         ...(switching ? { template: target.slug } : {}),
         ...(image !== server.image ? { image } : {}),
         ...(switching && Object.keys(env).length ? { env } : {}),
@@ -332,7 +366,9 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
         ? t('Switched to "{name}".', { name: target.name }) +
           " " +
           (res.status === "reinstalling" ? t("Its install runs on the next start.") : t("It has no install step: the image does the work at start."))
-        : t("Reinstall triggered — the server will re-run its install script on the next start/reconcile.");
+        : mode === "clean"
+          ? t("Clean reinstall triggered — on the next start everything but the kept paths is deleted, then the install script runs.")
+          : t("Reinstall triggered — the server will re-run its install script on the next start/reconcile.");
       if (res.reset.length) done += " " + t("Reset to the new template's defaults: {vars}.", { vars: res.reset.join(", ") });
       if (res.startupDropped) done += " " + t("Its own startup command was dropped: it runs the new template's.");
       setMsg(done);
@@ -344,7 +380,14 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
     }
   }
 
-  const blocked = (!switching && !installs) || needed.some((v) => !(values[v.envVariable] ?? "").trim() && !v.secret);
+  const blocked =
+    (!switching && !installs) || (mode === "clean" && keep.length === 0) || needed.some((v) => !(values[v.envVariable] ?? "").trim() && !v.secret);
+  const preview = mode === "clean" && top ? keepPreview(top, keep) : null;
+  const names = (state: string) =>
+    preview!.entries
+      .filter((e) => e.state === state)
+      .map((e) => e.name + (e.dir ? "/" : ""))
+      .join(", ");
   return (
     <div style={{ marginTop: 12 }}>
       <h3>{canSwitch ? t("Reinstall or change template") : t("Reinstall")}</h3>
@@ -389,14 +432,75 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
           />
         </div>
       ))}
-      <label className="row" style={{ gap: 6, marginTop: 8 }}>
-        <input type="checkbox" style={{ width: "auto" }} checked={wipe} disabled={!installs} onChange={(e) => setWipe(e.target.checked)} />
-        {t("Also wipe the data volume (delete all files first)")}
+      <label style={{ marginTop: 8 }}>{t("The server's files")}</label>
+      <label className="row" style={{ gap: 6 }}>
+        <input type="radio" name="files-mode" style={{ width: "auto" }} checked={mode === "keep"} onChange={() => setMode("keep")} />
+        {t("Keep them all: the install runs over them")}
+      </label>
+      <label className="row" style={{ gap: 6 }}>
+        <input type="radio" name="files-mode" style={{ width: "auto" }} checked={mode === "clean"} disabled={!installs} onChange={() => setMode("clean")} />
+        {t("Delete them all except the paths below — to update a modpack")}
+      </label>
+      {mode === "clean" && (
+        <div style={{ marginLeft: 22 }}>
+          <p className="muted">
+            {t("The new version goes in clean: what the old one shipped and the new one does not — mods, configs, scripts — is gone, and the world stays. One path per line, from the server's files; * matches any name. The list is remembered for next time. A backup first is wise.")}
+          </p>
+          <textarea
+            value={keepText}
+            rows={Math.min(14, Math.max(4, keep.length + 1))}
+            spellCheck={false}
+            placeholder={"world*\nserver.properties"}
+            onChange={(e) => setKeepText(e.target.value)}
+            style={{ fontFamily: "monospace" }}
+          />
+          {keep.length === 0 && <div className="error">{t("List at least one path to keep, or delete all the files.")}</div>}
+          {preview && (
+            <div className="muted" style={{ marginTop: 6 }}>
+              {names("kept") && (
+                <div>
+                  {t("Kept:")} <code>{names("kept")}</code>
+                </div>
+              )}
+              {names("partly") && (
+                <div>
+                  {t("Kept in part, for the paths listed inside:")} <code>{names("partly")}</code>
+                </div>
+              )}
+              {names("deleted") && (
+                <div>
+                  {t("Deleted:")} <code>{names("deleted")}</code>
+                </div>
+              )}
+              {preview.unmatched.length > 0 && (
+                <div className="error">
+                  {t("Nothing matches, so nothing is kept for:")} <code>{preview.unmatched.join(", ")}</code>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      <label className="row" style={{ gap: 6 }}>
+        <input type="radio" name="files-mode" style={{ width: "auto" }} checked={mode === "wipe"} disabled={!installs} onChange={() => setMode("wipe")} />
+        {t("Delete them all")}
       </label>
       {msg && <div className="notice">{msg}</div>}
       {error && <div className="error">{error}</div>}
       <button className={wipe ? "danger" : ""} style={{ marginTop: 8 }} onClick={run} disabled={busy || blocked}>
-        {busy ? "…" : switching ? (wipe ? t("Switch & wipe") : t("Switch template")) : wipe ? t("Reinstall & wipe") : t("Reinstall")}
+        {busy
+          ? "…"
+          : switching
+            ? mode === "clean"
+              ? t("Switch & clean reinstall")
+              : wipe
+                ? t("Switch & wipe")
+                : t("Switch template")
+            : mode === "clean"
+              ? t("Clean reinstall")
+              : wipe
+                ? t("Reinstall & wipe")
+                : t("Reinstall")}
       </button>
     </div>
   );

@@ -30,6 +30,7 @@ func (s *Server) handleGetTemplate(w http.ResponseWriter, r *http.Request) {
 		t.SuggestedPorts = models.DetectPorts(t)
 		t.AllocatedPort = t.UsesAllocation()
 	}
+	t.EffectiveKeep = t.EffectiveReinstallKeep()
 	writeJSON(w, http.StatusOK, t)
 }
 
@@ -153,6 +154,13 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("wakeProtocol must be %q, %q or empty", models.WakeAnyConnection, models.WakeMinecraft))
 		return
 	}
+	keep, err := models.CleanKeepPaths(t.ReinstallKeep)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "reinstallKeep: "+err.Error())
+		return
+	}
+	t.ReinstallKeep = keep
+	t.EffectiveKeep = nil // computed for the panel, never stored
 	// Pin identity + creation time to the existing row (Save writes every column,
 	// so a hand-edited body that omits createdAt would otherwise zero it);
 	// everything else comes from the payload.

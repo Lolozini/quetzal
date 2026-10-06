@@ -1156,6 +1156,17 @@ paths:
         script runs.
 
 
+        With `keep` as well, the clear spares those paths: a clean reinstall,
+        which deletes everything else and then installs — how a modpack is
+        updated, its install unpacking the new version over the old one and
+        leaving behind what the old one shipped and the new one does not. Paths
+        are relative to the server's files and may use shell patterns (`*`,
+        `?`, `[...]`); keeping a directory keeps it whole, and keeping a path
+        inside one keeps that path alone. The list is remembered on the server
+        (`reinstallKeep`) for its next clean reinstall, and a template offers
+        one (`effectiveReinstallKeep`).
+
+
         With `template`, the server moves to another template first (owner or
         an administrator only): ports, resources, storage and — unless wiped —
         files are kept. Variables the new template also declares keep their
@@ -1178,6 +1189,15 @@ paths:
               type: object
               properties:
                 wipeData: { type: boolean }
+                keep:
+                  type: array
+                  maxItems: 64
+                  items: { type: string, maxLength: 255 }
+                  example: ["world*", "server.properties", "ops.json", "whitelist.json"]
+                  description: >-
+                    Paths the wipe spares, relative to the server's files, shell
+                    patterns allowed; only with wipeData. A path that leaves the
+                    server's files, or names them all, is refused.
                 template: { type: string, description: Slug of the template to move to }
                 image: { type: string, description: One of the target template's image refs }
                 env:
@@ -1194,6 +1214,10 @@ paths:
                 properties:
                   status: { type: string, enum: [reinstalling, switched] }
                   wipeData: { type: boolean }
+                  keep:
+                    type: array
+                    items: { type: string }
+                    description: What the wipe spares, as stored; empty when it takes everything or there is none
                   template: { type: string }
                   image: { type: string }
                   reset:
@@ -1203,7 +1227,7 @@ paths:
                   startupDropped:
                     type: boolean
                     description: The server had a startup command of its own, dropped by the template change
-        "400": { description: "No install script, unknown template, image off the list, missing required variable, or an unreadable body" }
+        "400": { description: "No install script, unknown template, image off the list, missing required variable, a path to keep that is refused or comes without wipeData, or an unreadable body" }
         "403": { description: A template change by someone other than the owner or an administrator }
   /api/servers/{id}/stats:
     parameters:
@@ -2839,6 +2863,13 @@ components:
         startup:
           type: string
           description: The server's own startup command, set by an administrator; absent when it runs its template's
+        reinstallKeep:
+          type: array
+          items: { type: string }
+          description: >-
+            What the server's last clean reinstall kept (see the reinstall
+            endpoint's keep), offered again for its next one; absent before
+            its first.
         resources: { $ref: "#/components/schemas/Resources" }
         storage: { $ref: "#/components/schemas/Storage" }
         ports:
@@ -3068,6 +3099,22 @@ components:
             the egg hands the game its allocation (SERVER_PORT in its startup,
             server.build.default.port in its config files), so the game listens
             on the primary port its server is given, which no variable holds.
+        reinstallKeep:
+          type: array
+          items: { type: string }
+          description: >-
+            What a clean reinstall keeps by default on this template's servers,
+            as paths relative to their files, shell patterns allowed (see the
+            reinstall endpoint's keep). Unset, templates with the eula feature
+            keep the Minecraft Java world, settings and player lists, and
+            others nothing.
+        effectiveReinstallKeep:
+          type: array
+          readOnly: true
+          items: { type: string }
+          description: >-
+            Computed, not persisted: reinstallKeep with that default applied,
+            which the panel offers for a server's first clean reinstall.
     ScheduleTask:
       type: object
       required: [action]

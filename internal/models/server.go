@@ -237,6 +237,14 @@ type Server struct {
 	// first (reinstall-from-scratch). It only takes effect when the install
 	// actually re-runs (generation mismatch).
 	InstallWipe bool `json:"-"`
+	// InstallKeep spares these paths from that wipe: a clean reinstall, which
+	// deletes everything else -- an old modpack's mods and scripts -- before
+	// the install runs. Relative to the data volume, shell patterns allowed.
+	// Retired with the wipe; empty, the wipe takes everything.
+	InstallKeep []string `gorm:"serializer:json" json:"-"`
+	// ReinstallKeep is what the server's last clean reinstall kept, offered
+	// again for its next one: a modpack's next update keeps the same world.
+	ReinstallKeep []string `gorm:"serializer:json" json:"reinstallKeep,omitempty"`
 
 	// Hibernation policy and system-managed state.
 	Hibernation Hibernation `gorm:"serializer:json" json:"hibernation"`

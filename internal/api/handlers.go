@@ -302,6 +302,8 @@ func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 			ts[i].SuggestedPorts = models.DetectPorts(&ts[i])
 			ts[i].AllocatedPort = ts[i].UsesAllocation()
 		}
+		// What a clean reinstall offers to keep, the game's default included.
+		ts[i].EffectiveKeep = ts[i].EffectiveReinstallKeep()
 	}
 	writeJSON(w, http.StatusOK, ts)
 }
@@ -1269,7 +1271,8 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleReinstallServer re-runs a server's install script (egg
-// scripts.installation), optionally wiping the data volume first. It bumps the
+// scripts.installation), optionally wiping the data volume first -- all of it,
+// or all but the paths the request keeps: a clean reinstall. It bumps the
 // install generation so the install init container re-runs; the change rolls the
 // pod on the next reconcile (and, for a stopped server, runs on next start).
 func (s *Server) handleReinstallServer(w http.ResponseWriter, r *http.Request) {
@@ -1287,6 +1290,11 @@ func (s *Server) handleReinstallServer(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		WipeData bool `json:"wipeData"`
+		// Keep spares these paths from the wipe: a clean reinstall, which
+		// deletes everything else -- an old modpack's mods, configs and
+		// scripts -- before the install puts the new version in. Relative to
+		// the server's files, shell patterns allowed. Only with WipeData.
+		Keep []string `json:"keep"`
 		// Template moves the server to another template (by slug) as part of
 		// the reinstall: another egg for the same game -- Paper to Fabric,
 		// keeping the world -- or another game altogether. Empty keeps it.
@@ -1304,6 +1312,19 @@ func (s *Server) handleReinstallServer(w http.ResponseWriter, r *http.Request) {
 	// reinstall of the old one instead of the change that was asked for.
 	if err := decodeJSON(r, &req); err != nil && !errors.Is(err, io.EOF) {
 		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	keep, err := models.CleanKeepPaths(req.Keep)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(keep) > 0 && !req.WipeData {
+		// Without the wipe nothing is deleted, so there is nothing to keep
+		// from it; a list here is a request for a clean reinstall that forgot
+		// to ask for one, and running a plain reinstall instead would leave
+		// the old files it meant to clear.
+		writeError(w, http.StatusBadRequest, "keep applies to a reinstall that deletes the files (wipeData); without it they are all kept")
 		return
 	}
 	u := userFrom(r.Context())
@@ -1402,13 +1423,16 @@ func (s *Server) handleReinstallServer(w http.ResponseWriter, r *http.Request) {
 	dropStartup := switching && srv.Startup != ""
 	if err := s.Store.ReinstallServer(srv.ID, store.ServerReinstall{
 		TemplateID: target.ID, TemplateVersion: target.Version, Image: image,
-		Env: env, SecretEnvEnc: secretEnc, Install: installs, Wipe: req.WipeData,
+		Env: env, SecretEnvEnc: secretEnc, Install: installs, Wipe: req.WipeData, Keep: keep,
 		DropStartup: dropStartup,
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	detail := fmt.Sprintf("wipeData=%v", req.WipeData)
+	if len(keep) > 0 {
+		detail += " keep=" + strings.Join(keep, ",")
+	}
 	if switching {
 		detail = fmt.Sprintf("template %s -> %s, image %s, %s", current.Slug, target.Slug, image, detail)
 		if dropStartup {
@@ -1425,8 +1449,13 @@ func (s *Server) handleReinstallServer(w http.ResponseWriter, r *http.Request) {
 	if reset == nil {
 		reset = []string{}
 	}
+	if keep == nil {
+		keep = []string{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": status, "wipeData": req.WipeData, "template": target.Slug, "image": image,
+		// What the wipe spares; empty when it takes everything, or there is none.
+		"keep": keep,
 		// Variables of the new template whose current value was not carried over
 		// and took the template's default instead.
 		"reset": reset,

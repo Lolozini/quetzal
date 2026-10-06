@@ -277,6 +277,12 @@ export interface Template {
   // How a sleeping server tells a player from a scanner: "minecraft", "any",
   // or unset (Minecraft for templates with the "eula" feature).
   wakeProtocol?: string;
+  // What a clean reinstall keeps by default on this template's servers, as
+  // set by an administrator; effectiveReinstallKeep is it with the game's
+  // default applied (the Minecraft Java world and player lists for templates
+  // with the "eula" feature), computed by the panel.
+  reinstallKeep?: string[];
+  effectiveReinstallKeep?: string[];
 }
 
 // wakesOnMinecraftLogin mirrors Template.EffectiveWakeProtocol on the server.
@@ -355,6 +361,8 @@ export interface Server {
   // The server's own startup command, set by an administrator; absent when it
   // runs its template's.
   startup?: string;
+  // What the server's last clean reinstall kept, offered again for its next.
+  reinstallKeep?: string[];
   env?: Record<string, string>;
   resources: { memory?: string; cpu?: string };
   storage: { type: string; size?: string; storageClass?: string };
@@ -602,6 +610,9 @@ export type ChannelType = "discord" | "webhook" | "email";
 
 export interface ReinstallRequest {
   wipeData: boolean;
+  // With wipeData: the paths the wipe spares (a clean reinstall), relative to
+  // the server's files, shell patterns allowed.
+  keep?: string[];
   template?: string;
   image?: string;
   env?: Record<string, string>;
@@ -610,6 +621,8 @@ export interface ReinstallRequest {
 export interface ReinstallResult {
   status: "reinstalling" | "switched";
   wipeData: boolean;
+  // What the wipe spares, as the panel stored it.
+  keep: string[];
   template: string;
   image: string;
   reset: string[];

@@ -697,23 +697,15 @@ func lockOwnerServers(tx *gorm.DB, ownerID uint) ([]models.Server, error) {
 	return owned, nil
 }
 
-// BumpInstallGeneration increments a server's install generation (triggering a
-// reinstall on the next start/reconcile) and sets the one-shot wipe flag. The
-// increment is done in SQL so concurrent reinstalls don't lose a bump.
-func (s *Store) BumpInstallGeneration(id uint, wipe bool) error {
-	return s.db.Model(&models.Server{}).Where("id = ?", id).
-		Updates(map[string]any{
-			"install_generation": gorm.Expr("install_generation + 1"),
-			"install_wipe":       wipe,
-		}).Error
-}
-
-// ClearInstallWipe retires a reinstall's wipe once that reinstall has run, so it
-// cannot fire again on a later install of the same generation (after a restore
-// rolled the volume back, or a deleted install marker).
+// ClearInstallWipe retires a reinstall's wipe, and what it was to keep, once
+// that reinstall has run, so it cannot fire again on a later install of the
+// same generation (after a restore rolled the volume back, or a deleted
+// install marker).
 func (s *Store) ClearInstallWipe(id uint) error {
+	// Struct-shaped, with the columns named, so the zero values are written
+	// and the list goes through its JSON serializer.
 	return s.db.Model(&models.Server{}).Where("id = ?", id).
-		Update("install_wipe", false).Error
+		Select("install_wipe", "install_keep").Updates(models.Server{}).Error
 }
 
 // ServerReinstall is what a reinstall may change on a server besides the install
@@ -730,6 +722,9 @@ type ServerReinstall struct {
 	// template with no install script has nothing to run, so it leaves both off.
 	Install bool
 	Wipe    bool
+	// Keep spares these paths from the wipe: a clean reinstall. The list is
+	// also remembered as the server's ReinstallKeep, for its next one.
+	Keep []string
 	// DropStartup takes the server back to its template's startup command.
 	DropStartup bool
 }
@@ -741,13 +736,24 @@ func (s *Store) ReinstallServer(id uint, r ServerReinstall) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Struct-shaped, with the columns named, so Env goes through its JSON
 		// serializer and a false InstallWipe is still written.
+		wipe := r.Install && r.Wipe
+		var keep []string
+		if wipe {
+			keep = r.Keep
+		}
 		if err := tx.Model(&models.Server{}).Where("id = ?", id).
-			Select("template_id", "template_version", "image", "env", "secret_env_enc", "install_wipe").
+			Select("template_id", "template_version", "image", "env", "secret_env_enc", "install_wipe", "install_keep").
 			Updates(models.Server{
 				TemplateID: r.TemplateID, TemplateVersion: r.TemplateVersion, Image: r.Image,
-				Env: r.Env, SecretEnvEnc: r.SecretEnvEnc, InstallWipe: r.Install && r.Wipe,
+				Env: r.Env, SecretEnvEnc: r.SecretEnvEnc, InstallWipe: wipe, InstallKeep: keep,
 			}).Error; err != nil {
 			return err
+		}
+		if len(keep) > 0 {
+			if err := tx.Model(&models.Server{}).Where("id = ?", id).
+				Select("reinstall_keep").Updates(models.Server{ReinstallKeep: keep}).Error; err != nil {
+				return err
+			}
 		}
 		if r.DropStartup {
 			if err := tx.Model(&models.Server{}).Where("id = ?", id).Update("startup", "").Error; err != nil {

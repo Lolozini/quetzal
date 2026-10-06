@@ -7,6 +7,27 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **Clean reinstall: delete everything but what you keep, then install.**
+  Updating a modpack meant either reinstalling over the old version — its
+  install unpacks the new one on top and deletes nothing, so the mods,
+  configs and scripts the new version dropped stayed, mods in two versions
+  crash the server at start — or deleting by hand, in the file manager, two
+  dozen folders the pack had brought. A reinstall now offers a third choice
+  next to keeping the files and wiping them: delete all of them except a
+  list of paths, then run the install. A Minecraft Java template offers the
+  worlds, `server.properties`, the player lists and `plugins`; another
+  template's administrator can set its own list (`reinstallKeep`). Before
+  anything is deleted, the panel shows which of the server's files will be
+  kept and which deleted, and names a path that matches nothing — a world
+  that is not called `world`. The server remembers its list for the next
+  update, and the API takes it as `keep` on `POST /api/servers/{id}/reinstall`.
+  The deletion walks down only into the folders that hold a kept path,
+  follows no link, and picks up where it stopped if the install is
+  interrupted; servers that have no clean reinstall pending keep exactly the
+  pod they had, so upgrading Quetzal restarts none of them.
+
 ## [0.14.0] - 2026-10-05
 
 The server page says which of a server's ports each address reaches — what a

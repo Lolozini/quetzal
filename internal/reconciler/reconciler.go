@@ -313,7 +313,7 @@ func (r *Reconciler) ensureObjects(ctx context.Context, srv *models.Server, tmpl
 		if err := r.Store.ClearInstallWipe(srv.ID); err != nil {
 			log.Printf("server %s: clear install wipe: %v", srv.Slug, err)
 		} else {
-			srv.InstallWipe = false
+			srv.InstallWipe, srv.InstallKeep = false, nil
 		}
 	}
 	// The game pod mounts it, so it goes first.

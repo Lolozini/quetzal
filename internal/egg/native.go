@@ -95,6 +95,12 @@ func fromNative(data []byte) (*models.Template, error) {
 	if !models.ValidWakeProtocol(t.WakeProtocol) {
 		return nil, fmt.Errorf("wakeProtocol %q is not one of %q or %q", t.WakeProtocol, models.WakeAnyConnection, models.WakeMinecraft)
 	}
+	keep, err := models.CleanKeepPaths(t.ReinstallKeep)
+	if err != nil {
+		return nil, fmt.Errorf("reinstallKeep: %w", err)
+	}
+	t.ReinstallKeep = keep
+	t.EffectiveKeep = nil // computed by the panel, never imported
 	// An export always carries these; a hand-edited document may not, and a
 	// template with no image or no console cannot run a server.
 	if len(t.Images) == 0 {

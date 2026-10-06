@@ -107,8 +107,14 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   command of its own** — an argument its egg has no variable for — without
   copying the template; the panel marks it, and one click goes back to the
   template's.
-- **Reinstall** on demand (optionally wiping data) without surprise re-installs on
-  normal restarts.
+- **Reinstall** on demand, without surprise re-installs on normal restarts:
+  over the server's files, after deleting them all, or **clean** — everything
+  deleted but the paths it keeps, by default the world, settings and player
+  lists of a Minecraft server. That is how a modpack is updated: give it the
+  new version, reinstall clean, and the mods and scripts the old version
+  shipped and the new one dropped are gone while the world stays. The panel
+  shows what will be kept and deleted before anything is, and remembers the
+  list for next time.
 - **Hibernation**: scale idle servers to zero and **wake them on connect** — a
   lightweight TCP "wake-and-drop" mode (no latency, real client IP when awake) or
   an always-in-path TCP+UDP proxy mode (so UDP games can auto-sleep too). A
