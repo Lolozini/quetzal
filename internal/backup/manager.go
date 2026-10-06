@@ -32,6 +32,9 @@ type Manager struct {
 	Store *store.Store
 	Reg   *cluster.Registry
 	Now   func() time.Time
+	// ReadIgnore reads a server's IgnoreFile from its files under root: ""
+	// when it has none. Nil reads it through the server's data manager.
+	ReadIgnore func(ctx context.Context, c cluster.Clients, srv *models.Server, root string) (string, error)
 }
 
 // NewManager returns a backup Manager.
@@ -181,11 +184,20 @@ func (m *Manager) processPending(ctx context.Context) {
 			log.Printf("backup %d: %v (retrying)", b.ID, err)
 			continue
 		}
+		excludes, ignored, note, err := m.exclusions(ctx, clients, srv, b)
+		if errors.As(err, &stop) {
+			m.finish(b, models.BackupFailed, 0, stop.msg)
+			continue
+		}
+		if err != nil {
+			continue // the server's files or the database will answer next tick
+		}
 		p := Params{
 			Namespace: srv.Namespace, Slug: srv.Slug,
 			BackupID: b.ID, Direction: b.Direction, SourceID: b.SourceID,
 			NodeSelector: srv.NodeSelector, InstallGen: srv.InstallGeneration,
 			Databases: dbs, ImportPath: b.Path, ImportWipe: b.Wipe,
+			Excludes: excludes,
 		}
 		if !imports {
 			p.Image, p.KeepLast, p.Repository, p.Region = Image(cfg), cfg.KeepLast, Repository(cfg, srv.Slug), cfg.Region
@@ -201,7 +213,7 @@ func (m *Manager) processPending(ctx context.Context) {
 		if !imports && len(dbs) > 0 {
 			names = DatabaseNames(dbs)
 		}
-		claimed, err := m.Store.ClaimBackup(b.ID, JobName(p), target, names)
+		claimed, err := m.Store.ClaimBackup(b.ID, JobName(p), target, names, ignored, note)
 		if err != nil {
 			log.Printf("backup: claim %d: %v", b.ID, err)
 			continue
@@ -210,6 +222,12 @@ func (m *Manager) processPending(ctx context.Context) {
 			continue
 		}
 		b.Phase, b.JobName = models.BackupRunning, JobName(p)
+		if ignored != "" {
+			b.Ignored = ignored
+		}
+		if note != "" {
+			b.Message = note
+		}
 		if target != "" {
 			b.Target = target
 		}
@@ -265,10 +283,12 @@ func (m *Manager) processRunning(ctx context.Context) {
 		switch {
 		case done:
 			size := int64(0)
+			msg := m.restoreNote(b)
 			if b.Direction == models.DirBackup {
 				size = ParseBackupSize(podLogs(ctx, cs, srv.Namespace, b.JobName))
+				msg = b.Message // why it copied every file, when it did
 			}
-			m.finish(b, models.BackupSucceeded, size, m.restoreNote(b))
+			m.finish(b, models.BackupSucceeded, size, msg)
 			if b.Direction == models.DirBackup {
 				if err := m.Store.PruneBackups(srv.ID, keepLast); err != nil {
 					log.Printf("backup: prune %d: %v", srv.ID, err)
@@ -367,6 +387,61 @@ func (m *Manager) operationDatabases(srv *models.Server, b *models.Backup) ([]Da
 		})
 	}
 	return out, nil
+}
+
+// exclusions is what an operation leaves alone, as restic exclude patterns: a
+// backup, the paths its server's IgnoreFile lists, with the list to record
+// and, when the list cannot be applied, the note that says why the backup
+// copies every file instead; a restore, the paths its snapshot left out. An
+// opFailure ends the operation; another error asks to come back next tick.
+func (m *Manager) exclusions(ctx context.Context, c cluster.Clients, srv *models.Server, b *models.Backup) (excludes, ignored, note string, err error) {
+	switch {
+	case b.Direction == models.DirBackup && !b.Full:
+		read := m.ReadIgnore
+		if read == nil {
+			read = readIgnore
+		}
+		list, rerr := read(ctx, c, srv, m.dataRoot(srv))
+		switch {
+		case errors.Is(rerr, errNoDataManager) && m.now().Sub(b.CreatedAt) < ignoreWait:
+			return "", "", "", rerr
+		case rerr != nil:
+			return "", "", fmt.Sprintf("every file was copied: %s could not be read: %v", IgnoreFile, rerr), nil
+		}
+		ex, xerr := ResticExcludes(list, mountPath)
+		if xerr != nil {
+			return "", "", fmt.Sprintf("every file was copied: %s was not applied: %v", IgnoreFile, xerr), nil
+		}
+		if ex == "" {
+			return "", "", "", nil
+		}
+		return ex, list, "", nil
+	case b.Direction == models.DirRestore:
+		src, gerr := m.Store.GetBackup(b.SourceID)
+		if errors.Is(gerr, store.ErrNotFound) {
+			return "", "", "", opFailure{"the backup it restores is gone"}
+		}
+		if gerr != nil {
+			return "", "", "", gerr
+		}
+		ex, xerr := ResticExcludes(src.Ignored, "")
+		if xerr != nil {
+			// Restored without them, the volume would lose what the snapshot
+			// left out: the game's own files, as often as not.
+			return "", "", "", opFailure{fmt.Sprintf("nothing was restored: the paths backup #%d left out could not be read back: %v", src.ID, xerr)}
+		}
+		return ex, "", "", nil
+	}
+	return "", "", "", nil
+}
+
+// dataRoot is where a server's data manager mounts its files: the template's
+// data path, as the file manager reads them.
+func (m *Manager) dataRoot(srv *models.Server) string {
+	if t, err := m.Store.GetTemplate(srv.TemplateID); err == nil && t.DataPath != "" {
+		return t.DataPath
+	}
+	return "/data"
 }
 
 // restoreNote says which of its snapshot's databases a restore did not load

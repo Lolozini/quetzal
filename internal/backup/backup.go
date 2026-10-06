@@ -67,7 +67,19 @@ type Params struct {
 	// ImportWipe empties the database first.
 	ImportPath string
 	ImportWipe bool
+	// Excludes are the restic exclude patterns (see ResticExcludes) a backup
+	// leaves out, or a restore leaves as they are on the volume: the paths
+	// its snapshot never held.
+	Excludes string
 }
+
+// excludesFile is where an operation's script writes its exclude patterns,
+// handed to it in excludesEnv: as data in the environment, never as text of
+// the script, since a server's users write them.
+const (
+	excludesFile = "/tmp/quetzal-excludes"
+	excludesEnv  = "QUETZAL_EXCLUDES"
+)
 
 // repoOnly reports whether the operation touches only the restic repository, and
 // so needs no data volume, no node placement and no co-location.
@@ -243,12 +255,24 @@ restic forget --host %q --tag %q --unsafe-allow-remove-all --prune
 		// (wiping it first, when that reinstall had asked for a wipe). The marker
 		// keeps the owner it was restored with; a new one goes to the owner of
 		// the volume's root, which is the server's user.
+		//
+		// A snapshot that left paths out (the server's ignore file) restores the
+		// volume's own folder instead, its paths read from there, so that the
+		// left-out ones can be excluded: restic refuses an exclude beside the
+		// include, and deletes only what its filters let through. Those paths
+		// stay as they are -- a game's files, which the snapshot never held
+		// and the delete would otherwise have taken.
+		restore := fmt.Sprintf("restic restore latest --host %q --tag %q --target / --delete --include %s", p.Slug, srcTag, mountPath)
+		if p.Excludes != "" {
+			restore = fmt.Sprintf("printf '%%s\\n' \"$%s\" > %s\nrestic restore %q --host %q --tag %q --target %s --delete --exclude-file %s",
+				excludesEnv, excludesFile, "latest:"+mountPath, p.Slug, srcTag, mountPath, excludesFile)
+		}
 		script = fmt.Sprintf(`set -e
-restic restore latest --host %q --tag %q --target / --delete --include %s
+%s
 marker=%s/.quetzal-installed
 printf '%%s' %q > "$marker"
 chown "$(stat -c %%u:%%g %s)" "$marker" 2>/dev/null || true
-`, p.Slug, srcTag, mountPath, mountPath, strconv.Itoa(p.InstallGen), mountPath)
+`, restore, mountPath, strconv.Itoa(p.InstallGen), mountPath)
 		if len(p.Databases) > 0 {
 			// The dumps go beside the volume, for the load steps that follow.
 			script += fmt.Sprintf("restic restore latest --host %q --tag %q --target %s --include %s\n",
@@ -265,6 +289,10 @@ chown "$(stat -c %%u:%%g %s)" "$marker" 2>/dev/null || true
 		// the first command, then waited again for the second on a target that
 		// never answered, and reported "create repository ... failed" whatever
 		// had gone wrong -- a refused key, a wrong password, a missing bucket.
+		run := fmt.Sprintf("restic backup %s --host %q --tag quetzal --tag %q --json", backupPaths(p), p.Slug, tag)
+		if p.Excludes != "" {
+			run = fmt.Sprintf("printf '%%s\\n' \"$%s\" > %s\n%s --exclude-file %s", excludesEnv, excludesFile, run, excludesFile)
+		}
 		script = fmt.Sprintf(`set -e
 rc=0
 restic snapshots >/dev/null || rc=$?
@@ -273,9 +301,9 @@ if [ "$rc" = 10 ]; then
 elif [ "$rc" != 0 ]; then
   exit "$rc"
 fi
-restic backup %s --host %q --tag quetzal --tag %q --json
+%s
 restic forget --host %q --keep-last %d --prune
-`, backupPaths(p), p.Slug, tag, p.Slug, keep)
+`, run, p.Slug, keep)
 	}
 
 	backoff := int32(1)
@@ -383,6 +411,9 @@ func podSpec(p Params, script string) corev1.PodSpec {
 			},
 		}},
 		VolumeMounts: mounts,
+	}
+	if p.Excludes != "" {
+		restic.Env = []corev1.EnvVar{{Name: excludesEnv, Value: p.Excludes}}
 	}
 
 	switch {

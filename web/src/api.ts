@@ -566,6 +566,11 @@ export interface Backup {
   databases?: string[];
   // A restore asked to load the backup's databases back too.
   withDatabases?: boolean;
+  // A backup: the server's .quetzalignore as it read then, the paths it left
+  // out. A restore of it leaves them as they are on the server.
+  ignored?: string;
+  // A backup of every file whatever .quetzalignore says (a transfer's).
+  full?: boolean;
 }
 
 export interface ClusterSetup {

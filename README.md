@@ -154,6 +154,10 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   encryption, retention) — one-shot Jobs, credentials encrypted at rest. A
   restore runs on a stopped server, which cannot start again until it is done;
   one still waiting can be cancelled.
+- **`.quetzalignore`** at the root of a server's files leaves paths out of its
+  backups, `.gitignore` style: a Steam game's backups keep its saves, not the
+  gigabytes of game SteamCMD downloads again. A restore leaves those paths as
+  they are.
 - Deleting a server **destroys its data volume** along with it, so nothing is
   left orphaned — download what you need to keep first. Its snapshots go too:
   the panel purges them from the backup bucket, and logs a purge that fails.

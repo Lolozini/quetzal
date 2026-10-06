@@ -500,6 +500,11 @@ export const fr: Record<string, string> = {
     "Ses bases de données restent telles quelles : les restaurer demande la permission bases de données.",
   "+ {n} database(s)": "+ {n} base(s) de données",
   "+ databases loaded back: {names}": "+ bases rechargées : {names}",
+  "Paths listed in .quetzalignore, at the root of the server's files, are left out of its backups (one pattern per line, as in a .gitignore). A restore leaves them as they are.":
+    "Les chemins listés dans .quetzalignore, à la racine des fichiers du serveur, ne sont pas sauvegardés (un motif par ligne, comme dans un .gitignore). Une restauration les laisse tels quels.",
+  "without the paths of .quetzalignore": "sans les chemins de .quetzalignore",
+  "This backup left out the paths of .quetzalignore: they stay as they are on the server.":
+    "Cette sauvegarde n'a pas copié les chemins de .quetzalignore : ils restent tels quels sur le serveur.",
   "Delete this backup? Its snapshot is removed from the repository and the data cannot be recovered.":
     "Supprimer cette sauvegarde ? Son snapshot est retiré du dépôt et les données seront irrécupérables.",
   "Delete this record?": "Supprimer cet enregistrement ?",

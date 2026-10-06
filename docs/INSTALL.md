@@ -293,6 +293,20 @@ the message names it: a backup that skipped it would read as one that has it.
 Importing an SQL file into a database runs the same way, without needing a
 backup target.
 
+**A server can leave files out of its backups.** A `.quetzalignore` at the root
+of its files lists them, one pattern per line, as a `.gitignore` does: `#` for
+a comment, `/` in front to anchor a path at the root (`/Engine/`), none to
+match at any depth (`*.log`), `!` to take one back. A Steam game's server is
+mostly the game itself — gigabytes SteamCMD downloads again on demand — around
+a few megabytes of saves, and its backups need only the saves. The list has
+the limits Pterodactyl puts on a `.pteroignore` — 32 KiB, 256 patterns, 16
+wildcards a pattern — and a list that breaks one, or holds a pattern restic
+cannot read, does not apply: that backup copies every file, and says why in
+its message. Each backup records the list it applied. Restoring it makes the
+other files the backup's and leaves the paths it left out as they are, so the
+game stays in place; on a server that no longer has them, a reinstall brings
+the game back. A transfer to another cluster always copies every file.
+
 ## Registering another cluster
 
 Quetzal reaches a remote cluster with a kubeconfig you paste into the panel

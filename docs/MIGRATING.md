@@ -107,6 +107,10 @@ wait until it is done.
   Quetzal, upload the dump with its files, and load it with **Import SQL** on
   the server's Databases tab, server stopped.
 - Variables the key cannot see (hidden by the egg) take the template's default.
+- **What `.pteroignore` leaves out of backups.** The import takes every file,
+  whatever the server's `.pteroignore` lists, and the file comes over with the
+  others, but Quetzal does not read it: rename it `.quetzalignore` to leave the
+  same paths out of the new server's backups.
 
 ### Requirements
 

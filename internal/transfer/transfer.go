@@ -98,7 +98,9 @@ func (m *Manager) advanceBackingUp(ctx context.Context, srv *models.Server) {
 		if has, err := hasServerPods(ctx, cs.Clientset, srv.Namespace, srv.Slug); err != nil || has {
 			return
 		}
-		b := &models.Backup{ServerID: srv.ID, Direction: models.DirBackup, Phase: models.BackupPending}
+		// Every file: the snapshot becomes the server's whole volume on the
+		// other cluster, where nothing of what .quetzalignore lists is waiting.
+		b := &models.Backup{ServerID: srv.ID, Direction: models.DirBackup, Phase: models.BackupPending, Full: true}
 		if err := m.Store.CreateBackup(b); err != nil {
 			log.Printf("transfer %s: create backup: %v", srv.Slug, err)
 			return

@@ -1760,7 +1760,11 @@ paths:
       description: >-
         The backup runs after the answer: the record comes back Pending, and
         its phase says how it ends. A backup of a server that is stopping
-        waits for it to be down, up to 15 minutes.
+        waits for it to be down, up to 15 minutes. It leaves out the paths the
+        server's .quetzalignore lists, at the root of its files, with the
+        syntax of a .gitignore (32 KiB, 256 patterns and 16 wildcards a
+        pattern at most); a list it cannot apply makes it copy every file,
+        and its message says why.
       responses:
         "202":
           description: Backup requested
@@ -1782,7 +1786,8 @@ paths:
         cannot be started and its files are unavailable. With databases, the
         backup's databases are loaded back too, each emptied first: those the
         server still has, by name (the others are named in the record's
-        message). Without it the files alone are restored.
+        message). Without it the files alone are restored. The paths the
+        backup left out (its ignored list) stay as they are on the server.
       requestBody:
         required: false
         content:
@@ -3208,6 +3213,19 @@ components:
             A backup: the server's databases dumped into its snapshot with the
             files. A restore: those it loads back.
         withDatabases: { type: boolean, description: A restore asked to load the backup's databases back }
+        ignored:
+          type: string
+          description: >-
+            A backup: the server's .quetzalignore as it read when the backup
+            started, the paths its snapshot left out (.gitignore syntax). A
+            restore of it leaves those paths as they are on the server. Absent
+            when the backup copied every file; its message then says why, if
+            the server's list could not be applied.
+        full:
+          type: boolean
+          description: >-
+            A backup of every file whatever .quetzalignore says, as a transfer
+            to another cluster takes.
     BackupConfig:
       type: object
       properties:

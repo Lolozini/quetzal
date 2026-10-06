@@ -105,7 +105,7 @@ func TestAClaimRecordsTheDatabases(t *testing.T) {
 	if err := st.CreateBackup(b); err != nil {
 		t.Fatal(err)
 	}
-	if ok, err := st.ClaimBackup(b.ID, "quetzal-backup-1", "abcd", []string{"s1_a", "s1_b"}); err != nil || !ok {
+	if ok, err := st.ClaimBackup(b.ID, "quetzal-backup-1", "abcd", []string{"s1_a", "s1_b"}, "", ""); err != nil || !ok {
 		t.Fatalf("claim = %v %v", ok, err)
 	}
 	got, err := st.GetBackup(b.ID)

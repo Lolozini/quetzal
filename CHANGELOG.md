@@ -27,6 +27,19 @@ releases may include breaking changes).
   follows no link, and picks up where it stopped if the install is
   interrupted; servers that have no clean reinstall pending keep exactly the
   pod they had, so upgrading Quetzal restarts none of them.
+- **`.quetzalignore`: leave paths out of a server's backups.** A Steam game's
+  server is mostly the game itself — gigabytes SteamCMD downloads again on
+  demand — around a few megabytes of saves, and every backup copied all of it.
+  A `.quetzalignore` at the root of the server's files now lists what its
+  backups leave out, one pattern per line, as a `.gitignore` does (`/Engine/`,
+  `*.log`, `!keep.log`), with the limits Pterodactyl puts on its `.pteroignore`:
+  32 KiB, 256 patterns, 16 wildcards a pattern. Each backup records the list it
+  applied (`ignored`), and the panel shows it. Restoring the backup makes the
+  other files the backup's and leaves those paths as they are, so the game
+  stays in place where a restore that matched the volume to the snapshot would
+  have deleted it. A list the backup cannot apply makes it copy every file and
+  say why, rather than fail; a transfer to another cluster always copies every
+  file. Quetzal does not read `.pteroignore`: rename it.
 
 ### Fixed
 

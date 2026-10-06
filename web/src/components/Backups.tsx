@@ -102,6 +102,12 @@ export function Backups({ id, readOnly = false, canDatabases = false }: { id: nu
         </p>
       )}
 
+      {cfg?.configured && (
+        <p className="muted" style={{ fontSize: 12 }}>
+          {t("Paths listed in .quetzalignore, at the root of the server's files, are left out of its backups (one pattern per line, as in a .gitignore). A restore leaves them as they are.")}
+        </p>
+      )}
+
       {showCfg && cfg?.editable && <BackupConfigForm cfg={cfg} onSaved={load} />}
 
       {list.length === 0 ? (
@@ -123,6 +129,11 @@ export function Backups({ id, readOnly = false, canDatabases = false }: { id: nu
                         {b.direction === "backup"
                           ? t("+ {n} database(s)", { n: b.databases!.length })
                           : t("+ databases loaded back: {names}", { names: b.databases!.join(", ") })}
+                      </div>
+                    )}
+                    {b.ignored && (
+                      <div className="muted" style={{ fontSize: 11, marginTop: 2 }} title={b.ignored}>
+                        {t("without the paths of .quetzalignore")}
                       </div>
                     )}
                   </td>
@@ -180,6 +191,11 @@ export function Backups({ id, readOnly = false, canDatabases = false }: { id: nu
           <p style={{ margin: "6px 0" }}>
             {t("Current data will be overwritten by the snapshot. The server must be stopped first (a live restore would corrupt the data), and cannot be started again until the restore has finished or been cancelled.")}
           </p>
+          {restoring.ignored && (
+            <p className="muted" style={{ margin: "6px 0" }} title={restoring.ignored}>
+              {t("This backup left out the paths of .quetzalignore: they stay as they are on the server.")}
+            </p>
+          )}
           {(restoring.databases?.length ?? 0) > 0 &&
             (canDatabases ? (
               <label className="row" style={{ alignItems: "flex-start" }}>

@@ -155,7 +155,7 @@ func TestARestoreLoadsTheDatabasesWhenAsked(t *testing.T) {
 	if err := st.CreateBackup(src); err != nil {
 		t.Fatal(err)
 	}
-	if ok, err := st.ClaimBackup(src.ID, "quetzal-backup-x", "", []string{"s1_aaaa"}); err != nil || !ok {
+	if ok, err := st.ClaimBackup(src.ID, "quetzal-backup-x", "", []string{"s1_aaaa"}, "", ""); err != nil || !ok {
 		t.Fatalf("claim: %v %v", ok, err)
 	}
 	src.Phase = models.BackupSucceeded

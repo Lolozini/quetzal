@@ -57,7 +57,9 @@ func dbFixture(t *testing.T, withTarget bool, names ...string) (*Manager, *store
 		dbs = append(dbs, *d)
 	}
 	cs := fake.NewSimpleClientset()
-	return NewManager(st, cluster.New(st, cluster.Clients{Clientset: cs})), st, srv, dbs, cs
+	m := NewManager(st, cluster.New(st, cluster.Clients{Clientset: cs}))
+	m.ReadIgnore = noIgnoreFile
+	return m, st, srv, dbs, cs
 }
 
 func jobOf(t *testing.T, cs *fake.Clientset, name string) *batchv1.Job {
@@ -246,7 +248,7 @@ func TestARestoreLoadsTheDatabasesTheServerStillHas(t *testing.T) {
 	if err := st.CreateBackup(src); err != nil {
 		t.Fatal(err)
 	}
-	if ok, err := st.ClaimBackup(src.ID, "j2", "", []string{"s1_aaaa", "s1_gone"}); err != nil || !ok {
+	if ok, err := st.ClaimBackup(src.ID, "j2", "", []string{"s1_aaaa", "s1_gone"}, "", ""); err != nil || !ok {
 		t.Fatalf("claim: %v %v", ok, err)
 	}
 	src.Phase = models.BackupSucceeded

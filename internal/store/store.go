@@ -1178,8 +1178,10 @@ func (s *Store) CancelPendingBackup(id uint) (bool, error) {
 // the file manager is back on it.
 //
 // databases records, for a backup, the databases its Job dumps and, for a
-// restore, those it loads back; nil leaves the column alone.
-func (s *Store) ClaimBackup(id uint, jobName, target string, databases []string) (bool, error) {
+// restore, those it loads back; nil leaves the column alone. ignored records
+// the paths a backup leaves out, note why it leaves out none; "" leaves each
+// alone.
+func (s *Store) ClaimBackup(id uint, jobName, target string, databases []string, ignored, note string) (bool, error) {
 	// Struct-shaped, with the columns named, so Databases goes through its
 	// JSON serializer.
 	cols := []string{"phase", "job_name"}
@@ -1191,6 +1193,16 @@ func (s *Store) ClaimBackup(id uint, jobName, target string, databases []string)
 	if databases != nil {
 		cols = append(cols, "databases")
 		upd.Databases = databases
+	}
+	// What a backup left out, and why it left out nothing when the server's
+	// ignore file could not be applied.
+	if ignored != "" {
+		cols = append(cols, "ignored")
+		upd.Ignored = ignored
+	}
+	if note != "" {
+		cols = append(cols, "message")
+		upd.Message = note
 	}
 	res := s.db.Model(&models.Backup{}).Where("id = ? AND phase = ?", id, models.BackupPending).
 		Select(cols).Updates(upd)

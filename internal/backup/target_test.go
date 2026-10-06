@@ -92,6 +92,7 @@ func TestManagerKnowsWhereABackupWent(t *testing.T) {
 		t.Fatalf("server: %v", err)
 	}
 	m := NewManager(st, cluster.New(st, cluster.Clients{Clientset: fake.NewSimpleClientset()}))
+	m.ReadIgnore = noIgnoreFile
 	ctx := context.Background()
 	elsewhere := TargetID(&models.BackupConfig{Endpoint: "s3.example", Bucket: "before"})
 
@@ -206,6 +207,7 @@ func TestABackupWaitsForAStoppingServer(t *testing.T) {
 	data := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "data-1", Namespace: srv.Namespace, Labels: map[string]string{reconciler.DataLabel: srv.Slug}}}
 	cs := fake.NewSimpleClientset(game, data)
 	m := NewManager(st, cluster.New(st, cluster.Clients{Clientset: cs}))
+	m.ReadIgnore = noIgnoreFile
 	ctx := context.Background()
 
 	b := &models.Backup{ServerID: srv.ID, Direction: models.DirBackup, Phase: models.BackupPending}

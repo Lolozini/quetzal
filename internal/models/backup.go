@@ -89,6 +89,15 @@ type Backup struct {
 	// and not only its files.
 	WithDatabases bool `json:"withDatabases,omitempty"`
 
+	// Ignored is, for a backup, the server's .quetzalignore as it read when
+	// the backup started: the paths its snapshot left out. A restore of it
+	// leaves those paths as they are on the volume.
+	Ignored string `gorm:"type:text" json:"ignored,omitempty"`
+	// Full is a backup of every file, whatever the server's .quetzalignore
+	// says: a transfer's, whose snapshot becomes the server's whole volume on
+	// another cluster.
+	Full bool `json:"full,omitempty"`
+
 	// A database import: the database it loads (a ServerDatabase ID), the file
 	// of the server's it loads from, relative to the data volume's root, and
 	// whether the database is emptied first.
