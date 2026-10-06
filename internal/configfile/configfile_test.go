@@ -267,3 +267,52 @@ func TestINIInsertsWhereTheKeyBelongs(t *testing.T) {
 		t.Errorf("c.ini = %q, want %q", got, want)
 	}
 }
+
+// Unreal Engine games name their sections after classes, dots included, and
+// their eggs bracket the section: "[/Script/Engine.GameSession].MaxPlayers" is
+// MaxPlayers in [/Script/Engine.GameSession], as Wings reads it. Split at its
+// first dot, it became a section "[/Script/Engine" holding a key
+// "GameSession].MaxPlayers", added at the end of the file, and the game never
+// saw the value: Satisfactory's egg sets its player cap, its autosaves and its
+// connection timeouts this way.
+func TestINIBracketedSectionKeepsItsDots(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "Engine.ini", "[/Script/OnlineSubsystemUtils.IpNetDriver]\nInitialConnectTimeout=120\nMaxClientRate=100000\n\n[Core.Log]\nLogNet=Warning\n")
+	specs := []Spec{
+		{Path: "Engine.ini", Parser: "ini", Find: map[string]string{
+			"[/Script/OnlineSubsystemUtils.IpNetDriver].InitialConnectTimeout": "30",
+			"[/Script/OnlineSubsystemUtils.IpNetDriver].ConnectionTimeout":     "20",
+			"[/Script/FactoryGame.FGSaveSession].mNumRotatingAutosaves":        "3",
+		}},
+		{Path: "Game.ini", Parser: "ini", Find: map[string]string{"[/Script/Engine.GameSession].MaxPlayers": "4"}},
+	}
+	for range 2 { // the second pass must change nothing
+		if err := Render(dir, specs, env(nil)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := "[/Script/OnlineSubsystemUtils.IpNetDriver]\nInitialConnectTimeout=30\nMaxClientRate=100000\nConnectionTimeout=20\n\n" +
+		"[Core.Log]\nLogNet=Warning\n[/Script/FactoryGame.FGSaveSession]\nmNumRotatingAutosaves=3\n"
+	if got := read(t, dir, "Engine.ini"); got != want {
+		t.Errorf("Engine.ini = %q, want %q", got, want)
+	}
+	if got, want := read(t, dir, "Game.ini"), "[/Script/Engine.GameSession]\nMaxPlayers=4\n"; got != want {
+		t.Errorf("Game.ini = %q, want %q", got, want)
+	}
+}
+
+func TestINIKeysAreReadAsWingsReadsThem(t *testing.T) {
+	for in, want := range map[string]iniKey{
+		"top":          {"", "top"},
+		"net.port":     {"net", "port"},
+		"net.a.b":      {"net", "a.b"},
+		"[Core.Log].x": {"Core.Log", "x"},
+		"[a.b]":        {"", "a.b"},
+		" net . port ": {"net", "port"},
+		"[/Script/Engine.GameSession].MaxPlayers": {"/Script/Engine.GameSession", "MaxPlayers"},
+	} {
+		if got := parseINIKey(in); got != want {
+			t.Errorf("%q -> %+v, want %+v", in, got, want)
+		}
+	}
+}

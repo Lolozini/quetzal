@@ -221,16 +221,20 @@ func formatKV(k, v string, sep byte, spaced bool) string {
 	return fmt.Sprintf("%s%c%s", k, sep, v)
 }
 
-// ---- INI (sections; keys may be "section.key" or top-level "key") ----
+// ---- INI (sections; keys may be "section.key", "[section.with.dots].key" or
+// top-level "key") ----
+
+// iniKey is a key of an INI file with its section, "" for a top-level key.
+type iniKey struct{ section, key string }
 
 func applyINI(path string, vals map[string]string) error {
 	cur, err := readExisting(path)
 	if err != nil {
 		return err
 	}
-	vals = iniKeys(vals)
+	keys := iniKeys(vals)
 	lines := splitLines(string(cur))
-	applied := make(map[string]bool, len(vals))
+	applied := make(map[iniKey]bool, len(keys))
 	current := "" // section name, "" = top-level
 
 	for i, line := range lines {
@@ -246,26 +250,28 @@ func applyINI(path string, vals map[string]string) error {
 		if j < 0 {
 			continue
 		}
-		key := strings.TrimSpace(line[:j])
-		full := key
-		if current != "" {
-			full = current + "." + key
-		}
-		if v, ok := vals[full]; ok {
-			lines[i] = fmt.Sprintf("%s=%s", key, v)
-			applied[full] = true
+		k := iniKey{current, strings.TrimSpace(line[:j])}
+		if v, ok := keys[k]; ok {
+			lines[i] = fmt.Sprintf("%s=%s", k.key, v)
+			applied[k] = true
 		}
 	}
 
 	// The keys not found go at the end of their section, or in a new section at
 	// the end of the file. A top-level key goes before the first section: after
 	// it, it would belong to that section and never be found again.
-	pending := map[string][]string{}
-	for _, k := range sortedUnapplied(vals, applied) {
-		sec, key := splitSection(k)
-		pending[sec] = append(pending[sec], fmt.Sprintf("%s=%s", key, vals[k]))
+	unapplied := make([]iniKey, 0, len(keys))
+	for k := range keys {
+		if !applied[k] {
+			unapplied = append(unapplied, k)
+		}
 	}
-	out := make([]string, 0, len(lines)+len(vals)+len(pending))
+	sort.Slice(unapplied, func(i, j int) bool { return unapplied[i].key < unapplied[j].key })
+	pending := map[string][]string{}
+	for _, k := range unapplied {
+		pending[k.section] = append(pending[k.section], fmt.Sprintf("%s=%s", k.key, keys[k]))
+	}
+	out := make([]string, 0, len(lines)+len(keys)+len(pending))
 	flush := func(sec string) {
 		add := pending[sec]
 		if len(add) == 0 {
@@ -310,36 +316,49 @@ func iniSection(line string) (string, bool) {
 	return "", false
 }
 
-// iniKeys is lineKeys for INI: "section.key" with both parts trimmed, as the
-// file reads back, and without the keys no line can hold.
-func iniKeys(vals map[string]string) map[string]string {
-	out := make(map[string]string, len(vals))
+// iniKeys is lineKeys for INI: each key split into its section and key (see
+// parseINIKey), both trimmed as the file reads back, without the keys no line
+// can hold.
+func iniKeys(vals map[string]string) map[iniKey]string {
+	out := make(map[iniKey]string, len(vals))
 	for _, k := range sortedKeys(vals) {
-		sec, key := splitSection(k)
-		sec, key = strings.TrimSpace(sec), strings.TrimSpace(key)
-		if key == "" || strings.ContainsAny(key, "=\r\n") || strings.ContainsAny(key[:1], "#;[") ||
-			strings.ContainsAny(sec, "\r\n") {
+		ik := parseINIKey(k)
+		if ik.key == "" || strings.ContainsAny(ik.key, "=\r\n") || strings.ContainsAny(ik.key[:1], "#;[") ||
+			strings.ContainsAny(ik.section, "\r\n") {
 			continue
 		}
-		full := key
-		if sec != "" {
-			full = sec + "." + key
-		}
-		// It must split back the same way: a top-level key holding a dot would
-		// be read as a section.
-		if s2, k2 := splitSection(full); s2 != sec || k2 != key {
-			continue
-		}
-		out[full] = oneLine(vals[k])
+		out[ik] = oneLine(vals[k])
 	}
 	return out
 }
 
-func splitSection(dotted string) (section, key string) {
-	if i := strings.IndexByte(dotted, '.'); i >= 0 {
-		return dotted[:i], dotted[i+1:]
+// parseINIKey reads a key the way Wings does: the section ends at the first
+// dot outside square brackets, and the brackets are dropped. Unreal Engine
+// games name their sections after classes, dots included, so their eggs write
+// "[/Script/Engine.GameSession].MaxPlayers" for MaxPlayers in the section
+// [/Script/Engine.GameSession]. A key with no such dot is top-level.
+func parseINIKey(s string) iniKey {
+	var parts []string
+	var b strings.Builder
+	depth := 0
+	for _, c := range s {
+		switch {
+		case c == '[':
+			depth++
+		case c == ']':
+			depth--
+		case c == '.' && depth <= 0 && len(parts) == 0:
+			parts = append(parts, b.String())
+			b.Reset()
+		default:
+			b.WriteRune(c)
+		}
 	}
-	return "", dotted
+	parts = append(parts, b.String())
+	if len(parts) == 1 {
+		return iniKey{key: strings.TrimSpace(parts[0])}
+	}
+	return iniKey{section: strings.TrimSpace(parts[0]), key: strings.TrimSpace(parts[1])}
 }
 
 // ---- structured (JSON / YAML), nested dot-keys with type coercion ----

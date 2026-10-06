@@ -28,6 +28,18 @@ releases may include breaking changes).
   interrupted; servers that have no clean reinstall pending keep exactly the
   pod they had, so upgrading Quetzal restarts none of them.
 
+### Fixed
+
+- **Eggs that bracket an INI section set their values.** Unreal Engine games
+  name their config sections after classes, dots included, and their eggs
+  write `[/Script/Engine.GameSession].MaxPlayers` for `MaxPlayers` in the
+  section `[/Script/Engine.GameSession]`, as Wings reads it. Quetzal cut the
+  key at its first dot: the value went into a section of its own at the end
+  of the file, under a name the game does not know, and the setting never
+  applied — Satisfactory's player cap, autosave count and connection
+  timeouts among them. The stray lines a server got this way stay in its
+  file and do nothing; deleting them is safe.
+
 ## [0.14.0] - 2026-10-05
 
 The server page says which of a server's ports each address reaches — what a
