@@ -1007,8 +1007,9 @@ func buildContainerPorts(ports []models.PortSpec) []corev1.ContainerPort {
 	return out
 }
 
-// buildResources sizes the game's container: the CPU it is set to, and the
-// memory it is set to as its request, with Wings' headroom on top as its limit.
+// buildResources sizes the game's container: the CPU it is set to as its limit,
+// a quarter of it as its request (see cpuRequest), and the memory it is set to
+// as its request, with Wings' headroom on top as its limit.
 //
 // The limit was the memory exactly. An egg starting Java with
 // -Xmx{{SERVER_MEMORY}}M then had a heap as large as the container, nothing
@@ -1028,14 +1029,32 @@ func buildResources(r models.Resources) corev1.ResourceRequirements {
 	if r.CPU != "" {
 		cpu := resource.MustParse(r.CPU)
 		limits[corev1.ResourceCPU] = cpu
-		if req != nil {
-			req[corev1.ResourceCPU] = cpu // as it was: a limit alone requests itself
+		if req == nil {
+			req = corev1.ResourceList{}
 		}
+		req[corev1.ResourceCPU] = cpuRequest(cpu)
 	}
 	if len(limits) == 0 {
 		return corev1.ResourceRequirements{}
 	}
 	return corev1.ResourceRequirements{Limits: limits, Requests: req}
+}
+
+// cpuRequest is the CPU a server holds on its node: a quarter of its limit, at
+// least 100m, never more than the limit. The CPU set on a server is a ceiling,
+// as on Wings, which reserves none: requested whole, it was held whether the
+// game used it or not, and an idle server set to six CPUs kept the next one
+// from being scheduled on a node using a fraction of its own. The quarter
+// keeps each game a fair share of a busy node.
+func cpuRequest(limit resource.Quantity) resource.Quantity {
+	m := limit.MilliValue() / 4
+	if m < 100 {
+		m = 100
+	}
+	if m > limit.MilliValue() {
+		m = limit.MilliValue()
+	}
+	return *resource.NewMilliQuantity(m, resource.DecimalSI)
 }
 
 // withHeadroom is a memory limit with Wings' overhead on top: 15 % up to
@@ -1075,6 +1094,9 @@ func installResources(r models.Resources) corev1.ResourceRequirements {
 		}
 		if out.Limits == nil {
 			out.Limits, out.Requests = corev1.ResourceList{}, corev1.ResourceList{}
+		}
+		if name == corev1.ResourceCPU {
+			q = cpuRequest(q)
 		}
 		out.Limits[name], out.Requests[name] = limit, q
 	}

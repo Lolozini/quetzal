@@ -1130,8 +1130,8 @@ func TestTheGameGetsWingsHeadroom(t *testing.T) {
 		if got := res.Requests.Memory(); got.Cmp(resource.MustParse(c.memory)) != 0 {
 			t.Errorf("%s: memory request %s, want the memory set", c.memory, got)
 		}
-		if res.Limits.Cpu().String() != "1" || res.Requests.Cpu().String() != "1" {
-			t.Errorf("%s: cpu %s/%s, want 1/1", c.memory, res.Requests.Cpu(), res.Limits.Cpu())
+		if res.Limits.Cpu().String() != "1" || res.Requests.Cpu().String() != "250m" {
+			t.Errorf("%s: cpu %s/%s, want 250m/1", c.memory, res.Requests.Cpu(), res.Limits.Cpu())
 		}
 		mib, _ := serverMemoryMiB(c.memory)
 		if env := envValue(d.Spec.Template.Spec.Containers[0].Env, "SERVER_MEMORY"); env != strconv.FormatInt(mib, 10) {
@@ -1174,8 +1174,9 @@ func TestTheInstallIsBounded(t *testing.T) {
 		if res.Limits.Memory().Cmp(resource.MustParse(c.memLimit)) != 0 || res.Limits.Cpu().Cmp(resource.MustParse(c.cpuLimit)) != 0 {
 			t.Errorf("%s/%s: install limits %s/%s, want %s/%s", c.memory, c.cpu, res.Limits.Memory(), res.Limits.Cpu(), c.memLimit, c.cpuLimit)
 		}
-		if res.Requests.Memory().Cmp(resource.MustParse(c.memory)) != 0 || res.Requests.Cpu().Cmp(resource.MustParse(c.cpu)) != 0 {
-			t.Errorf("%s/%s: install requests %s/%s, want the server's", c.memory, c.cpu, res.Requests.Memory(), res.Requests.Cpu())
+		game := BuildDeployment(s, tmpl, "panel:1", nil).Spec.Template.Spec.Containers[0].Resources
+		if res.Requests.Memory().Cmp(*game.Requests.Memory()) != 0 || res.Requests.Cpu().Cmp(*game.Requests.Cpu()) != 0 {
+			t.Errorf("%s/%s: install requests %s/%s, want the game's %s/%s", c.memory, c.cpu, res.Requests.Memory(), res.Requests.Cpu(), game.Requests.Memory(), game.Requests.Cpu())
 		}
 	}
 	s.Resources = models.Resources{}
@@ -1199,4 +1200,21 @@ func envValue(env []corev1.EnvVar, name string) string {
 		}
 	}
 	return ""
+}
+
+// The CPU set on a server is a ceiling, as on Wings: what it holds on its node
+// is a quarter of it, so an idle server set to six CPUs no longer keeps the
+// next one from being scheduled.
+func TestCPUIsACeiling(t *testing.T) {
+	for limit, want := range map[string]string{"6": "1500m", "4": "1", "1": "250m", "200m": "100m", "50m": "50m"} {
+		if got := cpuRequest(resource.MustParse(limit)); got.Cmp(resource.MustParse(want)) != 0 {
+			t.Errorf("limit %s: request %s, want %s", limit, got.String(), want)
+		}
+	}
+	s, tmpl := testServerAndTemplate()
+	s.Resources = models.Resources{CPU: "6"}
+	res := BuildDeployment(s, tmpl, "", nil).Spec.Template.Spec.Containers[0].Resources
+	if res.Limits.Cpu().String() != "6" || res.Requests.Cpu().String() != "1500m" {
+		t.Errorf("cpu alone: %s/%s, want 1500m/6", res.Requests.Cpu(), res.Limits.Cpu())
+	}
 }

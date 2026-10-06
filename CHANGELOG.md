@@ -41,6 +41,16 @@ releases may include breaking changes).
   say why, rather than fail; a transfer to another cluster always copies every
   file. Quetzal does not read `.pteroignore`: rename it.
 
+### Changed
+
+- **A server's CPU is a ceiling, not a reservation.** The CPU set on a server
+  was also what it reserved on its node, in use or not: an idle server set to
+  six CPUs held them, and the next server to start found no room and stayed
+  Pending on a node using a fraction of its processors. Wings reserves none.
+  A server now reserves a quarter of its CPU (100m at least), which keeps it a
+  fair share of a busy node, and may use up to all of it. Running servers with
+  a CPU set restart once, on the upgrade, to take the new reservation.
+
 ### Fixed
 
 - **Eggs that bracket an INI section set their values.** Unreal Engine games
