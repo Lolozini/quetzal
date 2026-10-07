@@ -281,7 +281,7 @@ func (s *Server) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	}
 	// A transfer runs its own backup and restore on this volume, and moves it to
 	// another cluster half way: a restore queued alongside would race it.
-	if transferInProgress(w, srv) || importInProgress(w, srv) {
+	if transferInProgress(w, srv) {
 		return
 	}
 	// Writing over the databases is the databases permission's, as dropping

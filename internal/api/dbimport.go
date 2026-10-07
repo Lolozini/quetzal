@@ -31,7 +31,7 @@ func (s *Server) handleImportDatabase(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "an import reads one of the server's files: it takes the files permission as well as the databases one")
 		return
 	}
-	if transferInProgress(w, srv) || importInProgress(w, srv) {
+	if transferInProgress(w, srv) {
 		return
 	}
 	d, ok := s.lookupServerDatabase(w, r, srv.ID)

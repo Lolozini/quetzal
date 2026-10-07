@@ -25,7 +25,7 @@ const PAGES = [
 	{ src: 'README.md', section: 'How it works', slug: 'architecture', description: 'The API server, the controller, and the database between them.' },
 	{ src: 'docs/INSTALL.md', slug: 'install', description: 'Install Quetzal with the Helm chart, and the choices that come with it.' },
 	{ src: 'docs/UPGRADE.md', slug: 'upgrade', description: 'Move to a newer release of Quetzal.' },
-	{ src: 'docs/MIGRATING.md', slug: 'migrating', description: 'Bring eggs and servers over from Pterodactyl or Pelican.' },
+	{ src: 'docs/MIGRATING.md', slug: 'migrating', description: 'Bring eggs over from Pterodactyl or Pelican, and move your servers in.' },
 	{ src: 'CONTRIBUTING.md', slug: 'contributing', title: 'Contributing', description: 'Set up a development environment and send a change.' },
 	{ src: 'SECURITY.md', slug: 'security', title: 'Security', description: 'Report a vulnerability, and verify the images and the chart.' },
 	{ src: 'CODE_OF_CONDUCT.md', slug: 'code-of-conduct', title: 'Code of conduct', description: 'How everyone taking part in Quetzal is expected to behave.' },
