@@ -498,6 +498,9 @@ export const fr: Record<string, string> = {
     "Restaurer aussi ses bases de données ({names}) : chacune est vidée, puis rechargée depuis la sauvegarde.",
   "Its databases are left as they are: restoring them takes the databases permission.":
     "Ses bases de données restent telles quelles : les restaurer demande la permission bases de données.",
+  "Reply-To (optional)": "Adresse de réponse (facultatif)",
+  "Where an answer goes. Mail from an address that answers nothing is read as less legitimate, by people and by spam filters.":
+    "Où arrive une réponse. Un courrier venant d'une adresse qui ne répond à rien est jugé moins légitime, par les humains comme par les filtres anti-spam.",
   "+ {n} database(s)": "+ {n} base(s) de données",
   "+ databases loaded back: {names}": "+ bases rechargées : {names}",
   "Paths listed in .quetzalignore, at the root of the server's files, are left out of its backups (one pattern per line, as in a .gitignore). A restore leaves them as they are.":

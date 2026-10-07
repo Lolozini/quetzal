@@ -611,7 +611,7 @@ function NetworkSettingsCard() {
 function EmailSettingsCard() {
   const { t } = useT();
   const empty: EmailSettingsInput = {
-    host: "", port: "", username: "", password: "", from: "", tls: "starttls", publicUrl: "",
+    host: "", port: "", username: "", password: "", from: "", replyTo: "", tls: "starttls", publicUrl: "",
   };
   const [form, setForm] = useState<EmailSettingsInput>(empty);
   const [hasPassword, setHasPassword] = useState(false);
@@ -628,7 +628,7 @@ function EmailSettingsCard() {
       setHasPassword(s.hasPassword);
       setForm({
         host: s.host || "", port: s.port || "", username: s.username || "", password: "",
-        from: s.from || "", tls: s.tls || "starttls", publicUrl: s.publicUrl || "",
+        from: s.from || "", replyTo: s.replyTo || "", tls: s.tls || "starttls", publicUrl: s.publicUrl || "",
       });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -690,6 +690,13 @@ function EmailSettingsCard() {
         </div>
         <div className="grid2">
           <div><label>{t("From address")}</label><input value={form.from} onChange={set("from")} placeholder="Quetzal <quetzal@example.com>" /></div>
+          <div>
+            <label>{t("Reply-To (optional)")}</label>
+            <input value={form.replyTo ?? ""} onChange={set("replyTo")} placeholder="you@example.com" />
+            <div className="muted" style={{ fontSize: 12 }}>
+              {t("Where an answer goes. Mail from an address that answers nothing is read as less legitimate, by people and by spam filters.")}
+            </div>
+          </div>
           <div>
             <label>{t("TLS")}</label>
             <select value={form.tls} onChange={set("tls")}>

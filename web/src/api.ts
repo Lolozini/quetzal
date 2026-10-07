@@ -56,6 +56,7 @@ export interface EmailSettings {
   port: string;
   username: string;
   from: string;
+  replyTo?: string;
   tls: string;
   hasPassword: boolean;
   publicUrl: string;
@@ -67,6 +68,7 @@ export interface EmailSettingsInput {
   username: string;
   password: string;
   from: string;
+  replyTo?: string;
   tls: string;
   publicUrl: string;
 }

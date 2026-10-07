@@ -61,6 +61,16 @@ releases may include breaking changes).
   `docs/MIGRATING.md` still starts there. An existing database keeps its
   now-unused `import` column.
 
+- **A reply address for the panel's mail, and an `Auto-Submitted` header.**
+  Mail from a `noreply@` address that answers nothing reads as less
+  legitimate, to a reader and to a spam filter, and an invitation that lands
+  in Gmail's spam folder is an invitation nobody accepts. The email settings
+  take an optional **Reply-To** (an address, or a name and one, as `from`
+  does), and every message now says `Auto-Submitted: auto-generated`, which
+  is what keeps an out-of-office reply from answering the panel. The sender
+  could already carry a display name — `Quetzal <noreply@example.com>` — and
+  it is worth setting: a bare address is one signal more against you.
+
 ### Changed
 
 - **A server's CPU is a ceiling, not a reservation.** The CPU set on a server
