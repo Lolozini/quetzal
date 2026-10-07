@@ -1,6 +1,7 @@
 package reconciler
 
 import (
+	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -98,5 +99,40 @@ func TestBuildManagedDB(t *testing.T) {
 	}
 	if !sawSecret || !sawDeploy || !sawSvc {
 		t.Errorf("missing objects: secret=%v deploy=%v svc=%v", sawSecret, sawDeploy, sawSvc)
+	}
+}
+
+// A managed database's probes must not be a bare TCP connect: MariaDB logs a
+// warning for every connection closed without authenticating, and two probes
+// every ten seconds left its log holding nothing else. The image's own health
+// check connects over the local socket as the mysql user, with no credentials
+// to hand it.
+func TestManagedDBProbesDoNotOpenUnauthenticatedConnections(t *testing.T) {
+	h := &models.DatabaseHost{ID: 4, Kind: models.DBHostManaged, Namespace: "quetzal-db-4", Image: "mariadb:12.3", StorageSize: "1Gi"}
+	for _, o := range buildManagedDB(h, "pw", "inst") {
+		d, ok := o.(*appsv1.Deployment)
+		if !ok {
+			continue
+		}
+		c := d.Spec.Template.Spec.Containers[0]
+		for name, p := range map[string]*corev1.Probe{"readiness": c.ReadinessProbe, "liveness": c.LivenessProbe} {
+			if p == nil {
+				t.Fatalf("%s probe is missing", name)
+			}
+			if p.TCPSocket != nil {
+				t.Errorf("%s probe opens a bare TCP connection", name)
+			}
+			if p.Exec == nil || len(p.Exec.Command) == 0 || p.Exec.Command[0] != "healthcheck.sh" {
+				t.Fatalf("%s probe = %+v, want the image's healthcheck.sh", name, p.Exec)
+			}
+			// --su-mysql is what makes it work without credentials, and
+			// --connect is what makes it mean anything.
+			joined := strings.Join(p.Exec.Command, " ")
+			for _, want := range []string{"--su-mysql", "--connect", "--innodb_initialized"} {
+				if !strings.Contains(joined, want) {
+					t.Errorf("%s probe %q is missing %s", name, joined, want)
+				}
+			}
+		}
 	}
 }
