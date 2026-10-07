@@ -50,6 +50,9 @@ automatically on startup.
   `QUETZAL_IMAGE`. Helm already supplies it. Development controllers must set
   it to an image built from the same checkout and available to the cluster.
   Existing data-manager pods roll once; game pods need not restart for this.
+- Stop and start servers using the transparent UDP proxy to activate its new
+  flow limit immediately. By design, an already running proxy otherwise keeps
+  its helper image until the server next sleeps or another change restarts it.
 - Replace remote kubeconfigs that use local credential paths or authentication
   plugins with self-contained service-account configs. A rejected stored config
   cannot be used until it is replaced.

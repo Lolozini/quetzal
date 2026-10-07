@@ -16,7 +16,7 @@ import (
 
 // These tests execute the generated shell scripts against a real local restic
 // repository. QUETZAL_TEST_RESTIC names the binary, not a replacement command.
-func realRestic(t *testing.T) (run func(string) error, snapshots func() [][]string) {
+func realRestic(t *testing.T) (run func(string) (string, error), snapshots func() [][]string) {
 	t.Helper()
 	binary := os.Getenv("QUETZAL_TEST_RESTIC")
 	if binary == "" {
@@ -44,7 +44,7 @@ func realRestic(t *testing.T) (run func(string) error, snapshots func() [][]stri
 		}
 	}
 	env := append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "RESTIC_REPOSITORY="+filepath.Join(root, "repo"), "RESTIC_PASSWORD=test-password", "RESTIC_CACHE_DIR="+filepath.Join(root, "cache"))
-	run = func(script string) error {
+	run = func(script string) (string, error) {
 		script = strings.ReplaceAll(script, mountPath, data)
 		script = strings.ReplaceAll(script, dumpsPath, dumps)
 		cmd := exec.Command("sh", "-c", script)
@@ -53,7 +53,7 @@ func realRestic(t *testing.T) (run func(string) error, snapshots func() [][]stri
 		if err != nil {
 			t.Logf("restic script: %v\n%s", err, out)
 		}
-		return err
+		return string(out), err
 	}
 	snapshots = func() [][]string {
 		cmd := exec.Command(binary, "snapshots", "--json")
@@ -81,13 +81,21 @@ func TestResticRetryDoesNotDuplicateSnapshot(t *testing.T) {
 	run, snapshots := realRestic(t)
 	p := Params{Slug: "retry", BackupID: 1, Direction: models.DirBackup, KeepLast: 2}
 	script := BuildJob(p).Spec.Template.Spec.Containers[0].Command[2]
-	if err := run(script); err != nil {
+	first, err := run(script)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if size := ParseBackupSize(first); size != int64(len("durable data")) {
+		t.Fatalf("new snapshot size = %d, want the file's bytes", size)
 	}
 	// A completed snapshot can outlive its pod: retrying the same operation
 	// after losing that pod must not occupy a second retention slot.
-	if err := run(script); err != nil {
+	retry, err := run(script)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if size := ParseBackupSize(retry); size != ParseBackupSize(first) {
+		t.Fatalf("retried snapshot size = %d, want %d", size, ParseBackupSize(first))
 	}
 	if got := snapshots(); len(got) != 1 {
 		t.Fatalf("retry created duplicate recovery points: %v", got)
@@ -114,7 +122,7 @@ func TestResticRetentionTracksChangingDatabasePaths(t *testing.T) {
 		if round == 1 {
 			p.Databases = []DatabaseParams{{Name: "game"}}
 		}
-		if err := run(BuildJob(p).Spec.Template.Spec.Containers[0].Command[2]); err != nil {
+		if _, err := run(BuildJob(p).Spec.Template.Spec.Containers[0].Command[2]); err != nil {
 			t.Fatal(err)
 		}
 		finishJob(t, cs, b.JobName, "", false)
@@ -129,7 +137,7 @@ func TestResticRetentionTracksChangingDatabasePaths(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := run(job.Spec.Template.Spec.Containers[0].Command[2]); err != nil {
+			if _, err := run(job.Spec.Template.Spec.Containers[0].Command[2]); err != nil {
 				t.Fatal(err)
 			}
 			finishJob(t, cs, old.JobName, "", false)
