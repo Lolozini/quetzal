@@ -1,6 +1,6 @@
 module github.com/lolozini/quetzal
 
-go 1.26.0
+go 1.27.0
 
 require (
 	github.com/beevik/etree v1.8.0
