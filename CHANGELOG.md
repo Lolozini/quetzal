@@ -102,6 +102,13 @@ releases may include breaking changes).
   A server now reserves a quarter of its CPU (100m at least), which keeps it a
   fair share of a busy node, and may use up to all of it. Running servers with
   a CPU set restart once, on the upgrade, to take the new reservation.
+- **Building Quetzal now needs Go 1.27.** The build image and the CI already
+  used it; only the module still declared 1.26, and one of the new confinement
+  tests needs 1.27 to pass. Where an extraction's destination directory is
+  swapped for a symlink out of the volume mid-upload, Go 1.26 reports the
+  symlink as an existing file rather than an escape, so the helper refused the
+  operation as an unexpected error instead of a rejected path. Nothing escaped
+  on either version; only the status told the caller apart from a fault of ours.
 
 ### Fixed
 
