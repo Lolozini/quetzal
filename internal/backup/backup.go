@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -308,6 +309,7 @@ case "$existing" in
   '[]'|'null')
 %s
     ;;
+  *) printf '%%s\n' "$existing" ;;
 esac
 `, p.Slug, tag, run)
 	}
@@ -463,11 +465,29 @@ func podSpec(p Params, script string) corev1.PodSpec {
 	return spec
 }
 
-// ParseBackupSize extracts the total bytes processed from restic's --json
-// backup output (the "summary" line), or 0 if not found.
+// ParseBackupSize reads a new backup's summary or the metadata of a snapshot
+// reused on retry. Older duplicate tags use the newest snapshot, like restore.
 func ParseBackupSize(logs string) int64 {
 	for _, line := range strings.Split(logs, "\n") {
 		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			var snapshots []struct {
+				Time    time.Time `json:"time"`
+				Summary struct {
+					TotalBytes int64 `json:"total_bytes_processed"`
+				} `json:"summary"`
+			}
+			if json.Unmarshal([]byte(line), &snapshots) == nil && len(snapshots) > 0 {
+				latest := 0
+				for i := 1; i < len(snapshots); i++ {
+					if snapshots[i].Time.After(snapshots[latest].Time) {
+						latest = i
+					}
+				}
+				return snapshots[latest].Summary.TotalBytes
+			}
+			continue
+		}
 		if !strings.HasPrefix(line, "{") || !strings.Contains(line, "summary") {
 			continue
 		}

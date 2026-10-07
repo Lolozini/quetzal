@@ -433,3 +433,14 @@ func TestJobOutcome(t *testing.T) {
 		}
 	}
 }
+
+func TestParseBackupSizeFromRetriedSnapshot(t *testing.T) {
+	logs := `[{"time":"2026-10-07T12:00:00Z","summary":{"total_bytes_processed":1200}},{"time":"2026-10-06T12:00:00Z","summary":{"total_bytes_processed":400}}]`
+	if got := ParseBackupSize(logs); got != 1200 {
+		t.Fatalf("latest reused snapshot size = %d, want 1200", got)
+	}
+	logs = "[]\nnot JSON\n" + `{"message_type":"summary","total_bytes_processed":42}`
+	if got := ParseBackupSize(logs); got != 42 {
+		t.Fatalf("backup after empty snapshot search size = %d, want 42", got)
+	}
+}

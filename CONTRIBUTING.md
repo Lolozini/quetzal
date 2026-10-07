@@ -85,6 +85,13 @@ scripts in the same image (`MARIADB=mariadb:11.4 MARIADB_CLIENT=mariadb:12.3 mak
 an older server dumped with the panel's client). `make e2e` runs the end-to-end suite against the cluster in your
 kubeconfig (the CI uses kind).
 
+For changes to backup scripts, also run the real restic checks locally
+(verified with restic 0.19.1; these optional checks are not enabled in CI):
+
+```sh
+QUETZAL_TEST_RESTIC=/path/to/restic go test -count=1 -run '^TestRestic' ./internal/backup/
+```
+
 - **Commits** follow [Conventional Commits](https://www.conventionalcommits.org):
   `fix(console): …`, `feat(web): …`, `docs: …`. Explain the why in the body.
 - **The changelog**: a change that users will notice gets an entry under
