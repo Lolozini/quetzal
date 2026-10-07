@@ -22,7 +22,7 @@ func TestBuildMailWithHTML(t *testing.T) {
 		HTML:    `<p>Hello</p><img src="cid:logo@q"><p>` + long + `</p>`,
 		Inline:  []Inline{{ID: "logo@q", Name: "q.png", ContentType: "image/png", Data: bytes.Repeat([]byte{0x89, 'P', 'N', 'G'}, 100)}},
 	}
-	raw, err := buildMail("a@x.test", []string{"b@y.test"}, in)
+	raw, err := buildMail("a@x.test", "", []string{"b@y.test"}, in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,5 +83,33 @@ func TestBuildMailWithHTML(t *testing.T) {
 	}
 	if _, err := parts.NextPart(); err != io.EOF {
 		t.Errorf("more parts than the HTML and its image: %v", err)
+	}
+}
+
+// A reader's answer goes where the operator says, and every message says it
+// was not typed by anyone: a noreply@ address that answers nothing reads as
+// less legitimate, and an out-of-office reply should not answer a panel.
+func TestReplyToAndAutoSubmitted(t *testing.T) {
+	raw, err := buildMail("Quetzal <noreply@x.test>", "Leo <leo@x.test>", []string{"b@y.test"}, Mail{Subject: "s", Text: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"From: Quetzal <noreply@x.test>\r\n",
+		"Reply-To: Leo <leo@x.test>\r\n",
+		"Auto-Submitted: auto-generated\r\n",
+	} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("missing %q in:\n%s", want, raw)
+		}
+	}
+	// Without one, no empty header: a Reply-To with nothing in it is worse
+	// than none.
+	raw, err = buildMail("noreply@x.test", "", []string{"b@y.test"}, Mail{Subject: "s", Text: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "Reply-To:") {
+		t.Errorf("Reply-To written without one:\n%s", raw)
 	}
 }

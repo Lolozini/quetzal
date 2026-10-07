@@ -376,7 +376,18 @@ func Send(ctx context.Context, cfg map[string]string, to []string, m Mail) error
 	addr := net.JoinHostPort(host, port)
 	mode := strings.ToLower(strings.TrimSpace(cfg["tls"]))
 
-	msg, err := buildMail(fromHeader, to, m)
+	replyTo := ""
+	if rt := strings.TrimSpace(cfg["replyTo"]); rt != "" {
+		a, err := ParseFrom(rt)
+		if err != nil {
+			return permanent(fmt.Errorf("email: reply-to: %w", err))
+		}
+		replyTo = a.Address
+		if a.Name != "" {
+			replyTo = a.String()
+		}
+	}
+	msg, err := buildMail(fromHeader, replyTo, to, m)
 	if err != nil {
 		return permanent(fmt.Errorf("email: %w", err))
 	}
@@ -466,7 +477,7 @@ func Send(ctx context.Context, cfg map[string]string, to []string, m Mail) error
 }
 
 func buildMessage(from string, to []string, subject, body string) []byte {
-	msg, _ := buildMail(from, to, Mail{Subject: subject, Text: body}) // text alone cannot fail
+	msg, _ := buildMail(from, "", to, Mail{Subject: subject, Text: body}) // text alone cannot fail
 	return msg
 }
 
@@ -474,12 +485,21 @@ func buildMessage(from string, to []string, subject, body string) []byte {
 // was. With HTML it becomes multipart/alternative — the text first, then the
 // HTML with its images in a multipart/related — so that each client shows the
 // richest part it can display.
-func buildMail(from string, to []string, m Mail) ([]byte, error) {
+//
+// replyTo, when set, is where a reader's answer goes: mail from a noreply@
+// address that answers nothing reads as less legitimate, to people and to
+// spam filters alike. Auto-Submitted says this message was not typed by
+// anyone, which is what keeps an out-of-office reply from answering it.
+func buildMail(from, replyTo string, to []string, m Mail) ([]byte, error) {
 	var b bytes.Buffer
 	fmt.Fprintf(&b, "From: %s\r\n", stripCRLF(from))
 	fmt.Fprintf(&b, "To: %s\r\n", stripCRLF(strings.Join(to, ", ")))
+	if replyTo != "" {
+		fmt.Fprintf(&b, "Reply-To: %s\r\n", stripCRLF(replyTo))
+	}
 	fmt.Fprintf(&b, "Subject: %s\r\n", encodeHeader(m.Subject))
 	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().UTC().Format(time.RFC1123Z))
+	b.WriteString("Auto-Submitted: auto-generated\r\n")
 	b.WriteString("MIME-Version: 1.0\r\n")
 	if m.HTML == "" {
 		b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")

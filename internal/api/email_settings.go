@@ -30,6 +30,7 @@ func (s *Server) handleGetEmailSettings(w http.ResponseWriter, r *http.Request) 
 		"port":        cfg["port"],
 		"username":    cfg["username"],
 		"from":        cfg["from"],
+		"replyTo":     cfg["replyTo"],
 		"tls":         cfg["tls"],
 		"hasPassword": cfg["password"] != "",
 		"publicUrl":   s.publicURL(),
@@ -42,6 +43,7 @@ type emailSettingsRequest struct {
 	Username  string `json:"username"`
 	Password  string `json:"password"` // empty keeps the stored one
 	From      string `json:"from"`
+	ReplyTo   string `json:"replyTo"`
 	TLS       string `json:"tls"` // "starttls" | "tls" | "none"
 	PublicURL string `json:"publicUrl"`
 }
@@ -87,6 +89,14 @@ func (s *Server) handleSetEmailSettings(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// An address a reader can write back to. Mail from a noreply@ address
+	// nobody answers is read as less legitimate, by people and by filters.
+	if rt := strings.TrimSpace(req.ReplyTo); rt != "" {
+		if _, err := notify.ParseFrom(rt); err != nil {
+			writeError(w, http.StatusBadRequest, "reply-to: "+err.Error())
+			return
+		}
+	}
 	// Preserve the stored password when the form leaves it blank.
 	password := req.Password
 	if password == "" {
@@ -100,6 +110,7 @@ func (s *Server) handleSetEmailSettings(w http.ResponseWriter, r *http.Request) 
 		"username": strings.TrimSpace(req.Username),
 		"password": password,
 		"from":     strings.TrimSpace(req.From),
+		"replyTo":  strings.TrimSpace(req.ReplyTo),
 		"tls":      strings.TrimSpace(req.TLS),
 	}
 	if err := s.Store.SetSMTPConfig(cfg); err != nil {

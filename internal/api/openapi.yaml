@@ -508,6 +508,7 @@ paths:
                   port: { type: string }
                   username: { type: string }
                   from: { type: string }
+                  replyTo: { type: string }
                   tls: { type: string }
                   hasPassword: { type: boolean }
                   publicUrl: { type: string }
@@ -533,6 +534,13 @@ paths:
                     The sender: an address, or a name and one as
                     `Quetzal <quetzal@example.com>`. Required with a host;
                     anything else is refused with a 400.
+                replyTo:
+                  type: string
+                  description: >-
+                    Where an answer goes, in the same two forms as `from`.
+                    Optional; mail from an address that answers nothing reads
+                    as less legitimate, to people and to spam filters. Every
+                    message also carries `Auto-Submitted: auto-generated`.
                 tls: { type: string, enum: [starttls, tls, none] }
                 publicUrl: { type: string }
       responses:
