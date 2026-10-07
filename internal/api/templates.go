@@ -143,7 +143,7 @@ func (s *Server) handleUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 	// The data path is where the volume mounts and where the file manager is
 	// confined. A relative one, or the container root, gives a server that cannot
 	// start and a file manager rooted somewhere it should not be.
-	if p := strings.TrimSpace(t.DataPath); p != "" {
+	if p := t.DataPath; p != "" {
 		if !strings.HasPrefix(p, "/") || path.Clean(p) != p || p == "/" {
 			writeError(w, http.StatusBadRequest,
 				`dataPath must be an absolute, already-clean directory other than "/" (e.g. /home/container)`)

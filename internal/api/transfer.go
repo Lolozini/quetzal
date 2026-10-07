@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/store"
 )
 
 // transferInProgress writes a 409 and returns true when the server is mid
@@ -104,15 +105,17 @@ func (s *Server) handleCancelTransfer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, srv.Transfer) // already asked; not an error
 		return
 	}
-	t := *srv.Transfer
-	t.Cancelled = true
-	t.Message = "cancelling"
-	if err := s.Store.SetServerTransfer(srv.ID, &t); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	current, err := s.Store.CancelServerTransfer(srv.ID, "cancelling")
+	if err != nil {
+		code := http.StatusInternalServerError
+		if errors.Is(err, store.ErrTransferChanged) {
+			code = http.StatusConflict
+		}
+		writeError(w, code, err.Error())
 		return
 	}
 	s.audit(r, srv.ID, "server.transfer", "cancel requested")
-	writeJSON(w, http.StatusAccepted, t)
+	writeJSON(w, http.StatusAccepted, current.Transfer)
 }
 
 func (s *Server) handleTransferServer(w http.ResponseWriter, r *http.Request) {
@@ -152,21 +155,15 @@ func (s *Server) handleTransferServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Stop the server (for a quiescent snapshot) and record the state to restore
-	// once the move completes.
-	t := &models.TransferState{
-		Phase:         models.TransferBackingUp,
-		SourceCluster: srv.ClusterID,
-		TargetCluster: target.ID,
-		PrevState:     srv.DesiredState,
-		StartedAt:     time.Now(),
-	}
-	if err := s.Store.SetDesiredState(srv.ID, models.StateStopped); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	if err := s.Store.SetServerTransfer(srv.ID, t); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	// Freeze and capture the current power/cluster under the same lock as
+	// starts and backup claims; a stale request cannot overwrite cancellation.
+	t, err := s.Store.BeginServerTransfer(srv.ID, target.ID, time.Now())
+	if err != nil {
+		code := http.StatusInternalServerError
+		if errors.Is(err, store.ErrTransferActive) || errors.Is(err, store.ErrTransferOperationActive) || errors.Is(err, store.ErrTransferChanged) {
+			code = http.StatusConflict
+		}
+		writeError(w, code, err.Error())
 		return
 	}
 	s.audit(r, srv.ID, "server.transfer", "to cluster "+target.Slug)

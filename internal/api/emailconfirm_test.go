@@ -151,7 +151,7 @@ func TestWithoutMailAnAddressIsTakenUnconfirmed(t *testing.T) {
 func TestAnAdminWrittenAddressIsUnconfirmed(t *testing.T) {
 	_, _, st, _ := newResetHarness(t)
 	u := makeUser(t, st, "alice", "alicepw12", "")
-	if err := st.StartEmailConfirmation(&models.EmailConfirmation{UserID: u.ID, Email: "p@example.com", TokenHash: "h"}); err != nil {
+	if err := st.StartEmailConfirmation(&models.EmailConfirmation{UserID: u.ID, Email: "p@example.com", TokenHash: "h"}, u.PasswordHash); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.UpdateUserEmail(u.ID, "admin-set@example.com"); err != nil {

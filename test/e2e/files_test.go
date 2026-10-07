@@ -25,6 +25,7 @@ import (
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/lolozini/quetzal/internal/api"
+	"github.com/lolozini/quetzal/internal/console"
 	"github.com/lolozini/quetzal/internal/reconciler"
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/templates"
@@ -56,6 +57,7 @@ func TestE2EFiles(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	rec := reconciler.New(crClient, st)
+	rec.ActivatorImage = systemImage(t)
 
 	ts := httptest.NewServer(api.New(st, cs, cfg).Handler())
 	defer ts.Close()
@@ -122,9 +124,7 @@ func TestE2EFiles(t *testing.T) {
 		t.Errorf("archive is not a gzip stream (len=%d)", len(ab))
 	}
 
-	// Archiving the whole volume runs tar from the data root's *parent*, which is
-	// legitimately outside the jail: the confinement check must look at the entry
-	// being archived, not at the directory tar runs from.
+	// The whole volume can also be downloaded as a gzip tarball.
 	whole := doFile(t, hc, http.MethodGet, base+"/archive?path=", "")
 	mustStatus(t, whole, http.StatusOK)
 	wb := readBody(t, whole)
@@ -145,7 +145,7 @@ func TestE2EFiles(t *testing.T) {
 	}
 
 	// A name with a newline in it, which the game can create, is listed whole
-	// by the image's own shell, and can be deleted from the panel.
+	// and can be deleted from the panel.
 	odd := url.QueryEscape("new\nline.txt")
 	mustStatus(t, doFile(t, hc, http.MethodPut, base+"/content?path="+odd, "x"), http.StatusNoContent)
 	var listed []struct{ Name string }
@@ -161,10 +161,9 @@ func TestE2EFiles(t *testing.T) {
 	}
 	mustStatus(t, doFile(t, hc, http.MethodDelete, base+"?path="+odd, ""), http.StatusNoContent)
 
-	// A symlink planted in the volume must not become a way out either. Textual
-	// confinement does not catch one, and a link gets there without SFTP or the
-	// editor: tar recreates whatever an uploaded archive contains, exactly as a
-	// malicious modpack would. Reading through it must be refused.
+	// Archives cannot introduce a link outside the data root. A game process
+	// can still plant one in its own volume, so subsequent HTTP operations must
+	// refuse to follow it as well.
 	var tarball bytes.Buffer
 	tw := tar.NewWriter(&tarball)
 	if err := tw.WriteHeader(&tar.Header{Name: "escape", Typeflag: tar.TypeSymlink, Linkname: "/", Mode: 0o777}); err != nil {
@@ -173,12 +172,21 @@ func TestE2EFiles(t *testing.T) {
 	if err := tw.Close(); err != nil {
 		t.Fatalf("close tar: %v", err)
 	}
-	mustStatus(t, doFile(t, hc, http.MethodPost, base+"/extract?path=&format=tar", tarball.String()), http.StatusNoContent)
+	mustStatus(t, doFile(t, hc, http.MethodPost, base+"/extract?path=&format=tar", tarball.String()), http.StatusBadRequest)
+	srv, err := st.GetServer(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pod, err := console.FindRunningPod(context.Background(), cs, srv.Namespace, srv.Slug)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execInPod(context.Background(), t, cs, cfg, srv.Namespace, pod, []string{"ln", "-s", "/", "/data/escape"})
 	if body := readBody(t, doFile(t, hc, http.MethodGet, base+"/content?path=escape/etc/passwd", "")); strings.Contains(body, "root:") {
 		t.Fatalf("symlink escaped the data root: %q", body)
 	}
-	// Writing through it is refused too, and at once: the script stops before
-	// reading the body, which used to hold the request open until its timeout.
+	// Writing through it is refused too, without leaving the request waiting
+	// for an unread body to finish.
 	started := time.Now()
 	mustStatus(t, doFile(t, hc, http.MethodPut, base+"/content?path=escape/tmp/x", strings.Repeat("x", 1<<20)), http.StatusBadRequest)
 	if d := time.Since(started); d > 30*time.Second {
@@ -187,8 +195,8 @@ func TestE2EFiles(t *testing.T) {
 	// The link itself stays removable, so a planted one can be cleaned up.
 	mustStatus(t, doFile(t, hc, http.MethodDelete, base+"?path=escape", ""), http.StatusNoContent)
 
-	// An upload in pieces, through the pod's own shell: three pieces, one of
-	// them sent twice as after a lost answer, then put in place whole.
+	// An upload in pieces: three pieces, one sent twice as after a lost
+	// answer, then put in place whole.
 	uploads := ts.URL + "/api/servers/" + itoa(created.ID) + "/uploads"
 	big := strings.Repeat("quetzal-", 3<<17) // 3 MiB
 	var up struct{ ID string }
@@ -265,6 +273,7 @@ func TestE2EOfflineFiles(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	rec := reconciler.New(crClient, st)
+	rec.ActivatorImage = systemImage(t)
 
 	ts := httptest.NewServer(api.New(st, cs, cfg).Handler())
 	defer ts.Close()

@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -40,6 +41,9 @@ const (
 	pingPeriod = (pongWait * 9) / 10
 	// pollInterval is how often we re-check for a running container while waiting.
 	pollInterval = 1500 * time.Millisecond
+	// Match the SFTP live-key check cadence. Input and reattachment also check.
+	revokeInterval  = 5 * time.Second
+	maxInputMessage = 16 * 1024
 )
 
 // Message is a console frame exchanged with the browser.
@@ -154,9 +158,43 @@ func waitForRunningPod(ctx context.Context, cs kubernetes.Interface, ns, slug st
 // Stream wires a WebSocket to a server's console until the client disconnects.
 // It streams logs (stdout) and an attach session (stdin) concurrently, each in
 // a loop that waits for a running container and reconnects across restarts.
-func Stream(ctx context.Context, ws *websocket.Conn, cs kubernetes.Interface, cfg *rest.Config, ns, slug string) error {
+func Stream(ctx context.Context, ws *websocket.Conn, cs kubernetes.Interface, cfg *rest.Config, ns, slug string, authorize func() bool) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	ws.SetReadLimit(maxInputMessage)
+	var revokeOnce sync.Once
+	allowed := func() bool {
+		if ctx.Err() != nil {
+			return false
+		}
+		if authorize != nil && authorize() {
+			return true
+		}
+		revokeOnce.Do(func() {
+			_ = ws.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "console access revoked"), time.Now().Add(time.Second))
+			cancel()
+			_ = ws.Close()
+		})
+		return false
+	}
+	if !allowed() {
+		return nil
+	}
+	go func() {
+		t := time.NewTicker(revokeInterval)
+		defer t.Stop()
+		defer ws.Close()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if !allowed() {
+					return
+				}
+			}
+		}
+	}()
 
 	// Single writer goroutine: gorilla forbids concurrent writes.
 	out := make(chan Message, 128)
@@ -189,6 +227,9 @@ func Stream(ctx context.Context, ws *websocket.Conn, cs kubernetes.Interface, cf
 			if err != nil {
 				return
 			}
+			if !allowed() {
+				return
+			}
 			if pod != last {
 				send(ctx, out, Message{Type: "status", Data: "streaming logs from " + pod})
 				last = pod
@@ -215,6 +256,10 @@ func Stream(ctx context.Context, ws *websocket.Conn, cs kubernetes.Interface, cf
 				_ = pw.Close()
 				return
 			case line := <-stdin:
+				if !allowed() {
+					_ = pw.Close()
+					return
+				}
 				if _, err := io.WriteString(pw, line+"\n"); err != nil {
 					return
 				}
@@ -225,6 +270,9 @@ func Stream(ctx context.Context, ws *websocket.Conn, cs kubernetes.Interface, cf
 		for ctx.Err() == nil {
 			pod, err := waitForRunningPod(ctx, cs, ns, slug)
 			if err != nil {
+				return
+			}
+			if !allowed() {
 				return
 			}
 			// Errors here are usually transient (container restarting); the loop
@@ -270,6 +318,9 @@ func Stream(ctx context.Context, ws *websocket.Conn, cs kubernetes.Interface, cf
 			continue
 		}
 		if m.Type == "stdin" {
+			if !allowed() {
+				break
+			}
 			select {
 			case stdin <- m.Data:
 			default:

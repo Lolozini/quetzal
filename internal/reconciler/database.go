@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"regexp"
 	"strconv"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -45,37 +44,10 @@ const (
 	dbRootPassword = "MARIADB_ROOT_PASSWORD"
 )
 
-// managedDBNamespacePattern is the only shape a managed database namespace may
-// take. Quetzal owns these namespaces outright — it creates them and deletes
-// them when their host goes — so it must never be pointed at one it did not
-// make. A stored value that does not match is ignored rather than obeyed.
-var managedDBNamespacePattern = regexp.MustCompile(`^quetzal-db-[a-z0-9][a-z0-9-]{0,48}$`)
-
-// ManagedDBNamespace returns the namespace a managed host's workload lives in.
-// A name stored on the host is honoured only if it is one Quetzal could have
-// chosen itself; anything else falls back to the derived name, so a row that was
-// tampered with cannot place workloads in — or, through collection, destroy —
-// kube-system or another application's namespace.
-func ManagedDBNamespace(h *models.DatabaseHost) string {
-	derived := fmt.Sprintf("quetzal-db-%d", h.ID)
-	if h.Namespace != "" && managedDBNamespacePattern.MatchString(h.Namespace) {
-		return h.Namespace
-	}
-	return derived
-}
-
-// IsManagedDBNamespace reports whether a name is one Quetzal would have given a
-// managed database. Collection checks this before deleting anything: the label
-// it selects on is written by Quetzal, but Quetzal can be asked to write it on a
-// namespace that already exists.
-func IsManagedDBNamespace(name string) bool {
-	return managedDBNamespacePattern.MatchString(name)
-}
-
 // ManagedDBServiceHost returns the in-cluster DNS name servers use to reach a
 // managed host (the address handed to game servers).
 func ManagedDBServiceHost(h *models.DatabaseHost) string {
-	return fmt.Sprintf("%s.%s.svc", ManagedDBServiceName, ManagedDBNamespace(h))
+	return fmt.Sprintf("%s.%s.svc", ManagedDBServiceName, h.ManagedNamespace())
 }
 
 func managedDBLabels(h *models.DatabaseHost) map[string]string {
@@ -97,27 +69,43 @@ func (r *Reconciler) ReconcileDatabaseHosts(ctx context.Context) error {
 		return err
 	}
 	valid := map[string]bool{}
+	counts := map[string]int{}
+	for i := range hosts {
+		if hosts[i].Kind == models.DBHostManaged {
+			counts[hosts[i].ManagedNamespace()]++
+		}
+	}
 	for i := range hosts {
 		h := &hosts[i]
 		if h.Kind != models.DBHostManaged {
 			continue
 		}
-		ns := ManagedDBNamespace(h)
+		ns := h.ManagedNamespace()
 		valid[ns] = true
+		if counts[ns] != 1 {
+			log.Printf("db host %d: namespace %q is reserved by multiple legacy hosts; refusing to reconcile", h.ID, ns)
+			continue
+		}
 		rootPw, err := r.Store.DatabaseHostAdminPassword(h)
 		if err != nil {
 			log.Printf("db host %d: read root password: %v", h.ID, err)
 			continue
 		}
-		objs := buildManagedDB(h, rootPw, r.InstanceID)
-		for i, obj := range objs {
+		objs, err := buildManagedDB(h, rootPw, r.InstanceID)
+		if err != nil {
+			log.Printf("db host %d: build: %v", h.ID, err)
+			continue
+		}
+		// Do not apply the namespace with ForceOwnership: an existing owner's
+		// label must be checked before any mutation, including the RoleBinding.
+		if err := r.ensureOwnedNamespace(ctx, ns, managedDBLabels(h)); err != nil {
+			log.Printf("db host %d: namespace: %v", h.ID, err)
+			continue
+		}
+		r.ensureRoleBinding(ctx, ns)
+		for _, obj := range objs[1:] {
 			if err := r.apply(ctx, obj); err != nil {
 				log.Printf("db host %d: apply %T: %v", h.ID, obj, err)
-			}
-			// The namespace comes first; grant ourselves access in it before
-			// applying what goes inside.
-			if i == 0 {
-				r.ensureRoleBinding(ctx, ns)
 			}
 		}
 		r.ensureManagedDBNetworkPolicy(ctx, h)
@@ -185,7 +173,7 @@ func BuildManagedDBNetworkPolicy(h *models.DatabaseHost, allowed []string) *netw
 		TypeMeta: metav1.TypeMeta{APIVersion: "networking.k8s.io/v1", Kind: "NetworkPolicy"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "quetzal-db-ingress",
-			Namespace: ManagedDBNamespace(h),
+			Namespace: h.ManagedNamespace(),
 			Labels:    managedDBLabels(h),
 		},
 		Spec: networkingv1.NetworkPolicySpec{
@@ -222,11 +210,11 @@ func (r *Reconciler) gcManagedDBNamespaces(ctx context.Context, valid map[string
 		// The label is Quetzal's, but it can end up on a namespace Quetzal did not
 		// create — the name came from an API request once. Deleting on the label
 		// alone would take kube-system with it.
-		if !IsManagedDBNamespace(ns.Name) {
+		if !models.IsManagedDBNamespace(ns.Name) {
 			log.Printf("refusing to collect namespace %q: it carries the managed-database label but is not a name Quetzal would have chosen", ns.Name)
 			continue
 		}
-		if err := r.Client.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
+		if err := r.Client.Delete(ctx, ns, client.Preconditions{UID: &ns.UID, ResourceVersion: &ns.ResourceVersion}); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
@@ -237,8 +225,8 @@ func (r *Reconciler) gcManagedDBNamespaces(ctx context.Context, valid map[string
 // stamps the namespace with the owning control plane so orphan collection never
 // reclaims (and destroys) another instance's databases; "" leaves it unstamped,
 // which collection then adopts.
-func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) []client.Object {
-	ns := ManagedDBNamespace(h)
+func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) ([]client.Object, error) {
+	ns := h.ManagedNamespace()
 	labels := managedDBLabels(h)
 	nsLabels := managedDBLabels(h)
 	if instanceID != "" {
@@ -251,6 +239,10 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) []c
 	size := h.StorageSize
 	if size == "" {
 		size = "1Gi"
+	}
+	quantity, err := resource.ParseQuantity(size)
+	if err != nil || quantity.Sign() <= 0 {
+		return nil, fmt.Errorf("invalid storage size %q: expected a positive Kubernetes quantity", size)
 	}
 	selector := map[string]string{dbHostLabel: strconv.FormatUint(uint64(h.ID), 10)}
 	replicas := int32(1)
@@ -271,7 +263,7 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) []c
 		Spec: corev1.PersistentVolumeClaimSpec{
 			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 			Resources: corev1.VolumeResourceRequirements{
-				Requests: corev1.ResourceList{corev1.ResourceStorage: resource.MustParse(size)},
+				Requests: corev1.ResourceList{corev1.ResourceStorage: quantity},
 			},
 		},
 	}
@@ -354,5 +346,5 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) []c
 			}},
 		},
 	}
-	return []client.Object{namespace, secret, pvc, deploy, svc}
+	return []client.Object{namespace, secret, pvc, deploy, svc}, nil
 }

@@ -222,7 +222,7 @@ func TestPasswordResetInvalidToken(t *testing.T) {
 	// Expired token is rejected.
 	if err := st.CreatePasswordReset(&models.PasswordReset{
 		UserID: u.ID, TokenHash: api.HashTokenForTest("expiredtok"), ExpiresAt: time.Now().Add(-time.Minute),
-	}); err != nil {
+	}, u); err != nil {
 		t.Fatal(err)
 	}
 	if r := post(t, c, ts.URL+"/api/reset-password", map[string]string{"token": "expiredtok", "password": "newpassword1"}); r.StatusCode != http.StatusBadRequest {

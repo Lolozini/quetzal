@@ -163,18 +163,14 @@ func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := s.Store.UpdateSchedule(sc); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	// A chain left half done by a controller that went away is not carried on
-	// once its schedule is disabled: switching it back on later would replay
-	// the rest of a chain from another day.
-	if !sc.Enabled && sc.Run != nil {
-		if err := s.Store.SetScheduleRun(sc.ID, nil); err != nil {
+		if errors.Is(err, store.ErrScheduleActive) {
+			writeError(w, http.StatusConflict, err.Error())
+		} else if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "schedule not found")
+		} else {
 			writeError(w, http.StatusInternalServerError, err.Error())
-			return
 		}
-		sc.Run = nil
+		return
 	}
 	detail := sc.Name + " (" + summarizeTasks(tasks) + " @ " + sc.Cron + ")"
 	if !sc.Enabled {

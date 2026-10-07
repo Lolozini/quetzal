@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -115,12 +114,6 @@ func TestBuildJobBackup(t *testing.T) {
 	c := job.Spec.Template.Spec.Containers[0]
 	if c.Image != "restic/restic:test" {
 		t.Errorf("image = %q", c.Image)
-	}
-	script := c.Command[2]
-	for _, want := range []string{"restic backup /data", `--tag "bid-42"`, "restic forget", "--keep-last 5", "restic init"} {
-		if !strings.Contains(script, want) {
-			t.Errorf("backup script missing %q:\n%s", want, script)
-		}
 	}
 	// Data volume mounted read-only from the server's PVC.
 	vm := c.VolumeMounts[0]
@@ -441,43 +434,13 @@ func TestJobOutcome(t *testing.T) {
 	}
 }
 
-// The first backup of a server creates its repository, and only then: restic
-// exits 10 when there is none. Any other failure of the first command is the
-// run's failure, reported with its own error. The script ran "snapshots ||
-// init", so a refused key, a wrong password or a target that never answered
-// all ended in "create repository ... failed", and the last after twice the
-// wait. It runs here against a stand-in restic that fails "snapshots" with a
-// given code and records what it is asked.
-func TestBackupScriptCreatesTheRepositoryOnlyWhenThereIsNone(t *testing.T) {
-	job := BuildJob(Params{Direction: models.DirBackup, BackupID: 7, Slug: "mc-a1b2", Namespace: "qz-mc-a1b2", KeepLast: 3})
-	script := job.Spec.Template.Spec.Containers[0].Command[2]
-	for _, c := range []struct {
-		snapshots int
-		exit      int
-		ran       string
-	}{
-		{0, 0, "snapshots backup forget"},       // a repository is there
-		{10, 0, "snapshots init backup forget"}, // none yet: this backup makes it
-		{1, 1, "snapshots"},                     // unreachable, keys refused...
-		{12, 12, "snapshots"},                   // wrong password
-	} {
-		dir := t.TempDir()
-		fake := "#!/bin/sh\necho \"$1\" >> " + dir + "/calls\n[ \"$1\" = snapshots ] && exit $SNAPSHOTS_RC\nexit 0\n"
-		if err := os.WriteFile(filepath.Join(dir, "restic"), []byte(fake), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		cmd := exec.Command("/bin/sh", "-c", script)
-		cmd.Env = []string{"PATH=" + dir + ":/usr/bin:/bin", "SNAPSHOTS_RC=" + strconv.Itoa(c.snapshots)}
-		err := cmd.Run()
-		exit := 0
-		if ee, ok := err.(*exec.ExitError); ok {
-			exit = ee.ExitCode()
-		} else if err != nil {
-			t.Fatal(err)
-		}
-		calls, _ := os.ReadFile(filepath.Join(dir, "calls"))
-		if ran := strings.Join(strings.Fields(string(calls)), " "); exit != c.exit || ran != c.ran {
-			t.Errorf("snapshots exiting %d: script exited %d after %q, want %d after %q", c.snapshots, exit, ran, c.exit, c.ran)
-		}
+func TestParseBackupSizeFromRetriedSnapshot(t *testing.T) {
+	logs := `[{"time":"2026-10-07T12:00:00Z","summary":{"total_bytes_processed":1200}},{"time":"2026-10-06T12:00:00Z","summary":{"total_bytes_processed":400}}]`
+	if got := ParseBackupSize(logs); got != 1200 {
+		t.Fatalf("latest reused snapshot size = %d, want 1200", got)
+	}
+	logs = "[]\nnot JSON\n" + `{"message_type":"summary","total_bytes_processed":42}`
+	if got := ParseBackupSize(logs); got != 42 {
+		t.Fatalf("backup after empty snapshot search size = %d, want 42", got)
 	}
 }

@@ -14,6 +14,11 @@ import (
 	"github.com/lolozini/quetzal/internal/store"
 )
 
+// Kept as functions so tests can control remote completion without a live host.
+var provisionDatabase = dbprovision.Provision
+var deprovisionDatabase = dbprovision.Deprovision
+var rotateDatabasePassword = dbprovision.RotatePassword
+
 // ---- database hosts (admin registry) ----
 
 func (s *Server) handleListDatabaseHosts(w http.ResponseWriter, r *http.Request) {
@@ -108,7 +113,7 @@ func (s *Server) handleCreateDatabaseHost(w http.ResponseWriter, r *http.Request
 		// and then collect it — kube-system included. An explicit name is accepted
 		// only when it is one Quetzal could have picked itself.
 		if n := strings.TrimSpace(req.Namespace); n != "" {
-			if !reconciler.IsManagedDBNamespace(n) {
+			if !models.IsManagedDBNamespace(n) {
 				writeError(w, http.StatusBadRequest,
 					`namespace must be named "quetzal-db-<name>" — Quetzal owns and deletes the namespace of a managed host, so it will not take over one it did not create`)
 				return
@@ -135,16 +140,23 @@ func (s *Server) handleCreateDatabaseHost(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := s.Store.CreateDatabaseHost(h, adminPassword); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		if errors.Is(err, store.ErrDatabaseHostNamespaceInUse) {
+			writeError(w, http.StatusConflict, err.Error())
+		} else {
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 	// Managed hosts: the namespace/Service DNS depend on the assigned ID.
 	if kind == models.DBHostManaged {
 		if h.Namespace == "" {
-			h.Namespace = reconciler.ManagedDBNamespace(h)
+			h.Namespace = h.ManagedNamespace()
 		}
 		h.Host = reconciler.ManagedDBServiceHost(h)
-		_ = s.Store.UpdateDatabaseHost(h, nil)
+		if err := s.Store.UpdateDatabaseHost(h, nil); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 	}
 	s.audit(r, 0, "dbhost.create", h.Name)
 	writeJSON(w, http.StatusCreated, s.checkedHost(r, h))
@@ -194,7 +206,13 @@ func (s *Server) handleUpdateDatabaseHost(w http.ResponseWriter, r *http.Request
 			h.AdminUser = au
 		}
 	} else {
-		h.StorageSize = strings.TrimSpace(req.StorageSize)
+		if size := strings.TrimSpace(req.StorageSize); size != "" {
+			if err := validateStorageSize(size); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			h.StorageSize = size
+		}
 		if img := strings.TrimSpace(req.Image); img != "" {
 			h.Image = img
 		}
@@ -206,7 +224,11 @@ func (s *Server) handleUpdateDatabaseHost(w http.ResponseWriter, r *http.Request
 		pw = req.AdminPassword
 	}
 	if err := s.Store.UpdateDatabaseHost(h, pw); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		if errors.Is(err, store.ErrDatabaseHostNamespaceInUse) {
+			writeError(w, http.StatusConflict, err.Error())
+		} else {
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 	s.audit(r, 0, "dbhost.update", h.Name)
@@ -329,12 +351,6 @@ func (s *Server) handleCreateServerDatabase(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "unknown database host")
 		return
 	}
-	if host.MaxDatabases > 0 {
-		if n, _ := s.Store.CountDatabasesOnHost(host.ID); n >= int64(host.MaxDatabases) {
-			writeError(w, http.StatusConflict, "database host is at capacity")
-			return
-		}
-	}
 	conn, err := s.adminConn(host)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -357,17 +373,35 @@ func (s *Server) handleCreateServerDatabase(w http.ResponseWriter, r *http.Reque
 		Remote:       "%",
 	}
 	password := dbprovision.GeneratePassword()
+	// Commit the reservation first, so every replica counts it while the
+	// remote operation is in flight (and after an uncertain remote failure).
+	if err := s.Store.CreateServerDatabase(d, password); err != nil {
+		if errors.Is(err, store.ErrDatabaseHostFull) {
+			writeError(w, http.StatusConflict, err.Error())
+		} else {
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	if err := dbprovision.Provision(ctx, conn, d.DatabaseName, d.Username, d.Remote, password); err != nil {
+	if err := provisionDatabase(ctx, conn, d.DatabaseName, d.Username, d.Remote, password); err != nil {
+		// A failed response does not prove that CREATE failed. Only release the
+		// reservation after confirmed cleanup, using a fresh bounded context
+		// even when the requesting client has disconnected.
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(r.Context()), 20*time.Second)
+		defer cleanupCancel()
+		cleanupErr := deprovisionDatabase(cleanupCtx, conn, d.DatabaseName, d.Username, d.Remote)
+		if cleanupErr != nil {
+			writeError(w, http.StatusBadGateway, fmt.Sprintf("could not provision database: %v; cleanup failed: %v; database reservation %d retained", err, cleanupErr, d.ID))
+			return
+		}
+		if cleanupErr := s.Store.DeleteServerDatabase(d.ID); cleanupErr != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("could not release database reservation %d: %v", d.ID, cleanupErr))
+			return
+		}
 		writeError(w, http.StatusBadGateway, "could not provision database: "+err.Error())
-		return
-	}
-	if err := s.Store.CreateServerDatabase(d, password); err != nil {
-		// Best-effort rollback so we don't leak an unmanaged database.
-		_ = dbprovision.Deprovision(ctx, conn, d.DatabaseName, d.Username, d.Remote)
-		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	s.audit(r, srv.ID, "database.create", d.DatabaseName)
@@ -415,14 +449,21 @@ func (s *Server) handleRotateServerDatabase(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	password := dbprovision.GeneratePassword()
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-	defer cancel()
-	if err := dbprovision.RotatePassword(ctx, conn, d.Username, d.Remote, password); err != nil {
-		writeError(w, http.StatusBadGateway, "could not rotate password: "+err.Error())
-		return
-	}
-	if err := s.Store.UpdateServerDatabasePassword(d.ID, password); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	err = s.Store.RotateServerDatabasePassword(d.ID, password, func(current *models.ServerDatabase, next string) error {
+		ctx := r.Context()
+		if next != password {
+			ctx = context.WithoutCancel(ctx) // compensation must survive disconnects
+		}
+		ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		defer cancel()
+		return rotateDatabasePassword(ctx, conn, current.Username, current.Remote, next)
+	})
+	if err != nil {
+		if errors.Is(err, store.ErrDatabaseRotationRemote) {
+			writeError(w, http.StatusBadGateway, err.Error())
+		} else {
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 	s.audit(r, srv.ID, "database.rotate", d.DatabaseName)

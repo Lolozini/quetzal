@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 
 	"github.com/lolozini/quetzal/internal/authkeys"
+	"github.com/lolozini/quetzal/internal/fileops"
 	"github.com/lolozini/quetzal/internal/sshd"
 )
 
@@ -27,6 +28,9 @@ func main() {
 			log.Fatalf("install self: %v", err)
 		}
 		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "fileop" {
+		os.Exit(fileops.Run(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
 
 	addr := envOr("QUETZAL_SFTP_ADDR", ":2022")

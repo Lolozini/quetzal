@@ -77,8 +77,12 @@ func TestE2EHibernationScaling(t *testing.T) {
 	reconcileUntilRunning(ctx, t, rec, st, srv.ID)
 
 	// Hibernate -> deployment scales to zero.
-	if err := st.SetHibernated(srv.ID, true); err != nil {
-		t.Fatalf("hibernate: %v", err)
+	observed, err := st.GetServer(srv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := st.HibernateIfUnchanged(observed); err != nil || !changed {
+		t.Fatalf("hibernate: changed=%v, err=%v", changed, err)
 	}
 	if err := rec.ReconcileServer(ctx, srv.ID); err != nil {
 		t.Fatalf("reconcile: %v", err)

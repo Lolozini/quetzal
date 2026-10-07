@@ -34,7 +34,7 @@ import (
 )
 
 // uploadHarness is a panel whose file operations run here, on a directory that
-// stands for the server's data volume, through the same scripts the pod runs.
+// stands for the server's data volume, through the same helper the pod runs.
 type uploadHarness struct {
 	ts   *httptest.Server
 	s    *Server
@@ -91,12 +91,12 @@ func newUploadHarness(t *testing.T) (*uploadHarness, *http.Client) {
 func (h *uploadHarness) run(ctx context.Context, _ kubernetes.Interface, _ *rest.Config, _, _ string, cmd []string, stdin io.Reader, stdout io.Writer) error {
 	args := make([]string, len(cmd))
 	for i, a := range cmd {
-		if i >= 3 && (a == "/data" || strings.HasPrefix(a, "/data/")) {
+		if i >= 2 && i != 3 && (a == "/data" || strings.HasPrefix(a, "/data/")) {
 			a = h.data + strings.TrimPrefix(a, "/data")
 		}
 		args[i] = a
 	}
-	c := exec.CommandContext(ctx, args[0], args[1:]...)
+	c := fileopProcess(ctx, args[2], args[3], args[4:]...)
 	var stderr bytes.Buffer
 	c.Stdin, c.Stdout, c.Stderr = stdin, stdout, &stderr
 	if c.Stdin == nil {
@@ -220,7 +220,7 @@ func TestUploadAppendScriptResumes(t *testing.T) {
 	root := t.TempDir()
 	tmp := filepath.Join(root, "f.quetzal-part-x")
 	run := func(offset, in string) (string, int) {
-		c := exec.Command("sh", "-c", guarded(uploadAppendScript), root, tmp, offset)
+		c := fileopTestCommand(root, "upload-append", tmp, offset)
 		c.Stdin = strings.NewReader(in)
 		out, err := c.Output()
 		var ee *exec.ExitError

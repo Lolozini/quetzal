@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"fmt"
+	"regexp"
+	"time"
+)
 
 // Database host kinds.
 const (
@@ -52,6 +56,23 @@ type DatabaseHost struct {
 	Reachable     bool       `json:"reachable"`
 	StatusMessage string     `json:"statusMessage,omitempty"`
 	LastCheckedAt *time.Time `json:"lastCheckedAt,omitempty"`
+}
+
+var managedDBNamespacePattern = regexp.MustCompile(`^quetzal-db-[a-z0-9][a-z0-9-]{0,48}$`)
+
+// ManagedNamespace preserves a valid stored namespace, including legacy names.
+// Invalid names fall back to the host ID rather than targeting another workload.
+// Store reservations and reconciliation must use the same effective name.
+func (h *DatabaseHost) ManagedNamespace() string {
+	if IsManagedDBNamespace(h.Namespace) {
+		return h.Namespace
+	}
+	return fmt.Sprintf("quetzal-db-%d", h.ID)
+}
+
+// IsManagedDBNamespace reports whether Quetzal may own this database namespace.
+func IsManagedDBNamespace(name string) bool {
+	return managedDBNamespacePattern.MatchString(name)
 }
 
 // AdminAddr returns the host:port the control plane administers the server on.

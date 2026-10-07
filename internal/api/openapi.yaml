@@ -169,6 +169,10 @@ paths:
     post:
       tags: [Users]
       summary: Change your own password
+      description: >-
+        Requires the current password. Revokes other sessions, outstanding reset
+        links and pending email confirmations atomically. Verification attempts
+        share a per-account budget across sessions and API keys.
       requestBody:
         required: true
         content:
@@ -182,6 +186,7 @@ paths:
       responses:
         "204": { description: Password changed }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /api/me/email:
     put:
       tags: [Email]
@@ -288,8 +293,9 @@ paths:
       tags: [Email]
       summary: Complete a password reset with an emailed token
       description: >-
-        Validates the single-use token, sets the new password, then invalidates
-        the token and all of that user's sessions. 2FA is left untouched.
+        Atomically consumes the single-use token, changes the password and
+        revokes all sessions, other reset links and pending email confirmations.
+        2FA is left untouched.
       security: []
       requestBody:
         required: true
@@ -865,6 +871,7 @@ paths:
     post:
       tags: [TwoFactor]
       summary: Disable your 2FA (re-verifies a code)
+      description: Verification attempts share a per-account budget across sessions and API keys.
       requestBody:
         required: true
         content:
@@ -876,6 +883,7 @@ paths:
       responses:
         "204": { description: 2FA disabled }
         "400": { description: Invalid code or 2FA not enabled }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/templates:
     get:
@@ -1264,6 +1272,9 @@ paths:
         Upgrades to a WebSocket carrying console messages
         (`{type: stdout|stdin|status|error, data}`). stdout streams pod logs;
         stdin is delivered via the pod attach subresource.
+        Incoming messages are limited to 16 KiB (close code 1009). Credentials
+        and permissions are rechecked before input and periodically while idle;
+        revoked or expired access closes the connection with code 1008.
       responses:
         "101": { description: Switching Protocols (WebSocket) }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -1279,6 +1290,7 @@ paths:
         operations run in the always-on data-manager pod, which mounts the data
         volume, so they work whether the server is running or stopped. `path` is
         confined to the data root. All file endpoints share this behavior.
+        During a transfer all file access is frozen until completion or rollback.
       parameters:
         - { name: path, in: query, schema: { type: string }, description: Directory relative to the data root }
       responses:
@@ -1697,7 +1709,9 @@ paths:
       summary: Update a schedule
       description: >
         Fields are optional; only what is sent is changed. A replacement task
-        chain is authorized exactly as on create.
+        chain is authorized exactly as on create. Task changes are refused while
+        a chain is active; disable it first to cancel its remaining steps.
+        Disabling or deleting does not cancel a backup already created by a step.
       requestBody:
         required: true
         content:
@@ -1710,6 +1724,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Schedule" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: An active chain must be disabled before changing its tasks }
     delete:
       tags: [Schedules]
       summary: Delete a schedule
@@ -1866,8 +1881,9 @@ paths:
         data is backed up on the source and restored onto the destination
         (via the configured S3 backup target), then the source namespace is
         removed. Requires a configured backup target. While in progress,
-        power/edit/reinstall are blocked — `DELETE` on this path cancels it if
-        it stalls. Name the destination by its slug in `cluster`, as when
+        power/edit/reinstall and file/SFTP access are blocked. `DELETE` on this
+        path requests cancellation until phase Committing, when source cleanup
+        has begun. Name the destination by its slug in `cluster`, as when
         creating a server; `targetCluster`, its ID, is still accepted.
       requestBody:
         required: true
@@ -1888,12 +1904,11 @@ paths:
       tags: [Servers]
       summary: Cancel an in-progress transfer (server-admin)
       description: >
-        Records the cancellation; the controller undoes the move on its next
-        tick, since it is the side with cluster access. Before the cluster flip
-        the server has not moved and the transfer is simply dropped; after it,
-        the destination namespace is removed and the server returns to its
-        source cluster. The source data is untouched throughout. Without this a
-        transfer whose job stalls pins the server indefinitely.
+        Records cancellation; the controller drains linked Jobs and writer pods
+        before reopening the source. After the cluster flip it removes the
+        destination namespace and returns the server to the source cluster.
+        The source data remains untouched. Cancellation is refused in phase
+        Committing, because deleting the original copy has already begun.
       responses:
         "200":
           description: Cancellation already recorded
@@ -1906,7 +1921,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/TransferState" }
         "403": { $ref: "#/components/responses/Forbidden" }
-        "409": { description: No transfer is in progress. }
+        "409": { description: No transfer is in progress, or final source cleanup has begun }
   /api/servers/{id}/access:
     parameters:
       - $ref: "#/components/parameters/ServerId"
@@ -2844,7 +2859,7 @@ components:
       type: object
       description: Present while a cross-cluster transfer is in progress
       properties:
-        phase: { type: string, enum: [BackingUp, Restoring] }
+        phase: { type: string, enum: [BackingUp, Restoring, Committing] }
         sourceCluster: { type: integer }
         targetCluster: { type: integer }
         prevState: { type: string, enum: [Running, Stopped, Suspended] }
@@ -3067,6 +3082,7 @@ components:
             The chain under way, absent when none is. It is kept so that a
             controller restarted mid-chain carries it on where it was.
           properties:
+            generation: { type: integer, description: Identifies the current execution; read-only }
             fired: { type: string, format: date-time }
             next: { type: integer, description: Index of the task to run next }
             due: { type: string, format: date-time, description: When that task runs, its delay included }
@@ -3321,6 +3337,9 @@ components:
             tls is "starttls" (the default, and required: a server that does
             not offer STARTTLS is refused), "tls" (implicit TLS, usually port
             465) or "none" (cleartext, only when asked for by name).
+            An explicit host must resolve to public addresses at connection time.
+            Private relays are supported only through the panel-wide SMTP settings,
+            without channel overrides of port, username, password or tls.
     SSHKey:
       type: object
       properties:

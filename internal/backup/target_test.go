@@ -73,8 +73,7 @@ func TestTargetIDIsTheLocation(t *testing.T) {
 }
 
 // The manager records the target a backup goes to, refuses to restore one made
-// to another, and drops a backup of another target without a snapshot deletion
-// that could only fail.
+// to another, and retains deletion ownership until that target is reachable.
 func TestManagerKnowsWhereABackupWent(t *testing.T) {
 	st, err := store.Open(store.Config{Driver: store.Driver(testdb.Driver()), DSN: testdb.DSN(t, "m.db"), Silent: true})
 	if err != nil {
@@ -127,8 +126,8 @@ func TestManagerKnowsWhereABackupWent(t *testing.T) {
 		t.Fatalf("mark: %v", err)
 	}
 	m.processDeleting(ctx)
-	if _, err := st.GetBackup(old.ID); err == nil {
-		t.Error("a backup of another target waits on a snapshot deletion that cannot run")
+	if got, err := st.GetBackup(old.ID); err != nil || got.Phase != models.BackupDeleting || got.JobName != "" {
+		t.Errorf("deletion lost ownership of the previous target's snapshot: %+v %v", got, err)
 	}
 }
 

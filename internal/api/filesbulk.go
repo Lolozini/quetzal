@@ -53,10 +53,6 @@ func checkNames(names []string) error {
 	return nil
 }
 
-// bulkDeleteScript removes every path given after the root.
-const bulkDeleteScript = `qz_guard link "$0" "$@"
-exec rm -rf -- "$@"`
-
 func (s *Server) handleBulkDelete(w http.ResponseWriter, r *http.Request) {
 	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
 	if !ok {
@@ -75,7 +71,7 @@ func (s *Server) handleBulkDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dir := jail(root, req.Root)
-	cmd := []string{"sh", "-c", guarded(bulkDeleteScript), root}
+	cmd := fileCommand(root, "delete")
 	for _, f := range req.Files {
 		cmd = append(cmd, dir+"/"+f)
 	}
@@ -88,21 +84,6 @@ func (s *Server) handleBulkDelete(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, srv.ID, "files.delete", describeBulk(req.Root, req.Files))
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// moveScript moves the entries after $1 into the directory $1, refusing to
-// overwrite anything already there.
-const moveScript = `dest="$1"; shift
-qz_guard deref "$0" "$dest"
-[ -d "$dest" ] || { echo "the destination is not a folder" >&2; exit 4; }
-qz_guard link "$0" "$@"
-for s in "$@"; do qz_exists "$s"; done
-for s in "$@"; do
-  b=$(basename -- "$s")
-  if [ -e "$dest/$b" ] || [ -L "$dest/$b" ]; then
-    echo "$b already exists in the destination" >&2; exit 4
-  fi
-done
-exec mv -- "$@" "$dest"`
 
 type moveRequest struct {
 	bulkRequest
@@ -129,7 +110,7 @@ func (s *Server) handleBulkMove(w http.ResponseWriter, r *http.Request) {
 	}
 	dir := jail(root, req.Root)
 	dest := jail(root, req.Destination)
-	cmd := []string{"sh", "-c", guarded(moveScript), root, dest}
+	cmd := fileCommand(root, "move", dest)
 	for _, f := range req.Files {
 		cmd = append(cmd, dir+"/"+f)
 	}
@@ -142,22 +123,6 @@ func (s *Server) handleBulkMove(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, srv.ID, "files.move", describeBulk(req.Root, req.Files)+" -> "+req.Destination)
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// copyScript copies $1 to the first of the following candidate paths that is
-// free, and prints the one it used. Links inside a copied folder are copied as
-// links (-P), so a copy never pulls in what they point to.
-const copyScript = `qz_guard link "$0" "$1"
-qz_exists "$1"
-src="$1"; shift
-for dst in "$@"; do
-  if [ ! -e "$dst" ] && [ ! -L "$dst" ]; then
-    qz_guard deref "$0" "$dst"
-    cp -R -P -p -- "$src" "$dst" || exit 1
-    printf '%s' "$dst"
-    exit 0
-  fi
-done
-echo "no free name for the copy" >&2; exit 4`
 
 // copyCandidates lists the names a copy may take, as Wings names them:
 // "name copy.ext", then "name copy 1.ext" and on. An archive's double extension
@@ -209,7 +174,7 @@ func (s *Server) handleCopyFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	src := jail(root, rel)
-	cmd := []string{"sh", "-c", guarded(copyScript), root, src}
+	cmd := fileCommand(root, "copy", src)
 	for _, c := range copyCandidates(path.Base(rel)) {
 		cmd = append(cmd, path.Join(path.Dir(src), c))
 	}
@@ -224,21 +189,6 @@ func (s *Server) handleCopyFile(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, srv.ID, "files.copy", strings.TrimPrefix(rel, "/")+" -> "+name)
 	writeJSON(w, http.StatusOK, map[string]string{"name": name})
 }
-
-// compressScript packs the entries after $2 (names within the directory $1)
-// into the archive $2, written beside them. It is built under a temporary name
-// and renamed at the end, so a failure leaves no half archive behind.
-const compressScript = `dir="$1"; name="$2"; shift 2
-qz_guard deref "$0" "$dir"
-qz_exists "$dir"
-[ -d "$dir" ] || { echo "not a folder" >&2; exit 4; }
-cd "$dir" || exit 1
-for f in "$@"; do qz_guard link "$0" "$dir/$f"; qz_exists "$f"; done
-if [ -e "$name" ] || [ -L "$name" ]; then echo "$name already exists" >&2; exit 4; fi
-tmp=".$name.quetzal-part.$$"
-tar -czf "$tmp" -- "$@" || { rm -f "$tmp"; exit 1; }
-mv -f "$tmp" "$name"
-printf '%s' "$name"`
 
 func (s *Server) handleCompressFiles(w http.ResponseWriter, r *http.Request) {
 	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
@@ -258,31 +208,16 @@ func (s *Server) handleCompressFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := "archive-" + time.Now().UTC().Format("2006-01-02-150405") + ".tar.gz"
-	cmd := append([]string{"sh", "-c", guarded(compressScript), root, jail(root, req.Root), name}, req.Files...)
+	cmd := append(fileCommand(root, "compress", jail(root, req.Root), name), req.Files...)
 	ctx, cancel := context.WithTimeout(r.Context(), fileJobTimeout)
 	defer cancel()
 	if err := console.Exec(ctx, cs, cfg, srv.Namespace, pod, cmd, nil, io.Discard); err != nil {
-		writeFileOpError(w, "archive failed (the image needs tar)", err)
+		writeFileOpError(w, "archive failed", err)
 		return
 	}
 	s.audit(r, srv.ID, "files.compress", describeBulk(req.Root, req.Files)+" -> "+name)
 	writeJSON(w, http.StatusOK, map[string]string{"name": name})
 }
-
-// decompressScript unpacks the archive $1 into the folder that holds it, with
-// unzip for a .zip ($2 = zip) and tar otherwise, $2 then being tar's flag for
-// the compression (z, j, J, or "-" for none). The flag is given rather than
-// left to tar to detect: not every busybox build detects it.
-const decompressScript = `qz_guard deref "$0" "$1"
-qz_exists "$1"
-[ -f "$1" ] || { echo "not a file" >&2; exit 4; }
-dir=$(dirname -- "$1")
-if [ "$2" = zip ]; then
-  command -v unzip >/dev/null 2>&1 || { echo "this server's image has no unzip" >&2; exit 1; }
-  exec unzip -o -q "$1" -d "$dir"
-fi
-[ "$2" = - ] && exec tar -xof "$1" -C "$dir"
-exec tar -x"$2"of "$1" -C "$dir"`
 
 // archiveFormat says how an archive is unpacked, from its name: "zip", or
 // tar's compression flag ("-" for a plain tar).
@@ -334,7 +269,7 @@ func (s *Server) handleDecompressFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "not an archive that can be extracted (.zip, .tar, .tar.gz/.tgz, .tar.bz2, .tar.xz)")
 		return
 	}
-	cmd := []string{"sh", "-c", guarded(decompressScript), root, jail(root, req.Path), format}
+	cmd := fileCommand(root, "decompress", jail(root, req.Path), format)
 	ctx, cancel := context.WithTimeout(r.Context(), fileJobTimeout)
 	defer cancel()
 	if err := console.Exec(ctx, cs, cfg, srv.Namespace, pod, cmd, nil, io.Discard); err != nil {

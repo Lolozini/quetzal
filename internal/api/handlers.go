@@ -164,7 +164,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "hash failed")
+		writeCredentialError(w, err)
 		return
 	}
 	u := &models.User{Username: req.Username, PasswordHash: hash, Email: email, IsAdmin: true}
@@ -176,7 +176,7 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		log.Printf("setup: clear the setup code: %v", err)
 	}
 	if err := s.startSession(w, u); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeCredentialError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, u)
@@ -210,12 +210,19 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Spend the same argon2 work an existing account would, so the answer
 		// does not say whether the username exists.
-		auth.SpendVerifyBudget(req.Password)
+		if err := auth.SpendVerifyBudget(req.Password); err != nil {
+			writeCredentialError(w, err)
+			return
+		}
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 	ok, err := auth.VerifyPassword(u.PasswordHash, req.Password)
-	if err != nil || !ok {
+	if err != nil {
+		writeCredentialError(w, err)
+		return
+	}
+	if !ok {
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -235,7 +242,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := s.startSession(w, u); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeCredentialError(w, err)
 		return
 	}
 	// Earlier failures of this browser, or against this account, stop counting.
@@ -278,7 +285,7 @@ func (s *Server) startSession(w http.ResponseWriter, u *models.User) error {
 	// Store only the hash of the token (like API keys and reset tokens): a
 	// read-only DB/backup leak then can't yield replayable live sessions. The
 	// cookie carries the plaintext token; lookups hash it before matching.
-	if err := s.Store.CreateSession(&models.Session{Token: hashToken(token), UserID: u.ID, ExpiresAt: exp}); err != nil {
+	if err := s.Store.CreateSession(&models.Session{Token: hashToken(token), UserID: u.ID, ExpiresAt: exp}, u.PasswordHash); err != nil {
 		return err
 	}
 	s.setSessionCookie(w, token, exp)
@@ -433,6 +440,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "unsupported storage type (only pvc is supported)")
 		return
 	}
+	storage.Size = strings.TrimSpace(storage.Size)
 	if storage.Size == "" {
 		storage.Size = "10Gi"
 	}
@@ -686,8 +694,11 @@ func requireLimits(u *models.User, memory, cpu, whose string) error {
 	if strings.TrimSpace(memory) == "" {
 		return &quotaError{"a memory limit is required"}
 	}
-	if models.Bounded(u.MaxCPUMilli) && strings.TrimSpace(cpu) == "" {
-		return quotaErrorf("a CPU limit is required (%s has a CPU quota)", whose)
+	if models.Bounded(u.MaxCPUMilli) {
+		q, err := resource.ParseQuantity(cpu)
+		if err != nil || q.Sign() <= 0 {
+			return quotaErrorf("a positive CPU limit is required (%s has a CPU quota)", whose)
+		}
 	}
 	return nil
 }
@@ -995,14 +1006,10 @@ func (s *Server) updateServerResources(r *http.Request, srv *models.Server, rsc 
 // it up front with a hint instead.
 const minMemoryBytes = 4 * 1024 * 1024 // 4Mi
 
-// validateStorageSize rejects a size the builders cannot use. It reaches
-// resource.MustParse when the volume is built, which panics on anything it
-// cannot read — inside the controller's reconcile loop, which has no recover.
-// The row outlives the crash, so the controller reads it again on restart and
-// dies again, and reconciliation stops for every server until someone edits the
-// database. "10 GB" instead of "10Gi" is enough to do it.
+// validateStorageSize checks the exact value persisted for the builders, which
+// use resource.MustParse. Callers normalize input before validating and storing.
 func validateStorageSize(size string) error {
-	q, err := resource.ParseQuantity(strings.TrimSpace(size))
+	q, err := resource.ParseQuantity(size)
 	if err != nil {
 		return fmt.Errorf("invalid storage size %q — use a Kubernetes quantity such as 10Gi or 500Mi", size)
 	}
@@ -1114,11 +1121,8 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		srv.Hibernation = *req.Hibernation
-		// Disabling auto-sleep on a currently-hibernated server must wake it:
-		// otherwise no policy will ever scale it back up and it stays stuck at
-		// zero replicas.
-		if !req.Hibernation.Enabled && srv.Hibernated {
-			_ = s.Store.Wake(srv.ID, time.Now())
+		// The policy write wakes atomically, even if this snapshot was awake.
+		if !req.Hibernation.Enabled {
 			srv.Hibernated = false
 		}
 		s.audit(r, srv.ID, "server.hibernation", strconv.FormatBool(req.Hibernation.Enabled))
@@ -1988,7 +1992,17 @@ func (s *Server) handleConsole(w http.ResponseWriter, r *http.Request) {
 		return // Upgrade already wrote the response
 	}
 	defer conn.Close()
-	_ = console.Stream(r.Context(), conn, cs, cfg, srv.Namespace, srv.Slug)
+	authorize := func() bool {
+		u, err := s.resolveCurrentUser(r, false)
+		if err != nil || s.twoFactorMissing(u) {
+			return false
+		}
+		current, err := s.Store.GetServer(srv.ID)
+		return err == nil && current.ClusterID == srv.ClusterID &&
+			current.DesiredState == models.StateRunning && current.Transfer == nil &&
+			s.can(u, current, models.PermConsole)
+	}
+	_ = console.Stream(r.Context(), conn, cs, cfg, srv.Namespace, srv.Slug, authorize)
 }
 
 // installLogTail bounds what the endpoint returns. An install script is chatty

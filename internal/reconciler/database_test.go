@@ -12,7 +12,7 @@ import (
 
 func TestManagedDBServiceHost(t *testing.T) {
 	h := &models.DatabaseHost{ID: 5, Kind: models.DBHostManaged}
-	if ns := ManagedDBNamespace(h); ns != "quetzal-db-5" {
+	if ns := h.ManagedNamespace(); ns != "quetzal-db-5" {
 		t.Errorf("namespace = %q", ns)
 	}
 	if host := ManagedDBServiceHost(h); host != "quetzal-db.quetzal-db-5.svc" {
@@ -36,22 +36,26 @@ func TestManagedDBNamespaceCannotBeAimedElsewhere(t *testing.T) {
 		"../kube-system", "Quetzal-DB-1", "", "quetzal-db",
 	} {
 		h := &models.DatabaseHost{ID: 7, Kind: models.DBHostManaged, Namespace: name}
-		if got := ManagedDBNamespace(h); got != "quetzal-db-7" {
+		if got := h.ManagedNamespace(); got != "quetzal-db-7" {
 			t.Errorf("namespace %q was honoured as %q, want the derived quetzal-db-7", name, got)
 		}
-		if IsManagedDBNamespace(name) {
+		if models.IsManagedDBNamespace(name) {
 			t.Errorf("collection would delete %q", name)
 		}
 	}
 	for _, name := range []string{"quetzal-db-7", "quetzal-db-analytics", "quetzal-db-a1"} {
-		if !IsManagedDBNamespace(name) {
+		if !models.IsManagedDBNamespace(name) {
 			t.Errorf("%q should be collectable: Quetzal could have chosen it", name)
 		}
 	}
 	// Every object of a host with a hijacked namespace lands in the derived one.
-	for _, o := range buildManagedDB(&models.DatabaseHost{
+	objs, err := buildManagedDB(&models.DatabaseHost{
 		ID: 7, Kind: models.DBHostManaged, Namespace: "kube-system",
-	}, "pw", "inst") {
+	}, "pw", "inst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range objs {
 		if ns := o.GetNamespace(); ns != "" && ns != "quetzal-db-7" {
 			t.Errorf("%T placed in %q", o, ns)
 		}
@@ -63,7 +67,10 @@ func TestManagedDBNamespaceCannotBeAimedElsewhere(t *testing.T) {
 
 func TestBuildManagedDB(t *testing.T) {
 	h := &models.DatabaseHost{ID: 3, Kind: models.DBHostManaged, Namespace: "quetzal-db-3", Image: "mariadb:11.4", StorageSize: "2Gi"}
-	objs := buildManagedDB(h, "rootpw123", "inst-test")
+	objs, err := buildManagedDB(h, "rootpw123", "inst-test")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(objs) != 5 {
 		t.Fatalf("got %d objects, want 5 (ns, secret, pvc, deploy, svc)", len(objs))
 	}
@@ -109,7 +116,11 @@ func TestBuildManagedDB(t *testing.T) {
 // to hand it.
 func TestManagedDBProbesDoNotOpenUnauthenticatedConnections(t *testing.T) {
 	h := &models.DatabaseHost{ID: 4, Kind: models.DBHostManaged, Namespace: "quetzal-db-4", Image: "mariadb:12.3", StorageSize: "1Gi"}
-	for _, o := range buildManagedDB(h, "pw", "inst") {
+	objs, err := buildManagedDB(h, "pw", "inst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range objs {
 		d, ok := o.(*appsv1.Deployment)
 		if !ok {
 			continue
@@ -133,6 +144,15 @@ func TestManagedDBProbesDoNotOpenUnauthenticatedConnections(t *testing.T) {
 					t.Errorf("%s probe %q is missing %s", name, joined, want)
 				}
 			}
+		}
+	}
+}
+
+func TestBuildManagedDBRejectsInvalidStorage(t *testing.T) {
+	for _, size := range []string{"not-a-quantity", "0Gi", "-1Gi"} {
+		objs, err := buildManagedDB(&models.DatabaseHost{ID: 9, StorageSize: size}, "pw", "inst")
+		if err == nil || len(objs) != 0 {
+			t.Errorf("invalid historical storage %q produced objects: %v", size, err)
 		}
 	}
 }

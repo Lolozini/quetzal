@@ -325,22 +325,29 @@ func BuildDataDeployment(s *models.Server, t *models.Template, systemImage strin
 		SecurityContext: buildContainerSecurityContext(t),
 	}
 
-	containers := []corev1.Container{exec}
 	initContainers := []corev1.Container{}
 	volumes := []corev1.Volume{buildDataVolume(s)}
+	// HTTP file operations use the same root-confined helper as SFTP, even
+	// when the server has no SFTP listener or is suspended.
+	if systemImage != "" {
+		initContainers = append(initContainers, sftpCopyInitContainer(systemImage, t))
+		volumes = append(volumes, corev1.Volume{
+			Name:         renderBinVolume,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		})
+		exec.VolumeMounts = append(exec.VolumeMounts, corev1.VolumeMount{
+			Name: renderBinVolume, MountPath: renderBinMount, ReadOnly: true,
+		})
+	}
+	containers := []corev1.Container{exec}
 
 	// Suspension is an admin-enforced freeze: drop SFTP so a suspended server's
 	// owner/subusers can't reach files over SFTP (the HTTP file API already
 	// refuses them). Admins can still inspect via the HTTP API,
 	// which uses the always-on exec container, so the data-manager stays up.
 	if systemImage != "" && s.SFTP.Enabled && s.DesiredState != models.StateSuspended {
-		initContainers = append(initContainers, sftpCopyInitContainer(systemImage, t))
 		containers = append(containers, sftpSidecar(s, t, dataPath))
 		volumes = append(volumes, sftpVolumes()...)
-		volumes = append(volumes, corev1.Volume{
-			Name:         renderBinVolume,
-			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-		})
 	}
 
 	podLabels := map[string]string{managedByLabel: managedByValue, DataLabel: s.Slug, netpolLabel: netpolRestricted}

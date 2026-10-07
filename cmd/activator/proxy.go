@@ -66,6 +66,10 @@ type proxy struct {
 	waker      *waker
 	activity   *activity
 	dialBudget time.Duration // how long to keep retrying the backend while it starts
+	// Shared across UDP listeners. Zero uses the production limit; tests may
+	// lower it before serving. Slots include readers that are still closing.
+	udpFlowLimit int32
+	udpFlows     atomic.Int32
 	// gate says which flows are a player. For a Minecraft server only a login
 	// on the game port wakes the server or counts as activity: a scanner's
 	// server-list ping, a query packet or an RCON probe does neither.
@@ -276,7 +280,28 @@ type udpFlow struct {
 	lastReply time.Time
 }
 
-const udpIdle = 60 * time.Second
+const (
+	udpIdle = 60 * time.Second
+	// 128 response buffers occupy 8 MiB, leaving headroom in the 64 MiB pod
+	// for the Go runtime, request buffers, sockets and TCP traffic.
+	maxUDPFlows = 128
+)
+
+func (p *proxy) acquireUDPFlow() bool {
+	limit := p.udpFlowLimit
+	if limit <= 0 || limit > maxUDPFlows {
+		limit = maxUDPFlows
+	}
+	for {
+		n := p.udpFlows.Load()
+		if n >= limit {
+			return false
+		}
+		if p.udpFlows.CompareAndSwap(n, n+1) {
+			return true
+		}
+	}
+}
 
 // pongWait is how long a RakNet ping waits for the server's own pong before the
 // activator answers that it sleeps.
@@ -287,7 +312,18 @@ func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 	flows := map[string]*udpFlow{}
 	var mu sync.Mutex
 
-	go p.sweepUDP(flows, &mu)
+	done := make(chan struct{})
+	defer func() {
+		close(done)
+		mu.Lock()
+		defer mu.Unlock()
+		for key, f := range flows {
+			_ = f.backend.Close()
+			delete(flows, key)
+			p.activity.dec()
+		}
+	}()
+	go p.sweepUDP(flows, &mu, done)
 
 	buf := make([]byte, 64*1024)
 	for {
@@ -300,10 +336,15 @@ func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 		mu.Lock()
 		f := flows[key]
 		if f == nil {
+			if !p.acquireUDPFlow() {
+				mu.Unlock()
+				continue
+			}
 			// Resolve + dial per flow so a transient DNS miss at startup (the
 			// backend Service may not be resolvable yet) doesn't kill the handler.
 			be, derr := net.Dial("udp", backendAddr)
 			if derr != nil {
+				p.udpFlows.Add(-1)
 				mu.Unlock()
 				continue
 			}
@@ -344,6 +385,9 @@ func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 
 // udpBackToClient relays the backend's responses for one flow back to the client.
 func (p *proxy) udpBackToClient(pc *net.UDPConn, be net.Conn, caddr *net.UDPAddr, flows map[string]*udpFlow, key string, mu *sync.Mutex) {
+	// Only the reader releases the reservation: sweep/close may remove the
+	// map entry earlier, while this goroutine still retains its buffer.
+	defer p.udpFlows.Add(-1)
 	buf := make([]byte, 64*1024)
 	for {
 		_ = be.SetReadDeadline(time.Now().Add(udpIdle + 10*time.Second))
@@ -356,12 +400,10 @@ func (p *proxy) udpBackToClient(pc *net.UDPConn, be net.Conn, caddr *net.UDPAddr
 		p.bedrock.remember(buf[:n])
 		mu.Lock()
 		player := false
-		if cur := flows[key]; cur != nil {
+		if cur := flows[key]; cur != nil && cur.backend == be {
 			cur.lastSeen = time.Now()
-			if cur.backend == be {
-				cur.lastReply = cur.lastSeen
-				player = cur.player
-			}
+			cur.lastReply = cur.lastSeen
+			player = cur.player
 		}
 		mu.Unlock()
 		if player {
@@ -371,10 +413,15 @@ func (p *proxy) udpBackToClient(pc *net.UDPConn, be net.Conn, caddr *net.UDPAddr
 }
 
 // sweepUDP expires idle flows.
-func (p *proxy) sweepUDP(flows map[string]*udpFlow, mu *sync.Mutex) {
+func (p *proxy) sweepUDP(flows map[string]*udpFlow, mu *sync.Mutex, done <-chan struct{}) {
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
-	for range t.C {
+	for {
+		select {
+		case <-done:
+			return
+		case <-t.C:
+		}
 		mu.Lock()
 		for k, f := range flows {
 			if time.Since(f.lastSeen) > udpIdle {

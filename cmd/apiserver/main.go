@@ -84,6 +84,7 @@ func main() {
 	apiSrv.AuthIPLimiter.Share(st, "ip:")
 	apiSrv.ForgotLimiter.Share(st, "forgot:")
 	apiSrv.InviteLimiter.Share(st, "invite:")
+	apiSrv.SensitiveAuthLimiter.Share(st, "sensitive-auth:")
 	apiSrv.Secure = env("QUETZAL_SECURE_COOKIES", "") == "true"
 	apiSrv.NodePortMin = envInt32("QUETZAL_NODEPORT_MIN", 0)
 	apiSrv.NodePortMax = envInt32("QUETZAL_NODEPORT_MAX", 0)

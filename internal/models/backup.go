@@ -72,6 +72,15 @@ type Backup struct {
 	SizeBytes int64  `json:"sizeBytes,omitempty"`
 	Message   string `json:"message,omitempty"`
 	JobName   string `json:"jobName,omitempty"`
+	// JobSpec is the immutable submission intent. A lost Create response can
+	// be retried under the same name until JobUID records an observed Job.
+	JobSpec string `gorm:"type:text" json:"-"`
+	JobUID  string `json:"-"`
+	// ClusterID binds the operation to its execution cluster; nil is legacy.
+	ClusterID *uint `json:"-"`
+	// Forgotten is a durable deletion result awaiting Job/record cleanup.
+	// The record stays Deleting and must never be offered as a recovery point.
+	Forgotten bool `json:"-"`
 	// Target fingerprints the backup target its snapshot went to (see
 	// backup.TargetID), so that changing the target does not leave backups
 	// listed as restorable from a repository that does not hold them. Empty

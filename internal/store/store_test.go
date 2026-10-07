@@ -99,10 +99,23 @@ func TestGetUserByEmailCaseInsensitive(t *testing.T) {
 
 func TestPasswordResetTokensAndSessions(t *testing.T) {
 	s := newTestStore(t)
-	_ = s.CreateSession(&models.Session{Token: "a", UserID: 7, ExpiresAt: time.Now().Add(time.Hour)})
-	_ = s.CreateSession(&models.Session{Token: "b", UserID: 7, ExpiresAt: time.Now().Add(time.Hour)})
-	_ = s.CreatePasswordReset(&models.PasswordReset{UserID: 7, TokenHash: "live", ExpiresAt: time.Now().Add(time.Hour)})
-	_ = s.CreatePasswordReset(&models.PasswordReset{UserID: 7, TokenHash: "stale", ExpiresAt: time.Now().Add(-time.Hour)})
+	u := &models.User{ID: 7, Username: "reset-user", PasswordHash: "hash"}
+	if err := s.CreateUser(u); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateSession(&models.Session{Token: "a", UserID: u.ID, ExpiresAt: time.Now().Add(time.Hour)}, u.PasswordHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateSession(&models.Session{Token: "b", UserID: u.ID, ExpiresAt: time.Now().Add(time.Hour)}, u.PasswordHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreatePasswordReset(&models.PasswordReset{UserID: u.ID, TokenHash: "live", ExpiresAt: time.Now().Add(time.Hour)}, u); err != nil {
+		t.Fatal(err)
+	}
+	// An older expired row is a garbage-collection fixture, not fresh issuance.
+	if err := s.db.Create(&models.PasswordReset{UserID: u.ID, TokenHash: "stale", ExpiresAt: time.Now().Add(-time.Hour)}).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	if pr, err := s.GetPasswordResetByHash("live"); err != nil || pr.UserID != 7 {
 		t.Fatalf("get live = %v, %v", pr, err)
@@ -116,7 +129,11 @@ func TestPasswordResetTokensAndSessions(t *testing.T) {
 	if _, err := s.GetSession("a"); err != ErrNotFound {
 		t.Error("sessions should be cleared for the user")
 	}
-	if err := s.DeletePasswordResetsForUser(7); err != nil {
+	pr, err := s.GetPasswordResetByHash("live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ResetPassword(pr, "new-hash"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.GetPasswordResetByHash("live"); err != ErrNotFound {
@@ -146,8 +163,16 @@ func TestSMTPConfigSeal(t *testing.T) {
 
 func TestDeleteExpiredSessions(t *testing.T) {
 	s := newTestStore(t)
-	_ = s.CreateSession(&models.Session{Token: "old", UserID: 1, ExpiresAt: time.Now().Add(-time.Hour)})
-	_ = s.CreateSession(&models.Session{Token: "new", UserID: 1, ExpiresAt: time.Now().Add(time.Hour)})
+	u := &models.User{Username: "session-user", PasswordHash: "hash"}
+	if err := s.CreateUser(u); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateSession(&models.Session{Token: "old", UserID: u.ID, ExpiresAt: time.Now().Add(-time.Hour)}, u.PasswordHash); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateSession(&models.Session{Token: "new", UserID: u.ID, ExpiresAt: time.Now().Add(time.Hour)}, u.PasswordHash); err != nil {
+		t.Fatal(err)
+	}
 	n, err := s.DeleteExpiredSessions()
 	if err != nil || n != 1 {
 		t.Fatalf("deleted = %d, err = %v, want 1", n, err)
@@ -351,16 +376,21 @@ func TestPruneBackupsKeepsNewest(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		_ = s.CreateBackup(&models.Backup{ServerID: srv.ID, Direction: models.DirBackup, Phase: models.BackupSucceeded})
 	}
-	if err := s.PruneBackups(srv.ID, 2); err != nil {
+	if err := s.PruneBackups(srv.ID, "", 2); err != nil {
 		t.Fatalf("prune: %v", err)
 	}
 	bs, _ := s.ListBackupsForServer(srv.ID)
-	if len(bs) != 2 {
-		t.Fatalf("kept %d backups, want 2", len(bs))
+	if len(bs) != 5 {
+		t.Fatalf("lost records before snapshot deletion: kept %d, want 5", len(bs))
 	}
-	// Newest (highest IDs) retained.
-	if bs[0].ID < bs[1].ID {
-		t.Error("list should be newest-first")
+	for i, b := range bs {
+		want := models.BackupSucceeded
+		if i >= 2 {
+			want = models.BackupDeleting
+		}
+		if b.Phase != want {
+			t.Errorf("backup %d phase=%s want %s", b.ID, b.Phase, want)
+		}
 	}
 }
 
@@ -604,14 +634,11 @@ func TestEndpointHostForPrefersCluster(t *testing.T) {
 // would leave a hibernated server scaled to zero (the scheduled-start bug).
 func TestStartServerWakesHibernated(t *testing.T) {
 	st := newTestStore(t)
-	srv := &models.Server{Slug: "mc", DesiredState: models.StateStopped}
+	srv := &models.Server{Slug: "mc", DesiredState: models.StateStopped, Hibernated: true}
 	if err := st.CreateServer(srv); err != nil {
 		t.Fatal(err)
 	}
 	stale := time.Now().Add(-24 * time.Hour)
-	if err := st.SetHibernated(srv.ID, true); err != nil {
-		t.Fatal(err)
-	}
 	if err := st.UpdateLastActive(srv.ID, stale); err != nil {
 		t.Fatal(err)
 	}

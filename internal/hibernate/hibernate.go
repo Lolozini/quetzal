@@ -77,8 +77,9 @@ func (m *Manager) Tick(ctx context.Context) {
 			continue
 		}
 		if now.Sub(*srv.LastActiveAt) >= idleWindow(srv) {
-			log.Printf("hibernate: scaling %s to zero (idle for %s)", srv.Slug, idleWindow(srv))
-			_ = m.Store.SetHibernated(srv.ID, true)
+			if hibernated, err := m.Store.HibernateIfUnchanged(srv); err == nil && hibernated {
+				log.Printf("hibernate: scaling %s to zero (idle for %s)", srv.Slug, idleWindow(srv))
+			}
 		}
 	}
 }

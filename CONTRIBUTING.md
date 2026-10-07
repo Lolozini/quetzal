@@ -27,17 +27,36 @@ You need:
 > Point it at a throwaway cluster, never at one that runs real servers.
 
 Run the three processes in separate terminals from the repository root. They
-share an SQLite file, `quetzal.db`, in the current directory, and the same
-secret key:
+share an SQLite file, `quetzal.db`, and one persistent encryption key. Generate
+that key **once**, not independently in each terminal:
 
 ```sh
-export QUETZAL_SECRET_KEY="$(openssl rand -base64 32)"   # once, in each terminal
+install -d -m 700 "$HOME/.config/quetzal"
+test -f "$HOME/.config/quetzal/dev.env" || (
+  umask 077
+  printf 'export QUETZAL_SECRET_KEY=%s\n' "$(openssl rand -base64 32)" \
+    > "$HOME/.config/quetzal/dev.env"
+)
+```
+
+Build the helper image and make it available to your disposable cluster.
+For the kind cluster created by `make e2e-kind-up`:
+
+```sh
+docker build -t quetzal:dev .
+kind load docker-image quetzal:dev --name quetzal-e2e
+```
+
+In **each** terminal, source the same key file before starting its process:
+
+```sh
+. "$HOME/.config/quetzal/dev.env"
 
 # 1. The API server, on :8080
 QUETZAL_DEV_ORIGIN=true go run ./cmd/apiserver
 
 # 2. The controller, against your current kubeconfig context
-go run ./cmd/controller
+QUETZAL_IMAGE=quetzal:dev go run ./cmd/controller
 
 # 3. The web UI with hot reload, on :5173; it proxies /api to :8080
 npm --prefix web ci
@@ -65,6 +84,13 @@ Docker. `make test-mariadb` needs Docker: it starts a MariaDB and runs the
 scripts in the same image (`MARIADB=mariadb:11.4 MARIADB_CLIENT=mariadb:12.3 make test-mariadb` for
 an older server dumped with the panel's client). `make e2e` runs the end-to-end suite against the cluster in your
 kubeconfig (the CI uses kind).
+
+For changes to backup scripts, also run the real restic checks locally
+(verified with restic 0.19.1; these optional checks are not enabled in CI):
+
+```sh
+QUETZAL_TEST_RESTIC=/path/to/restic go test -count=1 -run '^TestRestic' ./internal/backup/
+```
 
 - **Commits** follow [Conventional Commits](https://www.conventionalcommits.org):
   `fix(console): …`, `feat(web): …`, `docs: …`. Explain the why in the body.

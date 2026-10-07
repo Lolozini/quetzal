@@ -23,10 +23,8 @@ import (
 	"github.com/lolozini/quetzal/internal/reconciler"
 )
 
-// File operations run inside the server's running container via the exec
-// subresource (no sidecar). Paths from the client are always confined to the
-// server's data directory and passed as positional shell arguments (never
-// interpolated), so neither path traversal nor shell injection is possible.
+// File operations invoke the descriptor-confined helper in the data-manager pod
+// through exec. Client paths are arguments, never shell source.
 
 const fileOpTimeout = 60 * time.Second
 
@@ -65,7 +63,7 @@ func (s *Server) dataRoot(srv *models.Server) string {
 // jail confines the path *as text*. A symlink inside the volume still points
 // wherever it likes, and nothing stops one appearing there — an extracted
 // archive or the game itself can create one. Confinement is therefore enforced
-// again inside the container by guardScript, at the moment the path is used.
+// again by the helper's root-relative filesystem descriptors when paths are used.
 func jail(root, rel string) string {
 	return path.Join(root, path.Clean("/"+rel))
 }
@@ -83,55 +81,6 @@ func outsideRoot(w http.ResponseWriter, paths ...string) bool {
 	}
 	return false
 }
-
-// guardScript refuses paths that leave the data directory once symlinks are
-// taken into account, so a link planted in the volume (by an extracted archive,
-// or by the game process) cannot be used to read or write outside it. It runs in
-// the container, right before the operation, and is written in plain POSIX shell
-// with no external tools: `cd` + `pwd -P` resolves symlinked parent directories
-// on every image, where readlink -f is not guaranteed to exist.
-//
-// Called as: qz_guard <deref|link> <root> <path>...
-//   - deref: the operation follows the final component (read, write, list,
-//     mkdir, extract), so a symlink there is refused outright.
-//   - link:  the operation acts on the link itself and never dereferences it
-//     (delete, rename, archive), so a symlink leaf is allowed — otherwise a
-//     planted link could never be cleaned up through the panel.
-//
-// Either way the parent chain must resolve inside the root.
-const guardScript = `qz_guard() {
-  __mode=$1; __root=$2; shift 2
-  __r=$(cd "$__root" 2>/dev/null && pwd -P) || {
-    echo "the data directory is not available" >&2; exit 5
-  }
-  for __p in "$@"; do
-    if [ "$__mode" = deref ] && [ -L "$__p" ]; then
-      echo "refusing to follow the symbolic link $__p" >&2; exit 4
-    fi
-    __d=$__p
-    # A symlink leaf only gets here in link mode, where the link itself is the
-    # subject: probe its parent, since -d and cd would follow it to the target.
-    [ -L "$__p" ] && __d=$(dirname "$__p")
-    while [ ! -d "$__d" ]; do
-      __n=$(dirname "$__d")
-      [ "$__n" = "$__d" ] && break
-      __d=$__n
-    done
-    __real=$(cd "$__d" 2>/dev/null && pwd -P) || __real=$__d
-    case "$__real" in
-      "$__r"|"$__r"/*) ;;
-      *) echo "path escapes the data directory" >&2; exit 4 ;;
-    esac
-  done
-}
-qz_exists() {
-  # -L as well as -e: a dangling symlink still exists as far as the panel is
-  # concerned, and has to remain listable, archivable and deletable.
-  [ -e "$1" ] || [ -L "$1" ] || {
-    echo "no such file or directory" >&2; exit 6
-  }
-}
-`
 
 // defaultDataReadyTimeout bounds how long file access waits for the data-manager
 // pod to become running (it may need scheduling and an image pull). Overridable
@@ -151,9 +100,9 @@ func (s *Server) fileContext(w http.ResponseWriter, r *http.Request) (srv *model
 	if q := r.URL.Query(); outsideRoot(w, q.Get("path"), q.Get("to")) {
 		return nil, "", nil, nil, "", false
 	}
-	// The data manager is down while a restore waits or runs: say so at once,
-	// rather than after the two minutes spent waiting for it.
-	if s.restoreInProgress(w, srv) {
+	// Transfers freeze every writer before their snapshot; restores likewise
+	// require exclusive access to the data volume.
+	if transferInProgress(w, srv) || s.restoreInProgress(w, srv) {
 		return nil, "", nil, nil, "", false
 	}
 	root = s.dataRoot(srv)
@@ -268,7 +217,7 @@ func (s *Server) execFile(ctx context.Context, cs kubernetes.Interface, cfg *res
 	return console.Exec(ctx, cs, cfg, ns, pod, cmd, stdin, stdout)
 }
 
-// The guard's exit codes. A path that leaves the data directory is the caller's
+// The helper's exit codes. A path that leaves the data directory is the caller's
 // doing -- a mistake, or someone probing -- while an unreachable data directory
 // is ours. Both used to come back as 502, which said the data manager was
 // broken and made a traversal attempt look like an outage in the logs.
@@ -279,7 +228,7 @@ const (
 )
 
 // writeFileOpError answers a failed file operation with the status that matches
-// its cause: the caller's when the guard refused the path, ours otherwise.
+// its cause: the caller's when the helper refused the path, ours otherwise.
 func writeFileOpError(w http.ResponseWriter, what string, err error) {
 	var ex *console.ExitError
 	if errors.As(err, &ex) {
@@ -331,41 +280,12 @@ func streamFailed(w http.ResponseWriter, what string, sent int64, err error) {
 	panic(http.ErrAbortHandler)
 }
 
-// guarded prefixes a file-operation script with the symlink guard and passes the
-// data root as $0, so each script keeps its own positional numbering ($1, $2…)
-// and simply calls qz_guard on the arguments that are paths.
-func guarded(body string) string { return guardScript + body }
+// fileCommand invokes the descriptor-confined file helper in the data manager.
+func fileCommand(root, op string, args ...string) []string {
+	return append([]string{"/quetzal-bin/sftp", "fileop", root, op}, args...)
+}
 
-// listScript prints "<type>\t<size>\t<mtime>\t<name>" per entry of the
-// directory in $1, mtime in Unix seconds (0 where the image has no stat).
-// Each record ends with a NUL, the one byte a file name cannot hold: ended by a
-// newline, a name with a newline in it (which the game or a plugin can create)
-// came out cut in two, its first half listed as a file that was not there and
-// the real one out of the panel's reach.
-//
-// GNU find reads the whole directory in one process. The loop below it, for an
-// image whose find has no -printf (busybox), runs stat and wc for each entry:
-// about 2 ms an entry, so a directory of 30,000 files -- playerdata, a plugin's
-// cache -- outlasted the request and could not be listed at all. Symbolic links
-// are followed for the type, size and time, as the loop does; find's exit code
-// is not the listing's, since one unreadable entry makes it 1.
-const listScript = `qz_guard deref "$0" "$1"
-qz_exists "$1"
-cd "$1" 2>/dev/null || { echo "not a directory" >&2; exit 4; }
-if find . -maxdepth 0 -printf '' >/dev/null 2>&1; then
-  find -L . -mindepth 1 -maxdepth 1 -printf '%y\t%s\t%T@\t%f\0' 2>/dev/null
-  exit 0
-fi
-for e in * .*; do
-  [ "$e" = "." ] && continue
-  [ "$e" = ".." ] && continue
-  [ -e "$e" ] || [ -L "$e" ] || continue
-  m=$(stat -c %Y -- "$e" 2>/dev/null) || m=0
-  if [ -d "$e" ]; then printf 'd\t0\t%s\t%s\0' "$m" "$e"
-  else s=$(wc -c < "$e" 2>/dev/null) || s=0; printf 'f\t%s\t%s\t%s\0' "$s" "$m" "$e"; fi
-done`
-
-// parseListing reads listScript's output.
+// parseListing reads NUL-delimited records emitted by the file helper.
 func parseListing(out string) []fileEntry {
 	entries := []fileEntry{}
 	for _, rec := range strings.Split(out, "\x00") {
@@ -393,7 +313,7 @@ func (s *Server) handleListFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	dir := jail(root, r.URL.Query().Get("path"))
 	var out strings.Builder
-	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", guarded(listScript), root, dir}, nil, &out); err != nil {
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, fileCommand(root, "list", dir), nil, &out); err != nil {
 		writeFileOpError(w, "list failed", err)
 		return
 	}
@@ -412,11 +332,8 @@ func (s *Server) handleReadFile(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	}
-	// Stream cat's stdout straight to the response (no buffering of large files).
-	cmd := []string{"sh", "-c", guarded(`qz_guard deref "$0" "$1"
-qz_exists "$1"
-[ -d "$1" ] && { echo "is a directory" >&2; exit 4; }
-exec cat -- "$1"`), root, full}
+	// Stream the helper's stdout without buffering large files.
+	cmd := fileCommand(root, "read", full)
 	ctx, cancel := context.WithTimeout(r.Context(), fileStreamTimeout)
 	defer cancel()
 	out := &countingWriter{w: w}
@@ -434,21 +351,13 @@ func (s *Server) handleArchiveFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	full := jail(root, r.URL.Query().Get("path"))
-	parent, base := path.Dir(full), path.Base(full)
-	name := base
+	name := path.Base(full)
 	if name == "/" || name == "." || name == "" {
 		name = "files"
 	}
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeFilename(name)+`.tar.gz"`)
-	// tar from the parent so the archive contains the entry by its bare name.
-	// Guard the entry being archived ($1/$2), not the directory tar runs from:
-	// archiving the whole volume runs from the data root's *parent*, which is
-	// legitimately outside the jail. tar stores a symlink as a link rather than
-	// following it, so a link leaf is harmless here.
-	cmd := []string{"sh", "-c", guarded(`qz_guard link "$0" "$1/$2"
-qz_exists "$1/$2"
-cd "$1" && exec tar -czf - -- "$2"`), root, parent, base}
+	cmd := fileCommand(root, "archive", full)
 	ctx, cancel := context.WithTimeout(r.Context(), fileStreamTimeout)
 	defer cancel()
 	out := &countingWriter{w: w}
@@ -460,34 +369,9 @@ cd "$1" && exec tar -czf - -- "$2"`), root, parent, base}
 // extractTimeout bounds an archive upload+extraction (modpacks can be large).
 const extractTimeout = 15 * time.Minute
 
-// drainStdin opens every script that is handed a request body. A script that
-// stops before reading all of its stdin — a path the guard refuses, a piece for
-// the wrong offset — would otherwise never finish: the container runtime holds
-// the exec open until the input it was given is consumed, so the request hung
-// until its timeout, an hour for a write. Reading the rest on the way out ends
-// it, with the exit status the script chose.
-const drainStdin = "trap 'cat >/dev/null' EXIT\n"
-
-// extractScript unpacks an uploaded archive (read from stdin) into $1, choosing
-// the tool from $2 ("zip" or "tar"). It spools to a temp file first because both
-// tools need a seekable file to auto-detect the format: tar sniffs gz/bz2/xz
-// from the file (it can't from a pipe), and unzip requires a real file.
-const extractScript = drainStdin + `qz_guard deref "$0" "$1"
-dir="$1"; fmt="$2"
-mkdir -p "$dir" || exit 1
-tmp="$dir/.quetzal-upload.$$"
-cat > "$tmp" || { rm -f "$tmp"; exit 1; }
-if [ "$fmt" = zip ]; then
-  unzip -o "$tmp" -d "$dir"; rc=$?
-else
-  tar -xf "$tmp" -C "$dir"; rc=$?
-fi
-rm -f "$tmp"
-exit $rc`
-
 // handleExtractArchive uploads an archive and unpacks it into a directory of the
 // server's data volume — for importing a world, a modpack, or a Pterodactyl
-// backup. The archive streams through the exec into tar/unzip in the pod.
+// backup. The archive streams through exec into the confined helper.
 func (s *Server) handleExtractArchive(w http.ResponseWriter, r *http.Request) {
 	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
 	if !ok {
@@ -501,35 +385,14 @@ func (s *Server) handleExtractArchive(w http.ResponseWriter, r *http.Request) {
 	body := http.MaxBytesReader(w, r.Body, 2<<30) // 2 GiB cap
 	ctx, cancel := context.WithTimeout(r.Context(), extractTimeout)
 	defer cancel()
-	cmd := []string{"sh", "-c", guarded(extractScript), root, dir, format}
+	cmd := fileCommand(root, "extract", dir, format)
 	if err := console.Exec(ctx, cs, cfg, srv.Namespace, pod, cmd, body, io.Discard); err != nil {
-		writeFileOpError(w, "extract failed (the image needs tar, or unzip for .zip)", err)
+		writeFileOpError(w, "extract failed", err)
 		return
 	}
 	s.audit(r, srv.ID, "files.extract", relParam(r)+" ("+format+")")
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// writeScript writes stdin to $1, atomically and only when the whole payload
-// arrived. It spools beside the target and moves the temp file into place at the
-// end, so a stream that dies midway (or delivers nothing at all — the exec stdin
-// channel can come up empty against a container that has only just started)
-// leaves the existing file untouched instead of truncating it to nothing. $2, if
-// set, is the byte count expected; a mismatch fails the write.
-const writeScript = drainStdin + `qz_guard deref "$0" "$1"
-dst="$1"; want="$2"
-qz_exists "$(dirname "$dst")"
-tmp="$dst.quetzal-part.$$"
-cat > "$tmp" || { rm -f "$tmp"; exit 1; }
-if [ -n "$want" ]; then
-  got=$(wc -c < "$tmp" | tr -d ' ')
-  if [ "$got" != "$want" ]; then
-    rm -f "$tmp"
-    echo "short write: received $got of $want bytes" >&2
-    exit 1
-  fi
-fi
-mv -f "$tmp" "$dst"`
 
 // maxRetriableWrite bounds how much of an upload is held in memory so a failed
 // write can be retried. Editor saves and config files sit far below it; a larger
@@ -571,7 +434,7 @@ func (s *Server) handleWriteFile(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), fileJobTimeout)
 		defer cancel()
 		return console.Exec(ctx, cs, cfg, srv.Namespace, pod,
-			[]string{"sh", "-c", guarded(writeScript), root, full, expected}, in, io.Discard)
+			fileCommand(root, "write", full, expected), in, io.Discard)
 	}
 	err := write(src)
 	if err != nil && retry != nil {
@@ -591,8 +454,7 @@ func (s *Server) handleMkdir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	full := jail(root, r.URL.Query().Get("path"))
-	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", guarded(`qz_guard deref "$0" "$1"
-exec mkdir -p -- "$1"`), root, full}, nil, io.Discard); err != nil {
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, fileCommand(root, "mkdir", full), nil, io.Discard); err != nil {
 		writeFileOpError(w, "mkdir failed", err)
 		return
 	}
@@ -614,24 +476,13 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	// A world folder takes longer than a minute to delete on slow storage.
 	ctx, cancel := context.WithTimeout(r.Context(), fileJobTimeout)
 	defer cancel()
-	if err := console.Exec(ctx, cs, cfg, srv.Namespace, pod, []string{"sh", "-c", guarded(`qz_guard link "$0" "$1"
-exec rm -rf -- "$1"`), root, full}, nil, io.Discard); err != nil {
+	if err := console.Exec(ctx, cs, cfg, srv.Namespace, pod, fileCommand(root, "delete", full), nil, io.Discard); err != nil {
 		writeFileOpError(w, "delete failed", err)
 		return
 	}
 	s.audit(r, srv.ID, "files.delete", rel)
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// renameScript renames $1 to $2. A name already taken is refused, as moving
-// files is: mv onto a folder, or onto a symbolic link to one, puts the file
-// inside it, and through a link aimed out of the data directory the file left
-// the volume, past the guard, which allows a link as the destination's last
-// part (recette of 0.10.0, R-07).
-const renameScript = `qz_guard link "$0" "$1" "$2"
-qz_exists "$1"
-if [ -e "$2" ] || [ -L "$2" ]; then echo "$(basename -- "$2") already exists" >&2; exit 4; fi
-exec mv -- "$1" "$2"`
 
 func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 	srv, root, cs, cfg, pod, ok := s.fileContext(w, r)
@@ -645,7 +496,7 @@ func (s *Server) handleRenameFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	to := jail(root, toRel)
-	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, []string{"sh", "-c", guarded(renameScript), root, from, to}, nil, io.Discard); err != nil {
+	if err := s.execFile(r.Context(), cs, cfg, srv.Namespace, pod, fileCommand(root, "rename", from, to), nil, io.Discard); err != nil {
 		writeFileOpError(w, "rename failed", err)
 		return
 	}
