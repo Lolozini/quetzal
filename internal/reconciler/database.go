@@ -275,13 +275,20 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) []c
 			},
 		},
 	}
-	// A TCP probe on the MySQL port: mariadbd only starts listening once the data
-	// directory is initialized, so "port open" is a sound readiness signal and
-	// avoids healthcheck.sh's need for credentials. The generous threshold covers
-	// a slow first-time initialization.
+	// The image's own health check, which connects over the local socket as the
+	// mysql user (unix_socket auth, so no credentials) and asks whether InnoDB
+	// is up. It was a TCP probe on the MySQL port, which opens a connection and
+	// closes it without authenticating: MariaDB logs a warning for each one, and
+	// two probes every ten seconds filled the log with nothing else -- about
+	// 17 000 lines a day, which is where a real problem would have been. This
+	// also answers a sounder question, since the port is open while InnoDB is
+	// still recovering. The generous threshold covers a slow first-time
+	// initialization.
 	probe := &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
-			TCPSocket: &corev1.TCPSocketAction{Port: intstr.FromInt32(ManagedDBPort)},
+			Exec: &corev1.ExecAction{Command: []string{
+				"healthcheck.sh", "--su-mysql", "--connect", "--innodb_initialized",
+			}},
 		},
 		InitialDelaySeconds: 10,
 		PeriodSeconds:       10,

@@ -53,6 +53,15 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A managed database's log is readable again.** Its readiness and liveness
+  probes opened a connection to the MySQL port and closed it without
+  authenticating, and MariaDB logs a warning for each one: two probes every ten
+  seconds filled the log with about 17 000 of them a day, which is where a real
+  problem would have been. Both probes now run the image's own
+  `healthcheck.sh`, over the local socket as the `mysql` user, which needs no
+  credentials, says nothing to the log, and answers a sounder question — the
+  port is open while InnoDB is still recovering. Managed hosts restart once,
+  on the upgrade, to take the new probes.
 - **Eggs that bracket an INI section set their values.** Unreal Engine games
   name their config sections after classes, dots included, and their eggs
   write `[/Script/Engine.GameSession].MaxPlayers` for `MaxPlayers` in the
