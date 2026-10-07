@@ -7,27 +7,42 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
-### Security
+## [0.15.0] - 2026-10-07
 
-- Reject uploaded kubeconfigs that reference local credential files or execute
-  authentication plugins; refuse to take over another panel's namespaces.
-- Confine HTTP file operations and SFTP to a held filesystem root, including
-  concurrent symlink changes. File operations now require the Quetzal helper
-  image even when SFTP is disabled.
-- Disable MariaDB client commands and local-file reads in SQL imports and
-  restores. Tenant-configured SMTP cannot connect to private or local addresses;
-  the administrator's panel-wide SMTP relay remains usable.
-- Consume recovery codes and password-reset links atomically. Password changes
-  revoke old reset links, pending email confirmations and obsolete sessions;
-  a login using an outdated password proof cannot create a new session.
-- Limit sensitive authentication attempts and concurrent password hashing,
-  incoming console messages and UDP proxy flows. Existing consoles lose access
-  after credential or permission revocation.
-- Keep CLI-created secret variables out of public server environments, reject
-  zero CPU limits under a CPU quota, and create SQLite files with owner-only
-  permissions. See the upgrade guide for previously exposed CLI secrets.
-- Update vulnerable web/documentation build dependencies (`source-map-js`,
-  `sharp`, `http-cache-semantics` and `postcss-selector-parser`).
+An external security audit of the panel, by @Loulouw, with a regression test for
+each of its findings. The file manager is the substantial change: the shell
+scripts that carried out file operations are replaced by a helper that works
+through root-confined file descriptors, so a symlink planted after a path is
+checked no longer wins the race. Alongside it, two things that updating a
+modpack and backing up a Steam game had been missing: a reinstall that deletes
+everything except the paths you keep, and a `.quetzalignore` that leaves chosen
+paths out of a server's backups. The one-step import from a Pterodactyl panel is
+gone.
+
+**Upgrading from 0.14.0** — eight things behave differently:
+
+- **Rotate any credential `qctl create` set from a variable its template marks
+  secret.** Those values were written to the server's public environment, so
+  they reached API readers, database copies and exports. Startup moves them into
+  encrypted storage, but the old copies remain. See *Security* and
+  `docs/UPGRADE.md`.
+- Each server's data-manager pod rolls once: HTTP file operations now use the
+  same root-confined helper as SFTP, so they need the helper image even where
+  SFTP is off. The game pods are untouched.
+- A server with a CPU limit restarts once, to take its new reservation, and a
+  managed database host restarts once, for its new probes. See *Changed* and
+  *Fixed*.
+- A notification channel that sets its own SMTP host may only reach public
+  addresses. To send through an internal relay, configure the panel's own email
+  settings and let the channel use that relay. See *Security*.
+- A stored kubeconfig that names local credential files or runs an
+  authentication plugin is refused until it is replaced by a self-contained one.
+- A backup, restore or SQL import whose Job disappears is now held for an
+  administrator instead of being replayed: its completion is the evidence the
+  panel needs before it commits a result. Do not delete those Jobs by hand.
+- The one-step import from a Pterodactyl panel is gone. Migrate by creating the
+  server from the egg's template, then uploading its files. See *Removed*.
+- Building from source needs Go 1.27.
 
 ### Added
 
@@ -62,27 +77,6 @@ releases may include breaking changes).
   have deleted it. A list the backup cannot apply makes it copy every file and
   say why, rather than fail; a transfer to another cluster always copies every
   file. Quetzal does not read `.pteroignore`: rename it.
-
-### Removed
-
-- **The one-step import of a server from a Pterodactyl panel is gone.** Giving
-  the panel's address and a client API key had Quetzal read a server there,
-  fill the create form from it, have the panel produce a backup and stream it
-  into the new server's volume. It carried a lot for what it did: an outbound
-  client for someone else's panel, its own background job with a heartbeat and
-  a retry, a rate limiter, and an import state on every server. Migrating is
-  now the manual route the guide already described — create the server from the
-  egg's template, then upload its files through the file manager or SFTP, which
-  is also the only route that ever worked for a panel on a private address.
-  `POST /api/import/pterodactyl/inspect` and
-  `POST /api/servers/{id}/import/pterodactyl` are gone, with the `pterodactyl`
-  field of a create request and the `import` field of a server; the
-  `server.import` event no longer exists, and a notification channel filtering
-  on it receives nothing (it was already accepted without matching anything).
-  **Importing eggs is untouched** — that is how templates are made, and
-  `docs/MIGRATING.md` still starts there. An existing database keeps its
-  now-unused `import` column.
-
 - **A reply address for the panel's mail, and an `Auto-Submitted` header.**
   Mail from a `noreply@` address that answers nothing reads as less
   legitimate, to a reader and to a spam filter, and an invitation that lands
@@ -110,6 +104,26 @@ releases may include breaking changes).
   operation as an unexpected error instead of a rejected path. Nothing escaped
   on either version; only the status told the caller apart from a fault of ours.
 
+### Removed
+
+- **The one-step import of a server from a Pterodactyl panel is gone.** Giving
+  the panel's address and a client API key had Quetzal read a server there,
+  fill the create form from it, have the panel produce a backup and stream it
+  into the new server's volume. It carried a lot for what it did: an outbound
+  client for someone else's panel, its own background job with a heartbeat and
+  a retry, a rate limiter, and an import state on every server. Migrating is
+  now the manual route the guide already described — create the server from the
+  egg's template, then upload its files through the file manager or SFTP, which
+  is also the only route that ever worked for a panel on a private address.
+  `POST /api/import/pterodactyl/inspect` and
+  `POST /api/servers/{id}/import/pterodactyl` are gone, with the `pterodactyl`
+  field of a create request and the `import` field of a server; the
+  `server.import` event no longer exists, and a notification channel filtering
+  on it receives nothing (it was already accepted without matching anything).
+  **Importing eggs is untouched** — that is how templates are made, and
+  `docs/MIGRATING.md` still starts there. An existing database keeps its
+  now-unused `import` column.
+
 ### Fixed
 
 - Preserve recovery codes until acknowledged, refresh 2FA policy state without
@@ -130,7 +144,6 @@ releases may include breaking changes).
 - Freeze file access during transfers, drain writers before copying, and
   finish cancelling destination operations before reopening the source.
   Transfers cannot be cancelled once final source cleanup has begun.
-
 - **A managed database's log is readable again.** Its readiness and liveness
   probes opened a connection to the MySQL port and closed it without
   authenticating, and MariaDB logs a warning for each one: two probes every ten
@@ -149,12 +162,28 @@ releases may include breaking changes).
   applied — Satisfactory's player cap, autosave count and connection
   timeouts among them. The stray lines a server got this way stay in its
   file and do nothing; deleting them is safe.
-- **An import from Pterodactyl takes every file.** It asked the panel for a
-  backup of the server, and Wings leaves out of a backup what the server's
-  `.pteroignore` lists: often the game's own files, for a Steam game. The
-  imported server is marked installed, so its install never ran to bring them
-  back, and it could not start. The import now hands Wings a list of its own,
-  which leaves out nothing.
+
+### Security
+
+- Reject uploaded kubeconfigs that reference local credential files or execute
+  authentication plugins; refuse to take over another panel's namespaces.
+- Confine HTTP file operations and SFTP to a held filesystem root, including
+  concurrent symlink changes. File operations now require the Quetzal helper
+  image even when SFTP is disabled.
+- Disable MariaDB client commands and local-file reads in SQL imports and
+  restores. Tenant-configured SMTP cannot connect to private or local addresses;
+  the administrator's panel-wide SMTP relay remains usable.
+- Consume recovery codes and password-reset links atomically. Password changes
+  revoke old reset links, pending email confirmations and obsolete sessions;
+  a login using an outdated password proof cannot create a new session.
+- Limit sensitive authentication attempts and concurrent password hashing,
+  incoming console messages and UDP proxy flows. Existing consoles lose access
+  after credential or permission revocation.
+- Keep CLI-created secret variables out of public server environments, reject
+  zero CPU limits under a CPU quota, and create SQLite files with owner-only
+  permissions. See the upgrade guide for previously exposed CLI secrets.
+- Update vulnerable web/documentation build dependencies (`source-map-js`,
+  `sharp`, `http-cache-semantics` and `postcss-selector-parser`).
 
 ## [0.14.0] - 2026-10-05
 
@@ -300,7 +329,6 @@ two-factor setup shows a QR code to scan.
   with it — the likelier the narrower the `nodePort` pool. SQLite, which runs
   one write at a time, never showed it; the tests on PostgreSQL did. The pool
   now hands out one port at a time.
-
 
 ## [0.11.0] - 2026-10-03
 
@@ -2142,7 +2170,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/lolozini/quetzal/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/lolozini/quetzal/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/lolozini/quetzal/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/lolozini/quetzal/compare/v0.11.0...v0.12.0
