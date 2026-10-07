@@ -387,10 +387,51 @@ func TestCleanReinstallRendersOnlyWhenPending(t *testing.T) {
 	s := base()
 	s.InstallWipe, s.InstallKeep = true, []string{"world*", "My World", "server.properties"}
 	c := install(s)
-	if got := envValue(c.Env, "QUETZAL_INSTALL_KEEP"); got != "world*\nMy World\nserver.properties" {
+	if got := envValue(c.Env, "QUETZAL_INSTALL_KEEP"); got != "world*\nMy World\nserver.properties\n.quetzalignore" {
 		t.Errorf("QUETZAL_INSTALL_KEEP = %q", got)
 	}
 	if !strings.HasPrefix(envValue(c.Env, "QUETZAL_INSTALL_SCRIPT"), buildCleanInstallScript(installMountPath)) {
 		t.Error("a clean reinstall does not run the guard that keeps")
+	}
+}
+
+// A clean reinstall deleted .quetzalignore, because it is not a path anyone
+// thinks to list: the server's backups then quietly held everything the list
+// had been leaving out, and nothing said so until a restore came up short.
+func TestCleanReinstallSparesTheIgnoreFile(t *testing.T) {
+	tmpl := &models.Template{
+		Slug: "t", DataPath: "/data", Startup: "run",
+		Images:  []models.TemplateImage{{Ref: "img", Default: true}},
+		Console: models.ConsoleConfig{Type: models.ConsoleAttach},
+		Install: &models.InstallScript{Image: "alpine:3.24", Script: "echo hi"},
+	}
+	keepFor := func(keep []string) string {
+		t.Helper()
+		s := &models.Server{Slug: "s", Namespace: "ns", Image: "img", InstallGeneration: 2,
+			Storage:     models.Storage{Type: models.StoragePVC, Size: "1Gi"},
+			InstallWipe: true, InstallKeep: keep}
+		for _, c := range BuildDeployment(s, tmpl, "panel:1", nil).Spec.Template.Spec.InitContainers {
+			if c.Name == InstallContainer {
+				return envValue(c.Env, "QUETZAL_INSTALL_KEEP")
+			}
+		}
+		t.Fatal("no install container")
+		return ""
+	}
+
+	if got, want := keepFor([]string{"world"}), "world\n"+models.IgnoreFile; got != want {
+		t.Errorf("QUETZAL_INSTALL_KEEP = %q, want %q", got, want)
+	}
+	// Listed by hand as well: it is spared once, not twice.
+	if got, want := keepFor([]string{"world", models.IgnoreFile}), "world\n"+models.IgnoreFile; got != want {
+		t.Errorf("listed by hand: QUETZAL_INSTALL_KEEP = %q, want %q", got, want)
+	}
+	// The server's own list is left as it was; the file is added for the wipe only.
+	s := &models.Server{Slug: "s", Namespace: "ns", Image: "img", InstallGeneration: 2,
+		Storage:     models.Storage{Type: models.StoragePVC, Size: "1Gi"},
+		InstallWipe: true, InstallKeep: []string{"world"}}
+	BuildDeployment(s, tmpl, "panel:1", nil)
+	if len(s.InstallKeep) != 1 || s.InstallKeep[0] != "world" {
+		t.Errorf("the server's list was modified: %q", s.InstallKeep)
 	}
 }

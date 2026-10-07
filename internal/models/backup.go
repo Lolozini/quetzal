@@ -41,6 +41,12 @@ const (
 	DirDatabaseImport BackupDirection = "db-import"
 )
 
+// IgnoreFile is the file at the root of a server's files that lists what its
+// backups leave out, the way a .gitignore does. It lives here, rather than in
+// the backup package, because the reconciler has to know the name too: a clean
+// reinstall spares it, and the backup package already depends on that package.
+const IgnoreFile = ".quetzalignore"
+
 // BackupPhase is the lifecycle of a backup/restore operation.
 type BackupPhase string
 

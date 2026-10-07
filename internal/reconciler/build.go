@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1804,7 +1805,16 @@ func installInitContainers(s *models.Server, t *models.Template, secretKeys []st
 		corev1.EnvVar{Name: "QUETZAL_INSTALL_WIPE", Value: wipe},
 	), installMountPath)
 	if keep {
-		env = append(env, corev1.EnvVar{Name: "QUETZAL_INSTALL_KEEP", Value: strings.Join(s.InstallKeep, "\n")})
+		// .quetzalignore is Quetzal's own control file, not something the pack
+		// shipped: a clean reinstall that deleted it changed what the server's
+		// backups hold without saying so, and nobody would see that until a
+		// restore came up short. It is spared whatever the list says; a wipe
+		// with no list still takes it, since that resets the server on purpose.
+		spared := slices.Clone(s.InstallKeep)
+		if !slices.Contains(spared, models.IgnoreFile) {
+			spared = append(spared, models.IgnoreFile)
+		}
+		env = append(env, corev1.EnvVar{Name: "QUETZAL_INSTALL_KEEP", Value: strings.Join(spared, "\n")})
 	}
 	rootUID := int64(0)
 	no := false

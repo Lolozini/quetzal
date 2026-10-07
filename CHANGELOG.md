@@ -7,6 +7,27 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+
+- **An install that keeps failing says so, instead of reporting "installing"
+  for as long as it fails.** A failed install step is retried in place by
+  Kubernetes, and the panel read that as a failure only once the step reached
+  CrashLoopBackOff. A step that takes minutes and fails at the end never gets
+  there: each attempt runs long enough to reset the back-off, so the container
+  is simply running again. A modpack install that spent four minutes in `apt`
+  before failing therefore looped every five minutes while the server said
+  "running install" — and the install log, which shows the current attempt,
+  almost always showed the slow part rather than the error at the end of the
+  previous one. The phase is now the error, with the step, its exit code, what
+  it wrote, and which attempt is running.
+- **A clean reinstall no longer deletes `.quetzalignore`.** It is Quetzal's own
+  file, not something a modpack shipped, and nobody thinks to add it to the
+  paths they keep. Deleting it silently put back into the server's backups
+  everything the list had been leaving out — a Steam game's own gigabytes —
+  and nothing said so until a restore came up short. It is spared whatever the
+  list says. A wipe with no list still takes it: that resets the server on
+  purpose.
+
 ## [0.15.0] - 2026-10-07
 
 An external security audit of the panel, by @Loulouw, with a regression test for

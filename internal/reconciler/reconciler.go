@@ -1040,7 +1040,12 @@ func installFailureMessage(h podHealth) string {
 	if h.installMessage != "" {
 		msg += ": " + h.installMessage
 	}
-	return msg + " — see the install log for the output"
+	msg += " — see the install log for the output"
+	if h.installRetrying {
+		msg = fmt.Sprintf("%s (attempt %d is running; a step that keeps failing will keep being retried)",
+			msg, h.installAttempts)
+	}
+	return msg
 }
 
 // emitTransition records an event when a server crosses into a phase worth
@@ -1168,6 +1173,11 @@ type podHealth struct {
 	installStep    string // the init container concerned
 	installExit    int32
 	installMessage string
+	// installRetrying says the step failed and Kubernetes is already running the
+	// next attempt, with installAttempts counting them: the failure is real, but
+	// it is not final, and the message says which it is.
+	installRetrying bool
+	installAttempts int
 
 	// The game container that is up, if any: its pod, its runtime ID (new on
 	// every restart) and when it started.
@@ -1323,6 +1333,21 @@ func noteInit(h *podHealth, statuses []corev1.ContainerStatus) {
 				h.installExit = t.ExitCode
 				h.installMessage = strings.TrimSpace(t.Message)
 			}
+		case cs.State.Running != nil && cs.RestartCount > 0 &&
+			cs.LastTerminationState.Terminated != nil &&
+			cs.LastTerminationState.Terminated.ExitCode != 0:
+			// An attempt already failed and the next one is running. Waiting for
+			// CrashLoopBackOff is not enough: kubelet's back-off resets once an
+			// attempt runs long enough, so a step that takes minutes and fails at
+			// the end -- an egg install downloading a modpack -- never reaches
+			// that state, and the server reported "installing" for as long as it
+			// kept failing, which is what hid it. The retry is still in progress,
+			// so say so with the code the last attempt returned.
+			h.installFailed, h.installStep = true, cs.Name
+			h.installRetrying = true
+			t := cs.LastTerminationState.Terminated
+			h.installExit, h.installMessage = t.ExitCode, strings.TrimSpace(t.Message)
+			h.installAttempts = int(cs.RestartCount) + 1
 		case cs.State.Terminated == nil:
 			h.installing = true
 			if h.installStep == "" {

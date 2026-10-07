@@ -23,7 +23,7 @@ import (
 // .pteroignore. A Steam game's server is mostly the game itself, gigabytes
 // SteamCMD downloads again at will, around a few megabytes of saves.
 const (
-	IgnoreFile = ".quetzalignore"
+	IgnoreFile = models.IgnoreFile
 
 	// The limits Wings puts on a .pteroignore: a list written for Pterodactyl
 	// is taken or refused the same way here.

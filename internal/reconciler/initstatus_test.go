@@ -218,3 +218,55 @@ func installScriptFromEnv(c corev1.Container) string {
 	}
 	return ""
 }
+
+// A long install step that fails at the end never reaches CrashLoopBackOff:
+// kubelet's back-off resets once an attempt has run long enough, so each retry
+// starts clean and the container is simply Running again. Reading only
+// Terminated and CrashLoopBackOff therefore reported "installing" for as long
+// as the step kept failing — observed on a modpack install that spent four
+// minutes in apt before failing, looping every five minutes for half an hour
+// while the panel said "running install".
+func TestNoteInitSeesAnInstallRetriedWithoutBackingOff(t *testing.T) {
+	retrying := func(name string, restarts int32, lastCode int32, lastMsg string) corev1.ContainerStatus {
+		return corev1.ContainerStatus{
+			Name:         name,
+			RestartCount: restarts,
+			State:        corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+			LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+				ExitCode: lastCode, Message: lastMsg,
+			}},
+		}
+	}
+
+	var h podHealth
+	noteInit(&h, []corev1.ContainerStatus{retrying("install", 1, 1, "No loader found in client manifest!")})
+	if !h.installFailed {
+		t.Fatal("an install already failed once and running again is not reported as a failure")
+	}
+	if h.installExit != 1 || h.installStep != "install" {
+		t.Errorf("step=%q exit=%d, want install/1", h.installStep, h.installExit)
+	}
+	if !h.installRetrying || h.installAttempts != 2 {
+		t.Errorf("retrying=%v attempts=%d, want true/2", h.installRetrying, h.installAttempts)
+	}
+	if msg := installFailureMessage(h); !strings.Contains(msg, "No loader found") ||
+		!strings.Contains(msg, "attempt 2") {
+		t.Errorf("message does not say what failed and that it is being retried: %q", msg)
+	}
+
+	// A first attempt that failed and a second that succeeded is not a failure:
+	// the step is done, and the pod is past it.
+	var ok podHealth
+	done := corev1.ContainerStatus{
+		Name:         "install",
+		RestartCount: 1,
+		State:        corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0}},
+		LastTerminationState: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+			ExitCode: 1,
+		}},
+	}
+	noteInit(&ok, []corev1.ContainerStatus{done})
+	if ok.installFailed {
+		t.Error("an install that failed once and then succeeded is reported as a failure")
+	}
+}
