@@ -300,7 +300,7 @@ func TestNon2xxIsError(t *testing.T) {
 
 func TestEmailValidatesAndBuildsMessage(t *testing.T) {
 	// Missing required fields -> error, no dial attempted.
-	if err := deliverEmail(context.Background(), map[string]string{"host": "mail"}, models.Event{}, "", ""); err == nil {
+	if err := deliverEmail(context.Background(), map[string]string{"host": "mail"}, false, models.Event{}, "", ""); err == nil {
 		t.Error("expected error when from/to missing")
 	}
 	msg := string(buildMessage("a@x.test", []string{"b@y.test", "c@y.test"}, "Subj", "Body"))

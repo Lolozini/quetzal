@@ -1,6 +1,7 @@
 package egg
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +28,7 @@ const defaultDataPath = "/home/container"
 // env name blank. The first sign of trouble came later, on creating a server:
 // `variable "" is required`, which names nothing and points nowhere.
 func Parse(data []byte) (*models.Template, error) {
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	// Pelican publishes its eggs as YAML (PLCN_v3); read it as the JSON it
 	// maps to. Anything that does not start like JSON is tried as YAML.
 	if !isJSON(data) {
@@ -86,7 +88,7 @@ func fromNative(data []byte) (*models.Template, error) {
 	if strings.TrimSpace(t.Slug) == "" {
 		t.Slug = Slugify(t.Name)
 	}
-	if p := strings.TrimSpace(t.DataPath); p != "" {
+	if p := t.DataPath; p != "" {
 		if !strings.HasPrefix(p, "/") || path.Clean(p) != p || p == "/" {
 			return nil, fmt.Errorf(
 				"dataPath %q must be an absolute, already-clean directory other than \"/\"", p)

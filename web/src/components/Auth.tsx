@@ -36,10 +36,11 @@ export function Auth({
         return;
       }
       const res = await api.login(username, password, twoFactor ? code : undefined);
-      if ("twoFactorRequired" in res) {
+      if (!("id" in res) && res.twoFactorRequired) {
         setTwoFactor(true); // ask for the code, keep username/password
       } else {
-        onAuthed(res);
+        // Login returns the account; /me also includes session policy flags.
+        onAuthed(await api.me());
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {

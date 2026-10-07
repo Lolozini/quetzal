@@ -72,13 +72,17 @@ type Schedule struct {
 	// the rest of it, so a nightly stop, backup, start left the server stopped
 	// until the next night.
 	Run *ScheduleRun `gorm:"serializer:json" json:"run,omitempty"`
+	// Generation binds the current checkpoint to this task revision and firing.
+	// Cancelling or replacing a run invalidates every outstanding writer.
+	Generation uint64 `gorm:"not null;default:0" json:"-"`
 }
 
 // ScheduleRun is how far a chain has got.
 type ScheduleRun struct {
-	Fired time.Time `json:"fired"` // when the schedule fired
-	Next  int       `json:"next"`  // index of the task to run next
-	Due   time.Time `json:"due"`   // when it runs, its delay included
+	Generation uint64    `json:"generation"`
+	Fired      time.Time `json:"fired"` // when the schedule fired
+	Next       int       `json:"next"`  // index of the task to run next
+	Due        time.Time `json:"due"`   // when it runs, its delay included
 	// Backup is the backup the next task requested and waits for, so that a
 	// chain picked up again waits for it rather than taking another one.
 	Backup uint     `json:"backup,omitempty"`

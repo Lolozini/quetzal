@@ -20,10 +20,10 @@ import (
 // Deployment and points the Service at it; once the server wakes, the activator
 // is removed and the Service points back at the real workload. (The activator
 // pod's actual wake callback needs the in-cluster apiserver and is covered by
-// unit tests; here we use a stub image and assert the objects.)
+// unit tests; this suite uses the real helper image for the data manager.)
 func TestE2EWakeOnConnect(t *testing.T) {
 	ctx, c, st, rec := setup(t)
-	rec.ActivatorImage = pauseImage
+	rec.ActivatorImage = systemImage(t)
 	rec.WakeURL = "http://quetzal.invalid/api/internal/wake"
 	rec.WakeKey = []byte("test-key")
 
@@ -61,8 +61,12 @@ func TestE2EWakeOnConnect(t *testing.T) {
 	}
 
 	// Hibernate -> activator Deployment appears, Service points at it.
-	if err := st.SetHibernated(srv.ID, true); err != nil {
-		t.Fatalf("hibernate: %v", err)
+	observed, err := st.GetServer(srv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := st.HibernateIfUnchanged(observed); err != nil || !changed {
+		t.Fatalf("hibernate: changed=%v, err=%v", changed, err)
 	}
 	if err := rec.ReconcileServer(ctx, srv.ID); err != nil {
 		t.Fatalf("reconcile hibernated: %v", err)
@@ -112,7 +116,7 @@ func TestE2EWakeOnConnect(t *testing.T) {
 // activator.
 func TestE2EWakeOnConnectProxy(t *testing.T) {
 	ctx, c, st, rec := setup(t)
-	rec.ActivatorImage = pauseImage
+	rec.ActivatorImage = systemImage(t)
 	rec.WakeURL = "http://quetzal.invalid/api/internal/wake"
 	rec.ActiveURL = "http://quetzal.invalid/api/internal/active"
 	rec.WakeKey = []byte("test-key")

@@ -17,12 +17,14 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/lolozini/quetzal/internal/authkeys"
+	"github.com/lolozini/quetzal/internal/fileops"
 )
 
 // defaultRevokeInterval is how often live sessions are re-checked against the
@@ -325,6 +327,11 @@ func (s *Server) serveSession(ch ssh.Channel, reqs <-chan *ssh.Request, user str
 		}
 	}()
 	h := rootedHandlers(s.cfg.Root)
+	defer h.FileGet.(*root).Close()
+	if h.FileGet.(*root).err != nil {
+		_ = ch.Close()
+		return
+	}
 	if s.cfg.LogOp != nil {
 		h = loggedHandlers(h, func(op, p string) { s.cfg.LogOp(user, op, p) })
 	}
@@ -335,63 +342,36 @@ func (s *Server) serveSession(ch ssh.Channel, reqs <-chan *ssh.Request, user str
 
 // ---- rooted (chroot-like) handlers ----
 
-// root confines all client paths under a base directory: the client sees base as
-// "/", and ".." can never escape it.
-type root struct{ base string }
+// Each session holds the volume open. Path checks alone cannot protect against
+// a game process replacing a checked parent or leaf before the operation.
+type root struct {
+	base string
+	dir  *os.Root
+	err  error
+}
 
 func rootedHandlers(base string) sftp.Handlers {
-	r := &root{base: base}
+	dir, err := os.OpenRoot(base)
+	r := &root{base: filepath.Clean(base), dir: dir, err: err}
 	return sftp.Handlers{FileGet: r, FilePut: r, FileCmd: r, FileList: r}
 }
 
-// resolve maps a client path to a real path confined under base, as text.
-func (r *root) resolve(p string) string {
-	return filepath.Join(r.base, filepath.Clean("/"+p))
+func (r *root) Close() error {
+	if r.dir != nil {
+		return r.dir.Close()
+	}
+	return nil
 }
 
-// safe is resolve plus symlink confinement. Textual confinement is not enough on
-// its own: a symlink inside the volume points wherever it likes, and one can
-// appear there without going through SFTP at all (an archive extracted from the
-// panel, or the game process itself). Without this check such a link would hand
-// a client the container's filesystem — including the server's SFTP host key —
-// through a path that looks perfectly well-behaved.
-//
-// The deepest existing ancestor is resolved and must land inside the root. When
-// deref is set the operation would follow the final component, so a symlink
-// there is refused outright; when it is not (delete, rename) the link itself is
-// the subject and is allowed, so a planted link can still be cleaned up.
+func (r *root) resolve(p string) string {
+	return strings.TrimPrefix(path.Clean("/"+p), "/")
+}
+
 func (r *root) safe(p string, deref bool) (string, error) {
-	full := r.resolve(p)
-	realRoot, err := filepath.EvalSymlinks(r.base)
-	if err != nil {
-		return "", err
+	if r.err != nil {
+		return "", r.err
 	}
-	probe := full
-	if fi, lerr := os.Lstat(full); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
-		if deref {
-			return "", os.ErrPermission
-		}
-		probe = filepath.Dir(full)
-	}
-	// The leaf may not exist yet (a create); walk up to something that does.
-	for {
-		if _, err := os.Lstat(probe); err == nil {
-			break
-		}
-		parent := filepath.Dir(probe)
-		if parent == probe {
-			break
-		}
-		probe = parent
-	}
-	real, err := filepath.EvalSymlinks(probe)
-	if err != nil {
-		return "", err
-	}
-	if real != realRoot && !strings.HasPrefix(real, realRoot+string(filepath.Separator)) {
-		return "", os.ErrPermission
-	}
-	return full, nil
+	return fileops.Resolve(r.dir, r.resolve(p), deref)
 }
 
 func (r *root) Fileread(req *sftp.Request) (io.ReaderAt, error) {
@@ -399,7 +379,7 @@ func (r *root) Fileread(req *sftp.Request) (io.ReaderAt, error) {
 	if err != nil {
 		return nil, err
 	}
-	return os.OpenFile(p, os.O_RDONLY, 0)
+	return r.dir.OpenFile(p, os.O_RDONLY, 0)
 }
 
 func (r *root) Filewrite(req *sftp.Request) (io.WriterAt, error) {
@@ -417,15 +397,14 @@ func (r *root) Filewrite(req *sftp.Request) (io.WriterAt, error) {
 	}
 	// Deliberately not honoring pf.Append: the request server writes via
 	// WriteAt at explicit offsets, which is invalid on a file opened O_APPEND.
-	return os.OpenFile(p, flags, 0o644)
+	return r.dir.OpenFile(p, flags, 0o644)
 }
 
 func (r *root) Filecmd(req *sftp.Request) error {
 	if req.Method == "Symlink" {
 		return r.symlink(req.Filepath, req.Target)
 	}
-	// Rename and Remove act on the entry itself and never follow it; the others
-	// would dereference a symlink leaf, so they refuse one.
+	// Rename and removal operate on the entry itself, not its target.
 	deref := req.Method != "Rename" && req.Method != "Rmdir" && req.Method != "Remove"
 	p, err := r.safe(req.Filepath, deref)
 	if err != nil {
@@ -439,11 +418,11 @@ func (r *root) Filecmd(req *sftp.Request) error {
 		if err != nil {
 			return err
 		}
-		return os.Rename(p, to)
+		return r.dir.Rename(p, to)
 	case "Rmdir", "Remove":
-		return os.Remove(p)
+		return r.dir.Remove(p)
 	case "Mkdir":
-		return os.MkdirAll(p, 0o755)
+		return r.dir.MkdirAll(p, 0o755)
 	default:
 		return sftp.ErrSSHFxOpUnsupported
 	}
@@ -467,18 +446,38 @@ func (r *root) symlink(target, link string) error {
 	if !path.IsAbs(target) {
 		target = path.Join(path.Dir(path.Clean("/"+link)), target)
 	}
-	return os.Symlink(r.resolve(target), at)
+	to := r.resolve(target)
+	if to == "" {
+		to = "."
+	}
+	relative, err := filepath.Rel(filepath.Dir(at), to)
+	if err != nil {
+		return err
+	}
+	return r.dir.Symlink(relative, at)
 }
 
 func (r *root) setstat(p string, req *sftp.Request) error {
 	attr := req.Attributes()
-	if req.AttrFlags().Size {
-		if err := os.Truncate(p, int64(attr.Size)); err != nil {
-			return err
+	if !req.AttrFlags().Size {
+		if req.AttrFlags().Permissions {
+			// Chmod must also work on a file the owner cannot read. Root.Chmod
+			// uses a pinned parent and AT_SYMLINK_NOFOLLOW on Linux: a swap
+			// can affect the link itself, never a target outside the root.
+			return r.dir.Chmod(p, attr.FileMode())
 		}
+		return nil
+	}
+	f, err := r.dir.OpenFile(p, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := f.Truncate(int64(attr.Size)); err != nil {
+		return err
 	}
 	if req.AttrFlags().Permissions {
-		if err := os.Chmod(p, attr.FileMode()); err != nil {
+		if err := f.Chmod(attr.FileMode()); err != nil {
 			return err
 		}
 	}
@@ -486,27 +485,25 @@ func (r *root) setstat(p string, req *sftp.Request) error {
 }
 
 func (r *root) Filelist(req *sftp.Request) (sftp.ListerAt, error) {
-	// A Stat on a symlink is how a client discovers what it points at, and
-	// listing one means descending into it: both dereference.
+	// Directory and file metadata are obtained through the held root.
 	p, err := r.safe(req.Filepath, true)
 	if err != nil {
 		return nil, err
 	}
 	switch req.Method {
 	case "List":
-		entries, err := os.ReadDir(p)
+		f, err := r.dir.OpenFile(p, os.O_RDONLY|syscall.O_DIRECTORY, 0)
 		if err != nil {
 			return nil, err
 		}
-		infos := make([]os.FileInfo, 0, len(entries))
-		for _, e := range entries {
-			if fi, err := e.Info(); err == nil {
-				infos = append(infos, fi)
-			}
+		defer f.Close()
+		infos, err := f.Readdir(-1)
+		if err != nil {
+			return nil, err
 		}
 		return listerat(infos), nil
 	case "Stat":
-		fi, err := os.Stat(p)
+		fi, err := r.dir.Stat(p)
 		if err != nil {
 			return nil, err
 		}
@@ -514,6 +511,36 @@ func (r *root) Filelist(req *sftp.Request) (sftp.ListerAt, error) {
 	default:
 		return nil, sftp.ErrSSHFxOpUnsupported
 	}
+}
+
+func (r *root) Lstat(req *sftp.Request) (sftp.ListerAt, error) {
+	p, err := r.safe(req.Filepath, false)
+	if err != nil {
+		return nil, err
+	}
+	fi, err := r.dir.Lstat(p)
+	if err != nil {
+		return nil, err
+	}
+	return listerat{fi}, nil
+}
+
+func (r *root) Readlink(name string) (string, error) {
+	p, err := r.safe(name, false)
+	if err != nil {
+		return "", err
+	}
+	target, err := r.dir.Readlink(p)
+	if err != nil {
+		return "", err
+	}
+	if filepath.IsAbs(target) {
+		rel, err := filepath.Rel(r.base, target)
+		if err == nil && filepath.IsLocal(rel) {
+			return "/" + filepath.ToSlash(rel), nil
+		}
+	}
+	return target, nil
 }
 
 // listerat adapts a slice of FileInfo to sftp.ListerAt.

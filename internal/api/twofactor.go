@@ -105,6 +105,9 @@ func (s *Server) handle2FAEnable(w http.ResponseWriter, r *http.Request) {
 // remove it).
 func (s *Server) handle2FADisable(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
+	if !s.allowSensitiveAuth(w, u) {
+		return
+	}
 	var req struct {
 		Code string `json:"code"`
 	}

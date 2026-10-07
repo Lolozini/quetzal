@@ -102,7 +102,30 @@ func Build(kubeconfig string) (Clients, error) {
 }
 
 func buildWithTimeout(kubeconfig string, timeout time.Duration) (Clients, error) {
-	cfg, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeconfig))
+	// Parse without resolving credentials: remote kubeconfigs are supplied by
+	// cluster administrators, not trusted configuration of the panel process.
+	raw, err := clientcmd.Load([]byte(kubeconfig))
+	if err != nil {
+		return Clients{}, err
+	}
+	for name, auth := range raw.AuthInfos {
+		switch {
+		case auth.TokenFile != "":
+			return Clients{}, fmt.Errorf("kubeconfig user %q: tokenFile is not permitted", name)
+		case auth.ClientCertificate != "" || auth.ClientKey != "":
+			return Clients{}, fmt.Errorf("kubeconfig user %q: local client certificate/key files are not permitted; embed their data instead", name)
+		case auth.Exec != nil:
+			return Clients{}, fmt.Errorf("kubeconfig user %q: exec credentials are not permitted", name)
+		case auth.AuthProvider != nil:
+			return Clients{}, fmt.Errorf("kubeconfig user %q: auth-provider credentials are not permitted", name)
+		}
+	}
+	for name, cluster := range raw.Clusters {
+		if cluster.CertificateAuthority != "" {
+			return Clients{}, fmt.Errorf("kubeconfig cluster %q: local certificate-authority files are not permitted; embed their data instead", name)
+		}
+	}
+	cfg, err := clientcmd.NewDefaultClientConfig(*raw, &clientcmd.ConfigOverrides{}).ClientConfig()
 	if err != nil {
 		return Clients{}, err
 	}

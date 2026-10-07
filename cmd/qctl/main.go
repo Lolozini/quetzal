@@ -7,7 +7,9 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
+	"github.com/lolozini/quetzal/internal/crypto"
 	"github.com/lolozini/quetzal/internal/egg"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
@@ -63,9 +65,10 @@ func openStore() *store.Store {
 	driver, dsn, err := store.DatabaseFromEnv(os.Getenv, "qctl")
 	must(err)
 	st, err := store.Open(store.Config{
-		Driver: driver,
-		DSN:    dsn,
-		Silent: true,
+		Driver:    driver,
+		DSN:       dsn,
+		Silent:    true,
+		SecretKey: crypto.KeyFromEnv("QUETZAL_SECRET_KEY"),
 	})
 	must(err)
 	must(st.Migrate())
@@ -122,8 +125,12 @@ func cmdCreate(st *store.Store, args []string) {
 
 	slug := egg.Slugify(name)
 	envMap := map[string]string{}
+	secretNames := map[string]bool{}
 	// Pre-fill template variable defaults, then apply overrides.
 	for _, v := range tmpl.Variables {
+		if v.Secret {
+			secretNames[v.EnvVariable] = true
+		}
 		if v.Default != "" {
 			envMap[v.EnvVariable] = v.Default
 		}
@@ -131,10 +138,19 @@ func cmdCreate(st *store.Store, args []string) {
 	for _, kv := range envs {
 		k, val, ok := strings.Cut(kv, "=")
 		if !ok {
-			fatalf("invalid --env %q (want KEY=VALUE)", kv)
+			fatalf("invalid --env (want KEY=VALUE)")
 		}
 		envMap[k] = val
 	}
+	secretEnv := map[string]string{}
+	for k, v := range envMap {
+		if secretNames[k] {
+			secretEnv[k] = v
+			delete(envMap, k)
+		}
+	}
+	sealed, err := st.SealSecrets(secretEnv)
+	must(err)
 
 	state := models.StateStopped
 	if start {
@@ -153,6 +169,7 @@ func cmdCreate(st *store.Store, args []string) {
 		DesiredState:    state,
 		Resources:       models.Resources{Memory: memory, CPU: cpu},
 		Env:             envMap,
+		SecretEnvEnc:    sealed,
 		Storage:         storage,
 		Ports:           tmpl.Ports,
 		Status:          models.Status{Phase: models.PhaseStopped},
@@ -181,12 +198,23 @@ func cmdSetState(st *store.Store, args []string) {
 	if slug == "" || state == "" {
 		fatalf("set-state requires --slug and --state")
 	}
+	switch models.DesiredState(state) {
+	case models.StateRunning, models.StateStopped, models.StateSuspended:
+	default:
+		fatalf("invalid state %q (want Running, Stopped or Suspended)", state)
+	}
 	srv, err := st.GetServerBySlug(slug)
 	if err != nil {
 		fatalf("server %q not found", slug)
 	}
-	srv.DesiredState = models.DesiredState(state)
-	must(st.UpdateServer(srv))
+	if srv.Transfer != nil {
+		fatalf("a cluster transfer is in progress for this server")
+	}
+	if models.DesiredState(state) == models.StateRunning {
+		must(st.StartServer(srv.ID, time.Now()))
+	} else {
+		must(st.SetDesiredState(srv.ID, models.DesiredState(state)))
+	}
 	fmt.Printf("server %s desiredState=%s\n", slug, state)
 }
 

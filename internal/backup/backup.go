@@ -25,9 +25,10 @@ const (
 	// CredsSecretName is the per-namespace Secret holding restic credentials.
 	CredsSecretName = "quetzal-backup-creds"
 	// BackupLabel marks backup Jobs/Secrets (value = backup operation ID).
-	BackupLabel  = "quetzal.dev/backup"
-	mountPath    = "/data"
-	defaultImage = "restic/restic:0.19.1"
+	BackupLabel         = "quetzal.dev/backup"
+	mountPath           = "/data"
+	defaultImage        = "restic/restic:0.19.1"
+	retentionAnnotation = "quetzal.dev/keep-last"
 )
 
 // Params is everything needed to render a backup/restore operation.
@@ -47,6 +48,8 @@ type Params struct {
 	// NodeSelector co-locates the Job with the server's pods (it mounts the same
 	// ReadWriteOnce data PVC), mirroring the game/data-manager placement.
 	NodeSelector map[string]string
+	// Offline backups (transfers) run only after all volume writers are gone.
+	Offline bool
 	// Forget turns the operation into a snapshot deletion: restic drops the
 	// snapshot tagged with BackupID from the repository. It touches only the
 	// repository, so unlike a backup or restore it mounts no data volume and
@@ -279,16 +282,15 @@ chown "$(stat -c %%u:%%g %s)" "$marker" 2>/dev/null || true
 				p.Slug, srcTag, restorePath, dumpsPath)
 		}
 	default: // backup
-		keep := p.KeepLast
-		if keep <= 0 {
-			keep = 7
-		}
 		// The first backup of a server creates its repository, and restic says
 		// when there is none: exit 10. Any other failure is the answer, with its
 		// own error. This used to be "snapshots || init", which hid the error of
 		// the first command, then waited again for the second on a target that
 		// never answered, and reported "create repository ... failed" whatever
 		// had gone wrong -- a refused key, a wrong password, a missing bucket.
+		// A retry must reuse its operation's snapshot, not spend another
+		// retention slot. Retention is queued durably by the controller after
+		// success and deletes exact tags, independent of changing path groups.
 		run := fmt.Sprintf("restic backup %s --host %q --tag quetzal --tag %q --json", backupPaths(p), p.Slug, tag)
 		if p.Excludes != "" {
 			run = fmt.Sprintf("printf '%%s\\n' \"$%s\" > %s\n%s --exclude-file %s", excludesEnv, excludesFile, run, excludesFile)
@@ -301,9 +303,13 @@ if [ "$rc" = 10 ]; then
 elif [ "$rc" != 0 ]; then
   exit "$rc"
 fi
+existing=$(restic snapshots --host %q --tag %q --json)
+case "$existing" in
+  '[]'|'null')
 %s
-restic forget --host %q --keep-last %d --prune
-`, run, p.Slug, keep)
+    ;;
+esac
+`, p.Slug, tag, run)
 	}
 
 	backoff := int32(1)
@@ -314,11 +320,9 @@ restic forget --host %q --keep-last %d --prune
 	if importsDirection(p) {
 		backoff = 0
 	}
-	// Safety net only: the controller deletes finished Jobs itself. It is kept
-	// long because a Job that vanishes before the controller has read its result
-	// is reported as a failure — a day gives an offline or non-leader controller
-	// ample room to come back and see that the operation actually succeeded.
-	ttl := int32(86400)
+	// The Job is durable completion evidence. Only the controller may remove it
+	// after committing the result; an automatic TTL could erase it during an
+	// outage and make a destructive operation's outcome unknowable.
 	// A Job with no deadline can stall forever -- a bucket that stopped answering
 	// mid-transfer leaves restic waiting, the operation never finishes, and a
 	// transfer built on it pins its server indefinitely. Six hours is far more
@@ -326,13 +330,28 @@ restic forget --host %q --keep-last %d --prune
 	// megabytes a second) and far less than never, and hitting it fails the
 	// operation with a reason rather than leaving it hanging.
 	deadline := int64(6 * 60 * 60)
+	var annotations map[string]string
+	if p.Direction == models.DirBackup && !p.repoOnly() {
+		keep := p.KeepLast
+		if keep <= 0 {
+			keep = 7
+		}
+		annotations = map[string]string{retentionAnnotation: strconv.Itoa(keep)}
+	}
+	var ttl *int32
+	if p.Purge {
+		// Server teardown has already removed its records; no result remains to
+		// commit for this best-effort, repository-only Job.
+		seconds := int32(86400)
+		ttl = &seconds
+	}
 
 	return &batchv1.Job{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "batch/v1", Kind: "Job"},
-		ObjectMeta: metav1.ObjectMeta{Name: JobName(p), Namespace: p.Namespace, Labels: labels(p)},
+		ObjectMeta: metav1.ObjectMeta{Name: JobName(p), Namespace: p.Namespace, Labels: labels(p), Annotations: annotations},
 		Spec: batchv1.JobSpec{
 			BackoffLimit:            &backoff,
-			TTLSecondsAfterFinished: &ttl,
+			TTLSecondsAfterFinished: ttl,
 			ActiveDeadlineSeconds:   &deadline,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: labels(p)},
@@ -384,7 +403,7 @@ func podSpec(p Params, script string) corev1.PodSpec {
 		nodeSelector = nil
 	}
 	var affinity *corev1.Affinity
-	if ro && !p.repoOnly() {
+	if ro && !p.repoOnly() && !p.Offline {
 		affinity = &corev1.Affinity{PodAffinity: &corev1.PodAffinity{
 			RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{{
 				LabelSelector: &metav1.LabelSelector{MatchLabels: map[string]string{reconciler.DataLabel: p.Slug}},

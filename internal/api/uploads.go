@@ -63,75 +63,13 @@ func (s *Server) uploadTemp(root string, u *models.FileUpload) string {
 	return dst + ".quetzal-part-" + u.ID
 }
 
-// podExec runs a command in a pod; tests replace it to run the scripts here.
+// podExec runs a command in a pod; tests replace it with the real local helper.
 func (s *Server) podExec(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, ns, pod string, cmd []string, stdin io.Reader, stdout io.Writer) error {
 	if s.execHook != nil {
 		return s.execHook(ctx, cs, cfg, ns, pod, cmd, stdin, stdout)
 	}
 	return console.Exec(ctx, cs, cfg, ns, pod, cmd, stdin, stdout)
 }
-
-// uploadCheckScript refuses an upload that could not be finished, before any
-// of it is sent: a file needs its directory and must not name one, and an
-// archive's directory is made now, as its pieces gather inside it.
-const uploadCheckScript = `qz_guard deref "$0" "$1"
-if [ "$2" = archive ]; then
-  [ -e "$1" ] && [ ! -d "$1" ] && { echo "not a directory" >&2; exit 4; }
-  mkdir -p -- "$1" || exit 1
-else
-  qz_exists "$(dirname "$1")"
-  [ -d "$1" ] && { echo "is a directory" >&2; exit 4; }
-fi
-:`
-
-// uploadSizeScript prints how many bytes of the upload in $1 have arrived.
-const uploadSizeScript = `qz_guard deref "$0" "$1"
-if [ -e "$1" ]; then wc -c < "$1" | tr -d ' '; else echo 0; fi`
-
-// uploadAppendScript adds stdin to the upload in $1, provided it holds exactly
-// $2 bytes so far, and prints how many it holds after. A piece cut short adds
-// only what arrived, which is still the right bytes in the right place: the
-// next piece starts from the size printed, and nothing has to be undone.
-const uploadAppendScript = drainStdin + `qz_guard deref "$0" "$1"
-have=0
-[ -e "$1" ] && have=$(wc -c < "$1" | tr -d ' ')
-if [ "$have" != "$2" ]; then
-  echo "$have"
-  echo "the upload holds $have bytes, not $2" >&2
-  exit 7
-fi
-cat >> "$1" || exit 1
-wc -c < "$1" | tr -d ' '`
-
-// uploadFinishFileScript moves a complete upload ($1, $3 bytes) into place as
-// $2, replacing what was there in one step.
-const uploadFinishFileScript = `qz_guard deref "$0" "$1" "$2"
-qz_exists "$(dirname "$2")"
-[ -d "$2" ] && { echo "is a directory" >&2; exit 4; }
-got=0
-[ -e "$1" ] && got=$(wc -c < "$1" | tr -d ' ')
-[ "$got" = "$3" ] || { echo "the upload holds $got of $3 bytes" >&2; exit 7; }
-mv -f -- "$1" "$2"`
-
-// uploadFinishArchiveScript unpacks a complete upload ($1, $3 bytes) into the
-// directory $2 with the tool for $4, then removes it.
-const uploadFinishArchiveScript = `qz_guard deref "$0" "$1" "$2"
-got=0
-[ -e "$1" ] && got=$(wc -c < "$1" | tr -d ' ')
-[ "$got" = "$3" ] || { echo "the upload holds $got of $3 bytes" >&2; exit 7; }
-mkdir -p -- "$2" || exit 1
-if [ "$4" = zip ]; then
-  unzip -o "$1" -d "$2"; rc=$?
-else
-  tar -xf "$1" -C "$2"; rc=$?
-fi
-rm -f -- "$1"
-exit $rc`
-
-// uploadRemoveScript deletes an upload's temporary file. The link itself, if
-// someone made one there: rm never follows it.
-const uploadRemoveScript = `qz_guard link "$0" "$1"
-rm -f -- "$1"`
 
 type uploadView struct {
 	*models.FileUpload
@@ -210,7 +148,7 @@ func (s *Server) handleCreateUpload(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), fileOpTimeout)
 	defer cancel()
 	if err := s.podExec(ctx, cs, cfg, srv.Namespace, pod,
-		[]string{"sh", "-c", guarded(uploadCheckScript), root, jail(root, req.Path), kind}, nil, io.Discard); err != nil {
+		fileCommand(root, "upload-check", jail(root, req.Path), kind), nil, io.Discard); err != nil {
 		writeFileOpError(w, "upload refused", err)
 		return
 	}
@@ -289,7 +227,7 @@ func (s *Server) uploadReceived(ctx context.Context, cs kubernetes.Interface, cf
 	defer cancel()
 	var out strings.Builder
 	if err := s.podExec(ctx, cs, cfg, ns, pod,
-		[]string{"sh", "-c", guarded(uploadSizeScript), root, s.uploadTemp(root, up)}, nil, &out); err != nil {
+		fileCommand(root, "upload-size", s.uploadTemp(root, up)), nil, &out); err != nil {
 		return 0, err
 	}
 	return strconv.ParseInt(strings.TrimSpace(out.String()), 10, 64)
@@ -328,7 +266,7 @@ func (s *Server) handlePutUploadChunk(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	var out strings.Builder
 	err = s.podExec(ctx, cs, cfg, srv.Namespace, pod,
-		[]string{"sh", "-c", guarded(uploadAppendScript), root, s.uploadTemp(root, up), strconv.FormatInt(offset, 10)},
+		fileCommand(root, "upload-append", s.uploadTemp(root, up), strconv.FormatInt(offset, 10)),
 		http.MaxBytesReader(w, r.Body, n), &out)
 	got, perr := strconv.ParseInt(strings.TrimSpace(out.String()), 10, 64)
 	var ex *console.ExitError
@@ -358,10 +296,10 @@ func (s *Server) handleCompleteUpload(w http.ResponseWriter, r *http.Request) {
 	var cmd []string
 	timeout := fileOpTimeout
 	if up.Kind == models.UploadArchive {
-		cmd = []string{"sh", "-c", guarded(uploadFinishArchiveScript), root, tmp, dst, size, up.Format}
+		cmd = fileCommand(root, "upload-finish-archive", tmp, dst, size, up.Format)
 		timeout = fileJobTimeout
 	} else {
-		cmd = []string{"sh", "-c", guarded(uploadFinishFileScript), root, tmp, dst, size}
+		cmd = fileCommand(root, "upload-finish-file", tmp, dst, size)
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
@@ -382,11 +320,11 @@ func (s *Server) handleCompleteUpload(w http.ResponseWriter, r *http.Request) {
 		writeFileOpError(w, "the upload could not be put in place", err)
 		return
 	}
-	// The archive script removes its temporary file whether or not it
+	// Archive completion removes its temporary file whether or not it
 	// unpacked, so the upload is over either way.
 	_ = s.Store.DeleteUpload(up.ID)
 	if err != nil {
-		writeFileOpError(w, "extract failed (the image needs tar, or unzip for .zip)", err)
+		writeFileOpError(w, "extract failed", err)
 		return
 	}
 	if up.Kind == models.UploadArchive {
@@ -419,7 +357,7 @@ func (s *Server) removeUploadTemp(ctx context.Context, cs kubernetes.Interface, 
 	ctx, cancel := context.WithTimeout(ctx, fileOpTimeout)
 	defer cancel()
 	return s.podExec(ctx, cs, cfg, ns, pod,
-		[]string{"sh", "-c", guarded(uploadRemoveScript), root, s.uploadTemp(root, up)}, nil, io.Discard)
+		fileCommand(root, "upload-remove", s.uploadTemp(root, up)), nil, io.Discard)
 }
 
 // uploadGiveUp is how long past its expiry an upload whose temporary file

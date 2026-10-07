@@ -82,7 +82,8 @@ export interface NetworkSettings {
 
 // LoginResult is either the authenticated user or a 2FA challenge: when the
 // account has two-factor enabled, the password step returns twoFactorRequired
-// and the client must resubmit with a code.
+// and the client must resubmit with a code. A challenge has no user ID; a
+// logged-in user's twoFactorRequired flag instead means enrolment is required.
 export type LoginResult = User | { twoFactorRequired: true };
 
 export interface ServerAccess {
@@ -382,7 +383,7 @@ export interface Server {
 }
 
 export interface TransferState {
-  phase: string;
+  phase: "BackingUp" | "Restoring" | "Committing";
   sourceCluster: number;
   targetCluster: number;
   prevState: string;

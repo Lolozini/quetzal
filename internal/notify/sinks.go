@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/lolozini/quetzal/internal/models"
+	"github.com/lolozini/quetzal/internal/safefetch"
 )
 
 func errUnknownType(t models.ChannelType) error {
@@ -224,7 +225,7 @@ func doExpect2xx(client *http.Client, req *http.Request) error {
 
 // ---- Email (SMTP) ----
 
-func deliverEmail(ctx context.Context, cfg map[string]string, e models.Event, name, slug string) error {
+func deliverEmail(ctx context.Context, cfg map[string]string, trusted bool, e models.Event, name, slug string) error {
 	to := splitList(cfg["to"])
 	if len(to) == 0 {
 		return permanent(fmt.Errorf("email: to is required"))
@@ -235,7 +236,7 @@ func deliverEmail(ctx context.Context, cfg map[string]string, e models.Event, na
 		subject += label + " — "
 	}
 	subject += models.EventTitle(e.Type)
-	return SendMail(ctx, cfg, to, subject, emailBody(e, label, slug))
+	return send(ctx, cfg, to, Mail{Subject: subject, Text: emailBody(e, label, slug)}, trusted)
 }
 
 // emailBody renders the same fields as the Discord embed as a plain-text block:
@@ -309,9 +310,9 @@ func greetingError(addr, mode string, err error) error {
 	return err
 }
 
-// SendMail sends a plain-text email to the given recipients using the SMTP
-// settings in cfg (host, port, username, password, from, tls). It is used both
-// for notification email channels and for system mail such as password reset.
+// SendMail sends a plain-text email through trusted, operator-configured SMTP
+// settings in cfg (host, port, username, password, from, tls). Internal relays
+// are allowed. Never pass a tenant-selected endpoint here; use the dispatcher.
 // net/smtp takes no context, so the whole conversation is bounded by a socket
 // deadline derived from ctx.
 func SendMail(ctx context.Context, cfg map[string]string, to []string, subject, body string) error {
@@ -352,8 +353,12 @@ type Inline struct {
 	Data        []byte
 }
 
-// Send delivers m through the configured relay; see SendMail.
+// Send delivers m through a trusted, operator-configured relay; see SendMail.
 func Send(ctx context.Context, cfg map[string]string, to []string, m Mail) error {
+	return send(ctx, cfg, to, m, true)
+}
+
+func send(ctx context.Context, cfg map[string]string, to []string, m Mail, trusted bool) error {
 	host := strings.TrimSpace(cfg["host"])
 	from := strings.TrimSpace(cfg["from"])
 	if host == "" || from == "" || len(to) == 0 {
@@ -397,7 +402,12 @@ func Send(ctx context.Context, cfg map[string]string, to []string, m Mail) error
 		auth = smtp.PlainAuth("", u, cfg["password"], host)
 	}
 
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	var dialer *net.Dialer
+	if trusted {
+		dialer = &net.Dialer{Timeout: 10 * time.Second}
+	} else {
+		dialer = safefetch.SafeDialer()
+	}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return err

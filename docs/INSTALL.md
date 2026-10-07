@@ -136,7 +136,7 @@ Common ones:
 | `retention.eventDays` | How long delivered events are kept (default 30; 0 keeps everything). The event table is written on every power action, crash and restart. |
 | `retention.auditDays` | How long audit entries are kept. **0 by default — nothing is deleted**; set a number of days if you would rather bound the table. |
 | `replicaCount` | Control-plane replicas. More than one needs `db.driver=postgres` and `persistence.enabled=false`; the chart refuses the other combinations rather than let two pods share one SQLite file. |
-| `image.repository` / `image.tag` | Also the image used for the config-render, SFTP and wake-on-connect helpers (`QUETZAL_IMAGE`); the chart derives it, there is nothing to set. |
+| `image.repository` / `image.tag` | Also the image used for the file-manager, config-render, SFTP and wake-on-connect helpers (`QUETZAL_IMAGE`); the chart derives it, there is nothing to set. |
 
 **Node ports.** A server published on a node port — the default for a new
 one — and its SFTP take theirs from `nodePort.min`–`nodePort.max`, which is
@@ -184,6 +184,9 @@ key migrated across, not a fresh one issued.
 ### Database
 
 - **SQLite** (default): single file on a PVC; simplest for homelab/single-node.
+  Writable database files and existing journals/WAL sidecars are restricted to
+  their owner (`0600`). Run API and controller under the same OS account and
+  keep the containing directory and database backups private.
 - **PostgreSQL**, for multi-replica / production. Give the server field by
   field: nothing to escape, and only the password is secret.
 
@@ -318,6 +321,12 @@ The cluster form carries the alternative. Open **Prepare the remote cluster**
 before registering: it shows a manifest to apply there, creating a service
 account with the access Quetzal actually needs and nothing else, followed by the
 script that prints a kubeconfig for it. Paste that one instead.
+
+Remote kubeconfigs must embed their token and certificate data. References to
+local files (`tokenFile`, certificate/key/CA paths), `exec` plugins and
+`auth-provider` plugins are refused, including in previously stored configs.
+The locally configured controller credentials are not subject to this uploaded
+configuration restriction.
 
 The permissions in that manifest are the same set the chart grants on the
 cluster Quetzal runs on, less leader election, which only happens where the

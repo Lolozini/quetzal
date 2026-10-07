@@ -425,8 +425,6 @@ func TestNoOverlap(t *testing.T) {
 	s.Sleep = func(_ context.Context, _ time.Duration) error { <-block; return nil }
 
 	s.Tick(context.Background()) // launches the chain; it acquires the in-flight lock
-	// Force the schedule due again while the first run is blocked.
-	_ = st.SetScheduleNextRun(sc.ID, &past)
 	s.Tick(context.Background()) // must be skipped by the in-flight guard
 	close(block)
 	s.Wait()
@@ -489,7 +487,9 @@ func TestScheduledStartSkippedDuringTransfer(t *testing.T) {
 	st := testStore(t)
 	srv := &models.Server{Slug: "s", Namespace: "ns", DesiredState: models.StateStopped}
 	_ = st.CreateServer(srv)
-	_ = st.SetServerTransfer(srv.ID, &models.TransferState{Phase: models.TransferBackingUp, SourceCluster: 1, TargetCluster: 2})
+	if _, err := st.BeginServerTransfer(srv.ID, 2, time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	past := time.Now().Add(-time.Minute)
 	sc := &models.Schedule{ServerID: srv.ID, Name: "morning", Cron: "* * * * *", Enabled: true, NextRun: &past,
 		Tasks: []models.ScheduleTask{{Action: models.SchedStart}}}

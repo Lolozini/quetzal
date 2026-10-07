@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,6 +45,7 @@ func NewManager(st *store.Store, reg *cluster.Registry) *Manager {
 
 // Process advances all in-flight operations one step.
 func (m *Manager) Process(ctx context.Context) {
+	m.processCleanup(ctx)
 	m.processPending(ctx)
 	m.processRunning(ctx)
 	m.processDeleting(ctx)
@@ -109,6 +111,11 @@ func (m *Manager) processPending(ctx context.Context) {
 			m.finish(b, models.BackupFailed, 0, "server not found")
 			continue
 		}
+		if tr := srv.Transfer; tr != nil && (tr.Cancelled || (tr.BackupID != b.ID && tr.RestoreID != b.ID)) {
+			continue
+		}
+		// Reserve the queue head while it waits; later operations cannot pass it.
+		busy[b.ServerID] = true
 		// The API refuses to restore a backup made to another target, but the
 		// target can change between the request and this tick.
 		if b.Direction == models.DirRestore {
@@ -117,7 +124,8 @@ func (m *Manager) processPending(ctx context.Context) {
 				continue
 			}
 		}
-		clients, err := m.Reg.For(srv.ClusterID)
+		clusterID := operationCluster(b, srv)
+		clients, err := m.Reg.For(clusterID)
 		if err != nil {
 			log.Printf("backup %d: cluster unreachable, retrying: %v", b.ID, err)
 			continue // leave Pending; retry next tick
@@ -197,7 +205,7 @@ func (m *Manager) processPending(ctx context.Context) {
 			BackupID: b.ID, Direction: b.Direction, SourceID: b.SourceID,
 			NodeSelector: srv.NodeSelector, InstallGen: srv.InstallGeneration,
 			Databases: dbs, ImportPath: b.Path, ImportWipe: b.Wipe,
-			Excludes: excludes,
+			Excludes: excludes, Offline: b.Full && srv.Transfer != nil,
 		}
 		if !imports {
 			p.Image, p.KeepLast, p.Repository, p.Region = Image(cfg), cfg.KeepLast, Repository(cfg, srv.Slug), cfg.Region
@@ -213,7 +221,17 @@ func (m *Manager) processPending(ctx context.Context) {
 		if !imports && len(dbs) > 0 {
 			names = DatabaseNames(dbs)
 		}
-		claimed, err := m.Store.ClaimBackup(b.ID, JobName(p), target, names, ignored, note)
+		if err := ensureSecret(ctx, cs, BuildSecret(p)); err != nil {
+			log.Printf("backup %d: create credentials, retrying: %v", b.ID, err)
+			continue
+		}
+		job := BuildJob(p)
+		intent, err := json.Marshal(job)
+		if err != nil {
+			log.Printf("backup %d: encode Job: %v", b.ID, err)
+			continue
+		}
+		claimed, err := m.Store.ClaimBackup(b.ID, JobName(p), target, names, ignored, note, string(intent), clusterID)
 		if err != nil {
 			log.Printf("backup: claim %d: %v", b.ID, err)
 			continue
@@ -234,15 +252,15 @@ func (m *Manager) processPending(ctx context.Context) {
 		if names != nil {
 			b.Databases = names
 		}
-		busy[b.ServerID] = true
-		if err := ensureSecret(ctx, cs, BuildSecret(p)); err != nil {
-			m.finish(b, models.BackupFailed, 0, "create creds secret: "+err.Error())
+		created, err := cs.BatchV1().Jobs(p.Namespace).Create(ctx, job, metav1.CreateOptions{})
+		if err != nil {
+			if !apierrors.IsAlreadyExists(err) {
+				log.Printf("backup %d: Job submission uncertain, retaining exclusion: %v", b.ID, err)
+			}
 			continue
 		}
-		job := BuildJob(p)
-		if _, err := cs.BatchV1().Jobs(p.Namespace).Create(ctx, job, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
-			m.finish(b, models.BackupFailed, 0, "create job: "+err.Error())
-			continue
+		if err := m.Store.ObserveBackupJob(b.ID, string(created.UID)); err != nil {
+			log.Printf("backup %d: record submitted Job: %v", b.ID, err)
 		}
 	}
 }
@@ -252,32 +270,49 @@ func (m *Manager) processRunning(ctx context.Context) {
 	if err != nil || len(run) == 0 {
 		return
 	}
-	keepLast := 7
 	cfg, cfgErr := m.Store.GetBackupConfig()
 	if cfgErr != nil || cfg == nil {
 		cfg = &models.BackupConfig{} // redaction then matches nothing, as before
-	} else if cfg.KeepLast > 0 {
-		keepLast = cfg.KeepLast
 	}
 	for i := range run {
 		b := &run[i]
 		srv, err := m.Store.GetServer(b.ServerID)
 		if err != nil {
-			m.finish(b, models.BackupFailed, 0, "server not found")
+			log.Printf("backup %d: cannot resolve its server; retaining operation: %v", b.ID, err)
 			continue
 		}
-		clients, err := m.Reg.For(srv.ClusterID)
+		if tr := srv.Transfer; tr != nil && tr.Cancelled && (tr.BackupID == b.ID || tr.RestoreID == b.ID) {
+			continue // transfer cancellation owns draining this operation
+		}
+		clients, err := m.Reg.For(operationCluster(b, srv))
 		if err != nil {
 			continue // cluster unreachable; retry next tick
 		}
 		cs := clients.Clientset
 		job, err := cs.BatchV1().Jobs(srv.Namespace).Get(ctx, b.JobName, metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
-			m.finish(b, models.BackupFailed, 0, string(b.Direction)+" job disappeared")
+			m.resumeSubmission(ctx, cs, srv.Namespace, b)
 			continue
 		}
 		if err != nil {
 			continue // transient; retry next tick
+		}
+		if b.JobUID != "" && b.JobUID != string(job.UID) {
+			m.holdOperation(b, "the operation Job was replaced; an administrator must inspect its pods before releasing the server")
+			continue
+		}
+		if job.Spec.TTLSecondsAfterFinished != nil {
+			// Adopt evidence from Jobs launched before durable completion.
+			job.Spec.TTLSecondsAfterFinished = nil
+			job, err = cs.BatchV1().Jobs(srv.Namespace).Update(ctx, job, metav1.UpdateOptions{})
+			if err != nil {
+				continue
+			}
+		}
+		if b.JobUID == "" && job.UID != "" {
+			if err := m.Store.ObserveBackupJob(b.ID, string(job.UID)); err != nil {
+				continue
+			}
 		}
 		done, failed := jobOutcome(job)
 		switch {
@@ -288,13 +323,10 @@ func (m *Manager) processRunning(ctx context.Context) {
 				size = ParseBackupSize(podLogs(ctx, cs, srv.Namespace, b.JobName))
 				msg = b.Message // why it copied every file, when it did
 			}
-			m.finish(b, models.BackupSucceeded, size, msg)
-			if b.Direction == models.DirBackup {
-				if err := m.Store.PruneBackups(srv.ID, keepLast); err != nil {
-					log.Printf("backup: prune %d: %v", srv.ID, err)
-				}
+			if err := m.complete(b, models.BackupSucceeded, size, msg, retentionPolicy(job)); err != nil {
+				continue
 			}
-			cleanup(ctx, cs, srv.Namespace, b.JobName)
+			m.cleanupFinished(ctx, cs, srv.Namespace, b)
 		case failed:
 			step, logs := failedStep(ctx, cs, srv.Namespace, b.JobName)
 			var msg string
@@ -308,10 +340,80 @@ func (m *Manager) processRunning(ctx context.Context) {
 			if msg == "" {
 				msg = string(b.Direction) + " job failed"
 			}
-			m.finish(b, models.BackupFailed, 0, msg)
-			cleanup(ctx, cs, srv.Namespace, b.JobName)
+			if err := m.finish(b, models.BackupFailed, 0, msg); err != nil {
+				continue
+			}
+			m.cleanupFinished(ctx, cs, srv.Namespace, b)
 		}
 	}
+}
+
+func operationCluster(b *models.Backup, srv *models.Server) uint {
+	if b.ClusterID != nil {
+		return *b.ClusterID
+	}
+	return srv.ClusterID
+}
+
+// A missing Job is replayable only until its first observation. No Job built
+// here expires automatically: it is the evidence needed to commit the result.
+func (m *Manager) resumeSubmission(ctx context.Context, cs kubernetes.Interface, ns string, b *models.Backup) {
+	if b.JobUID != "" || b.JobSpec == "" {
+		m.holdOperation(b, "the operation Job is missing; an administrator must inspect and drain its pods before releasing the server (the operation will not be replayed)")
+		return
+	}
+	pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: "job-name=" + b.JobName})
+	if err != nil {
+		return
+	}
+	if len(pods.Items) != 0 {
+		m.holdOperation(b, "the operation Job is missing but its pods remain; an administrator must recover the Job evidence before releasing the server")
+		return
+	}
+	var job batchv1.Job
+	if err := json.Unmarshal([]byte(b.JobSpec), &job); err != nil {
+		m.holdOperation(b, "the stored operation Job cannot be decoded; administrator intervention is required")
+		return
+	}
+	created, err := cs.BatchV1().Jobs(ns).Create(ctx, &job, metav1.CreateOptions{})
+	if err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			log.Printf("backup %d: retry Job submission: %v", b.ID, err)
+		}
+		return
+	}
+	if err := m.Store.ObserveBackupJob(b.ID, string(created.UID)); err != nil {
+		log.Printf("backup %d: record submitted Job: %v", b.ID, err)
+	}
+}
+
+func (m *Manager) holdOperation(b *models.Backup, message string) {
+	if err := m.Store.DB().Model(&models.Backup{}).
+		Where("id = ? AND phase = ?", b.ID, models.BackupRunning).
+		Update("message", message).Error; err != nil {
+		log.Printf("backup %d: record blocked operation: %v", b.ID, err)
+	}
+}
+
+var legacyRetention = regexp.MustCompile(`(?m)^restic forget --host .* --keep-last ([0-9]+) --prune$`)
+
+func retentionPolicy(job *batchv1.Job) int {
+	if value := job.Annotations[retentionAnnotation]; value != "" {
+		keep, _ := strconv.Atoi(value)
+		return keep
+	}
+	// Jobs launched before the annotation carry their policy in their immutable
+	// generated script. Never replace that policy with the current config.
+	for _, c := range job.Spec.Template.Spec.Containers {
+		if len(c.Command) < 3 {
+			continue
+		}
+		if match := legacyRetention.FindStringSubmatch(c.Command[2]); len(match) == 2 {
+			keep, _ := strconv.Atoi(match[1])
+			return keep
+		}
+	}
+	return 0
 }
 
 // opFailure ends an operation that cannot run as asked -- its database, or
@@ -469,112 +571,134 @@ func (m *Manager) restoreNote(b *models.Backup) string {
 	return fmt.Sprintf("databases %s were not restored: the server no longer has them", strings.Join(gone, ", "))
 }
 
-// processDeleting drives snapshot deletions. A row in the Deleting phase has
-// been dropped by the user but still owns a restic snapshot, so the record is
-// kept until the forget Job confirms the data is gone from the repository — a
-// failure must surface rather than leave the bucket holding data the user
-// believes deleted. On success the row goes for good; on failure it returns to
-// Succeeded carrying the reason, so the user can retry.
+// processDeleting retains ownership until a targeted, idempotent forget has
+// succeeded and the record deletion is durable. A failed prune may already have
+// removed the snapshot, so it must never turn the record back into Succeeded.
 func (m *Manager) processDeleting(ctx context.Context) {
 	del, err := m.Store.ListBackupsByPhase(models.BackupDeleting)
 	if err != nil || len(del) == 0 {
 		return
 	}
-	cfg, err := m.Store.GetBackupConfig()
-	if errors.Is(err, store.ErrNotFound) {
-		// No target configured any more: nothing can reach the snapshot, so the
-		// record would sit in Deleting for good. Drop it and say so in the log.
-		for i := range del {
-			log.Printf("backup: dropping record %d without forgetting its snapshot (backups are not configured)", del[i].ID)
-			_ = m.Store.DeleteBackup(del[i].ID)
-		}
-		return
-	}
-	if err != nil {
-		log.Printf("backup: delete: read config: %v", err)
-		return // transient; retry next tick rather than drop the rows
-	}
-	access, secret, pass, err := m.Store.BackupSecrets(cfg)
-	if err != nil {
-		log.Printf("backup: delete: decrypt credentials: %v", err)
-		return
-	}
+	cfg, cfgErr := m.Store.GetBackupConfig()
 	busy := m.busyServers()
 	for i := range del {
 		b := &del[i]
 		srv, err := m.Store.GetServer(b.ServerID)
-		if errors.Is(err, store.ErrNotFound) {
-			// The server is gone; its namespace (and any Job we could run) went
-			// with it, so there is nothing left to drive the delete.
-			_ = m.Store.DeleteBackup(b.ID)
+		if err != nil {
 			continue
 		}
+		clients, err := m.Reg.For(operationCluster(b, srv))
 		if err != nil {
-			continue // transient store error; retry next tick rather than drop the row
-		}
-		// Its snapshot is in a target the panel no longer reaches: a forget run
-		// against the current one would fail and keep the row forever.
-		if b.Target != "" && b.Target != TargetID(cfg) && b.JobName == "" {
-			log.Printf("backup: dropping record %d without forgetting its snapshot (made to a previous backup target)", b.ID)
-			_ = m.Store.DeleteBackup(b.ID)
 			continue
-		}
-		clients, err := m.Reg.For(srv.ClusterID)
-		if err != nil {
-			continue // cluster unreachable; retry next tick
 		}
 		cs := clients.Clientset
+		if b.Forgotten {
+			m.cleanupForgotten(ctx, cs, srv.Namespace, b)
+			continue
+		}
+		if b.JobName != "" {
+			job, err := cs.BatchV1().Jobs(srv.Namespace).Get(ctx, b.JobName, metav1.GetOptions{})
+			if err == nil {
+				if job.Spec.TTLSecondsAfterFinished != nil {
+					job.Spec.TTLSecondsAfterFinished = nil
+					job, err = cs.BatchV1().Jobs(srv.Namespace).Update(ctx, job, metav1.UpdateOptions{})
+					if err != nil {
+						continue
+					}
+				}
+				done, failed := jobOutcome(job)
+				if done {
+					if err := m.Store.MarkBackupForgotten(b.ID); err != nil {
+						continue
+					}
+					m.cleanupForgotten(ctx, cs, srv.Namespace, b)
+				} else if failed {
+					b.Message = "snapshot deletion failed; retrying (the snapshot may already have been removed)"
+					if err := m.Store.UpdateBackup(b); err != nil {
+						continue
+					}
+					if err := cleanup(ctx, cs, srv.Namespace, b); err != nil {
+						log.Printf("backup: delete %d: cleanup: %v", b.ID, err)
+					}
+				}
+				continue
+			}
+			if !apierrors.IsNotFound(err) {
+				continue
+			}
+			pods, err := cs.CoreV1().Pods(srv.Namespace).List(ctx, metav1.ListOptions{LabelSelector: "job-name=" + b.JobName})
+			if err != nil || len(pods.Items) != 0 {
+				continue
+			}
+		} else if busy[b.ServerID] {
+			continue
+		}
+		if cfgErr != nil || cfg == nil || (b.Target != "" && b.Target != TargetID(cfg)) {
+			continue // preserve ownership until the original target is reachable
+		}
+		access, secret, pass, err := m.Store.BackupSecrets(cfg)
+		if err != nil {
+			continue
+		}
 		p := Params{
 			Image: Image(cfg), Namespace: srv.Namespace, Slug: srv.Slug,
 			BackupID: b.ID, Direction: b.Direction, Forget: true,
 			Repository: Repository(cfg, srv.Slug), Region: cfg.Region,
 			AccessKey: access, SecretKey: secret, RepoPassword: pass,
 		}
+		if err := ensureSecret(ctx, cs, BuildSecret(p)); err != nil {
+			continue
+		}
 		if b.JobName == "" {
-			if busy[b.ServerID] {
-				continue // another operation holds the repository lock
-			}
-			if err := ensureSecret(ctx, cs, BuildSecret(p)); err != nil {
-				log.Printf("backup: delete %d: creds secret: %v", b.ID, err)
-				continue
-			}
-			job := BuildJob(p)
-			if _, err := cs.BatchV1().Jobs(p.Namespace).Create(ctx, job, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
-				m.failDelete(b, "create job: "+err.Error())
+			claimed, err := m.Store.ClaimBackupDeletion(b.ID, JobName(p), operationCluster(b, srv))
+			if err != nil || !claimed {
 				continue
 			}
 			b.JobName = JobName(p)
-			if err := m.Store.UpdateBackup(b); err != nil {
-				log.Printf("backup: delete %d: update: %v", b.ID, err)
-			}
-			busy[b.ServerID] = true
-			continue
 		}
-		job, err := cs.BatchV1().Jobs(srv.Namespace).Get(ctx, b.JobName, metav1.GetOptions{})
-		if apierrors.IsNotFound(err) {
-			m.failDelete(b, "the snapshot deletion job disappeared")
-			continue
+		busy[b.ServerID] = true
+		if _, err := cs.BatchV1().Jobs(p.Namespace).Create(ctx, BuildJob(p), metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+			log.Printf("backup: delete %d: Job submission uncertain, retrying: %v", b.ID, err)
 		}
+	}
+}
+
+func (m *Manager) cleanupForgotten(ctx context.Context, cs kubernetes.Interface, ns string, b *models.Backup) {
+	if err := cleanup(ctx, cs, ns, b); err != nil {
+		log.Printf("backup: delete %d: cleanup: %v", b.ID, err)
+		return
+	}
+	if err := m.Store.DeleteBackup(b.ID); err != nil {
+		log.Printf("backup: delete %d: remove forgotten record: %v", b.ID, err)
+	}
+}
+
+func (m *Manager) processCleanup(ctx context.Context) {
+	backups, err := m.Store.ListBackupCleanup()
+	if err != nil {
+		return
+	}
+	for i := range backups {
+		b := &backups[i]
+		srv, err := m.Store.GetServer(b.ServerID)
 		if err != nil {
-			continue // transient; retry next tick
+			continue
 		}
-		done, failed := jobOutcome(job)
-		switch {
-		case done:
-			cleanup(ctx, cs, srv.Namespace, b.JobName)
-			if err := m.Store.DeleteBackup(b.ID); err != nil {
-				log.Printf("backup: delete %d: %v", b.ID, err)
-			}
-		case failed:
-			logs := podLogs(ctx, cs, srv.Namespace, b.JobName)
-			log.Printf("backup: removing #%d of %s failed: %s", b.ID, srv.Slug, failureLine(logs, Repository(cfg, srv.Slug)))
-			msg := failureMessage(logs, Repository(cfg, srv.Slug))
-			if msg == "" {
-				msg = "the snapshot could not be removed"
-			}
-			cleanup(ctx, cs, srv.Namespace, b.JobName)
-			m.failDelete(b, msg)
+		clients, err := m.Reg.For(operationCluster(b, srv))
+		if err != nil {
+			continue
 		}
+		m.cleanupFinished(ctx, clients.Clientset, srv.Namespace, b)
+	}
+}
+
+func (m *Manager) cleanupFinished(ctx context.Context, cs kubernetes.Interface, ns string, b *models.Backup) {
+	if err := cleanup(ctx, cs, ns, b); err != nil {
+		log.Printf("backup %d: terminal cleanup: %v", b.ID, err)
+		return
+	}
+	if err := m.Store.ClearBackupJob(b.ID, b.JobName); err != nil {
+		log.Printf("backup %d: acknowledge cleanup: %v", b.ID, err)
 	}
 }
 
@@ -604,18 +728,6 @@ func jobOutcome(job *batchv1.Job) (done, failed bool) {
 		return false, true
 	}
 	return false, false
-}
-
-// failDelete returns a record to Succeeded so it reappears in the list with the
-// reason its snapshot could not be removed, rather than vanishing from the UI
-// while the data stays in the bucket.
-func (m *Manager) failDelete(b *models.Backup, msg string) {
-	b.Phase = models.BackupSucceeded
-	b.JobName = ""
-	b.Message = "delete failed: " + msg
-	if err := m.Store.UpdateBackup(b); err != nil {
-		log.Printf("backup: delete %d: revert: %v", b.ID, err)
-	}
 }
 
 // stopWait bounds how long a backup waits for a stopping server's game to go:
@@ -670,16 +782,39 @@ func ensureSecret(ctx context.Context, cs kubernetes.Interface, sec *corev1.Secr
 		}
 		existing.Data = nil
 		existing.StringData = sec.StringData
+		existing.Labels = sec.Labels
 		_, uerr := cs.CoreV1().Secrets(sec.Namespace).Update(ctx, existing, metav1.UpdateOptions{})
 		return uerr
 	}
 	return err
 }
 
-func cleanup(ctx context.Context, cs kubernetes.Interface, ns, jobName string) {
+func cleanup(ctx context.Context, cs kubernetes.Interface, ns string, b *models.Backup) error {
 	prop := metav1.DeletePropagationBackground
-	_ = cs.BatchV1().Jobs(ns).Delete(ctx, jobName, metav1.DeleteOptions{PropagationPolicy: &prop})
-	_ = cs.CoreV1().Secrets(ns).Delete(ctx, CredsSecretName, metav1.DeleteOptions{})
+	if b.JobName != "" {
+		if err := cs.BatchV1().Jobs(ns).Delete(ctx, b.JobName, metav1.DeleteOptions{PropagationPolicy: &prop}); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	secret, err := cs.CoreV1().Secrets(ns).Get(ctx, CredsSecretName, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if secret.Labels[BackupLabel] != strconv.FormatUint(uint64(b.ID), 10) {
+		return nil
+	}
+	// Another operation may replace the shared credentials after this Get.
+	// Never let delayed cleanup delete that newer Secret revision.
+	err = cs.CoreV1().Secrets(ns).Delete(ctx, secret.Name, metav1.DeleteOptions{
+		Preconditions: &metav1.Preconditions{UID: &secret.UID, ResourceVersion: &secret.ResourceVersion},
+	})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	return err
 }
 
 func podLogs(ctx context.Context, cs kubernetes.Interface, ns, jobName string) string {
@@ -776,17 +911,23 @@ func containerFailure(pod *corev1.Pod) string {
 	return strings.TrimSpace(pod.Status.Reason + " " + pod.Status.Message)
 }
 
-func (m *Manager) finish(b *models.Backup, phase models.BackupPhase, size int64, msg string) {
+func (m *Manager) finish(b *models.Backup, phase models.BackupPhase, size int64, msg string) error {
+	return m.complete(b, phase, size, msg, 0)
+}
+
+func (m *Manager) complete(b *models.Backup, phase models.BackupPhase, size int64, msg string, keepLast int) error {
 	now := m.now()
+	from := b.Phase
 	b.Phase = phase
 	b.SizeBytes = size
 	b.Message = msg
 	b.CompletedAt = &now
-	if err := m.Store.UpdateBackup(b); err != nil {
+	if err := m.Store.CompleteBackup(b, from, keepLast); err != nil {
 		log.Printf("backup: finish %d: %v", b.ID, err)
-		return
+		return err
 	}
 	m.announce(b)
+	return nil
 }
 
 // announce records how an operation ended as an event, which the notification

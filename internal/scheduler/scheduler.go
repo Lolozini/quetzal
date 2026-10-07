@@ -133,7 +133,7 @@ func (s *Scheduler) Tick(ctx context.Context) {
 		// now and fires on a later tick — never retroactively.
 		if sc.NextRun == nil {
 			if nr, err := NextRunIn(sc.Cron, now, sc.Timezone); err == nil {
-				_ = s.Store.SetScheduleNextRun(sc.ID, &nr)
+				_ = s.Store.SetScheduleNextRun(sc, &nr)
 			} else {
 				log.Printf("scheduler: bad cron %q on schedule %d: %v", sc.Cron, sc.ID, err)
 			}
@@ -142,14 +142,12 @@ func (s *Scheduler) Tick(ctx context.Context) {
 		if now.Before(*sc.NextRun) {
 			continue
 		}
-		// Advance NextRun immediately so a long-running or delayed chain can't
-		// re-fire on the next tick. The async result write below only touches
-		// last_run/last_status, never this advanced next_run.
+		// Claim the run and advance NextRun together: no stale snapshot may
+		// start tasks after an edit or cancellation.
 		var next *time.Time
 		if nr, err := NextRunIn(sc.Cron, now, sc.Timezone); err == nil {
 			next = &nr
 		}
-		_ = s.Store.SetScheduleNextRun(sc.ID, next)
 
 		// Skip if a previous run of this same schedule is still in progress.
 		if !s.acquire(sc.ID) {
@@ -159,8 +157,11 @@ func (s *Scheduler) Tick(ctx context.Context) {
 		if tasks := sc.TaskChain(); len(tasks) > 0 {
 			run.Due = now.Add(time.Duration(tasks[0].TimeOffset) * time.Second)
 		}
-		if err := s.Store.SetScheduleRun(sc.ID, &run); err != nil {
-			log.Printf("scheduler: start chain %d: %v", sc.ID, err)
+		started, err := s.Store.StartScheduleRun(sc, &run, next)
+		if err != nil || !started {
+			if err != nil {
+				log.Printf("scheduler: start chain %d: %v", sc.ID, err)
+			}
 			s.release(sc.ID)
 			continue
 		}
@@ -180,26 +181,27 @@ func (s *Scheduler) launch(ctx context.Context, sc models.Schedule, run models.S
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("scheduler: chain %d panicked: %v", sc.ID, r)
-				s.finish(&sc, run.Fired, fmt.Sprintf("error: panic: %v", r))
+				s.finish(&sc, &run, fmt.Sprintf("error: panic: %v", r))
 			}
 		}()
 		status, ended := s.runChain(ctx, &sc, &run, resumed)
 		if !ended {
-			return // the controller is going away: the next one carries on
+			return // cancelled, or left for the next controller to carry on
 		}
-		s.finish(&sc, run.Fired, status)
+		s.finish(&sc, &run, status)
 	}()
 }
 
 // finish closes a chain: its run is over, and its result recorded.
-func (s *Scheduler) finish(sc *models.Schedule, fired time.Time, status string) {
-	if err := s.Store.SetScheduleRun(sc.ID, nil); err != nil {
+func (s *Scheduler) finish(sc *models.Schedule, run *models.ScheduleRun, status string) {
+	finished, err := s.Store.FinishScheduleRun(sc.ID, run, status)
+	if err != nil {
 		log.Printf("scheduler: end chain %d: %v", sc.ID, err)
+		return
 	}
-	if err := s.Store.MarkScheduleResult(sc.ID, fired, status); err != nil {
-		log.Printf("scheduler: mark result %d: %v", sc.ID, err)
+	if finished {
+		s.record(sc, status)
 	}
-	s.record(sc, status)
 }
 
 // Wait blocks until all in-flight chains finish (for graceful shutdown / tests).
@@ -271,6 +273,12 @@ func (s *Scheduler) runChain(ctx context.Context, sc *models.Schedule, run *mode
 				return "", false
 			}
 		}
+		// Cancellation is checked after every delay, immediately before the
+		// next task. Already dispatched side effects (notably backups) remain
+		// independent operations; cancelling never deletes their records.
+		if !s.active(sc.ID, run.Generation) {
+			return "", false
+		}
 		srv, err := s.Store.GetServer(sc.ServerID)
 		if err != nil {
 			run.Done = append(run.Done, fmt.Sprintf("#%d %s: error: server unavailable", i+1, t.Action))
@@ -280,11 +288,14 @@ func (s *Scheduler) runChain(ctx context.Context, sc *models.Schedule, run *mode
 		var msg string
 		if t.Action == models.SchedBackup && run.Backup != 0 {
 			// Carried on while waiting for its backup: that one, not another.
-			ok, msg = result(s.awaitBackup(ctx, run.Backup))
+			ok, msg = result(s.awaitBackup(ctx, run.Backup, sc.ID, run.Generation))
 		} else {
-			ok, msg = s.runTask(ctx, srv, t, func(id uint) {
+			ok, msg = s.runTask(ctx, srv, t, func(id uint) error {
 				run.Backup = id
-				s.saveRun(sc.ID, run)
+				if !s.saveRun(sc.ID, run) {
+					return errors.New("schedule cancelled or checkpoint unavailable")
+				}
+				return s.awaitBackup(ctx, id, sc.ID, run.Generation)
 			})
 		}
 		if !ok && ctx.Err() != nil {
@@ -300,7 +311,9 @@ func (s *Scheduler) runChain(ctx context.Context, sc *models.Schedule, run *mode
 		if run.Next < len(tasks) {
 			run.Due = s.now().Add(time.Duration(tasks[run.Next].TimeOffset) * time.Second)
 		}
-		s.saveRun(sc.ID, run)
+		if !s.saveRun(sc.ID, run) {
+			return "", false
+		}
 	}
 	if resumed {
 		return summary(run, "carried on after the controller restarted"), true
@@ -321,10 +334,20 @@ func summary(run *models.ScheduleRun, note string) string {
 	return out
 }
 
-func (s *Scheduler) saveRun(id uint, run *models.ScheduleRun) {
-	if err := s.Store.SetScheduleRun(id, run); err != nil {
+func (s *Scheduler) saveRun(id uint, run *models.ScheduleRun) bool {
+	saved, err := s.Store.SaveScheduleRun(id, run)
+	if err != nil {
 		log.Printf("scheduler: save chain %d: %v", id, err)
 	}
+	return err == nil && saved
+}
+
+func (s *Scheduler) active(id uint, generation uint64) bool {
+	active, err := s.Store.ScheduleRunActive(id, generation)
+	if err != nil {
+		log.Printf("scheduler: check chain %d: %v", id, err)
+	}
+	return err == nil && active
 }
 
 func result(err error) (bool, string) {
@@ -339,7 +362,7 @@ func result(err error) (bool, string) {
 // not touch any more than they can: a power action would lift the suspension,
 // and each backup's retention pushes out a snapshot from before it (skipped,
 // not a failure).
-func (s *Scheduler) runTask(ctx context.Context, srv *models.Server, t models.ScheduleTask, backupRequested func(uint)) (bool, string) {
+func (s *Scheduler) runTask(ctx context.Context, srv *models.Server, t models.ScheduleTask, backupRequested func(uint) error) (bool, string) {
 	if srv.DesiredState == models.StateSuspended {
 		return true, "skipped (server suspended)"
 	}
@@ -364,8 +387,7 @@ func (s *Scheduler) runTask(ctx context.Context, srv *models.Server, t models.Sc
 	case models.SchedBackup:
 		var id uint
 		if id, err = s.Exec.Backup(ctx, srv); err == nil {
-			backupRequested(id)
-			err = s.awaitBackup(ctx, id)
+			err = backupRequested(id)
 		}
 	default:
 		return false, "error: unknown action " + string(t.Action)
@@ -379,9 +401,12 @@ func (s *Scheduler) runTask(ctx context.Context, srv *models.Server, t models.Sc
 // being taken -- copying a running game, the one thing the chain was written to
 // avoid -- and one that paused the game's saves for a backup resumed them
 // before anything had been copied. The step fails with the backup.
-func (s *Scheduler) awaitBackup(ctx context.Context, id uint) error {
+func (s *Scheduler) awaitBackup(ctx context.Context, id, scheduleID uint, generation uint64) error {
 	deadline := s.now().Add(backupWait)
 	for {
+		if !s.active(scheduleID, generation) {
+			return errors.New("schedule cancelled or checkpoint unavailable")
+		}
 		b, err := s.Store.GetBackup(id)
 		switch {
 		case errors.Is(err, store.ErrNotFound):

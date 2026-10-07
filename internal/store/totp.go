@@ -1,6 +1,8 @@
 package store
 
 import (
+	"encoding/json"
+
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/totp"
 )
@@ -45,24 +47,38 @@ func (s *Store) DisableUserTOTP(id uint) error {
 // code was consumed.
 func (s *Store) ConsumeRecoveryCode(id uint, code string) (bool, error) {
 	want := totp.HashRecovery(code)
-	var u models.User
-	if err := s.db.First(&u, id).Error; err != nil {
-		return false, err
-	}
-	remaining := make([]string, 0, len(u.RecoveryCodes))
-	found := false
-	for _, h := range u.RecoveryCodes {
-		if !found && h == want {
-			found = true
-			continue
+	for {
+		var u models.User
+		if err := s.db.First(&u, id).Error; err != nil {
+			return false, err
 		}
-		remaining = append(remaining, h)
+		remaining := make([]string, 0, len(u.RecoveryCodes))
+		found := false
+		for _, h := range u.RecoveryCodes {
+			if h == want {
+				found = true
+				continue
+			}
+			remaining = append(remaining, h)
+		}
+		if !found {
+			return false, nil
+		}
+		previous, err := json.Marshal(u.RecoveryCodes)
+		if err != nil {
+			return false, err
+		}
+		// A competing consumer must not restore a code removed since our read.
+		// On collision, reread and remove only from the current set.
+		res := s.db.Model(&models.User{ID: id}).
+			Where("recovery_codes = ?", string(previous)).
+			Select("recovery_codes").
+			Updates(models.User{RecoveryCodes: remaining})
+		if res.Error != nil {
+			return false, res.Error
+		}
+		if res.RowsAffected == 1 {
+			return true, nil
+		}
 	}
-	if !found {
-		return false, nil
-	}
-	err := s.db.Model(&models.User{ID: id}).
-		Select("recovery_codes").
-		Updates(models.User{RecoveryCodes: remaining}).Error
-	return err == nil, err
 }

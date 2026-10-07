@@ -100,6 +100,20 @@ func TestTransferStartsAndBlocksActions(t *testing.T) {
 	if tr := post(t, admin, url+"/transfer", map[string]any{"targetCluster": cid}); tr.StatusCode != http.StatusConflict {
 		t.Errorf("second transfer = %d, want 409", tr.StatusCode)
 	}
+	if fr, err := admin.Get(url + "/files?path=/"); err != nil {
+		t.Fatal(err)
+	} else {
+		defer fr.Body.Close()
+		var answer struct {
+			Error string `json:"error"`
+		}
+		if err := json.NewDecoder(fr.Body).Decode(&answer); err != nil {
+			t.Fatal(err)
+		}
+		if fr.StatusCode != http.StatusConflict || !strings.Contains(answer.Error, "transfer") {
+			t.Fatalf("files during transfer = %d %q, want immediate transfer freeze", fr.StatusCode, answer.Error)
+		}
+	}
 
 	// The target cluster has no server rows yet (the server is still counted on
 	// the source), but deleting it would wedge the transfer — must be blocked.

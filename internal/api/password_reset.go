@@ -70,12 +70,11 @@ func (s *Server) handleForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// One active token at a time.
-	_ = s.Store.DeletePasswordResetsForUser(u.ID)
 	if err := s.Store.CreatePasswordReset(&models.PasswordReset{
 		UserID:    u.ID,
 		TokenHash: hashToken(token),
 		ExpiresAt: time.Now().Add(passwordResetTTL),
-	}); err != nil {
+	}, u); err != nil {
 		log.Printf("password reset: store: %v", err)
 		return
 	}
@@ -142,15 +141,17 @@ func (s *Server) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "hash failed")
+		writeCredentialError(w, err)
 		return
 	}
-	if err := s.Store.UpdateUserPassword(pr.UserID, hash); err != nil {
+	if err := s.Store.ResetPassword(pr, hash); err != nil {
+		if err == store.ErrNotFound {
+			writeError(w, http.StatusBadRequest, "invalid or expired reset token")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_ = s.Store.DeletePasswordResetsForUser(pr.UserID)
-	_ = s.Store.DeleteSessionsForUser(pr.UserID)
 	// There is no session here: the link stood for the account, so the entry
 	// goes under it.
 	if u, err := s.Store.GetUser(pr.UserID); err == nil {

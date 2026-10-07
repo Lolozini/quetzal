@@ -125,6 +125,7 @@ export const fr: Record<string, string> = {
   "Time zone": "Fuseau horaire",
   "Cancel transfer": "Annuler le transfert",
   "Cancelling…": "Annulation…",
+  "Finalizing": "Finalisation",
   "Search servers": "Rechercher un serveur",
   "No server matches that search.": "Aucun serveur ne correspond à cette recherche.",
   "Two-factor authentication required": "Authentification à deux facteurs obligatoire",

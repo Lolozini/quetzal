@@ -61,6 +61,15 @@ func (s *Store) EmailTaken(email string, except uint) (bool, error) {
 // address waiting for confirmation is dropped, and its links with it.
 func (s *Store) UpdateUserEmail(id uint, email string) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
+		u, err := lockUser(tx, id)
+		if err != nil {
+			return err
+		}
+		if u.Email != strings.TrimSpace(email) {
+			if err := tx.Where("user_id = ?", id).Delete(&models.PasswordReset{}).Error; err != nil {
+				return err
+			}
+		}
 		if err := tx.Where("user_id = ?", id).Delete(&models.EmailConfirmation{}).Error; err != nil {
 			return err
 		}
@@ -73,11 +82,14 @@ func (s *Store) UpdateUserEmail(id uint, email string) error {
 
 // StartEmailConfirmation records a link sent to email, replacing any earlier
 // one. An address other than the account's own becomes its pending address.
-func (s *Store) StartEmailConfirmation(c *models.EmailConfirmation) error {
+func (s *Store) StartEmailConfirmation(c *models.EmailConfirmation, verifiedHash string) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		var u models.User
-		if err := tx.First(&u, c.UserID).Error; err != nil {
+		u, err := lockUser(tx, c.UserID)
+		if err != nil {
 			return err
+		}
+		if u.PasswordHash != verifiedHash {
+			return ErrCredentialsChanged
 		}
 		if err := tx.Where("user_id = ?", c.UserID).Delete(&models.EmailConfirmation{}).Error; err != nil {
 			return err
@@ -86,7 +98,7 @@ func (s *Store) StartEmailConfirmation(c *models.EmailConfirmation) error {
 		if pending == u.Email {
 			pending = ""
 		}
-		if err := tx.Model(&u).Select("pending_email").Updates(models.User{PendingEmail: pending}).Error; err != nil {
+		if err := tx.Model(u).Select("pending_email").Updates(models.User{PendingEmail: pending}).Error; err != nil {
 			return err
 		}
 		return tx.Create(c).Error
@@ -96,6 +108,9 @@ func (s *Store) StartEmailConfirmation(c *models.EmailConfirmation) error {
 // CancelPendingEmail drops the address waiting for confirmation, and its link.
 func (s *Store) CancelPendingEmail(userID uint) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
+		if _, err := lockUser(tx, userID); err != nil {
+			return err
+		}
 		if err := tx.Where("user_id = ?", userID).Delete(&models.EmailConfirmation{}).Error; err != nil {
 			return err
 		}
@@ -111,26 +126,27 @@ var ErrConfirmationInvalid = errors.New("invalid or expired confirmation link")
 // one. The link is used up. An address another account took meanwhile is
 // refused with ErrDuplicate.
 func (s *Store) ConfirmEmail(tokenHash string) (*models.User, error) {
-	var u models.User
+	var c models.EmailConfirmation
+	if err := s.db.Where("token_hash = ?", tokenHash).First(&c).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrConfirmationInvalid
+		}
+		return nil, err
+	}
+	var u *models.User
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		var c models.EmailConfirmation
-		if err := tx.Where("token_hash = ?", tokenHash).First(&c).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return ErrConfirmationInvalid
-			}
+		var err error
+		u, err = lockUser(tx, c.UserID)
+		if err != nil {
 			return err
 		}
-		if err := tx.Where("user_id = ?", c.UserID).Delete(&models.EmailConfirmation{}).Error; err != nil {
-			return err
+		// Recheck consumption after locking the account: a password change or
+		// another confirmation may have invalidated our earlier snapshot.
+		res := tx.Where("id = ? AND token_hash = ? AND expires_at > ?", c.ID, tokenHash, time.Now()).Delete(&models.EmailConfirmation{})
+		if res.Error != nil {
+			return res.Error
 		}
-		if time.Now().After(c.ExpiresAt) {
-			return ErrConfirmationInvalid
-		}
-		if err := tx.First(&u, c.UserID).Error; err != nil {
-			return err
-		}
-		// The account asked for another address since, or cleared it.
-		if c.Email != u.PendingEmail && c.Email != u.Email {
+		if res.RowsAffected != 1 || (c.Email != u.PendingEmail && c.Email != u.Email) {
 			return ErrConfirmationInvalid
 		}
 		var n int64
@@ -140,26 +156,38 @@ func (s *Store) ConfirmEmail(tokenHash string) (*models.User, error) {
 		if n > 0 {
 			return ErrDuplicate
 		}
-		u.Email, u.EmailVerified, u.PendingEmail = c.Email, true, ""
-		return tx.Model(&u).Select("email", "email_verified", "pending_email").Updates(&u).Error
-	})
-	if errors.Is(err, ErrConfirmationInvalid) {
-		// The link was used up all the same; commit that.
-		if hErr := s.db.Where("token_hash = ?", tokenHash).Delete(&models.EmailConfirmation{}).Error; hErr != nil {
-			return nil, hErr
+		if u.Email != c.Email {
+			if err := tx.Where("user_id = ?", u.ID).Delete(&models.PasswordReset{}).Error; err != nil {
+				return err
+			}
 		}
-	}
+		u.Email, u.EmailVerified, u.PendingEmail = c.Email, true, ""
+		return tx.Model(u).Select("email", "email_verified", "pending_email").Updates(u).Error
+	})
 	if err != nil {
 		return nil, err
 	}
-	return &u, nil
+	return u, nil
 }
 
 // ---- password reset tokens ----
 
-// CreatePasswordReset stores a reset token (hash only).
-func (s *Store) CreatePasswordReset(pr *models.PasswordReset) error {
-	return s.db.Create(pr).Error
+// CreatePasswordReset replaces the active reset only if the account snapshot
+// still matches: a link addressed to an old email or password state is refused.
+func (s *Store) CreatePasswordReset(pr *models.PasswordReset, proof *models.User) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		u, err := lockUser(tx, pr.UserID)
+		if err != nil {
+			return err
+		}
+		if proof.ID != u.ID || proof.PasswordHash != u.PasswordHash || proof.Email != u.Email {
+			return ErrCredentialsChanged
+		}
+		if err := tx.Where("user_id = ?", pr.UserID).Delete(&models.PasswordReset{}).Error; err != nil {
+			return err
+		}
+		return tx.Create(pr).Error
+	})
 }
 
 // GetPasswordResetByHash returns a reset by token hash, or ErrNotFound.
@@ -172,12 +200,6 @@ func (s *Store) GetPasswordResetByHash(hash string) (*models.PasswordReset, erro
 		return nil, err
 	}
 	return &pr, nil
-}
-
-// DeletePasswordResetsForUser removes all of a user's reset tokens (after a
-// successful reset, or when issuing a fresh one).
-func (s *Store) DeletePasswordResetsForUser(userID uint) error {
-	return s.db.Where("user_id = ?", userID).Delete(&models.PasswordReset{}).Error
 }
 
 // The values SettingRequire2FA takes.
@@ -193,22 +215,10 @@ func (s *Store) DeleteExpiredPasswordResets() (int64, error) {
 	return res.RowsAffected, res.Error
 }
 
-// DeleteSessionsForUser invalidates every session of a user (used after a
-// password reset so existing logins can't continue).
+// DeleteSessionsForUser invalidates every session of a user.
+// Password mutations use changePassword so revocation cannot fail separately.
 func (s *Store) DeleteSessionsForUser(userID uint) error {
-	return s.DeleteSessionsForUserExcept(userID, "")
-}
-
-// DeleteSessionsForUserExcept invalidates a user's sessions but keeps the one
-// whose token hash is keepHash (empty keeps none). Changing a password is what
-// someone does when they think a session has been stolen, so every other login
-// has to end — while the client asking for the change stays signed in.
-func (s *Store) DeleteSessionsForUserExcept(userID uint, keepHash string) error {
-	q := s.db.Where("user_id = ?", userID)
-	if keepHash != "" {
-		q = q.Where("token <> ?", keepHash)
-	}
-	return q.Delete(&models.Session{}).Error
+	return s.db.Where("user_id = ?", userID).Delete(&models.Session{}).Error
 }
 
 // ---- system SMTP settings ----

@@ -21,7 +21,7 @@ func TestAMailSubjectSaysWhatHappened(t *testing.T) {
 		host, port, got := fakeSMTP(t)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		err := deliverEmail(ctx, map[string]string{"host": host, "port": port, "from": "q@example.test", "to": "ops@example.test", "tls": "none"},
-			models.Event{Type: c.typ, Message: "terraria-a1b2: start"}, "Terraria", "terraria-a1b2")
+			true, models.Event{Type: c.typ, Message: "terraria-a1b2: start"}, "Terraria", "terraria-a1b2")
 		cancel()
 		if err != nil {
 			t.Fatalf("%s: %v", c.typ, err)

@@ -321,7 +321,11 @@ func TestSFTPSymlinkGoesWhereTheClientSaid(t *testing.T) {
 			t.Errorf("symlink %s -> %s: no link at %s (%v)", c.link, c.target, c.link, err)
 			continue
 		}
-		if want := filepath.Join(root, c.want); got != want {
+		want, err := filepath.Rel(filepath.Dir(filepath.Join(root, c.link)), filepath.Join(root, c.want))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
 			t.Errorf("symlink %s -> %s points at %s, want %s", c.link, c.target, got, want)
 		}
 	}

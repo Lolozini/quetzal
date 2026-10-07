@@ -41,6 +41,41 @@ automatically on startup.
 3. Note your current version: `curl https://<panel>/api/version` (or the panel
    footer).
 
+## Security hardening in the unreleased version
+
+- Upgrade the API and controller together. Let active backups and transfers
+  finish first; disable scheduled chains before the upgrade. New operations
+  persist their execution metadata and cancellation generation.
+- The data-manager now always installs the root-confined file helper from
+  `QUETZAL_IMAGE`. Helm already supplies it. Development controllers must set
+  it to an image built from the same checkout and available to the cluster.
+  Existing data-manager pods roll once; game pods need not restart for this.
+- Replace remote kubeconfigs that use local credential paths or authentication
+  plugins with self-contained service-account configs. A rejected stored config
+  cannot be used until it is replaced.
+- Channels with their own SMTP host may only contact public addresses. To use
+  an internal relay, configure the administrator's panel-wide SMTP settings and
+  let channels use that relay without overriding its transport settings.
+- If `qctl create` previously set variables marked secret by their template,
+  **rotate those credentials**: their old values may have reached API readers,
+  database copies and exports. Startup now moves values marked secret by the
+  current template or the server's pinned revision into encrypted storage under
+  the existing key. Already sealed values and unknown public overrides are
+  preserved. Credentials whose secret metadata was removed cannot be identified
+  automatically; inventory those separately. Previously disclosed copies still
+  require credential rotation. Prefer the
+  panel/API over `--env` for new secrets, since command-line arguments remain
+  visible in process listings and shell history.
+- SQLite writers now require owner-only files. API and controller must run as
+  the same OS user; retain the encryption key and protect database backups.
+- Do not manually delete Jobs for active backups, restores or SQL imports.
+  Their completion is durable evidence. If an already observed Job disappears,
+  the panel keeps the operation exclusive rather than repeating destructive
+  work. An operator must inspect the recorded execution cluster, stop any
+  remaining writer pods and establish the real outcome before repairing the
+  operation record. Existing orphaned snapshots or previously lost backup
+  history are not automatically reconstructed.
+
 ## Upgrade with Helm
 
 ```sh

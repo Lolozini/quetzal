@@ -39,3 +39,25 @@ func TestAnEmailChannelSendsThroughThePanelsServer(t *testing.T) {
 		t.Errorf("no server anywhere = %v, want an error saying so", err)
 	}
 }
+
+func TestPanelSMTPDoesNotUseChannelTransportOverrides(t *testing.T) {
+	host, port, got := fakeSMTP(t)
+	st := &fakeStore{smtp: map[string]string{
+		"host": host, "port": port, "from": "panel@example.test", "tls": "none",
+	}}
+	d := New(st)
+	c := &models.NotificationChannel{ID: 1, Type: models.ChannelEmail, Enabled: true}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := d.DeliverTo(ctx, c, map[string]string{
+		"host": " ", "to": "ops@example.test", "port": "1", "tls": "tls",
+		"username": "tenant", "password": "tenant-secret",
+	}, models.Event{Type: models.EventServerCrashed})
+	if err != nil {
+		t.Fatalf("deliver through trusted panel relay: %v", err)
+	}
+	lines := <-got
+	if !has(lines, "RCPT TO:<ops@example.test>") || sent(lines, "AUTH") {
+		t.Errorf("unexpected panel SMTP conversation: %v", lines)
+	}
+}

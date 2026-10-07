@@ -8,6 +8,7 @@ package e2e
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -49,7 +50,18 @@ func setup(t *testing.T) (context.Context, client.Client, *store.Store, *reconci
 	if err := templates.Seed(st); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	return context.Background(), c, st, reconciler.New(c, st)
+	rec := reconciler.New(c, st)
+	rec.ActivatorImage = os.Getenv("QUETZAL_E2E_IMAGE")
+	return context.Background(), c, st, rec
+}
+
+func systemImage(t *testing.T) string {
+	t.Helper()
+	image := os.Getenv("QUETZAL_E2E_IMAGE")
+	if image == "" {
+		t.Skip("QUETZAL_E2E_IMAGE is required for the in-cluster file helper")
+	}
+	return image
 }
 
 // reconcileUntilRunning repeatedly reconciles until the DB status reaches the

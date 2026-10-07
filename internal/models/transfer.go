@@ -15,6 +15,9 @@ const (
 	// TransferRestoring: the server now belongs to the target cluster; once its
 	// (empty) volume exists there, the snapshot is restored into it.
 	TransferRestoring TransferPhase = "Restoring"
+	// TransferCommitting: restore succeeded and cancellation is closed. The
+	// source may now be deleted without a concurrent rollback deleting both.
+	TransferCommitting TransferPhase = "Committing"
 )
 
 // TransferState is the in-progress migration of a server to another cluster. It
