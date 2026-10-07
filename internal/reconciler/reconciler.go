@@ -414,7 +414,16 @@ func wipeConsumed(s *models.Server) bool {
 // DeleteServer tears down a server by deleting its namespace (cascades).
 func (r *Reconciler) DeleteServer(ctx context.Context, srv *models.Server) error {
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: srv.Namespace}}
-	if err := r.Client.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
+	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(ns), ns); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if err := r.checkNamespaceOwner(ns, nil); err != nil {
+		return err
+	}
+	if err := r.Client.Delete(ctx, ns, client.Preconditions{UID: &ns.UID, ResourceVersion: &ns.ResourceVersion}); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	return nil
@@ -458,7 +467,7 @@ func (r *Reconciler) GCOrphanNamespaces(ctx context.Context, validSlugs map[stri
 		if ns.DeletionTimestamp != nil {
 			continue // already terminating
 		}
-		if err := r.Client.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
+		if err := r.Client.Delete(ctx, ns, client.Preconditions{UID: &ns.UID, ResourceVersion: &ns.ResourceVersion}); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
@@ -466,9 +475,28 @@ func (r *Reconciler) GCOrphanNamespaces(ctx context.Context, validSlugs map[stri
 }
 
 func (r *Reconciler) ensureNamespace(ctx context.Context, s *models.Server) error {
-	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: s.Namespace}}
+	return r.ensureOwnedNamespace(ctx, s.Namespace, labelsFor(s))
+}
+
+// Ownership is checked on the object read for the update, whose resource
+// version also prevents a concurrent owner change from being overwritten.
+func (r *Reconciler) checkNamespaceOwner(ns *corev1.Namespace, labels map[string]string) error {
+	if owner := ns.Labels[InstanceLabel]; owner != "" && owner != r.InstanceID {
+		return fmt.Errorf("namespace %q belongs to another instance %q", ns.Name, owner)
+	}
+	if host := ns.Labels[dbHostLabel]; host != "" && labels[dbHostLabel] != "" && host != labels[dbHostLabel] {
+		return fmt.Errorf("namespace %q belongs to another database host %q", ns.Name, host)
+	}
+	return nil
+}
+
+func (r *Reconciler) ensureOwnedNamespace(ctx context.Context, name string, labels map[string]string) error {
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, ns, func() error {
-		ns.Labels = mergeLabels(ns.Labels, labelsFor(s))
+		if err := r.checkNamespaceOwner(ns, labels); err != nil {
+			return err
+		}
+		ns.Labels = mergeLabels(ns.Labels, labels)
 		// Stamp ownership so orphan collection can tell this control plane's
 		// namespaces from another's (see InstanceLabel). Also adopts namespaces
 		// created before the label existed.
@@ -487,8 +515,11 @@ func (r *Reconciler) ensureNamespace(ctx context.Context, s *models.Server) erro
 	// server as running. A role without update on namespaces is enough to trigger
 	// it: adding any new label (as the ownership stamp did) turns a create-only
 	// reconcile into an update on every pre-existing namespace.
-	if getErr := r.Client.Get(ctx, client.ObjectKey{Name: s.Namespace}, &corev1.Namespace{}); getErr != nil {
+	if getErr := r.Client.Get(ctx, client.ObjectKey{Name: name}, ns); getErr != nil {
 		return err
+	}
+	if ownerErr := r.checkNamespaceOwner(ns, labels); ownerErr != nil {
+		return ownerErr
 	}
 	r.warnOnce("namespace-labels", "cannot update namespace labels (%v); servers keep reconciling, but orphan-collection ownership will not be stamped on existing namespaces", err)
 	return nil
@@ -531,6 +562,12 @@ func (r *Reconciler) ensureSFTP(ctx context.Context, s *models.Server) error {
 	keys, err := r.Store.ListAuthorizedSSHKeys(s.ID)
 	if err != nil {
 		return fmt.Errorf("sftp authorized keys: %w", err)
+	}
+	// Existing SFTP connections re-check this ConfigMap; no source session
+	// remains authorized during a transfer. Pod termination is the hard
+	// snapshot barrier even if ConfigMap projection is delayed.
+	if s.Transfer != nil {
+		keys = nil
 	}
 	// Each key with the account it belongs to: SFTP lets a key in under its
 	// account's name only, and its log says who did what.
@@ -602,17 +639,14 @@ func (r *Reconciler) deleteSFTP(ctx context.Context, s *models.Server) {
 	_ = r.Store.ReleaseNodePort(s.ID, SFTPPortName)
 }
 
-// ensureDataDeployment reconciles the always-on data-manager Deployment (files +
-// SFTP). It normally runs one replica, but scales to zero while a restore is
-// active for the server: a restore overwrites the data volume in place and needs
-// exclusive write access, which it can't get while the data-manager holds the
-// ReadWriteOnce mount. Once the restore finishes, the next reconcile brings it
-// back.
+// ensureDataDeployment keeps the data manager available to earlier queued
+// backups, then releases the volume when a restore reaches the queue's front.
+// A transfer freezes all file writers until it completes or rolls back.
 func (r *Reconciler) ensureDataDeployment(ctx context.Context, s *models.Server, t *models.Template) error {
 	replicas := int32(1)
-	if active, err := r.Store.HasActiveRestore(s.ID); err != nil {
-		return fmt.Errorf("check active restore: %w", err)
-	} else if active {
+	if active, err := r.Store.RestoreNeedsDataVolume(s.ID); err != nil {
+		return fmt.Errorf("check restore volume ownership: %w", err)
+	} else if active || s.Transfer != nil {
 		replicas = 0
 	}
 	return r.applyKeepingHelpers(ctx, BuildDataDeployment(s, t, r.ActivatorImage, replicas), r.ActivatorImage)
@@ -764,7 +798,7 @@ func (r *Reconciler) egressPeersFor(s *models.Server) []EgressPeer {
 		}
 		switch {
 		case h.Kind == models.DBHostManaged:
-			if ns := ManagedDBNamespace(h); ns != "" && !seen[ns] {
+			if ns := h.ManagedNamespace(); ns != "" && !seen[ns] {
 				seen[ns] = true
 				peers = append(peers, EgressPeer{Namespace: ns})
 			}

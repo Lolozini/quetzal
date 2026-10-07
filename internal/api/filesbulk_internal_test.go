@@ -12,10 +12,29 @@ import (
 	"time"
 )
 
-// runScript runs a guarded file script with a real shell, the data root as $0.
-func runScript(t *testing.T, root, script string, args ...string) (string, string, int) {
+func TestFileCommandKeepsMetacharactersLiteral(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "a;$(touch escaped)\nfile")
+	argv := fileCommand(root, "write", target, "7")
+	cmd := fileopTestCommand(argv[2], argv[3], argv[4:]...)
+	cmd.Stdin = strings.NewReader("payload")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("helper: %v (%s)", err, output)
+	}
+	b, err := os.ReadFile(target)
+	if err != nil || string(b) != "payload" {
+		t.Fatalf("literal path = %q, %v", b, err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("unexpected files: %v %v", entries, err)
+	}
+}
+
+// runFileop runs the real descriptor-confined helper in a subprocess.
+func runFileop(t *testing.T, root, op string, args ...string) (string, string, int) {
 	t.Helper()
-	cmd := exec.Command("sh", append([]string{"-c", guarded(script), root}, args...)...)
+	cmd := fileopTestCommand(root, op, args...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
@@ -40,11 +59,7 @@ func mkfile(t *testing.T, p, body string) {
 
 func exists(p string) bool { _, err := os.Lstat(p); return err == nil }
 
-// A listing gives each entry's type, size and time, whether the image's find
-// reads the directory in one go (GNU) or the shell goes through it an entry at
-// a time (busybox, played here by a find without -printf). The second took
-// about 2 ms an entry, and a directory of 30,000 files outlasted the request
-// (recette of 0.10.0, R-08).
+// Listings preserve metadata and names containing whitespace without image tools.
 func TestListScriptReportsModTime(t *testing.T) {
 	root := t.TempDir()
 	mkfile(t, filepath.Join(root, "a b.txt"), "hello")
@@ -53,14 +68,12 @@ func TestListScriptReportsModTime(t *testing.T) {
 	os.Mkdir(filepath.Join(root, "sub"), 0o755)
 	mkfile(t, filepath.Join(root, "line\nbreak"), "x")
 
-	noPrintf := t.TempDir()
-	if err := os.WriteFile(filepath.Join(noPrintf, "find"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for name, path := range map[string]string{"one find": os.Getenv("PATH"), "entry by entry": noPrintf + ":" + os.Getenv("PATH")} {
+	for _, name := range []string{"metadata", "without image tools"} {
 		t.Run(name, func(t *testing.T) {
-			t.Setenv("PATH", path)
-			out, _, code := runScript(t, root, listScript, root)
+			if name == "without image tools" {
+				t.Setenv("PATH", t.TempDir())
+			}
+			out, _, code := runFileop(t, root, "list", root)
 			if code != 0 {
 				t.Fatalf("list exited %d", code)
 			}
@@ -109,17 +122,17 @@ func TestCopyScript(t *testing.T) {
 		return out
 	}
 
-	out, stderr, code := runScript(t, root, copyScript, append([]string{filepath.Join(root, "cfg.yml")}, cands("cfg.yml")...)...)
+	out, stderr, code := runFileop(t, root, "copy", append([]string{filepath.Join(root, "cfg.yml")}, cands("cfg.yml")...)...)
 	if code != 0 || filepath.Base(out) != "cfg copy.yml" {
 		t.Fatalf("copy: %q %q %d", out, stderr, code)
 	}
 	// The next copy takes the next free name.
-	out, _, _ = runScript(t, root, copyScript, append([]string{filepath.Join(root, "cfg.yml")}, cands("cfg.yml")...)...)
+	out, _, _ = runFileop(t, root, "copy", append([]string{filepath.Join(root, "cfg.yml")}, cands("cfg.yml")...)...)
 	if filepath.Base(out) != "cfg copy 1.yml" {
 		t.Errorf("second copy = %q", out)
 	}
 	// A folder is copied whole; a link inside it stays a link.
-	out, stderr, code = runScript(t, root, copyScript, append([]string{filepath.Join(root, "world")}, cands("world")...)...)
+	out, stderr, code = runFileop(t, root, "copy", append([]string{filepath.Join(root, "world")}, cands("world")...)...)
 	if code != 0 {
 		t.Fatalf("folder copy: %q %d", stderr, code)
 	}
@@ -130,7 +143,7 @@ func TestCopyScript(t *testing.T) {
 		t.Errorf("link inside the folder was not copied as a link: %v", err)
 	}
 	// A candidate outside the root is refused.
-	_, _, code = runScript(t, root, copyScript, filepath.Join(root, "cfg.yml"), "/tmp/escape-"+filepath.Base(root))
+	_, _, code = runFileop(t, root, "copy", filepath.Join(root, "cfg.yml"), "/tmp/escape-"+filepath.Base(root))
 	if code != fileOpBadRequest || exists("/tmp/escape-"+filepath.Base(root)) {
 		t.Errorf("copy outside the root exited %d", code)
 	}
@@ -146,24 +159,24 @@ func TestBulkDeleteAndMoveScripts(t *testing.T) {
 	os.Symlink(outside, filepath.Join(root, "out"))
 
 	// Move two files into a folder.
-	_, stderr, code := runScript(t, root, moveScript, filepath.Join(root, "logs"), filepath.Join(root, "a.log"), filepath.Join(root, "b.log"))
+	_, stderr, code := runFileop(t, root, "move", filepath.Join(root, "logs"), filepath.Join(root, "a.log"), filepath.Join(root, "b.log"))
 	if code != 0 || !exists(filepath.Join(root, "logs", "a.log")) || exists(filepath.Join(root, "a.log")) {
 		t.Fatalf("move: %q %d", stderr, code)
 	}
 	// Nothing is overwritten: an existing name stops the whole move.
 	mkfile(t, filepath.Join(root, "a.log"), "new")
-	_, stderr, code = runScript(t, root, moveScript, filepath.Join(root, "logs"), filepath.Join(root, "keep.txt"), filepath.Join(root, "a.log"))
+	_, stderr, code = runFileop(t, root, "move", filepath.Join(root, "logs"), filepath.Join(root, "keep.txt"), filepath.Join(root, "a.log"))
 	if code != fileOpBadRequest || !strings.Contains(stderr, "already exists") || !exists(filepath.Join(root, "keep.txt")) {
 		t.Errorf("move over an existing file: %q %d", stderr, code)
 	}
 	// Moving into a link that leaves the root is refused.
-	_, _, code = runScript(t, root, moveScript, filepath.Join(root, "out"), filepath.Join(root, "keep.txt"))
+	_, _, code = runFileop(t, root, "move", filepath.Join(root, "out"), filepath.Join(root, "keep.txt"))
 	if code != fileOpBadRequest || exists(filepath.Join(outside, "keep.txt")) {
 		t.Errorf("move through a link exited %d", code)
 	}
 
 	// Delete several entries, including a link (the link goes, not its target).
-	_, stderr, code = runScript(t, root, bulkDeleteScript, filepath.Join(root, "a.log"), filepath.Join(root, "logs"), filepath.Join(root, "out"))
+	_, stderr, code = runFileop(t, root, "delete", filepath.Join(root, "a.log"), filepath.Join(root, "logs"), filepath.Join(root, "out"))
 	if code != 0 || exists(filepath.Join(root, "logs")) || exists(filepath.Join(root, "out")) || !exists(filepath.Join(outside, "victim")) {
 		t.Errorf("delete: %q %d", stderr, code)
 	}
@@ -178,7 +191,7 @@ func TestCompressAndDecompressScripts(t *testing.T) {
 	mkfile(t, filepath.Join(root, "-rf"), "dash")
 	mkfile(t, filepath.Join(root, "server.properties"), "p=1")
 
-	out, stderr, code := runScript(t, root, compressScript, root, "archive-1.tar.gz", "world", "-rf")
+	out, stderr, code := runFileop(t, root, "compress", root, "archive-1.tar.gz", "world", "-rf")
 	if code != 0 || out != "archive-1.tar.gz" {
 		t.Fatalf("compress: %q %q %d", out, stderr, code)
 	}
@@ -186,18 +199,18 @@ func TestCompressAndDecompressScripts(t *testing.T) {
 		t.Errorf("temporary left behind: %v", m)
 	}
 	// A folder that is not there is a 404, not a tar failure.
-	if _, _, code := runScript(t, root, compressScript, filepath.Join(root, "gone"), "a.tar.gz", "x"); code != fileOpNotFound {
+	if _, _, code := runFileop(t, root, "compress", filepath.Join(root, "gone"), "a.tar.gz", "x"); code != fileOpNotFound {
 		t.Errorf("compress in a missing folder exited %d", code)
 	}
 	// It refuses to overwrite an archive of the same name.
-	if _, _, code := runScript(t, root, compressScript, root, "archive-1.tar.gz", "world"); code != fileOpBadRequest {
+	if _, _, code := runFileop(t, root, "compress", root, "archive-1.tar.gz", "world"); code != fileOpBadRequest {
 		t.Errorf("second compress exited %d", code)
 	}
 
 	// Unpack into another folder: the archive is moved there first.
 	os.Mkdir(filepath.Join(root, "restore"), 0o755)
 	os.Rename(filepath.Join(root, "archive-1.tar.gz"), filepath.Join(root, "restore", "archive-1.tar.gz"))
-	if _, stderr, code := runScript(t, root, decompressScript, filepath.Join(root, "restore", "archive-1.tar.gz"), "z"); code != 0 {
+	if _, stderr, code := runFileop(t, root, "decompress", filepath.Join(root, "restore", "archive-1.tar.gz"), "z"); code != 0 {
 		t.Fatalf("decompress: %q %d", stderr, code)
 	}
 	for f, want := range map[string]string{"restore/world/level.dat": "lvl", "restore/-rf": "dash"} {
@@ -206,15 +219,12 @@ func TestCompressAndDecompressScripts(t *testing.T) {
 		}
 	}
 	// A directory is not an archive.
-	if _, _, code := runScript(t, root, decompressScript, filepath.Join(root, "world"), "z"); code != fileOpBadRequest {
+	if _, _, code := runFileop(t, root, "decompress", filepath.Join(root, "world"), "z"); code != fileOpBadRequest {
 		t.Errorf("decompressing a folder exited %d", code)
 	}
 }
 
 func TestDecompressZip(t *testing.T) {
-	if _, err := exec.LookPath("unzip"); err != nil {
-		t.Skip("no unzip here")
-	}
 	root := t.TempDir()
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
@@ -222,7 +232,7 @@ func TestDecompressZip(t *testing.T) {
 	f.Write([]byte("jar"))
 	zw.Close()
 	mkfile(t, filepath.Join(root, "pack.zip"), buf.String())
-	if _, stderr, code := runScript(t, root, decompressScript, filepath.Join(root, "pack.zip"), "zip"); code != 0 {
+	if _, stderr, code := runFileop(t, root, "decompress", filepath.Join(root, "pack.zip"), "zip"); code != 0 {
 		t.Fatalf("unzip: %q %d", stderr, code)
 	}
 	if b, _ := os.ReadFile(filepath.Join(root, "mods", "a.jar")); string(b) != "jar" {
@@ -255,7 +265,7 @@ func TestListingKeepsNamesWithANewlineWhole(t *testing.T) {
 		mkfile(t, filepath.Join(root, name), "x")
 	}
 	os.Mkdir(filepath.Join(root, "two\nlines"), 0o755)
-	out, _, code := runScript(t, root, listScript, root)
+	out, _, code := runFileop(t, root, "list", root)
 	if code != 0 {
 		t.Fatalf("list exited %d", code)
 	}
@@ -286,7 +296,7 @@ func TestRenameRefusesATakenName(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, to := range []string{"out", "b.txt"} {
-		_, stderr, code := runScript(t, root, renameScript, filepath.Join(root, "a.txt"), filepath.Join(root, to))
+		_, stderr, code := runFileop(t, root, "rename", filepath.Join(root, "a.txt"), filepath.Join(root, to))
 		if code != fileOpBadRequest || !strings.Contains(stderr, "already exists") {
 			t.Errorf("rename onto %s: exit %d (%s), want refused", to, code, strings.TrimSpace(stderr))
 		}
@@ -294,7 +304,7 @@ func TestRenameRefusesATakenName(t *testing.T) {
 	if exists(filepath.Join(outside, "a.txt")) || !exists(filepath.Join(root, "a.txt")) {
 		t.Fatal("the file left the data directory through the link")
 	}
-	if _, _, code := runScript(t, root, renameScript, filepath.Join(root, "a.txt"), filepath.Join(root, "c.txt")); code != 0 || !exists(filepath.Join(root, "c.txt")) {
+	if _, _, code := runFileop(t, root, "rename", filepath.Join(root, "a.txt"), filepath.Join(root, "c.txt")); code != 0 || !exists(filepath.Join(root, "c.txt")) {
 		t.Errorf("a plain rename exited %d", code)
 	}
 }

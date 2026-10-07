@@ -26,8 +26,29 @@ const (
 // ErrInvalidHash is returned when a stored hash cannot be parsed.
 var ErrInvalidHash = errors.New("invalid password hash")
 
+// ErrBusy refuses password work when the process-wide memory budget is full.
+// There is no wait queue: request bursts cannot accumulate waiting KDF jobs.
+var ErrBusy = errors.New("password service busy; retry shortly")
+
+// Two 64 MiB computations may run at once, across hashing, real verification,
+// and decoy verification. Parameters and unknown-account work stay identical.
+var passwordSlots = make(chan struct{}, 2)
+
+func acquirePasswordSlot() bool {
+	select {
+	case passwordSlots <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
 // HashPassword returns an argon2id encoded hash for the given password.
 func HashPassword(password string) (string, error) {
+	if !acquirePasswordSlot() {
+		return "", ErrBusy
+	}
+	defer func() { <-passwordSlots }()
 	salt := make([]byte, saltLen)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
@@ -57,15 +78,19 @@ var decoyHash = func() string {
 	return h
 }()
 
-// SpendVerifyBudget performs the same work VerifyPassword does, and reports
-// nothing. Call it on the paths that have no hash to check -- an unknown
-// username -- so they take as long as the paths that do.
-func SpendVerifyBudget(password string) {
-	_, _ = VerifyPassword(decoyHash, password)
+// SpendVerifyBudget spends the same work and admission budget as a known
+// account. Only an operational error is returned, never the decoy comparison.
+func SpendVerifyBudget(password string) error {
+	_, err := VerifyPassword(decoyHash, password)
+	return err
 }
 
 // VerifyPassword reports whether password matches the encoded argon2id hash.
 func VerifyPassword(encoded, password string) (bool, error) {
+	if !acquirePasswordSlot() {
+		return false, ErrBusy
+	}
+	defer func() { <-passwordSlots }()
 	parts := strings.Split(encoded, "$")
 	if len(parts) != 6 || parts[1] != "argon2id" {
 		return false, ErrInvalidHash

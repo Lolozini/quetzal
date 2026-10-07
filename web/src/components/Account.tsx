@@ -3,13 +3,13 @@ import { api, APIKey, ApiError, SSHKey, User } from "../api";
 import { useT } from "../i18n";
 import { QRCode } from "./QRCode";
 
-export function Account({ user }: { user: User }) {
+export function Account({ user, onUserRefresh }: { user: User; onUserRefresh: () => Promise<void> }) {
   const { t } = useT();
   return (
     <>
       <ChangePassword />
       <EmailCard initial={user.email || ""} />
-      <TwoFactor initialEnabled={!!user.twoFactorEnabled} username={user.username} />
+      <TwoFactor initialEnabled={!!user.twoFactorEnabled} username={user.username} onChanged={onUserRefresh} />
       <SSHKeys />
       <APIKeys />
       <div className="card">
@@ -26,23 +26,23 @@ export function Account({ user }: { user: User }) {
 export function TwoFactor({
   initialEnabled,
   username,
-  onEnabled,
+  onChanged,
 }: {
   initialEnabled: boolean;
   username: string;
-  onEnabled?: () => void;
+  onChanged: () => Promise<void>;
 }) {
   const { t } = useT();
   const [enabled, setEnabled] = useState(initialEnabled);
   const [enroll, setEnroll] = useState<{ secret: string; uri: string } | null>(null);
   const [recovery, setRecovery] = useState<string[] | null>(null);
   const [disabling, setDisabling] = useState(false);
+  const [refreshPending, setRefreshPending] = useState(false);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // The user prop is captured at login and can be stale if 2FA was toggled
-  // earlier this session; sync the real state on mount.
+  // Read the current state on mount, including changes made in another tab.
   useEffect(() => {
     api.me().then((m) => setEnabled(!!m.twoFactorEnabled)).catch(() => {});
   }, []);
@@ -72,7 +72,22 @@ export function TwoFactor({
       setEnabled(true);
       setEnroll(null);
       setCode("");
-      onEnabled?.();
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refresh() {
+    setError("");
+    setBusy(true);
+    try {
+      // Do not release the enrolment wall until the codes were acknowledged.
+      // If refresh fails, keep them visible and let the same button retry.
+      await onChanged();
+      setRecovery(null);
+      setRefreshPending(false);
     } catch (e) {
       fail(e);
     } finally {
@@ -88,6 +103,9 @@ export function TwoFactor({
       setEnabled(false);
       setDisabling(false);
       setCode("");
+      setRefreshPending(true);
+      await onChanged();
+      setRefreshPending(false);
     } catch (e) {
       fail(e);
     } finally {
@@ -104,7 +122,7 @@ export function TwoFactor({
           <strong>{t("Save your recovery codes now — they are shown only once.")}</strong>
           <p className="muted">{t("Each code works once if you lose your authenticator.")}</p>
           <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{recovery.join("\n")}</pre>
-          <button onClick={() => setRecovery(null)}>{t("I've saved them")}</button>
+          <button disabled={busy} onClick={refresh}>{t("I've saved them")}</button>
         </div>
       )}
 
@@ -130,7 +148,7 @@ export function TwoFactor({
       {!recovery && !enabled && !enroll && (
         <>
           <p className="muted">{t("Protect your account with a time-based one-time password (TOTP).")}</p>
-          <button className="primary" disabled={busy} onClick={begin}>{t("Enable 2FA")}</button>
+          <button className="primary" disabled={busy || refreshPending} onClick={begin}>{t("Enable 2FA")}</button>
         </>
       )}
 
@@ -154,6 +172,7 @@ export function TwoFactor({
         </div>
       )}
 
+      {refreshPending && <button disabled={busy} onClick={refresh}>{t("Refresh")}</button>}
       {error && <div className="error">{error}</div>}
     </div>
   );

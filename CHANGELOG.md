@@ -7,6 +7,28 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Security
+
+- Reject uploaded kubeconfigs that reference local credential files or execute
+  authentication plugins; refuse to take over another panel's namespaces.
+- Confine HTTP file operations and SFTP to a held filesystem root, including
+  concurrent symlink changes. File operations now require the Quetzal helper
+  image even when SFTP is disabled.
+- Disable MariaDB client commands and local-file reads in SQL imports and
+  restores. Tenant-configured SMTP cannot connect to private or local addresses;
+  the administrator's panel-wide SMTP relay remains usable.
+- Consume recovery codes and password-reset links atomically. Password changes
+  revoke old reset links, pending email confirmations and obsolete sessions;
+  a login using an outdated password proof cannot create a new session.
+- Limit sensitive authentication attempts and concurrent password hashing,
+  incoming console messages and UDP proxy flows. Existing consoles lose access
+  after credential or permission revocation.
+- Keep CLI-created secret variables out of public server environments, reject
+  zero CPU limits under a CPU quota, and create SQLite files with owner-only
+  permissions. See the upgrade guide for previously exposed CLI secrets.
+- Update vulnerable web/documentation build dependencies (`source-map-js`,
+  `sharp`, `http-cache-semantics` and `postcss-selector-parser`).
+
 ### Added
 
 - **Clean reinstall: delete everything but what you keep, then install.**
@@ -82,6 +104,25 @@ releases may include breaking changes).
   a CPU set restart once, on the upgrade, to take the new reservation.
 
 ### Fixed
+
+- Preserve recovery codes until acknowledged, refresh 2FA policy state without
+  reloading, retain unsaved network selections across polling, and reset the
+  variables form when switching templates.
+- Preserve large JSON numbers and refuse to overwrite malformed JSON/YAML
+  configuration files. Template imports accept a UTF-8 BOM and reject
+  non-absolute volume paths.
+- Make CLI power actions honor hibernation and active offline operations;
+  validate managed-database storage changes and serialize database provisioning
+  limits and password rotations.
+- Cancel pending schedule steps when disabled or deleted, reject task edits
+  during an active chain, and prevent stale idle probes from overriding a wake
+  or policy change.
+- Retain durable backup Job evidence until results are committed. Retry
+  uncertain submissions safely, keep retention scoped to the original target,
+  and avoid duplicate snapshots or path-dependent retention.
+- Freeze file access during transfers, drain writers before copying, and
+  finish cancelling destination operations before reopening the source.
+  Transfers cannot be cancelled once final source cleanup has begun.
 
 - **A managed database's log is readable again.** Its readiness and liveness
   probes opened a connection to the MySQL port and closed it without

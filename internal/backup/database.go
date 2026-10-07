@@ -86,6 +86,9 @@ SELECT CONCAT('DROP EVENT IF EXISTS §', REPLACE(EVENT_NAME, '§', '§§'), '§;
 // MariaDB 10.6 without TLS and a MySQL 8.4 with its self-signed certificate.
 // The panel's own provisioning connection does not ask for TLS at all.
 //
+// Input SQL is untrusted: disable client-side commands and LOCAL INFILE reads.
+// These are client options, not dump options, so they stay out of conn.
+//
 // fatal ends the step with a "Fatal:" line, which is what the operation's
 // message is read from; lasterr picks the client's error out of its output.
 const dbPrelude = `set -euo pipefail
@@ -94,15 +97,15 @@ err="$(mktemp)"
 lasterr() { grep -v '^WARNING' "$err" | tail -n 1 || true; }
 conn=(--host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" --disable-ssl-verify-server-cert)
 connect() {
-  mariadb "${conn[@]}" -e 'SELECT 1' "$DB_NAME" >/dev/null 2>"$err" ||
+  mariadb --binary-mode --local-infile=0 "${conn[@]}" -e 'SELECT 1' "$DB_NAME" >/dev/null 2>"$err" ||
     fatal "could not connect to database $DB_NAME: $(lasterr)"
 }
 wipe() {
   local drops
-  drops="$(mariadb "${conn[@]}" -N -B -r -e "$WIPE_QUERY" "$DB_NAME" 2>"$err")" ||
+  drops="$(mariadb --binary-mode --local-infile=0 "${conn[@]}" -N -B -r -e "$WIPE_QUERY" "$DB_NAME" 2>"$err")" ||
     fatal "could not list what database $DB_NAME holds: $(lasterr)"
   if [ -n "$drops" ]; then
-    printf 'SET FOREIGN_KEY_CHECKS=0;\n%s\n' "$drops" | mariadb "${conn[@]}" "$DB_NAME" 2>"$err" ||
+    printf 'SET FOREIGN_KEY_CHECKS=0;\n%s\n' "$drops" | mariadb --binary-mode --local-infile=0 "${conn[@]}" "$DB_NAME" 2>"$err" ||
       fatal "database $DB_NAME could not be emptied: $(lasterr)"
   fi
 }
@@ -126,7 +129,7 @@ f="` + restorePath + dumpsPath + `/$DB_NAME.sql"
 [ -f "$f" ] || fatal "the backup holds no dump of database $DB_NAME"
 connect
 wipe
-mariadb "${conn[@]}" "$DB_NAME" <"$f" 2>"$err" ||
+mariadb --binary-mode --local-infile=0 "${conn[@]}" "$DB_NAME" <"$f" 2>"$err" ||
   fatal "database $DB_NAME could not be loaded, and holds part of the backup: $(lasterr)"
 `
 
@@ -158,7 +161,7 @@ sql | sed -E \
   -e 's/^CREATE DATABASE .*$//' \
   -e 's/^USE §([^§]|§§)*§;[[:space:]]*$//' \
   -e 's/DEFINER=§([^§]|§§)*§@§([^§]|§§)*§//g' |
-  mariadb "${conn[@]}" "$DB_NAME" 2>"$err" ||
+  mariadb --binary-mode --local-infile=0 "${conn[@]}" "$DB_NAME" 2>"$err" ||
   fatal "the import stopped, and database $DB_NAME holds part of the file: $(lasterr)"
 `, "§", "`")
 

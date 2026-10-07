@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -374,10 +375,12 @@ func applyStructured(path string, vals map[string]string, marshal marshalFn, unm
 		return err
 	}
 	doc := map[string]any{}
-	if b := bytes.TrimSpace(cur); len(b) > 0 {
-		_ = unmarshal(b, &doc) // tolerate an unparsable existing file: start fresh
+	if b := bytes.TrimSpace(bytes.TrimPrefix(cur, []byte("\xef\xbb\xbf"))); len(b) > 0 {
+		if err := unmarshal(b, &doc); err != nil {
+			return fmt.Errorf("parse existing configuration: %w", err)
+		}
 		if doc == nil {
-			doc = map[string]any{}
+			return errors.New("existing configuration must be an object")
 		}
 	}
 	// Apply in sorted key order so shorter paths don't clobber nested ones set later.
@@ -435,7 +438,18 @@ func marshalJSON(m map[string]any) ([]byte, error) {
 	}
 	return append(b, '\n'), nil
 }
-func unmarshalJSON(b []byte, m *map[string]any) error { return json.Unmarshal(b, m) }
+func unmarshalJSON(b []byte, m *map[string]any) error {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	if err := dec.Decode(m); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		return errors.New("unexpected content after JSON configuration")
+	}
+	return nil
+}
 
 func marshalYAML(m map[string]any) ([]byte, error)    { return yaml.Marshal(m) }
 func unmarshalYAML(b []byte, m *map[string]any) error { return yaml.Unmarshal(b, m) }

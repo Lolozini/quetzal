@@ -46,12 +46,19 @@ func TestServerDatabaseCRUDAndCount(t *testing.T) {
 	if err != nil || pw != "userpass1" {
 		t.Fatalf("password round-trip = %q, %v", pw, err)
 	}
-	if err := s.UpdateServerDatabasePassword(d.ID, "rotated99"); err != nil {
+	remotePassword := "userpass1"
+	if err := s.RotateServerDatabasePassword(d.ID, "rotated99", func(_ *models.ServerDatabase, next string) error {
+		remotePassword = next
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := s.GetServerDatabase(d.ID)
 	if pw, _ := s.ServerDatabasePassword(got); pw != "rotated99" {
 		t.Errorf("rotated password = %q, want rotated99", pw)
+	}
+	if remotePassword != "rotated99" {
+		t.Errorf("remote password was not rotated")
 	}
 	if err := s.DeleteServerDatabase(d.ID); err != nil {
 		t.Fatal(err)

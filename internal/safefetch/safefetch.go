@@ -93,13 +93,20 @@ func guard(_, address string, _ syscall.RawConn) error {
 	return nil
 }
 
+// SafeDialer returns a dialer that refuses non-public destination IPs on every
+// connection, after DNS resolution. Use it for user-selected TCP endpoints so
+// DNS rebinding cannot bypass the same policy applied to HTTP fetches.
+func SafeDialer() *net.Dialer {
+	return &net.Dialer{Timeout: 10 * time.Second, Control: guard}
+}
+
 // SafeTransport returns an *http.Transport whose dialer refuses connections to
 // non-public addresses (see blockedIP). The guard runs for every actual TCP
 // connection — each resolved IP and each redirect hop — so it also defeats DNS
 // rebinding. Pair it with CheckRedirect on an http.Client for any outbound
 // request to a user-supplied URL (egg fetch, notification webhooks).
 func SafeTransport() *http.Transport {
-	dialer := &net.Dialer{Timeout: 10 * time.Second, Control: guard}
+	dialer := SafeDialer()
 	return &http.Transport{
 		DialContext:           dialer.DialContext,
 		TLSHandshakeTimeout:   10 * time.Second,

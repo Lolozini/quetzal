@@ -51,7 +51,7 @@ function viewToHash(v: View): string {
   }
 }
 
-export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
+export function Dashboard({ user, onLogout, onUserRefresh }: { user: User; onLogout: () => void; onUserRefresh: () => Promise<void> }) {
   const [view, setView] = useState<View>(parseHash);
   const { t } = useT();
 
@@ -120,7 +120,7 @@ export function Dashboard({ user, onLogout }: { user: User; onLogout: () => void
             <ServerDetail id={view.id} tab={view.tab} user={user} onBack={() => go({ name: "list" })} />
           )}
           {view.name === "admin" && (isAnyAdmin(user) ? <Admin user={user} section={view.section} /> : <ServerList onCreate={() => go({ name: "create" })} onOpen={(id) => go({ name: "detail", id })} />)}
-          {view.name === "account" && <Account user={user} />}
+          {view.name === "account" && <Account user={user} onUserRefresh={onUserRefresh} />}
         </ErrorBoundary>
       </div>
       <VersionFooter />

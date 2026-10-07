@@ -142,3 +142,30 @@ func TestEggDeleteBlockedWhileInUse(t *testing.T) {
 	}
 	d.Body.Close()
 }
+
+func TestTemplateUpdateRejectsNonAbsoluteDataPath(t *testing.T) {
+	ts, c, st := newTestServerStore(t)
+	setupAdmin(t, ts.URL, c)
+	original, err := st.GetTemplateBySlug("generic-process")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dataPath := range []string{" /data", "\t/data", "   "} {
+		t.Run(dataPath, func(t *testing.T) {
+			payload := *original
+			payload.DataPath = dataPath
+			r := put(t, c, ts.URL+"/api/templates/generic-process", payload)
+			r.Body.Close()
+			if r.StatusCode != http.StatusBadRequest {
+				t.Errorf("update with %q = %d, want 400", dataPath, r.StatusCode)
+			}
+			saved, err := st.GetTemplate(original.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if saved.DataPath != original.DataPath {
+				t.Errorf("invalid update changed data path to %q", saved.DataPath)
+			}
+		})
+	}
+}

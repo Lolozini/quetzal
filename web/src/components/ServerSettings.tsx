@@ -14,10 +14,15 @@ import { RestartHint } from "./RestartHint";
 // administrators' (servers permission), as the API has it.
 export function ServerSettings({ server, onSaved, canSwitchTemplate, canEditStartup }: { server: Server; onSaved: (s: Server) => void; canSwitchTemplate: boolean; canEditStartup: boolean }) {
   const { t } = useT();
-  const [tmpl, setTmpl] = useState<Template | null>(null);
+  const [loadedTemplate, setLoadedTemplate] = useState<Template | null>(null);
+  const tmpl = loadedTemplate?.id === server.templateId ? loadedTemplate : null;
 
   useEffect(() => {
-    api.templates().then((ts) => setTmpl(ts.find((t) => t.id === server.templateId) ?? null)).catch(() => {});
+    let live = true;
+    api.templates().then((ts) => {
+      if (live) setLoadedTemplate(ts.find((t) => t.id === server.templateId) ?? null);
+    }).catch(() => {});
+    return () => { live = false; };
   }, [server.templateId]);
 
   const editable = (tmpl?.variables ?? []).filter((v) => v.editable);
@@ -29,7 +34,7 @@ export function ServerSettings({ server, onSaved, canSwitchTemplate, canEditStar
     <div className="card">
       <h2>{t("Startup & resources")}</h2>
       <p className="muted">{t("Edit this server's configuration. A ↻ marker appears on a pending change that will restart the server.")}</p>
-      {editable.length > 0 && <Variables serverId={server.id} vars={editable} env={server.env ?? {}} onSaved={onSaved} />}
+      {editable.length > 0 && <Variables key={`${server.id}:${server.templateId}`} serverId={server.id} vars={editable} env={server.env ?? {}} onSaved={onSaved} />}
       {tmpl && <StartupForm server={server} template={tmpl} onSaved={onSaved} canEdit={canEditStartup} />}
       {tmpl && <ImageForm server={server} template={tmpl} onSaved={onSaved} />}
       <ResourcesForm server={server} onSaved={onSaved} />
@@ -102,7 +107,9 @@ function ReachesForm({ server, onSaved }: { server: Server; onSaved: (s: Server)
       .then((ss) => setOthers(ss.filter((s) => s.id !== server.id && (s.clusterId ?? 0) === (server.clusterId ?? 0))))
       .catch(() => {});
   }, [server.id, server.clusterId]);
-  useEffect(() => setChosen(server.reaches ?? []), [server.reaches]);
+  // Polls decode a fresh array; only a change to the saved set resets the draft.
+  const savedKey = JSON.stringify([...(server.reaches ?? [])].sort());
+  useEffect(() => setChosen(JSON.parse(savedKey) as string[]), [server.id, savedKey]);
 
   const saved = server.reaches ?? [];
   const dirty = chosen.length !== saved.length || chosen.some((s) => !saved.includes(s));
@@ -118,7 +125,9 @@ function ReachesForm({ server, onSaved }: { server: Server; onSaved: (s: Server)
     setError("");
     setBusy(true);
     try {
-      onSaved(await api.setServerReaches(server.id, chosen));
+      const saved = await api.setServerReaches(server.id, chosen);
+      setChosen(saved.reaches ?? []);
+      onSaved(saved);
       setMsg(t("Saved: it applies within a few seconds, without a restart."));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));

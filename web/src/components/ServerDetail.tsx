@@ -435,14 +435,13 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
           <div className="notice" style={{ marginTop: 12 }}>
             {t("Transferring to {cluster} ({phase})… power and edits are paused until it finishes.", {
               cluster: clusters.find((c) => c.id === srv.transfer!.targetCluster)?.name || `cluster ${srv.transfer.targetCluster}`,
-              phase: srv.transfer.phase,
+              phase: srv.transfer.phase === "Committing" ? t("Finalizing") : srv.transfer.phase,
             })}{" "}
-            {/* A transfer whose job stalls would otherwise pin the server with
-                no way out but deleting it. */}
+            {/* Cancellation closes before source deletion begins. */}
             {srv.transfer.cancelled ? (
               <span className="muted">{t("Cancelling…")}</span>
             ) : (
-              hasAdminPerm(user, "servers") && (
+              hasAdminPerm(user, "servers") && srv.transfer.phase !== "Committing" && (
                 <button
                   type="button"
                   onClick={async () => {

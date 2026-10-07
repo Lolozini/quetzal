@@ -117,7 +117,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "hash failed")
+		writeCredentialError(w, err)
 		return
 	}
 	u := &models.User{
@@ -205,7 +205,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 		var err error
 		if hash, err = auth.HashPassword(*req.Password); err != nil {
-			writeError(w, http.StatusInternalServerError, "hash failed")
+			writeCredentialError(w, err)
 			return
 		}
 	}
@@ -231,15 +231,10 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Password != nil {
-		if err := s.Store.UpdateUserPassword(target.ID, hash); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+		if err := s.Store.UpdateUserPassword(target.ID, hash, target.PasswordHash, sessionHash(r)); err != nil {
+			writeCredentialError(w, err)
 			return
 		}
-		// An admin resetting a password is locking someone out; leaving that
-		// account's live sessions running would defeat the point. Passing the
-		// caller's own session hash only matters when an admin resets their own
-		// password — it spares nothing on any other account.
-		_ = s.Store.DeleteSessionsForUserExcept(target.ID, sessionHash(r))
 	}
 	if req.Email != nil {
 		if err := s.Store.UpdateUserEmail(target.ID, email); err != nil {
@@ -307,6 +302,9 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 // handleChangePassword lets the current user change their own password.
 func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
+	if !s.allowSensitiveAuth(w, u) {
+		return
+	}
 	var req struct {
 		OldPassword string `json:"oldPassword"`
 		NewPassword string `json:"newPassword"`
@@ -315,7 +313,12 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	if ok, _ := auth.VerifyPassword(u.PasswordHash, req.OldPassword); !ok {
+	ok, err := auth.VerifyPassword(u.PasswordHash, req.OldPassword)
+	if err != nil {
+		writeCredentialError(w, err)
+		return
+	}
+	if !ok {
 		writeError(w, http.StatusUnauthorized, "current password is incorrect")
 		return
 	}
@@ -325,17 +328,13 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 	hash, err := auth.HashPassword(req.NewPassword)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "hash failed")
+		writeCredentialError(w, err)
 		return
 	}
-	if err := s.Store.UpdateUserPassword(u.ID, hash); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	if err := s.Store.UpdateUserPassword(u.ID, hash, u.PasswordHash, sessionHash(r)); err != nil {
+		writeCredentialError(w, err)
 		return
 	}
-	// Changing a password is what someone does when they think a session was
-	// stolen, so every other login ends here. The caller's own session is kept
-	// so they aren't signed out of the page they just used.
-	_ = s.Store.DeleteSessionsForUserExcept(u.ID, sessionHash(r))
 	s.audit(r, 0, "user.password", u.Username)
 	// The new password also retires every browser known to the account
 	// (deviceMAC), this one included: it stays known under the new one.

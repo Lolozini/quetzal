@@ -212,6 +212,50 @@ CREATE TRIGGER t_port BEFORE INSERT ON servers FOR EACH ROW SET NEW.server_port 
 		t.Errorf("after the gzip import: %s", got)
 	}
 
+	t.Run("untrusted SQL cannot run client commands or read local files", func(t *testing.T) {
+		output := mkdir(filepath.Join(dir, "client-security"))
+		if err := os.WriteFile(filepath.Join(output, "private"), []byte("private-marker\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, mode := range []string{"import", "restore"} {
+			t.Run(mode, func(t *testing.T) {
+				for _, tc := range []struct{ name, payload string }{
+					{"shell", "\\! touch /audit-output/executed\nSELECT 1;\n"},
+					{"source", "source /audit-output/commands.sql\n"},
+					{"local-file", "CREATE TABLE local_file_probe (value TEXT);\nLOAD DATA LOCAL INFILE '/audit-output/private' INTO TABLE local_file_probe;\n"},
+				} {
+					t.Run(tc.name, func(t *testing.T) {
+						if err := os.WriteFile(filepath.Join(output, "commands.sql"), []byte("\\! touch /audit-output/executed\n"), 0o600); err != nil {
+							t.Fatal(err)
+						}
+						file := filepath.Join(data, "client.sql")
+						script, vars, mount := importScript, importEnv("client.sql", "false"), data+":/data:ro"
+						if mode == "restore" {
+							file = filepath.Join(restore, "dumps", dbName+".sql")
+							script, vars, mount = loadScript, env, restore+":"+restorePath+":ro"
+						}
+						if err := os.WriteFile(file, []byte(tc.payload), 0o600); err != nil {
+							t.Fatal(err)
+						}
+						out, err := run(script, vars, mount, output+":/audit-output")
+						if err == nil {
+							t.Errorf("untrusted %s was accepted: %s", tc.name, out)
+						}
+						if _, err := os.Stat(filepath.Join(output, "executed")); !os.IsNotExist(err) {
+							t.Errorf("client command executed outside the database: %v", err)
+							_ = os.Remove(filepath.Join(output, "executed"))
+						}
+						if tc.name == "local-file" {
+							if got := sql(false, dbName, "SELECT COUNT(*) FROM local_file_probe;"); got != "0" {
+								t.Errorf("client exposed local file contents: %s row(s)", got)
+							}
+						}
+					})
+				}
+			})
+		}
+	})
+
 	// Failures say what went wrong, and where.
 	if err := os.WriteFile(filepath.Join(data, "bad.sql"), []byte("CREATE TABLE ok1 (x INT);\n\nTHIS IS NOT SQL;\n"), 0o644); err != nil {
 		t.Fatal(err)

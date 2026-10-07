@@ -38,7 +38,12 @@ func TestWakeEndpoint(t *testing.T) {
 
 	// Re-hibernate and try a bad token: must be a no-op AND indistinguishable
 	// from an unknown slug (both 204), so existence can't be probed.
-	if err := st.SetHibernated(s.ID, true); err != nil {
+	s, err := st.GetServer(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Hibernated = true
+	if err := st.UpdateServer(s); err != nil {
 		t.Fatalf("re-hibernate: %v", err)
 	}
 	if code := wake("sleepy", "wrong-token"); code != http.StatusNoContent {

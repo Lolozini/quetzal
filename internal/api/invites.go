@@ -303,7 +303,7 @@ func (s *Server) handleRegisterFromInvite(w http.ResponseWriter, r *http.Request
 	}
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "hash failed")
+		writeCredentialError(w, err)
 		return
 	}
 	u := &models.User{
@@ -326,7 +326,7 @@ func (s *Server) handleRegisterFromInvite(w http.ResponseWriter, r *http.Request
 	s.audit(rr, 0, "user.create", u.Username+" (invitation to "+inv.Email+")")
 	s.audit(rr, srv.ID, "access.grant", u.Username+": "+strings.Join(inv.Permissions, ",")+" (invitation to "+inv.Email+")")
 	if err := s.startSession(w, u); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeCredentialError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"user": u, "serverId": srv.ID})

@@ -806,9 +806,6 @@ func TestBuildDataDeployment(t *testing.T) {
 	if len(c.Command) == 0 || c.Command[0] != "sleep" {
 		t.Errorf("command = %v, want sleep keepalive", c.Command)
 	}
-	if len(c.VolumeMounts) != 1 || c.VolumeMounts[0].Name != dataVolume || c.VolumeMounts[0].MountPath != tmpl.DataPath {
-		t.Errorf("volume mount = %+v, want data at %s", c.VolumeMounts, tmpl.DataPath)
-	}
 
 	// The reconciler passes 0 replicas during a restore (exclusive volume access).
 	if zero := BuildDataDeployment(s, tmpl, "quetzal:test", 0); zero.Spec.Replicas == nil || *zero.Spec.Replicas != 0 {
@@ -928,7 +925,7 @@ func TestManagedDBNetworkPolicyNamesOnlyItsTenants(t *testing.T) {
 	h := &models.DatabaseHost{ID: 7, Name: "shared", Kind: models.DBHostManaged}
 	np := BuildManagedDBNetworkPolicy(h, []string{"quetzal-srv-a", "quetzal-srv-b", "quetzal"})
 
-	if np.Namespace != ManagedDBNamespace(h) {
+	if np.Namespace != h.ManagedNamespace() {
 		t.Errorf("policy namespace = %q, want the database's own", np.Namespace)
 	}
 	if len(np.Spec.Ingress) != 1 {

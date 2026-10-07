@@ -74,16 +74,14 @@ func newHarness(t *testing.T, srcObjs, dstObjs []runtime.Object) *harness {
 	return &harness{st: st, m: m, src: src, dst: dst, srv: srv}
 }
 
-// startTransfer mimics the API: stop + set BackingUp.
+// startTransfer uses the same atomic freeze as the API.
 func (h *harness) startTransfer(t *testing.T, prev models.DesiredState) {
 	t.Helper()
-	_ = h.st.SetDesiredState(h.srv.ID, models.StateStopped)
-	ts := &models.TransferState{
-		Phase: models.TransferBackingUp, SourceCluster: srcCluster, TargetCluster: dstCluster,
-		PrevState: prev, StartedAt: time.Now(),
+	if err := h.st.SetDesiredState(h.srv.ID, prev); err != nil {
+		t.Fatal(err)
 	}
-	if err := h.st.SetServerTransfer(h.srv.ID, ts); err != nil {
-		t.Fatalf("set transfer: %v", err)
+	if _, err := h.st.BeginServerTransfer(h.srv.ID, dstCluster, time.Now()); err != nil {
+		t.Fatalf("begin transfer: %v", err)
 	}
 }
 
@@ -295,9 +293,7 @@ func TestCancelBeforeTheFlipJustDropsTheTransfer(t *testing.T) {
 	h.startTransfer(t, models.StateRunning)
 
 	srv := h.reload(t)
-	cancelled := *srv.Transfer
-	cancelled.Cancelled = true
-	if err := h.st.SetServerTransfer(srv.ID, &cancelled); err != nil {
+	if _, err := h.st.CancelServerTransfer(srv.ID, "cancelled"); err != nil {
 		t.Fatal(err)
 	}
 	h.process()
@@ -335,9 +331,7 @@ func TestCancelAfterTheFlipRollsBack(t *testing.T) {
 		t.Fatalf("precondition: the flip did not happen")
 	}
 
-	cancelled := *srv.Transfer
-	cancelled.Cancelled = true
-	if err := h.st.SetServerTransfer(srv.ID, &cancelled); err != nil {
+	if _, err := h.st.CancelServerTransfer(srv.ID, "cancelled"); err != nil {
 		t.Fatal(err)
 	}
 	h.process()

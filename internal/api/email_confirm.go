@@ -58,8 +58,8 @@ func (s *Server) sendEmailConfirmation(w http.ResponseWriter, r *http.Request, c
 	}
 	if err := s.Store.StartEmailConfirmation(&models.EmailConfirmation{
 		UserID: u.ID, Email: address, TokenHash: hashToken(token), ExpiresAt: time.Now().Add(emailConfirmationTTL),
-	}); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+	}, u.PasswordHash); err != nil {
+		writeCredentialError(w, err)
 		return false
 	}
 	return true

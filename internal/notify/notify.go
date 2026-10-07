@@ -343,17 +343,18 @@ func (d *Dispatcher) DeliverTo(ctx context.Context, c *models.NotificationChanne
 // mailConfig is the SMTP an email channel sends through: its own, or the
 // panel's when it names no host. A channel needed a server of its own, the one
 // the panel already sends its password resets through typed in again. The
-// channel's "from", if it sets one, still wins.
-func (d *Dispatcher) mailConfig(cfg map[string]string) (map[string]string, error) {
+// channel's "from", if it sets one, still wins. The returned trust flag belongs
+// to the selected transport's provenance, never to a channel-supplied setting.
+func (d *Dispatcher) mailConfig(cfg map[string]string) (map[string]string, bool, error) {
 	if strings.TrimSpace(cfg["host"]) != "" {
-		return cfg, nil
+		return cfg, false, nil
 	}
 	panel, err := d.Store.GetSMTPConfig()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if strings.TrimSpace(panel["host"]) == "" {
-		return nil, permanent(fmt.Errorf("email: this channel has no SMTP server, and neither has the panel: set one here or in the panel's email settings"))
+		return nil, false, permanent(fmt.Errorf("email: this channel has no SMTP server, and neither has the panel: set one here or in the panel's email settings"))
 	}
 	out := make(map[string]string, len(panel)+1)
 	for k, v := range panel {
@@ -363,7 +364,7 @@ func (d *Dispatcher) mailConfig(cfg map[string]string) (map[string]string, error
 	if from := strings.TrimSpace(cfg["from"]); from != "" {
 		out["from"] = from
 	}
-	return out, nil
+	return out, true, nil
 }
 
 // deliverTo is DeliverTo with the event's server already resolved.
@@ -376,11 +377,11 @@ func (d *Dispatcher) deliverTo(ctx context.Context, c *models.NotificationChanne
 	case models.ChannelWebhook:
 		return deliverWebhook(ctx, d.Client, cfg, e, name, slug)
 	case models.ChannelEmail:
-		mail, err := d.mailConfig(cfg)
+		mail, trusted, err := d.mailConfig(cfg)
 		if err != nil {
 			return err
 		}
-		return deliverEmail(ctx, mail, e, name, slug)
+		return deliverEmail(ctx, mail, trusted, e, name, slug)
 	default:
 		return errUnknownType(c.Type)
 	}

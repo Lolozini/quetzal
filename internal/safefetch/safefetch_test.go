@@ -2,11 +2,13 @@ package safefetch
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBlockedIP(t *testing.T) {
@@ -74,5 +76,27 @@ func TestGetBlocksLoopback(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "non-public") {
 		t.Errorf("error = %v, want a non-public-address refusal", err)
+	}
+}
+
+func TestSafeTransportRejectsPrivateDestinationsAtDial(t *testing.T) {
+	transport := SafeTransport()
+	defer transport.CloseIdleConnections()
+	for _, host := range []string{
+		"127.0.0.1", "10.1.2.3", "172.16.5.5", "192.168.0.1",
+		"169.254.169.254", "100.64.0.1", "::1", "fc00::1", "fe80::1",
+		"::ffff:127.0.0.1", "::ffff:10.0.0.1", "64:ff9b::7f00:1",
+	} {
+		t.Run(host, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			conn, err := transport.DialContext(ctx, "tcp", net.JoinHostPort(host, "25"))
+			if conn != nil {
+				conn.Close()
+			}
+			if !errors.Is(err, ErrBlocked) {
+				t.Errorf("dial %s: %v, want ErrBlocked", host, err)
+			}
+		})
 	}
 }

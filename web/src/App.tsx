@@ -70,6 +70,10 @@ export function App() {
     return () => window.removeEventListener("quetzal:unauthorized", onUnauthorized);
   }, []);
 
+  async function refreshUser() {
+    setUser(await api.me());
+  }
+
   if (resetToken) {
     return (
       <ResetPassword
@@ -128,7 +132,7 @@ export function App() {
           <TwoFactor
             initialEnabled={false}
             username={user.username}
-            onEnabled={() => api.me().then(setUser).catch(() => {})}
+            onChanged={refreshUser}
           />
           <button
             style={{ marginTop: 12 }}
@@ -151,6 +155,7 @@ export function App() {
   return (
     <Dashboard
       user={user}
+      onUserRefresh={refreshUser}
       onLogout={async () => {
         await api.logout();
         setUser(null);

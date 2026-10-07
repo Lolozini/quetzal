@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,10 +15,34 @@ import (
 
 	"errors"
 	"github.com/lolozini/quetzal/internal/console"
+	"github.com/lolozini/quetzal/internal/fileops"
 	utilexec "k8s.io/client-go/util/exec"
 	"net/http"
 	"net/http/httptest"
 )
+
+func TestFileopProcess(t *testing.T) {
+	if os.Getenv("QUETZAL_FILEOP_TEST") != "1" {
+		return
+	}
+	for i, arg := range os.Args {
+		if arg == "--" {
+			os.Exit(fileops.Run(os.Args[i+1:], os.Stdin, os.Stdout, os.Stderr))
+		}
+	}
+	os.Exit(2)
+}
+
+func fileopProcess(ctx context.Context, root, op string, args ...string) *exec.Cmd {
+	argv := append([]string{"-test.run=^TestFileopProcess$", "--", root, op}, args...)
+	cmd := exec.CommandContext(ctx, os.Args[0], argv...)
+	cmd.Env = append(os.Environ(), "QUETZAL_FILEOP_TEST=1")
+	return cmd
+}
+
+func fileopTestCommand(root, op string, args ...string) *exec.Cmd {
+	return fileopProcess(context.Background(), root, op, args...)
+}
 
 func makeTarGz(t *testing.T, name, content string) []byte {
 	t.Helper()
@@ -50,11 +75,10 @@ func makeZip(t *testing.T, name, content string) []byte {
 	return buf.Bytes()
 }
 
-// runExtract runs the extract script (the same one execed in the pod) against a
-// real temp dir, feeding the archive on stdin.
+// runExtract feeds an archive to the real helper against a temporary data root.
 func runExtract(t *testing.T, dir, format string, archive []byte) error {
 	t.Helper()
-	cmd := exec.Command("sh", "-c", extractScript, "_", dir, format)
+	cmd := fileopTestCommand(filepath.Dir(dir), "extract", dir, format)
 	cmd.Stdin = bytes.NewReader(archive)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -75,9 +99,6 @@ func TestExtractScriptTarGz(t *testing.T) {
 }
 
 func TestExtractScriptZip(t *testing.T) {
-	if _, err := exec.LookPath("unzip"); err != nil {
-		t.Skip("unzip not available on this host")
-	}
 	dir := t.TempDir()
 	if err := runExtract(t, filepath.Join(dir, "mods"), "zip", makeZip(t, "mod.jar", "JAR")); err != nil {
 		t.Fatalf("extract zip: %v", err)
@@ -89,9 +110,6 @@ func TestExtractScriptZip(t *testing.T) {
 }
 
 func TestExtractScriptLeavesNoTempFile(t *testing.T) {
-	if _, err := exec.LookPath("unzip"); err != nil {
-		t.Skip("unzip not available on this host")
-	}
 	dir := t.TempDir()
 	target := filepath.Join(dir, "d")
 	if err := runExtract(t, target, "zip", makeZip(t, "a.txt", "x")); err != nil {
@@ -105,9 +123,7 @@ func TestExtractScriptLeavesNoTempFile(t *testing.T) {
 	}
 }
 
-// TestWriteScriptIsAtomicAndVerified runs the real write script under /bin/sh, so
-// the guarantees it encodes are checked rather than assumed: a complete payload
-// lands, and a short or empty stream fails *without* destroying what was there.
+// A complete payload lands; short streams must preserve the existing file.
 func TestWriteScriptIsAtomicAndVerified(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "server.properties")
@@ -116,7 +132,7 @@ func TestWriteScriptIsAtomicAndVerified(t *testing.T) {
 	}
 
 	run := func(stdin, expected string) error {
-		cmd := exec.Command("sh", "-c", writeScript, "_", target, expected)
+		cmd := fileopTestCommand(dir, "write", target, expected)
 		cmd.Stdin = strings.NewReader(stdin)
 		var stderr strings.Builder
 		cmd.Stderr = &stderr
@@ -191,7 +207,7 @@ func TestScriptExitCodesTellWhoseFaultItIs(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := func(mode, r, p string) int {
-		cmd := exec.Command("sh", "-c", guardScript+`qz_guard "$1" "$0" "$2"`, r, mode, p)
+		cmd := fileopTestCommand(r, "mkdir", p)
 		if err := cmd.Run(); err != nil {
 			var ee *exec.ExitError
 			if errors.As(err, &ee) {
@@ -226,7 +242,7 @@ func TestMissingPathIsANotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	code := func(p string) int {
-		cmd := exec.Command("sh", "-c", guardScript+`qz_exists "$1"`, "_", p)
+		cmd := fileopTestCommand(root, "archive", p)
 		if err := cmd.Run(); err != nil {
 			var ee *exec.ExitError
 			if errors.As(err, &ee) {
@@ -301,8 +317,8 @@ func TestFileScriptsStillWorkOnPathsThatAreThere(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "sub"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	run := func(script string, args ...string) (string, int) {
-		cmd := exec.Command("sh", append([]string{"-c", guardScript + script, root}, args...)...)
+	run := func(op string, args ...string) (string, int) {
+		cmd := fileopTestCommand(root, op, args...)
 		var out bytes.Buffer
 		cmd.Stdout = &out
 		if err := cmd.Run(); err != nil {
@@ -314,26 +330,23 @@ func TestFileScriptsStillWorkOnPathsThatAreThere(t *testing.T) {
 		}
 		return out.String(), 0
 	}
-	if out, code := run(listScript, root); code != 0 || !strings.Contains(out, "a.txt") || !strings.Contains(out, "sub") {
+	if out, code := run("list", root); code != 0 || !strings.Contains(out, "a.txt") || !strings.Contains(out, "sub") {
 		t.Errorf("listing a real directory: code=%d out=%q", code, out)
 	}
-	if _, code := run(listScript, filepath.Join(root, "a.txt")); code != fileOpBadRequest {
+	if _, code := run("list", filepath.Join(root, "a.txt")); code != fileOpBadRequest {
 		t.Errorf("listing a file exited %d, want %d (not a directory)", code, fileOpBadRequest)
 	}
-	if _, code := run(listScript, filepath.Join(root, "gone")); code != fileOpNotFound {
+	if _, code := run("list", filepath.Join(root, "gone")); code != fileOpNotFound {
 		t.Errorf("listing a missing directory exited %d, want %d", code, fileOpNotFound)
 	}
-	readScript := `qz_guard deref "$0" "$1"
-qz_exists "$1"
-[ -d "$1" ] && { echo "is a directory" >&2; exit 4; }
-exec cat -- "$1"`
-	if out, code := run(readScript, filepath.Join(root, "a.txt")); code != 0 || out != "hello" {
+	readOp := "read"
+	if out, code := run(readOp, filepath.Join(root, "a.txt")); code != 0 || out != "hello" {
 		t.Errorf("reading a real file: code=%d out=%q", code, out)
 	}
-	if _, code := run(readScript, filepath.Join(root, "sub")); code != fileOpBadRequest {
+	if _, code := run(readOp, filepath.Join(root, "sub")); code != fileOpBadRequest {
 		t.Errorf("reading a directory exited %d, want %d", code, fileOpBadRequest)
 	}
-	if _, code := run(readScript, filepath.Join(root, "gone")); code != fileOpNotFound {
+	if _, code := run(readOp, filepath.Join(root, "gone")); code != fileOpNotFound {
 		t.Errorf("reading a missing file exited %d, want %d", code, fileOpNotFound)
 	}
 }

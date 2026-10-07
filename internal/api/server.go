@@ -82,6 +82,9 @@ type Server struct {
 	InternalLimiter *ratelimit.Limiter
 	ForgotLimiter   *ratelimit.Limiter
 	InviteLimiter   *ratelimit.Limiter
+	// SensitiveAuthLimiter bounds password changes and second-factor removal
+	// by account, regardless of the session or API key presenting the attempt.
+	SensitiveAuthLimiter *ratelimit.Limiter
 	// TestMailLimiter counts, by account, the test mails it has the panel
 	// send: a request the panel makes, from its own address, where the caller
 	// says.
@@ -155,10 +158,11 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 		// unknown browsers, and as many per browser that signed in before
 		// (covers password and TOTP-code guessing), a broader per-address cap,
 		// and a generous cap on the in-cluster wake/active callbacks.
-		LoginLimiter:    ratelimit.New(10, 15*time.Minute),
-		DeviceLimiter:   ratelimit.New(10, 15*time.Minute),
-		AuthIPLimiter:   ratelimit.New(60, 15*time.Minute),
-		InternalLimiter: ratelimit.New(120, time.Minute),
+		LoginLimiter:         ratelimit.New(10, 15*time.Minute),
+		DeviceLimiter:        ratelimit.New(10, 15*time.Minute),
+		AuthIPLimiter:        ratelimit.New(60, 15*time.Minute),
+		InternalLimiter:      ratelimit.New(120, time.Minute),
+		SensitiveAuthLimiter: ratelimit.New(10, 15*time.Minute),
 		// Password-reset requests: cap per identifier to avoid emailing-bombing a
 		// victim and to blunt account enumeration via repeated probing.
 		ForgotLimiter: ratelimit.New(3, time.Hour),
@@ -193,6 +197,7 @@ func (s *Server) GCRateLimiters() {
 	s.LoginLimiter.GC()
 	s.DeviceLimiter.GC()
 	s.AuthIPLimiter.GC()
+	s.SensitiveAuthLimiter.GC()
 	s.InternalLimiter.GC()
 	s.ForgotLimiter.GC()
 	s.InviteLimiter.GC()
@@ -526,6 +531,12 @@ func userFrom(ctx context.Context) *models.User {
 }
 
 func (s *Server) currentUser(r *http.Request) (*models.User, error) {
+	return s.resolveCurrentUser(r, true)
+}
+
+// resolveCurrentUser revalidates credentials without recording repeated use
+// when called by a live console's revocation checks.
+func (s *Server) resolveCurrentUser(r *http.Request, recordUse bool) (*models.User, error) {
 	token := tokenFromRequest(r)
 	if token == "" {
 		return nil, store.ErrNotFound
@@ -536,8 +547,9 @@ func (s *Server) currentUser(r *http.Request) (*models.User, error) {
 		if err != nil {
 			return nil, err
 		}
-		now := time.Now()
-		_ = s.Store.TouchAPIKey(key.ID, now)
+		if recordUse {
+			_ = s.Store.TouchAPIKey(key.ID, time.Now())
+		}
 		return s.Store.GetUser(key.UserID)
 	}
 	// Sessions are stored by token hash (see startSession), so hash before lookup.
@@ -547,7 +559,9 @@ func (s *Server) currentUser(r *http.Request) (*models.User, error) {
 		return nil, err
 	}
 	if time.Now().After(sess.ExpiresAt) {
-		_ = s.Store.DeleteSession(sessKey)
+		if recordUse {
+			_ = s.Store.DeleteSession(sessKey)
+		}
 		return nil, store.ErrNotFound
 	}
 	return s.Store.GetUser(sess.UserID)

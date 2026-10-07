@@ -18,6 +18,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/lolozini/quetzal/internal/backup"
 	"github.com/lolozini/quetzal/internal/cluster"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
@@ -64,16 +65,10 @@ func (m *Manager) Process(ctx context.Context) {
 		if srv.Transfer == nil {
 			continue
 		}
-		// A cancellation is honoured before anything else, and how it is honoured
-		// depends on how far the move got: before the cluster flip the server has
-		// not moved and its data is untouched, so the transfer is simply dropped;
-		// after it, the destination has to be torn down and the server put back.
+		// Cancellation first drains its linked operations on their original
+		// clusters; placement never changes under an executable restore.
 		if srv.Transfer.Cancelled {
-			if srv.Transfer.Phase == models.TransferBackingUp {
-				m.abort(srv, "cancelled")
-			} else {
-				m.rollback(ctx, srv, "cancelled")
-			}
+			m.rollback(ctx, srv, srv.Transfer.Message)
 			continue
 		}
 		switch srv.Transfer.Phase {
@@ -81,6 +76,8 @@ func (m *Manager) Process(ctx context.Context) {
 			m.advanceBackingUp(ctx, srv)
 		case models.TransferRestoring:
 			m.advanceRestoring(ctx, srv)
+		case models.TransferCommitting:
+			m.advanceCommitting(ctx, srv)
 		}
 	}
 }
@@ -98,20 +95,14 @@ func (m *Manager) advanceBackingUp(ctx context.Context, srv *models.Server) {
 		if has, err := hasServerPods(ctx, cs.Clientset, srv.Namespace, srv.Slug); err != nil || has {
 			return
 		}
-		// Every file: the snapshot becomes the server's whole volume on the
-		// other cluster, where nothing of what .quetzalignore lists is waiting.
-		b := &models.Backup{ServerID: srv.ID, Direction: models.DirBackup, Phase: models.BackupPending, Full: true}
-		if err := m.Store.CreateBackup(b); err != nil {
+		if err := m.Store.CreateTransferOperation(srv.ID, models.DirBackup); err != nil {
 			log.Printf("transfer %s: create backup: %v", srv.Slug, err)
-			return
 		}
-		t.BackupID = b.ID
-		_ = m.Store.SetServerTransfer(srv.ID, t)
 		return
 	}
 	b, err := m.backup(t.BackupID)
 	if errors.Is(err, store.ErrNotFound) {
-		m.abort(srv, "backup record lost")
+		m.rollback(ctx, srv, "backup record lost")
 		return
 	}
 	if err != nil {
@@ -125,14 +116,11 @@ func (m *Manager) advanceBackingUp(ctx context.Context, srv *models.Server) {
 	case models.BackupSucceeded:
 		// The data is safely in S3; hand the server to the target cluster. The
 		// next reconcile creates the namespace + an empty volume there.
-		if err := m.Store.SetServerCluster(srv.ID, t.TargetCluster); err != nil {
-			log.Printf("transfer %s: set cluster: %v", srv.Slug, err)
-			return
+		if err := m.Store.AdvanceServerTransfer(srv.ID); err != nil {
+			log.Printf("transfer %s: advance: %v", srv.Slug, err)
 		}
-		t.Phase = models.TransferRestoring
-		_ = m.Store.SetServerTransfer(srv.ID, t)
 	case models.BackupFailed:
-		m.abort(srv, "backup failed: "+b.Message)
+		m.rollback(ctx, srv, "backup failed: "+b.Message)
 	}
 }
 
@@ -149,16 +137,9 @@ func (m *Manager) advanceRestoring(ctx context.Context, srv *models.Server) {
 		if err != nil || !ready {
 			return // wait for the reconciler to create the namespace/volume
 		}
-		r := &models.Backup{
-			ServerID: srv.ID, Direction: models.DirRestore,
-			SourceID: t.BackupID, Phase: models.BackupPending,
-		}
-		if err := m.Store.CreateBackup(r); err != nil {
+		if err := m.Store.CreateTransferOperation(srv.ID, models.DirRestore); err != nil {
 			log.Printf("transfer %s: create restore: %v", srv.Slug, err)
-			return
 		}
-		t.RestoreID = r.ID
-		_ = m.Store.SetServerTransfer(srv.ID, t)
 		return
 	}
 	r, err := m.backup(t.RestoreID)
@@ -175,55 +156,134 @@ func (m *Manager) advanceRestoring(ctx context.Context, srv *models.Server) {
 	}
 	switch r.Phase {
 	case models.BackupSucceeded:
-		// Tear down the source namespace; only complete once we've reached the
-		// source to clean it up (otherwise the old copy would linger).
-		scs, err := m.ClientsFor(t.SourceCluster)
-		if err != nil {
+		if err := m.Store.CommitServerTransfer(srv.ID); err != nil {
+			log.Printf("transfer %s: commit: %v", srv.Slug, err)
 			return
 		}
-		if err := deleteNamespace(ctx, scs.Clientset, srv.Namespace); err != nil {
-			log.Printf("transfer %s: delete source namespace: %v", srv.Slug, err)
-			return
-		}
-		prev := t.PrevState
-		_ = m.Store.SetServerTransfer(srv.ID, nil)
-		_ = m.Store.SetDesiredState(srv.ID, prev)
-		m.emit(srv, fmt.Sprintf("transfer to cluster %d complete", t.TargetCluster))
+		m.advanceCommitting(ctx, srv)
 	case models.BackupFailed:
 		m.rollback(ctx, srv, "restore failed: "+r.Message)
 	}
 }
 
-// abort cancels a transfer still in the backing-up phase: the server hasn't
-// moved and its source data is intact, so restore the prior power state.
-func (m *Manager) abort(srv *models.Server, msg string) {
-	prev := srv.Transfer.PrevState
-	_ = m.Store.SetServerTransfer(srv.ID, nil)
-	_ = m.Store.SetDesiredState(srv.ID, prev)
-	log.Printf("transfer %s aborted: %s", srv.Slug, msg)
-	m.emit(srv, "transfer aborted: "+msg)
+// advanceCommitting retries source cleanup after cancellation has been closed.
+func (m *Manager) advanceCommitting(ctx context.Context, srv *models.Server) {
+	t := srv.Transfer
+	cs, err := m.ClientsFor(t.SourceCluster)
+	if err != nil {
+		return
+	}
+	if err := deleteNamespace(ctx, cs.Clientset, srv.Namespace); err != nil {
+		log.Printf("transfer %s: delete source namespace: %v", srv.Slug, err)
+		return
+	}
+	if err := m.Store.FinishServerTransfer(srv.ID, false); err != nil {
+		log.Printf("transfer %s: finish: %v", srv.Slug, err)
+		return
+	}
+	m.emit(srv, fmt.Sprintf("transfer to cluster %d complete", t.TargetCluster))
 }
 
-// rollback cancels a transfer after the cluster flip: the destination volume may
-// be half-restored but the source data is untouched, so delete the destination
-// namespace and move the server back to the source cluster.
+// rollback keeps the freeze until linked Jobs and pods have stopped. Pending
+// operations are terminated atomically before any cluster placement changes.
 func (m *Manager) rollback(ctx context.Context, srv *models.Server, msg string) {
-	t := srv.Transfer
-	if tcs, err := m.ClientsFor(t.TargetCluster); err == nil {
-		_ = deleteNamespace(ctx, tcs.Clientset, srv.Namespace)
+	current, err := m.Store.CancelServerTransfer(srv.ID, msg)
+	if err != nil {
+		log.Printf("transfer %s: cancel operations: %v", srv.Slug, err)
+		return
 	}
-	_ = m.Store.SetServerCluster(srv.ID, t.SourceCluster)
-	prev := t.PrevState
-	_ = m.Store.SetServerTransfer(srv.ID, nil)
-	_ = m.Store.SetDesiredState(srv.ID, prev)
-	log.Printf("transfer %s rolled back: %s", srv.Slug, msg)
-	m.emit(srv, "transfer rolled back: "+msg)
+	srv = current
+	t := srv.Transfer
+	for _, op := range []struct{ id, cluster uint }{{t.BackupID, t.SourceCluster}, {t.RestoreID, t.TargetCluster}} {
+		if op.id == 0 {
+			continue
+		}
+		stopped, err := m.stopOperation(ctx, srv, op.id, op.cluster)
+		if err != nil {
+			log.Printf("transfer %s: stop operation %d: %v", srv.Slug, op.id, err)
+			return
+		}
+		if !stopped {
+			return
+		}
+	}
+	if t.Phase != models.TransferBackingUp {
+		cs, err := m.ClientsFor(t.TargetCluster)
+		if err != nil {
+			return
+		}
+		if err := deleteNamespace(ctx, cs.Clientset, srv.Namespace); err != nil {
+			log.Printf("transfer %s: delete target namespace: %v", srv.Slug, err)
+			return
+		}
+	}
+	if err := m.Store.FinishServerTransfer(srv.ID, true); err != nil {
+		log.Printf("transfer %s: rollback: %v", srv.Slug, err)
+		return
+	}
+	m.emit(srv, "transfer cancelled: "+msg)
+}
+
+func (m *Manager) stopOperation(ctx context.Context, srv *models.Server, id, clusterID uint) (bool, error) {
+	b, err := m.backup(id)
+	if errors.Is(err, store.ErrNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if b.JobName == "" && b.Phase != models.BackupRunning {
+		return true, nil
+	}
+	if b.ClusterID != nil {
+		clusterID = *b.ClusterID
+	}
+	cs, err := m.ClientsFor(clusterID)
+	if err != nil {
+		return false, err
+	}
+	name := b.JobName
+	if name == "" {
+		name = backup.JobName(backup.Params{BackupID: b.ID, Direction: b.Direction})
+	}
+	foreground := metav1.DeletePropagationForeground
+	err = cs.Clientset.BatchV1().Jobs(srv.Namespace).Delete(ctx, name, metav1.DeleteOptions{PropagationPolicy: &foreground})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return false, err
+	}
+	_, err = cs.Clientset.BatchV1().Jobs(srv.Namespace).Get(ctx, name, metav1.GetOptions{})
+	if err == nil {
+		return false, nil
+	}
+	if !apierrors.IsNotFound(err) {
+		return false, err
+	}
+	// Deleting the Job is not enough: a terminating pod may still be writing.
+	pods, err := cs.Clientset.CoreV1().Pods(srv.Namespace).List(ctx, metav1.ListOptions{LabelSelector: "job-name=" + name})
+	if err != nil {
+		return false, err
+	}
+	if len(pods.Items) != 0 {
+		return false, nil
+	}
+	err = cs.Clientset.CoreV1().Secrets(srv.Namespace).Delete(ctx, backup.CredsSecretName, metav1.DeleteOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return false, err
+	}
+	if b.Phase == models.BackupRunning {
+		if err := m.Store.FinishCancelledTransferOperation(srv.ID, b.ID); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func (m *Manager) emit(srv *models.Server, msg string) {
-	_ = m.Store.AddEvent(&models.Event{
+	if err := m.Store.AddEvent(&models.Event{
 		ServerID: srv.ID, Type: models.EventServerTransfer, Message: srv.Slug + ": " + msg,
-	})
+	}); err != nil {
+		log.Printf("transfer %s: event: %v", srv.Slug, err)
+	}
 }
 
 // destinationReady reports whether the target cluster has the objects a restore
@@ -237,13 +297,16 @@ func destinationReady(ctx context.Context, cs kubernetes.Interface, srv *models.
 }
 
 func hasServerPods(ctx context.Context, cs kubernetes.Interface, ns, slug string) (bool, error) {
-	pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
-		LabelSelector: reconciler.ServerLabel + "=" + slug,
-	})
-	if err != nil {
-		return false, err
+	for _, label := range []string{reconciler.ServerLabel, reconciler.DataLabel} {
+		pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: label + "=" + slug})
+		if err != nil {
+			return false, err
+		}
+		if len(pods.Items) > 0 {
+			return true, nil
+		}
 	}
-	return len(pods.Items) > 0, nil
+	return false, nil
 }
 
 func deleteNamespace(ctx context.Context, cs kubernetes.Interface, ns string) error {
@@ -251,5 +314,15 @@ func deleteNamespace(ctx context.Context, cs kubernetes.Interface, ns string) er
 	if apierrors.IsNotFound(err) {
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	_, err = cs.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return errors.New("namespace deletion is still in progress")
 }

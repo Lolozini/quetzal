@@ -11,6 +11,7 @@ import (
 	"log"
 	"math/big"
 	"math/rand"
+	"slices"
 	"strings"
 	"time"
 
@@ -88,6 +89,9 @@ func Open(cfg Config) (*Store, error) {
 		dsn := cfg.DSN
 		if dsn == "" {
 			dsn = "quetzal.db"
+		}
+		if err := prepareSQLiteFiles(dsn); err != nil {
+			return nil, err
 		}
 		dialector = sqlite.Open(withImmediateWrites(withBusyTimeout(dsn)))
 	case DriverPostgres:
@@ -216,7 +220,10 @@ func (s *Store) Migrate() error {
 	if err != nil {
 		return err
 	}
-	return s.migrateUnlimitedQuotas()
+	if err := s.migrateUnlimitedQuotas(); err != nil {
+		return err
+	}
+	return s.migratePublicSecrets()
 }
 
 // settingQuotaSemantics marks that quotas read 0 as none and QuotaUnlimited
@@ -516,22 +523,42 @@ func (s *Store) SetDesiredState(id uint, state models.DesiredState) error {
 		Update("desired_state", string(state)).Error
 }
 
-// SetHibernated flips the system hibernation flag (scale-to-zero on idle).
-func (s *Store) SetHibernated(id uint, hibernated bool) error {
-	return s.db.Model(&models.Server{}).Where("id = ?", id).
-		Update("hibernated", hibernated).Error
+// HibernateIfUnchanged commits an idle decision only for the observed server
+// revision, activity and policy. The remote probe happens before this CAS, with
+// no database lock held; a wake, start, heartbeat or policy edit wins over it.
+func (s *Store) HibernateIfUnchanged(observed *models.Server) (bool, error) {
+	if !observed.Hibernation.Enabled || observed.DesiredState != models.StateRunning || observed.Hibernated {
+		return false, nil
+	}
+	policy, err := json.Marshal(observed.Hibernation)
+	if err != nil {
+		return false, err
+	}
+	res := s.db.Model(&models.Server{}).
+		Where("id = ? AND updated_at = ? AND desired_state = ? AND hibernated = ? AND hibernation = ?",
+			observed.ID, observed.UpdatedAt, string(models.StateRunning), false, string(policy)).
+		Where(map[string]any{"last_active_at": observed.LastActiveAt}).
+		Update("hibernated", true)
+	return res.RowsAffected == 1, res.Error
 }
 
-// UpdateLastActive records the last time a server saw activity.
+// laterActivity keeps delayed probes and out-of-order requests from moving the
+// idle timer backwards, including writes that must also wake or change power.
+func laterActivity(when time.Time) clause.Expr {
+	return gorm.Expr("CASE WHEN last_active_at IS NULL OR last_active_at < ? THEN ? ELSE last_active_at END", when, when)
+}
+
+// UpdateLastActive records activity monotonically.
 func (s *Store) UpdateLastActive(id uint, when time.Time) error {
 	return s.db.Model(&models.Server{}).Where("id = ?", id).
+		Where("last_active_at IS NULL OR last_active_at < ?", when).
 		Update("last_active_at", when).Error
 }
 
 // Wake clears hibernation and resets the idle timer (manual wake / start).
 func (s *Store) Wake(id uint, when time.Time) error {
 	return s.db.Model(&models.Server{}).Where("id = ?", id).
-		Updates(map[string]any{"hibernated": false, "last_active_at": when}).Error
+		Updates(map[string]any{"hibernated": false, "last_active_at": laterActivity(when)}).Error
 }
 
 // StartServer powers a server on: it sets the desired state to Running and, in
@@ -560,7 +587,7 @@ func (s *Store) StartServer(id uint, when time.Time) error {
 			Updates(map[string]any{
 				"desired_state":  string(models.StateRunning),
 				"hibernated":     false,
-				"last_active_at": when,
+				"last_active_at": laterActivity(when),
 			}).Error
 	})
 }
@@ -596,15 +623,22 @@ func (s *Store) FinishRestart(id uint) error {
 		Update("restart_requested_at", nil).Error
 }
 
-// UpdateServerHibernation persists a server's hibernation policy. A non-nil
-// rearmAt also restarts the idle timer there, in the same write.
+// UpdateServerHibernation changes the policy and optionally rearms the timer
+// atomically. Disabling also wakes it, even if it went to sleep after the API
+// read its old state.
 func (s *Store) UpdateServerHibernation(id uint, h models.Hibernation, rearmAt *time.Time) error {
-	fields := []any{"hibernation"}
-	if rearmAt != nil {
-		fields = append(fields, "last_active_at")
+	policy, err := json.Marshal(h)
+	if err != nil {
+		return err
 	}
-	return s.db.Model(&models.Server{}).Where("id = ?", id).
-		Select(fields[0], fields[1:]...).Updates(models.Server{Hibernation: h, LastActiveAt: rearmAt}).Error
+	fields := map[string]any{"hibernation": string(policy)}
+	if rearmAt != nil {
+		fields["last_active_at"] = laterActivity(*rearmAt)
+	}
+	if !h.Enabled {
+		fields["hibernated"] = false
+	}
+	return s.db.Model(&models.Server{}).Where("id = ?", id).Updates(fields).Error
 }
 
 // UpdateServerEnv persists the (re-resolved) plain env and sealed secret env,
@@ -1125,7 +1159,16 @@ func (s *Store) BackupSecrets(cfg *models.BackupConfig) (accessKey, secretKey, r
 
 // CreateBackup inserts a backup/restore operation record.
 func (s *Store) CreateBackup(b *models.Backup) error {
-	return s.db.Create(b).Error
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		srv, err := lockServer(tx, b.ServerID)
+		if err != nil {
+			return err
+		}
+		if srv.Transfer != nil {
+			return ErrTransferActive
+		}
+		return tx.Create(b).Error
+	})
 }
 
 // CreateRestore queues a restore of a server that is not meant to run
@@ -1181,11 +1224,11 @@ func (s *Store) CancelPendingBackup(id uint) (bool, error) {
 // restore, those it loads back; nil leaves the column alone. ignored records
 // the paths a backup leaves out, note why it leaves out none; "" leaves each
 // alone.
-func (s *Store) ClaimBackup(id uint, jobName, target string, databases []string, ignored, note string) (bool, error) {
+func (s *Store) ClaimBackup(id uint, jobName, target string, databases []string, ignored, note, jobSpec string, clusterID uint) (bool, error) {
 	// Struct-shaped, with the columns named, so Databases goes through its
 	// JSON serializer.
-	cols := []string{"phase", "job_name"}
-	upd := models.Backup{Phase: models.BackupRunning, JobName: jobName}
+	cols := []string{"phase", "job_name", "job_spec", "cluster_id"}
+	upd := models.Backup{Phase: models.BackupRunning, JobName: jobName, JobSpec: jobSpec, ClusterID: &clusterID}
 	if target != "" {
 		cols = append(cols, "target")
 		upd.Target = target
@@ -1204,9 +1247,31 @@ func (s *Store) ClaimBackup(id uint, jobName, target string, databases []string,
 		cols = append(cols, "message")
 		upd.Message = note
 	}
-	res := s.db.Model(&models.Backup{}).Where("id = ? AND phase = ?", id, models.BackupPending).
-		Select(cols).Updates(upd)
-	return res.RowsAffected == 1, res.Error
+	claimed := false
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var b models.Backup
+		if err := tx.First(&b, id).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		srv, err := lockServer(tx, b.ServerID)
+		if err != nil {
+			return err
+		}
+		if tr := srv.Transfer; tr != nil && (tr.Cancelled || (tr.BackupID != id && tr.RestoreID != id)) {
+			return nil
+		}
+		if (b.ClusterID != nil && *b.ClusterID != clusterID) || (b.ClusterID == nil && srv.ClusterID != clusterID) {
+			return nil
+		}
+		res := tx.Model(&models.Backup{}).Where("id = ? AND phase = ?", id, models.BackupPending).
+			Select(cols).Updates(upd)
+		claimed = res.RowsAffected == 1
+		return res.Error
+	})
+	return claimed, err
 }
 
 // GetBackup returns a backup by ID.
@@ -1275,8 +1340,7 @@ func (s *Store) ListBackupsByPhase(phase models.BackupPhase) ([]models.Backup, e
 }
 
 // HasActiveRestore reports whether a restore is pending or running for a server.
-// A restore overwrites the data volume in place, so it needs exclusive write
-// access; the reconciler scales the data-manager pod down while one is active.
+// Power operations remain blocked even while an earlier backup finishes.
 func (s *Store) HasActiveRestore(serverID uint) (bool, error) {
 	return hasActiveRestore(s.db, serverID)
 }
@@ -1289,6 +1353,24 @@ func hasActiveRestore(tx *gorm.DB, serverID uint) (bool, error) {
 			[]models.BackupPhase{models.BackupPending, models.BackupRunning}).
 		Count(&n).Error
 	return n > 0, err
+}
+
+// RestoreNeedsDataVolume stops the data manager only when the restore reaches
+// the front of the operation queue. Earlier backups/imports need its pod for
+// volume affinity; stopping it while they wait would prevent either job running.
+func (s *Store) RestoreNeedsDataVolume(serverID uint) (bool, error) {
+	var operations []models.Backup
+	if err := s.db.Where("server_id = ? AND phase IN ?", serverID,
+		[]models.BackupPhase{models.BackupPending, models.BackupRunning}).
+		Order("id asc").Find(&operations).Error; err != nil {
+		return false, err
+	}
+	for _, b := range operations {
+		if b.Phase == models.BackupRunning {
+			return b.Direction == models.DirRestore, nil
+		}
+	}
+	return len(operations) > 0 && operations[0].Direction == models.DirRestore, nil
 }
 
 // HasActiveDatabaseImport reports whether an import into one of a server's
@@ -1307,6 +1389,13 @@ func (s *Store) HasActiveDatabaseImport(serverID uint) (bool, error) {
 // forbids while it waits or runs: ErrRestoreActive for a restore,
 // ErrDatabaseImportActive for a database import.
 func offlineOperationActive(tx *gorm.DB, serverID uint) error {
+	var srv models.Server
+	if err := tx.Select("id", "transfer").First(&srv, serverID).Error; err != nil {
+		return err
+	}
+	if srv.Transfer != nil {
+		return ErrTransferActive
+	}
 	var dirs []models.BackupDirection
 	if err := tx.Model(&models.Backup{}).
 		Where("server_id = ? AND direction IN ? AND phase IN ?",
@@ -1335,6 +1424,71 @@ func (s *Store) UpdateBackup(b *models.Backup) error {
 		}).Error
 }
 
+// ObserveBackupJob binds a submitted operation to the Job that actually exists.
+// Terminal/cancelled operations cannot be resurrected by a stale manager tick.
+func (s *Store) ObserveBackupJob(id uint, uid string) error {
+	res := s.db.Model(&models.Backup{}).
+		Where("id = ? AND phase = ? AND (job_uid = '' OR job_uid IS NULL OR job_uid = ?)", id, models.BackupRunning, uid).
+		Update("job_uid", uid)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected != 1 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// CompleteBackup commits the result and retention queue together, before the
+// controller removes the Kubernetes evidence. from is a compare-and-swap guard.
+func (s *Store) CompleteBackup(b *models.Backup, from models.BackupPhase, keepLast int) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		res := tx.Model(&models.Backup{}).Where("id = ? AND phase = ?", b.ID, from).
+			Updates(map[string]any{"phase": b.Phase, "size_bytes": b.SizeBytes,
+				"message": b.Message, "completed_at": b.CompletedAt})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected != 1 {
+			return ErrNotFound
+		}
+		if b.Direction == models.DirBackup && b.Phase == models.BackupSucceeded {
+			return pruneBackups(tx, b.ServerID, b.Target, keepLast)
+		}
+		return nil
+	})
+}
+
+// ListBackupCleanup returns only terminal operations whose Job cleanup has not
+// been acknowledged, rather than rechecking the complete backup history.
+func (s *Store) ListBackupCleanup() ([]models.Backup, error) {
+	var backups []models.Backup
+	err := s.db.Where("phase IN ? AND job_name <> ''",
+		[]models.BackupPhase{models.BackupSucceeded, models.BackupFailed}).Find(&backups).Error
+	return backups, err
+}
+
+func (s *Store) ClearBackupJob(id uint, jobName string) error {
+	return s.db.Model(&models.Backup{}).
+		Where("id = ? AND job_name = ? AND phase IN ?", id, jobName,
+			[]models.BackupPhase{models.BackupSucceeded, models.BackupFailed}).
+		Updates(map[string]any{"job_name": "", "job_spec": "", "job_uid": ""}).Error
+}
+
+// MarkBackupForgotten keeps a deletion tombstone until Kubernetes cleanup and
+// record removal both finish, even if the Job evidence disappears meanwhile.
+func (s *Store) MarkBackupForgotten(id uint) error {
+	res := s.db.Model(&models.Backup{}).Where("id = ? AND phase = ?", id, models.BackupDeleting).
+		Update("forgotten", true)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected != 1 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // StampBackupTargets records target on every succeeded backup that has none,
 // before the backup target changes: those were made to the target being left.
 func (s *Store) StampBackupTargets(target string) error {
@@ -1354,7 +1508,15 @@ func (s *Store) DeleteBackup(id uint) error {
 // job name is cleared so the delete gets a fresh Job of its own.
 func (s *Store) MarkBackupDeleting(id uint) error {
 	return s.db.Model(&models.Backup{}).Where("id = ?", id).
-		Updates(map[string]any{"phase": string(models.BackupDeleting), "job_name": "", "message": ""}).Error
+		Updates(map[string]any{"phase": string(models.BackupDeleting), "job_name": "", "message": "", "job_spec": "", "job_uid": "", "cluster_id": nil}).Error
+}
+
+// ClaimBackupDeletion records where its new forget Job will execute before
+// submission. Unlike the old backup Job, it needs no source data volume.
+func (s *Store) ClaimBackupDeletion(id uint, jobName string, clusterID uint) (bool, error) {
+	res := s.db.Model(&models.Backup{}).Where("id = ? AND phase = ? AND job_name = ''", id, models.BackupDeleting).
+		Updates(map[string]any{"job_name": jobName, "cluster_id": clusterID})
+	return res.RowsAffected == 1, res.Error
 }
 
 // DeleteBackupsForServer removes a server's backup records (used on teardown).
@@ -1362,25 +1524,39 @@ func (s *Store) DeleteBackupsForServer(serverID uint) error {
 	return s.db.Where("server_id = ?", serverID).Delete(&models.Backup{}).Error
 }
 
-// PruneBackups deletes succeeded backup records for a server beyond keepLast
-// (newest kept), mirroring restic's retention so the UI history stays in sync.
-func (s *Store) PruneBackups(serverID uint, keepLast int) error {
+// PruneBackups queues excess recovery points for deletion in this target only.
+// Records survive until their individual forget Jobs have durably succeeded.
+func (s *Store) PruneBackups(serverID uint, target string, keepLast int) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		return pruneBackups(tx, serverID, target, keepLast)
+	})
+}
+
+func pruneBackups(tx *gorm.DB, serverID uint, target string, keepLast int) error {
 	if keepLast <= 0 {
 		return nil
 	}
-	var old []models.Backup
-	err := s.db.Where("server_id = ? AND direction = ? AND phase = ?",
-		serverID, models.DirBackup, models.BackupSucceeded).
-		Order("id desc").Offset(keepLast).Find(&old).Error
-	if err != nil {
+	var old []uint
+	if err := tx.Model(&models.Backup{}).
+		Where("server_id = ? AND target = ? AND direction = ? AND phase = ?",
+			serverID, target, models.DirBackup, models.BackupSucceeded).
+		Order("id desc").Offset(keepLast).Pluck("id", &old).Error; err != nil {
 		return err
 	}
-	for i := range old {
-		if err := s.db.Delete(&models.Backup{}, old[i].ID).Error; err != nil {
+	var pendingCleanup int64
+	if len(old) > 0 {
+		if err := tx.Model(&models.Backup{}).Where("id IN ? AND job_name <> ''", old).Count(&pendingCleanup).Error; err != nil {
 			return err
 		}
 	}
-	return nil
+	if pendingCleanup != 0 {
+		return fmt.Errorf("retention is waiting for earlier backup Job cleanup")
+	}
+	if len(old) == 0 {
+		return nil
+	}
+	return tx.Model(&models.Backup{}).Where("id IN ? AND phase = ?", old, models.BackupSucceeded).
+		Updates(map[string]any{"phase": models.BackupDeleting, "job_name": "", "message": "", "job_spec": "", "job_uid": "", "cluster_id": nil}).Error
 }
 
 // ---- Schedules ----
@@ -1420,43 +1596,80 @@ func (s *Store) ListEnabledSchedules() ([]models.Schedule, error) {
 	return scs, nil
 }
 
-// UpdateSchedule persists user-editable fields of a schedule. The struct-based
-// Select(...).Updates pattern (not a map) is required so the Tasks JSON
-// serializer applies and selected zero values (disabled, cleared next_run,
-// empty chain) still persist.
+// ErrScheduleActive requires cancelling a chain before changing its tasks.
+var ErrScheduleActive = errors.New("the schedule is running; disable it before changing its tasks")
+
+// UpdateSchedule locks against run creation: task edits cannot reinterpret an
+// active checkpoint, and disabling invalidates the run in the same write.
 func (s *Store) UpdateSchedule(sc *models.Schedule) error {
-	return s.db.Model(&models.Schedule{}).Where("id = ?", sc.ID).
-		Select("name", "cron", "timezone", "tasks", "action", "payload", "enabled", "next_run").
-		Updates(models.Schedule{
-			Name: sc.Name, Cron: sc.Cron, Timezone: sc.Timezone, Tasks: sc.Tasks,
-			Action: sc.Action, Payload: sc.Payload, Enabled: sc.Enabled, NextRun: sc.NextRun,
-		}).Error
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var current models.Schedule
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&current, sc.ID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if current.Run != nil && !slices.Equal(current.TaskChain(), sc.TaskChain()) {
+			return ErrScheduleActive
+		}
+		sc.Generation, sc.Run = current.Generation, current.Run
+		if !sc.Enabled {
+			sc.Run, sc.NextRun = nil, nil
+			sc.Generation++
+		} else if current.Run == nil {
+			// Invalidate snapshots of the previous configuration before a
+			// scheduler can claim it with an obsolete task list or cron.
+			sc.Generation++
+		}
+		return tx.Model(&models.Schedule{}).Where("id = ?", sc.ID).
+			Select("name", "cron", "timezone", "tasks", "action", "payload", "enabled", "next_run", "run", "generation").
+			Updates(sc).Error
+	})
 }
 
-// MarkScheduleRun records a schedule's execution outcome and its next due time.
-func (s *Store) MarkScheduleRun(id uint, lastRun time.Time, nextRun *time.Time, status string) error {
-	return s.db.Model(&models.Schedule{}).Where("id = ?", id).
-		Updates(map[string]any{"last_run": lastRun, "next_run": nextRun, "last_status": status}).Error
+// StartScheduleRun claims this exact configuration and advances next_run
+// atomically. Concurrent cancellation, editing or another claimant wins first.
+func (s *Store) StartScheduleRun(sc *models.Schedule, run *models.ScheduleRun, nextRun *time.Time) (bool, error) {
+	run.Generation = sc.Generation + 1
+	res := s.db.Model(&models.Schedule{}).
+		Where("id = ? AND enabled = ? AND generation = ? AND run IS NULL", sc.ID, true, sc.Generation).
+		Select("run", "generation", "next_run").
+		Updates(models.Schedule{Run: run, Generation: run.Generation, NextRun: nextRun})
+	return res.RowsAffected == 1, res.Error
 }
 
-// MarkScheduleResult records only a run's outcome (last_run + last_status),
-// leaving next_run untouched. Used when next_run is advanced up front (before an
-// async chain runs) so a long chain's completion can't overwrite it with a
-// now-stale value.
-func (s *Store) MarkScheduleResult(id uint, lastRun time.Time, status string) error {
-	return s.db.Model(&models.Schedule{}).Where("id = ?", id).
-		Updates(map[string]any{"last_run": lastRun, "last_status": status}).Error
+// ScheduleRunActive checks cancellation after delays and before side effects.
+func (s *Store) ScheduleRunActive(id uint, generation uint64) (bool, error) {
+	var count int64
+	err := s.db.Model(&models.Schedule{}).
+		Where("id = ? AND enabled = ? AND generation = ? AND run IS NOT NULL", id, true, generation).
+		Count(&count).Error
+	return count == 1, err
 }
 
-// SetScheduleRun records how far a schedule's chain has got; nil ends it.
-func (s *Store) SetScheduleRun(id uint, run *models.ScheduleRun) error {
-	return s.db.Model(&models.Schedule{}).Where("id = ?", id).
-		Select("run").Updates(models.Schedule{Run: run}).Error
+// SaveScheduleRun only advances the live generation; it cannot recreate a run.
+func (s *Store) SaveScheduleRun(id uint, run *models.ScheduleRun) (bool, error) {
+	res := s.db.Model(&models.Schedule{}).
+		Where("id = ? AND enabled = ? AND generation = ? AND run IS NOT NULL", id, true, run.Generation).
+		Select("run").Updates(models.Schedule{Run: run})
+	return res.RowsAffected == 1, res.Error
 }
 
-// SetScheduleNextRun stores only the computed next run (e.g. on create/enable).
-func (s *Store) SetScheduleNextRun(id uint, nextRun *time.Time) error {
-	return s.db.Model(&models.Schedule{}).Where("id = ?", id).
+// FinishScheduleRun closes a generation and records its result in one write.
+// A cancelled writer cannot clear a replacement run or overwrite its outcome.
+func (s *Store) FinishScheduleRun(id uint, run *models.ScheduleRun, status string) (bool, error) {
+	res := s.db.Model(&models.Schedule{}).
+		Where("id = ? AND enabled = ? AND generation = ? AND run IS NOT NULL", id, true, run.Generation).
+		Select("run", "last_run", "last_status").
+		Updates(models.Schedule{LastRun: &run.Fired, LastStatus: status})
+	return res.RowsAffected == 1, res.Error
+}
+
+// SetScheduleNextRun computes a due time only for the unchanged, idle schedule.
+func (s *Store) SetScheduleNextRun(sc *models.Schedule, nextRun *time.Time) error {
+	return s.db.Model(&models.Schedule{}).
+		Where("id = ? AND enabled = ? AND generation = ? AND run IS NULL", sc.ID, true, sc.Generation).
 		Update("next_run", nextRun).Error
 }
 
@@ -1536,9 +1749,19 @@ func (s *Store) UpdateUserAdminFields(id uint, isAdmin bool, maxServers int, max
 	return s.db.Model(&models.User{}).Where("id = ?", id).Updates(fields).Error
 }
 
-// UpdateUserPassword sets a new password hash.
-func (s *Store) UpdateUserPassword(id uint, hash string) error {
-	return s.db.Model(&models.User{}).Where("id = ?", id).Update("password_hash", hash).Error
+// UpdateUserPassword replaces the verified password and revokes old links and
+// sessions atomically. keepSession preserves only the caller's current session.
+func (s *Store) UpdateUserPassword(id uint, hash, verifiedHash, keepSession string) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		u, err := lockUser(tx, id)
+		if err != nil {
+			return err
+		}
+		if u.PasswordHash != verifiedHash {
+			return ErrCredentialsChanged
+		}
+		return changePassword(tx, id, hash, keepSession)
+	})
 }
 
 // DeleteUser removes a user and their access grants + API keys.
@@ -1944,9 +2167,18 @@ func (s *Store) GetUserByUsername(username string) (*models.User, error) {
 	return &u, nil
 }
 
-// CreateSession stores a session.
-func (s *Store) CreateSession(sess *models.Session) error {
-	return s.db.Create(sess).Error
+// CreateSession issues a session only while the verified password is current.
+func (s *Store) CreateSession(sess *models.Session, verifiedHash string) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		u, err := lockUser(tx, sess.UserID)
+		if err != nil {
+			return err
+		}
+		if u.PasswordHash != verifiedHash {
+			return ErrCredentialsChanged
+		}
+		return tx.Create(sess).Error
+	})
 }
 
 // GetSession returns a session by token (does not check expiry).

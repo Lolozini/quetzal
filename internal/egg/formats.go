@@ -60,7 +60,9 @@ func (f *flexString) UnmarshalJSON(b []byte) error {
 		return nil
 	}
 	var v any
-	if err := json.Unmarshal(b, &v); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	if err := dec.Decode(&v); err != nil {
 		return err
 	}
 	switch x := v.(type) {
@@ -68,8 +70,8 @@ func (f *flexString) UnmarshalJSON(b []byte) error {
 		*f = ""
 	case bool:
 		*f = flexString(strconv.FormatBool(x))
-	case float64:
-		*f = flexString(strconv.FormatFloat(x, 'f', -1, 64))
+	case json.Number:
+		*f = flexString(x.String())
 	default:
 		return fmt.Errorf("expected a string, got %s", b)
 	}
@@ -174,7 +176,7 @@ func writeNodeJSON(buf *bytes.Buffer, n *yaml.Node, depth int) error {
 
 // isJSON reports whether a document starts like JSON rather than YAML.
 func isJSON(data []byte) bool {
-	t := bytes.TrimSpace(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")))
+	t := bytes.TrimSpace(data)
 	return len(t) > 0 && (t[0] == '{' || t[0] == '[')
 }
 
