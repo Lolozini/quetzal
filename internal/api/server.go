@@ -82,10 +82,9 @@ type Server struct {
 	InternalLimiter *ratelimit.Limiter
 	ForgotLimiter   *ratelimit.Limiter
 	InviteLimiter   *ratelimit.Limiter
-	// InspectLimiter counts, by account, the Pterodactyl panels it has the
-	// panel ask, and TestMailLimiter the test mails it has it send: each is a
-	// request the panel makes, from its own address, where the caller says.
-	InspectLimiter  *ratelimit.Limiter
+	// TestMailLimiter counts, by account, the test mails it has the panel
+	// send: a request the panel makes, from its own address, where the caller
+	// says.
 	TestMailLimiter *ratelimit.Limiter
 	// ConfirmMailLimiter counts, by account, the confirmation links it has
 	// the panel mail to an address of its choosing.
@@ -112,12 +111,6 @@ type Server struct {
 	// soon as it is added or changed, so the list shows it without waiting for
 	// the controller's next check. Defaults to dbprovision's Prober.Check.
 	CheckDatabaseHost func(ctx context.Context, h *models.DatabaseHost)
-	// PteroHTTP is the client for Pterodactyl imports. Nil means the
-	// SSRF-guarded default; tests point it at a local fake panel.
-	PteroHTTP *http.Client
-	// ImportSink writes an imported archive into a server's volume. Nil means
-	// the data-manager pod (see extractIntoVolume); tests capture it instead.
-	ImportSink ImportSink
 	// TrustProxy honors X-Forwarded-For when deriving the client IP (set when
 	// served behind a reverse proxy such as Traefik).
 	TrustProxy bool
@@ -171,7 +164,6 @@ func New(st *store.Store, cs kubernetes.Interface, cfg *rest.Config) *Server {
 		ForgotLimiter: ratelimit.New(3, time.Hour),
 		// Invitations: each is a mail to an address of the sender's choosing.
 		InviteLimiter:      ratelimit.New(20, time.Hour),
-		InspectLimiter:     ratelimit.New(30, time.Hour),
 		TestMailLimiter:    ratelimit.New(10, time.Hour),
 		ConfirmMailLimiter: ratelimit.New(5, time.Hour),
 		Mailer:             notify.Send,
@@ -204,7 +196,6 @@ func (s *Server) GCRateLimiters() {
 	s.InternalLimiter.GC()
 	s.ForgotLimiter.GC()
 	s.InviteLimiter.GC()
-	s.InspectLimiter.GC()
 	s.TestMailLimiter.GC()
 }
 
@@ -291,8 +282,6 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/templates/{slug}/export", s.auth(s.handleExportTemplate))
 	mux.Handle("GET /api/servers", s.auth(s.handleListServers))
 	mux.Handle("POST /api/servers", s.auth(s.handleCreateServer))
-	mux.Handle("POST /api/import/pterodactyl/inspect", s.auth(s.handleInspectPterodactyl))
-	mux.Handle("POST /api/servers/{id}/import/pterodactyl", s.auth(s.handleImportPterodactyl))
 	mux.Handle("GET /api/servers/{id}", s.auth(s.handleGetServer))
 	mux.Handle("PATCH /api/servers/{id}", s.auth(s.handleUpdateServer))
 	mux.Handle("DELETE /api/servers/{id}", s.auth(s.handleDeleteServer))

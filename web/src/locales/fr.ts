@@ -786,27 +786,6 @@ export const fr: Record<string, string> = {
   // Import from Pterodactyl
   "CPU limit": "Limite CPU",
   "e.g. 2 or 1500m (optional)": "ex. 2 ou 1500m (facultatif)",
-  "Client API key": "Clé API client",
-  "Copied {done} of {total}.": "{done} copiés sur {total}.",
-  "Copied {done}.": "{done} copiés.",
-  "Create and import": "Créer et importer",
-  "Do not import": "Ne pas importer",
-  "Import from Pterodactyl": "Importer depuis Pterodactyl",
-  "Import from Pterodactyl…": "Importer depuis Pterodactyl…",
-  "Importing from Pterodactyl ({source}): the server cannot start until it is done.":
-    "Import depuis Pterodactyl ({source}) : le serveur ne peut pas démarrer avant la fin.",
-  "Importing {name} (egg {egg}). Players will need the new server's address.":
-    "Import de {name} (egg {egg}). Les joueurs devront utiliser l’adresse du nouveau serveur.",
-  "Paste the address of the server's page on the panel and a client API key (Account → API Credentials, ptlc_…). The form is filled from the server; on creation, the panel backs it up and its files are copied into the new server. The key is not stored.":
-    "Collez l’adresse de la page du serveur sur le panel et une clé API client (Account → API Credentials, ptlc_…). Le formulaire est rempli à partir du serveur ; à la création, le panel le sauvegarde et ses fichiers sont copiés dans le nouveau serveur. La clé n’est pas conservée.",
-  "Read the server": "Lire le serveur",
-  "Reading…": "Lecture…",
-  "Retry the import": "Relancer l’import",
-  "Server page address": "Adresse de la page du serveur",
-  "Start once the data is imported": "Démarrer une fois les données importées",
-  "The import from Pterodactyl failed: {message}": "L’import depuis Pterodactyl a échoué : {message}",
-  "The server is stopped. To retry, give the server's page address and a client API key again.":
-    "Le serveur est arrêté. Pour relancer, redonnez l’adresse de la page du serveur et une clé API client.",
   // File manager: copy, extract, bulk actions
   Archive: "Archiver",
   "Clear selection": "Tout désélectionner",

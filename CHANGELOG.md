@@ -41,6 +41,26 @@ releases may include breaking changes).
   say why, rather than fail; a transfer to another cluster always copies every
   file. Quetzal does not read `.pteroignore`: rename it.
 
+### Removed
+
+- **The one-step import of a server from a Pterodactyl panel is gone.** Giving
+  the panel's address and a client API key had Quetzal read a server there,
+  fill the create form from it, have the panel produce a backup and stream it
+  into the new server's volume. It carried a lot for what it did: an outbound
+  client for someone else's panel, its own background job with a heartbeat and
+  a retry, a rate limiter, and an import state on every server. Migrating is
+  now the manual route the guide already described — create the server from the
+  egg's template, then upload its files through the file manager or SFTP, which
+  is also the only route that ever worked for a panel on a private address.
+  `POST /api/import/pterodactyl/inspect` and
+  `POST /api/servers/{id}/import/pterodactyl` are gone, with the `pterodactyl`
+  field of a create request and the `import` field of a server; the
+  `server.import` event no longer exists, and a notification channel filtering
+  on it receives nothing (it was already accepted without matching anything).
+  **Importing eggs is untouched** — that is how templates are made, and
+  `docs/MIGRATING.md` still starts there. An existing database keeps its
+  now-unused `import` column.
+
 ### Changed
 
 - **A server's CPU is a ceiling, not a reservation.** The CPU set on a server

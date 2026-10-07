@@ -238,7 +238,7 @@ kubectl -n quetzal logs deploy/quetzal -c apiserver | grep "setup code"
 
 From there you can register clusters, import templates/eggs, and create
 servers. Coming from Pterodactyl, see [Migrating from Pterodactyl](MIGRATING.md) to bring your
-eggs and servers over.
+eggs over and move your servers' files in.
 
 A new install has **no template**, and a server is created from one: import the
 eggs of the games you run first, under Admin → Eggs / templates. An egg file from

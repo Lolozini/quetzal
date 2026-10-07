@@ -376,52 +376,7 @@ export interface Server {
   eulaAccepted?: boolean;
   clusterId?: number;
   transfer?: TransferState;
-  import?: ImportState;
   status: ServerStatus;
-}
-
-// ImportState is a server's data import from Pterodactyl. A running import
-// whose heartbeat stopped is reported as Failed by the API.
-export interface ImportState {
-  phase: "Preparing" | "Downloading" | "Done" | "Failed";
-  source: string;
-  message?: string;
-  bytes?: number;
-  total?: number;
-  startedAt?: string;
-  updatedAt?: string;
-  startAfter?: boolean;
-}
-
-export interface PterodactylSource {
-  // The address of the server's page on the panel (…/server/<id>).
-  url: string;
-  apiKey: string;
-}
-
-export interface PterodactylDraft {
-  name: string;
-  template?: string;
-  image?: string;
-  memory?: string;
-  cpu?: string;
-  storage: string;
-  ports?: { port: string; protocol: string }[];
-  env: Record<string, string>;
-  variables: Record<string, string>;
-}
-
-export interface PterodactylInspect {
-  source: {
-    name: string;
-    identifier: string;
-    egg: string;
-    dockerImage: string;
-    diskUsedBytes: number;
-    backupLimit: number;
-  };
-  draft: PterodactylDraft;
-  warnings: string[] | null;
 }
 
 export interface TransferState {
@@ -963,10 +918,6 @@ export const api = {
     req<{ key: APIKey; token: string }>("POST", "/api/apikeys", { name }),
   deleteAPIKey: (kid: number) => req<void>("DELETE", `/api/apikeys/${kid}`),
 
-  inspectPterodactyl: (src: PterodactylSource) =>
-    req<PterodactylInspect>("POST", "/api/import/pterodactyl/inspect", src),
-  importPterodactyl: (id: number, src: PterodactylSource & { start?: boolean }) =>
-    req<ImportState>("POST", `/api/servers/${id}/import/pterodactyl`, src),
   transferServer: (id: number, targetCluster: number) =>
     req<{ result: string }>("POST", `/api/servers/${id}/transfer`, { targetCluster }),
   // The controller undoes it on its next tick, so this returns as soon as the
@@ -1017,7 +968,7 @@ export const api = {
       throw new ApiError(res.status, msg);
     }
   },
-  // Upload an archive (world/modpack/Pterodactyl backup) and extract it into a
+  // Upload an archive (world, modpack, a backup from another panel) and extract it into a
   // directory. format is "zip" or "tar" (covers .tar.gz/.tgz/.tar.bz2/.tar.xz).
   extractArchive: async (id: number, path: string, format: "zip" | "tar", file: File): Promise<void> => {
     const res = await fetch(
@@ -1146,8 +1097,6 @@ export interface CreateServerRequest {
   cluster?: string;
   start?: boolean;
   eulaAccepted?: boolean;
-  // Import the data of this Pterodactyl server into the new one.
-  pterodactyl?: PterodactylSource;
 }
 
 // consoleSocket opens the live console WebSocket for a server.

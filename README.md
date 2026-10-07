@@ -41,8 +41,7 @@ network policy, and a multi-cluster API.
 - **A migration path, not a rewrite.** Import your existing **Pterodactyl/Pelican
   eggs** as-is (variables, startup, install scripts, `config.files`) — paste the
   JSON or YAML, or fetch it from a URL (a GitHub/GitLab file page link works) —
-  then **import a Pterodactyl server in one step**: its settings and its files,
-  pulled from the panel with a client API key. See the
+  then move each server's files in with the file manager or SFTP. See the
   [migration guide](docs/MIGRATING.md).
 - **Multi-tenant and secure by default.** Namespace-per-server, NetworkPolicy,
   hardened `securityContext`, encrypted secrets, scoped subusers and admin roles.
@@ -128,8 +127,8 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
 - Live **console** over WebSocket — log stream + stdin via the Kubernetes
   `attach` subresource (no RCON server, no sidecar).
 - **File manager**: browse, edit, upload, rename, delete, download folders as
-  `.tar.gz`, and upload an archive (world / modpack / Pterodactyl backup) that's
-  extracted into the volume.
+  `.tar.gz`, and upload an archive (a world, a modpack, a backup from another
+  panel) that's extracted into the volume.
 - Opt-in **SFTP** per server, authenticated by users' SSH public keys; what a
   session changes shows in the server's activity under the account that made it.
 - The **file manager and SFTP both stay available whether the server is running
