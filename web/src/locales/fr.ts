@@ -1017,4 +1017,7 @@ export const fr: Record<string, string> = {
   "Task {value} has an invalid action.": "L’action de la tâche {value} est invalide.",
   "Unknown cluster: {value}.": "Cluster inconnu : {value}.",
   "a username starts with a letter or a digit": "Le nom d’utilisateur doit commencer par une lettre ou un chiffre.",
+  "No servers yet.": "Aucun serveur pour l’instant.",
+  "Your account cannot create servers. Ask an administrator to enable creation.":
+    "Votre compte ne peut pas créer de serveur. Demandez à un administrateur d’autoriser la création.",
 };

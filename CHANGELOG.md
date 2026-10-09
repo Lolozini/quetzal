@@ -9,6 +9,10 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A zero server quota is explained before filling a form.** The server list
+  disables creation with guidance to ask an administrator, and a direct create
+  URL shows that guidance instead of a form that must fail. Administrators
+  with server-management permission retain the API's quota exemption.
 - **Form validation follows the selected language.** API errors are formatted
   consistently across the panel, including account/password/link errors,
   permissions, quotas and parameterized resource or schedule validation.

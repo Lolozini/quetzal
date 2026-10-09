@@ -56,6 +56,7 @@ export function Dashboard({ user, onLogout, onUserRefresh }: { user: User; onLog
   const [unsaved, setUnsaved] = useState(false);
   const acceptedHash = useRef(window.location.hash);
   const { t } = useT();
+  const canCreate = hasAdminPerm(user, "servers") || user.maxServers !== 0;
 
   // The hash is the source of truth: navigation writes it, and a hashchange
   // (our own writes, plus browser back/forward) drives the view state.
@@ -128,22 +129,29 @@ export function Dashboard({ user, onLogout, onUserRefresh }: { user: User; onLog
         >
           {view.name === "list" && (
             <ServerList
+              canCreate={canCreate}
               onCreate={() => go({ name: "create" })}
               onOpen={(id) => go({ name: "detail", id })}
             />
           )}
-          {view.name === "create" && (
+          {view.name === "create" && (canCreate ? (
             <CreateServer
               memoryRequired={!hasAdminPerm(user, "servers")}
               canImportTemplates={hasAdminPerm(user, "templates")}
               onDone={() => go({ name: "list" })}
               onCancel={() => go({ name: "list" })}
             />
-          )}
+          ) : (
+            <div className="card">
+              <h2>{t("New server")}</h2>
+              <p className="notice">{t("Your account cannot create servers. Ask an administrator to enable creation.")}</p>
+              <button onClick={() => go({ name: "list" })}>{t("Back to the servers")}</button>
+            </div>
+          ))}
           {view.name === "detail" && (
             <ServerDetail id={view.id} tab={view.tab} user={user} onBack={() => go({ name: "list" })} onDirtyChange={setUnsaved} />
           )}
-          {view.name === "admin" && (isAnyAdmin(user) ? <Admin user={user} section={view.section} /> : <ServerList onCreate={() => go({ name: "create" })} onOpen={(id) => go({ name: "detail", id })} />)}
+          {view.name === "admin" && (isAnyAdmin(user) ? <Admin user={user} section={view.section} /> : <ServerList canCreate={canCreate} onCreate={() => go({ name: "create" })} onOpen={(id) => go({ name: "detail", id })} />)}
           {view.name === "account" && <Account user={user} onUserRefresh={onUserRefresh} />}
         </ErrorBoundary>
       </div>

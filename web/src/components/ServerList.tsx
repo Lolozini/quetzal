@@ -1,15 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api, Server, errorMessage } from "../api";
 import { useT } from "../i18n";
 
 export function ServerList({
   onCreate,
   onOpen,
+  canCreate,
 }: {
   onCreate: () => void;
   onOpen: (id: number) => void;
+  canCreate: boolean;
 }) {
   const { t } = useT();
+  const creationHelpId = useId();
   const [servers, setServers] = useState<Server[]>([]);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -50,14 +53,19 @@ export function ServerList({
           placeholder={t("Search servers")}
           style={{ width: "auto", maxWidth: 220 }}
         />
-        <button className="primary" onClick={onCreate}>
+        <button className="primary" onClick={onCreate} disabled={!canCreate} aria-describedby={!canCreate ? creationHelpId : undefined}>
           + {t("New server")}
         </button>
       </div>
+      {!canCreate && (
+        <p id={creationHelpId} className="notice">
+          {t("Your account cannot create servers. Ask an administrator to enable creation.")}
+        </p>
+      )}
       {error && <div className="error">{error}</div>}
       {servers.length === 0 ? (
         <p className="muted">
-          {search ? t("No server matches that search.") : t("No servers yet. Create one to get started.")}
+          {search ? t("No server matches that search.") : canCreate ? t("No servers yet. Create one to get started.") : t("No servers yet.")}
         </p>
       ) : (
         <div className="table-scroll">
