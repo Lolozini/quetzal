@@ -9,6 +9,10 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A language switch also updates errors on retained server tabs.** File,
+  schedule and server-list/detail loaders keep the original error and translate
+  it when displayed, so a later refresh cannot reuse the previous language.
+  Changing language does not restart polling or discard metric history.
 - **The documentation home page keeps its theme picker on phones.** Light,
   Dark and Auto remain reachable without entering a guide. The compact header
   fits at 320 px while preserving the logo's 140 px brand minimum.

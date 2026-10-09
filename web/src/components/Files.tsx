@@ -19,7 +19,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
   const { t } = useT();
   const [path, setPath] = useState(""); // relative to the data root
   const [entries, setEntries] = useState<FileEntry[]>([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<{ path: string; content: string } | null>(null);
   const [saved, setSaved] = useState("");
@@ -55,7 +55,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       setSelected(new Set());
     } catch (e) {
       setEntries([]);
-      setError(errorMessage(e, t));
+      setError(e);
     } finally {
       setBusy(false);
     }
@@ -94,7 +94,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       setOriginal(content);
       setSaved("");
     } catch (err) {
-      setError(errorMessage(err, t));
+      setError(err);
     }
   }
 
@@ -107,7 +107,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       setOriginal(editing.content);
       setSaved(t("Saved."));
     } catch (err) {
-      setError(errorMessage(err, t));
+      setError(err);
     } finally {
       setBusy(false);
     }
@@ -133,7 +133,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       setOriginal("");
       setSaved("");
     } catch (e) {
-      setError(errorMessage(e, t));
+      setError(e);
     }
   }
 
@@ -144,7 +144,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       await api.mkdir(id, join(path, name));
       changed();
     } catch (e) {
-      setError(errorMessage(e, t));
+      setError(e);
     }
   }
 
@@ -155,7 +155,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       await api.renameFile(id, join(path, e.name), join(path, to));
       changed();
     } catch (err) {
-      setError(errorMessage(err, t));
+      setError(err);
     }
   }
 
@@ -167,7 +167,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       if (editing && (editing.path === removed || editing.path.startsWith(removed + "/"))) setEditing(null);
       changed();
     } catch (err) {
-      setError(errorMessage(err, t));
+      setError(err);
     }
   }
 
@@ -182,7 +182,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       await sendInPieces(id, file, target, (p) => setTransfer((cur) => cur && { ...cur, ...p }), abort.signal);
       changed();
     } catch (err) {
-      if (!abort.signal.aborted) setError(errorMessage(err, t));
+      if (!abort.signal.aborted) setError(err);
     } finally {
       setTransfer(null);
     }
@@ -221,7 +221,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       await fn();
       changed();
     } catch (err) {
-      setError(errorMessage(err, t));
+      setError(err);
     } finally {
       setBusy(false);
     }
@@ -336,7 +336,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
           <progress max={transfer.total || 1} value={transfer.sent} style={{ width: "100%", marginTop: 6 }} />
         </div>
       )}
-      {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
+      {!!error && <div className="error" style={{ marginTop: 8 }}>{errorMessage(error, t)}</div>}
 
       {selected.size > 0 && (
         <div className="row notice" style={{ gap: 6, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>

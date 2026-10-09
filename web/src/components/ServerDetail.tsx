@@ -199,7 +199,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [stats, setStats] = useState<ServerStats | null>(null);
   const [history, setHistory] = useState<Sample[]>([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
   const [idleDraft, setIdleDraft] = useState<string | null>(null);
@@ -245,7 +245,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
         if (revision === hibRevision.current && !hibSaving.current) setSrv(s);
         phase = s.status?.phase ?? "";
       } catch (e) {
-        if (active) setError(errorMessage(e, t));
+        if (active) setError(e);
       }
       // No pod when the server is offline: skip the stats call entirely (avoids a
       // pointless "no pod found" every poll) and clear the panel.
@@ -301,7 +301,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
       setSrv(saved);
       if (patch.idleMinutes !== undefined) setIdleDraft(null);
     } catch (err) {
-      setError(errorMessage(err, t));
+      setError(err);
     } finally {
       hibSaving.current = false;
       setHibBusy(false);
@@ -313,7 +313,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
     try {
       setSrv(await api.setExpose(id, { type }));
     } catch (e) {
-      setError(errorMessage(e, t));
+      setError(e);
     }
   }
 
@@ -323,7 +323,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
       await (want ? api.suspend(id) : api.unsuspend(id));
       setSrv(await api.server(id));
     } catch (e) {
-      setError(errorMessage(e, t));
+      setError(e);
     }
   }
 
@@ -343,7 +343,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
       await api.transferServer(id, targetCluster);
       setSrv(await api.server(id));
     } catch (e) {
-      setError(errorMessage(e, t));
+      setError(e);
     }
   }
 
@@ -382,7 +382,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
       setNotice(t(powerNotice[action]));
       window.setTimeout(() => setNotice(""), 6000);
     } catch (e) {
-      setError(errorMessage(e, t));
+      setError(e);
     } finally {
       setBusy("");
     }
@@ -399,7 +399,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
       await api.deleteServer(id);
       onBack();
     } catch (e) {
-      setError(errorMessage(e, t));
+      setError(e);
     }
   }
 
@@ -407,7 +407,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
     return (
       <div className="card">
         <button onClick={onBack}>← {t("Back")}</button>
-        {error && <div className="error">{error}</div>}
+        {!!error && <div className="error">{errorMessage(error, t)}</div>}
         <p className="muted">{t("Loading…")}</p>
       </div>
     );
@@ -479,7 +479,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
                       await api.cancelTransfer(id);
                       setSrv(await api.server(id));
                     } catch (e) {
-                      setError(errorMessage(e, t));
+                      setError(e);
                     }
                   }}
                 >
@@ -523,7 +523,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
           )}
         </div>
         {notice && <div className="notice">{notice}</div>}
-        {error && <div className="error">{error}</div>}
+        {!!error && <div className="error">{errorMessage(error, t)}</div>}
       </div>
 
       <nav className="tabs" aria-label={t("Server sections")}>
@@ -744,7 +744,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
 function SetupLog({ id, phase }: { id: number; phase: string }) {
   const { t } = useT();
   const [log, setLog] = useState<InstallLog | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const relevant = phase === "Installing" || phase === "Error";
 
@@ -754,7 +754,7 @@ function SetupLog({ id, phase }: { id: number; phase: string }) {
     try {
       setLog(await api.installLog(id));
     } catch (e) {
-      setError(errorMessage(e, t));
+      setError(e);
     } finally {
       setBusy(false);
     }
@@ -784,7 +784,7 @@ function SetupLog({ id, phase }: { id: number; phase: string }) {
         <button type="button" onClick={load} disabled={busy}>
           {busy ? t("Loading…") : t("Refresh")}
         </button>
-        {error && <p className="error">{error}</p>}
+        {!!error && <p className="error">{errorMessage(error, t)}</p>}
         {log && steps.length === 0 && !error && (
           <p className="muted">{t("This template has no install step.")}</p>
         )}
@@ -819,7 +819,7 @@ function SFTPCard({ id, initialEnabled, username, canToggle }: { id: number; ini
   const [port, setPort] = useState(0);
   const [host, setHost] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
 
   async function refresh() {
     try {
@@ -828,7 +828,7 @@ function SFTPCard({ id, initialEnabled, username, canToggle }: { id: number; ini
       setPort(info.port);
       setHost(info.host);
     } catch (e) {
-      setError(errorMessage(e, t));
+      setError(e);
     }
   }
   useEffect(() => {
@@ -865,7 +865,7 @@ function SFTPCard({ id, initialEnabled, username, canToggle }: { id: number; ini
       setPort(0);
       setHost("");
     } catch (e) {
-      setError(errorMessage(e, t));
+      setError(e);
     } finally {
       setBusy(false);
     }
@@ -893,7 +893,7 @@ function SFTPCard({ id, initialEnabled, username, canToggle }: { id: number; ini
           )}
         </div>
       )}
-      {error && <div className="error">{error}</div>}
+      {!!error && <div className="error">{errorMessage(error, t)}</div>}
     </div>
   );
 }

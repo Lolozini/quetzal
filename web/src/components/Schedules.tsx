@@ -27,7 +27,7 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
     backup: t("Backup"),
   };
   const [list, setList] = useState<Schedule[]>([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [name, setName] = useState("");
   const [cron, setCron] = useState("0 5 * * *");
   // Prefilled with the reader's zone, so an hour typed here means that hour
@@ -45,7 +45,7 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
     try {
       setList(await api.schedules(id));
     } catch (e) {
-      setError(errorMessage(e, t));
+      setError(e);
     }
   }
   useEffect(() => {
@@ -85,7 +85,7 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
       setDirty(false);
       await load();
     } catch (err) {
-      setError(errorMessage(err, t));
+      setError(err);
     } finally {
       setBusy(false);
     }
@@ -97,7 +97,7 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
       await api.updateSchedule(id, s.id, { enabled: !s.enabled });
       await load();
     } catch (e) {
-      setError(errorMessage(e, t));
+      setError(e);
     }
   }
 
@@ -107,7 +107,7 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
       await api.deleteSchedule(id, s.id);
       await load();
     } catch (e) {
-      setError(errorMessage(e, t));
+      setError(e);
     }
   }
 
@@ -155,7 +155,7 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
       )}
 
       {readOnly ? (
-        error && <div className="error" style={{ marginTop: 8 }}>{error}</div>
+        !!error && <div className="error" style={{ marginTop: 8 }}>{errorMessage(error, t)}</div>
       ) : (
       <form onSubmit={add} onChange={() => setDirty(true)} style={{ marginTop: 12 }}>
         <div className="grid2">
@@ -218,7 +218,7 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
         )}
         </div>
 
-        {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
+        {!!error && <div className="error" style={{ marginTop: 8 }}>{errorMessage(error, t)}</div>}
         <div>
           <button className="primary" style={{ marginTop: 12 }} disabled={busy || !name || !cron}>
             {busy ? t("Adding…") : t("Add schedule")}

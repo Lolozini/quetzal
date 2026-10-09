@@ -14,7 +14,7 @@ export function ServerList({
   const { t } = useT();
   const creationHelpId = useId();
   const [servers, setServers] = useState<Server[]>([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [query, setQuery] = useState("");
   // Debounced so typing does not fire a request per keystroke; the list also
   // polls, so the query has to be part of what the poll sends.
@@ -31,7 +31,7 @@ export function ServerList({
         const s = await api.servers(search);
         if (active) setServers(s);
       } catch (e) {
-        if (active) setError(errorMessage(e, t));
+        if (active) setError(e);
       }
     };
     load();
@@ -62,7 +62,7 @@ export function ServerList({
           {t("Your account cannot create servers. Ask an administrator to enable creation.")}
         </p>
       )}
-      {error && <div className="error">{error}</div>}
+      {!!error && <div className="error">{errorMessage(error, t)}</div>}
       {servers.length === 0 ? (
         <p className="muted">
           {search ? t("No server matches that search.") : canCreate ? t("No servers yet. Create one to get started.") : t("No servers yet.")}
