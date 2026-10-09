@@ -73,7 +73,11 @@ export function ServerList({
             <tbody>
               {servers.map((s) => (
                 <tr key={s.id} className="clickable" onClick={() => onOpen(s.id)}>
-                  <td>{s.displayName}</td>
+                  <td>
+                    <a href={`#/servers/${s.id}`} onClick={(e) => e.stopPropagation()}>
+                      {s.displayName}
+                    </a>
+                  </td>
                   <td>
                     <span className={`badge ${s.desiredState}`}>{t(s.desiredState)}</span>
                   </td>

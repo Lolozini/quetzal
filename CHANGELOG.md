@@ -9,6 +9,8 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Open a server without a mouse.** Server names in the list are now real
+  links: Tab reaches them, Enter opens them, and they can be opened in a new tab.
 - **An install that keeps failing says so, instead of reporting "installing"
   for as long as it fails.** A failed install step is retried in place by
   Kubernetes, and the panel read that as a failure only once the step reached
