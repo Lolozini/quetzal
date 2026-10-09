@@ -77,3 +77,22 @@ h1,
 	border: 1px solid var(--sl-color-gray-5);
 	border-radius: 10px;
 }
+
+/* Splash pages have no mobile sidebar/menu: keep the existing theme picker reachable. */
+@media screen and (max-width: 49.99rem) {
+	:root:not([data-has-sidebar]) .header {
+		gap: 0.5rem;
+	}
+
+	:root:not([data-has-sidebar]) .site-title img {
+		min-width: 140px;
+	}
+
+	:root:not([data-has-sidebar]) .header .right-group {
+		display: flex;
+	}
+
+	:root:not([data-has-sidebar]) .header .right-group .social-icons {
+		display: none;
+	}
+}

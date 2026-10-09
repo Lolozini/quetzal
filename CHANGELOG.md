@@ -9,6 +9,9 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **The documentation home page keeps its theme picker on phones.** Light,
+  Dark and Auto remain reachable without entering a guide. The compact header
+  fits at 320 px while preserving the logo's 140 px brand minimum.
 - **Documentation search reports failures and can retry.** Search keeps the
   query, presents an error instead of an endless loading message, and rebuilds
   the failed Pagefind instance on Retry. Results, sub-results, pagination and
