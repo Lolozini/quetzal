@@ -9,6 +9,8 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Role help links to the Users tab.** It no longer points to a nonexistent
+  Users card above the role editor.
 - **The mobile sign-in logo keeps its proportions.** Only the horizontal
   top-bar lockup is resized on phones, at the brand's 140 px minimum width;
   the stacked authentication logo remains 168 px wide at its natural ratio.

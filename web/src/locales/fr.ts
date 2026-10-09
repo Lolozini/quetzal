@@ -209,8 +209,9 @@ export const fr: Record<string, string> = {
 
   // Admin roles
   "Admin roles": "Rôles admin",
-  "Bundles of admin permissions you can assign to users for scoped admin access. Assign a role to a user in the Users card above.":
-    "Ensembles de permissions admin attribuables aux utilisateurs pour un accès admin restreint. Attribuez un rôle dans la carte Utilisateurs ci-dessus.",
+  "Bundles of admin permissions you can assign to users for scoped admin access.":
+    "Ensembles de permissions admin attribuables aux utilisateurs pour un accès admin restreint.",
+  "Assign roles in Users.": "Attribuez les rôles dans l’onglet Utilisateurs.",
   Permissions: "Permissions",
   "every server: its page, power, console, files, settings, suspension and deletion":
     "tous les serveurs : fiche, alimentation, console, fichiers, réglages, suspension et suppression",

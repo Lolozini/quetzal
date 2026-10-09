@@ -375,7 +375,8 @@ function Roles() {
     <div className="card">
       <h2>{t("Admin roles")}</h2>
       <p className="muted">
-        {t("Bundles of admin permissions you can assign to users for scoped admin access. Assign a role to a user in the Users card above.")}
+        {t("Bundles of admin permissions you can assign to users for scoped admin access.")}{" "}
+        <a href="#/admin/users">{t("Assign roles in Users.")}</a>
       </p>
       <div className="table-scroll">
         <table>
