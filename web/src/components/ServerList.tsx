@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { api, Server, errorMessage } from "../api";
 import { useT } from "../i18n";
 
@@ -6,10 +6,12 @@ export function ServerList({
   onCreate,
   onOpen,
   canCreate,
+  onUserRefresh,
 }: {
   onCreate: () => void;
   onOpen: (id: number) => void;
   canCreate: boolean;
+  onUserRefresh: () => Promise<void>;
 }) {
   const { t } = useT();
   const creationHelpId = useId();
@@ -57,11 +59,7 @@ export function ServerList({
           + {t("New server")}
         </button>
       </div>
-      {!canCreate && (
-        <p id={creationHelpId} className="notice">
-          {t("Your account cannot create servers. Ask an administrator to enable creation.")}
-        </p>
-      )}
+      {!canCreate && <CreationRestriction id={creationHelpId} onRefresh={onUserRefresh} />}
       {!!error && <div className="error">{errorMessage(error, t)}</div>}
       {servers.length === 0 ? (
         <p className="muted">
@@ -99,6 +97,39 @@ export function ServerList({
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+// A denied create route can outlive an administrator granting the account a
+// quota. Refresh on entry and offer an explicit recheck without a page reload.
+export function CreationRestriction({ id, onRefresh }: { id?: string; onRefresh: () => Promise<void> }) {
+  const { t } = useT();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const checking = useRef(false);
+  const check = useCallback(async () => {
+    if (checking.current) return;
+    checking.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      await onRefresh();
+    } catch (err) {
+      setError(err);
+    } finally {
+      checking.current = false;
+      setBusy(false);
+    }
+  }, [onRefresh]);
+  useEffect(() => { void check(); }, [check]);
+  return (
+    <div className="notice">
+      <p id={id}>{t("Your account cannot create servers. Ask an administrator to enable creation.")}</p>
+      <button type="button" onClick={check} disabled={busy}>
+        {busy ? t("Checking…") : t("Check access again")}
+      </button>
+      {!!error && <p className="error" role="alert">{errorMessage(error, t)}</p>}
     </div>
   );
 }

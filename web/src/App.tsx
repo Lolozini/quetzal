@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, User } from "./api";
 import { useT } from "./i18n";
 import { Auth } from "./components/Auth";
@@ -70,9 +70,9 @@ export function App() {
     return () => window.removeEventListener("quetzal:unauthorized", onUnauthorized);
   }, []);
 
-  async function refreshUser() {
+  const refreshUser = useCallback(async () => {
     setUser(await api.me());
-  }
+  }, []);
 
   if (resetToken) {
     return (

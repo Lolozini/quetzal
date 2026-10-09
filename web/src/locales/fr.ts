@@ -1022,4 +1022,6 @@ export const fr: Record<string, string> = {
   "Your account cannot create servers. Ask an administrator to enable creation.":
     "Votre compte ne peut pas créer de serveur. Demandez à un administrateur d’autoriser la création.",
   Backup: "Sauvegarde",
+  "Checking…": "Vérification…",
+  "Check access again": "Vérifier à nouveau mes droits",
 };

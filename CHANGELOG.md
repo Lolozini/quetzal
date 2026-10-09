@@ -9,6 +9,10 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Newly granted creation rights take effect without signing in again.**
+  The denied-creation notice refreshes the account on entry and offers Check
+  access again, so an administrator granting a quota does not leave an open
+  session permanently stuck behind its previous zero quota.
 - **A language switch also updates errors on retained server tabs.** File,
   schedule and server-list/detail loaders keep the original error and translate
   it when displayed, so a later refresh cannot reuse the previous language.

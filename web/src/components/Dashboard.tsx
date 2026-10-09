@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, hasAdminPerm, User, isAnyAdmin } from "../api";
 import { LangSwitcher, useT } from "../i18n";
-import { ServerList } from "./ServerList";
+import { CreationRestriction, ServerList } from "./ServerList";
 import { CreateServer } from "./CreateServer";
 import { ServerDetail } from "./ServerDetail";
 import { Admin } from "./Admin";
@@ -130,6 +130,7 @@ export function Dashboard({ user, onLogout, onUserRefresh }: { user: User; onLog
           {view.name === "list" && (
             <ServerList
               canCreate={canCreate}
+              onUserRefresh={onUserRefresh}
               onCreate={() => go({ name: "create" })}
               onOpen={(id) => go({ name: "detail", id })}
             />
@@ -144,14 +145,14 @@ export function Dashboard({ user, onLogout, onUserRefresh }: { user: User; onLog
           ) : (
             <div className="card">
               <h2>{t("New server")}</h2>
-              <p className="notice">{t("Your account cannot create servers. Ask an administrator to enable creation.")}</p>
+              <CreationRestriction onRefresh={onUserRefresh} />
               <button onClick={() => go({ name: "list" })}>{t("Back to the servers")}</button>
             </div>
           ))}
           {view.name === "detail" && (
             <ServerDetail id={view.id} tab={view.tab} user={user} onBack={() => go({ name: "list" })} onDirtyChange={setUnsaved} />
           )}
-          {view.name === "admin" && (isAnyAdmin(user) ? <Admin user={user} section={view.section} /> : <ServerList canCreate={canCreate} onCreate={() => go({ name: "create" })} onOpen={(id) => go({ name: "detail", id })} />)}
+          {view.name === "admin" && (isAnyAdmin(user) ? <Admin user={user} section={view.section} /> : <ServerList canCreate={canCreate} onUserRefresh={onUserRefresh} onCreate={() => go({ name: "create" })} onOpen={(id) => go({ name: "detail", id })} />)}
           {view.name === "account" && <Account user={user} onUserRefresh={onUserRefresh} />}
         </ErrorBoundary>
       </div>
