@@ -9,6 +9,9 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A failed security-settings load is not a policy.** The two-factor and
+  invitation cards show loading or an error with Retry until their real values
+  arrive, instead of presenting permissive defaults after a failed request.
 - **Open a server without a mouse.** Server names in the list are now real
   links: Tab reaches them, Enter opens them, and they can be opened in a new tab.
 - **An install that keeps failing says so, instead of reporting "installing"

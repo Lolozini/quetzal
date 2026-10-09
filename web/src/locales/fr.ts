@@ -859,4 +859,7 @@ export const fr: Record<string, string> = {
   "Finishing {name}…": "Finalisation de {name}…",
   "Resuming {name}: {sent} of {total}": "Reprise de {name} : {sent} sur {total}",
   "Sending {name}: {sent} of {total}": "Envoi de {name} : {sent} sur {total}",
+  "Retry": "Réessayer",
+  "Could not load security settings. No policy is shown until they are available.":
+    "Impossible de charger les réglages de sécurité. Aucune politique n’est affichée tant qu’ils ne sont pas disponibles.",
 };

@@ -431,12 +431,38 @@ function SecuritySettingsCard({ isSuperadmin, hasTwoFactor }: { isSuperadmin: bo
   const [impact, setImpact] = useState<Record<string, PolicyImpact>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+
+  async function load() {
+    setLoadState("loading");
+    try {
+      const s = await api.securitySettings();
+      setMode(s.requireTwoFactor);
+      setSaved(s.requireTwoFactor);
+      setImpact(s.impact ?? {});
+      setLoadState("ready");
+    } catch {
+      setLoadState("error");
+    }
+  }
 
   useEffect(() => {
-    api.securitySettings()
-      .then((s) => { setMode(s.requireTwoFactor); setSaved(s.requireTwoFactor); setImpact(s.impact ?? {}); })
-      .catch(() => {});
+    void load();
   }, []);
+
+  if (loadState !== "ready") {
+    return (
+      <div className="card">
+        <h3>{t("Two-factor policy")}</h3>
+        {loadState === "loading" ? <p role="status">{t("Loading…")}</p> : (
+          <>
+            <p className="error" role="alert">{t("Could not load security settings. No policy is shown until they are available.")}</p>
+            <button onClick={load}>{t("Retry")}</button>
+          </>
+        )}
+      </div>
+    );
+  }
 
   // A policy covers the superadmin who sets it, and the API refuses it until
   // they have a second factor of their own.
@@ -508,12 +534,37 @@ function InviteSettingsCard({ isSuperadmin }: { isSuperadmin: boolean }) {
   const [saved, setSaved] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+
+  async function load() {
+    setLoadState("loading");
+    try {
+      const s = await api.securitySettings();
+      setOn(s.inviteSignup);
+      setSaved(s.inviteSignup);
+      setLoadState("ready");
+    } catch {
+      setLoadState("error");
+    }
+  }
 
   useEffect(() => {
-    api.securitySettings()
-      .then((s) => { setOn(s.inviteSignup); setSaved(s.inviteSignup); })
-      .catch(() => {});
+    void load();
   }, []);
+
+  if (loadState !== "ready") {
+    return (
+      <div className="card">
+        <h3>{t("Invitations")}</h3>
+        {loadState === "loading" ? <p role="status">{t("Loading…")}</p> : (
+          <>
+            <p className="error" role="alert">{t("Could not load security settings. No policy is shown until they are available.")}</p>
+            <button onClick={load}>{t("Retry")}</button>
+          </>
+        )}
+      </div>
+    );
+  }
 
   async function save() {
     setError("");
