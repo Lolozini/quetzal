@@ -9,6 +9,11 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Form labels identify their controls.** Authentication, account, server and
+  administration forms associate labels and help text with unique field IDs;
+  dynamically repeated fields and groups have distinct accessible names too.
+  Clicking a label focuses its control, and screen readers no longer have to
+  infer a field's purpose from its placeholder.
 - **One API-key creation at a time.** The name and submit button stay locked
   while a key is being created, with a visible progress label; repeated clicks
   cannot create extra keys or replace the token the user has yet to copy.

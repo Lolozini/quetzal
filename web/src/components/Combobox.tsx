@@ -11,12 +11,14 @@ export interface ComboOption {
  * click or Enter to pick. No separate search field — the input is the picker.
  */
 export function Combobox({
+  id,
   options,
   value,
   onChange,
   placeholder,
   emptyLabel = "No matches.",
 }: {
+  id?: string;
   options: ComboOption[];
   value: string;
   onChange: (value: string) => void;
@@ -56,7 +58,7 @@ export function Combobox({
 
   return (
     <div className="combobox" ref={ref}>
-      <input
+      <input id={id}
         type="text"
         value={open ? filter : selected?.label ?? ""}
         placeholder={placeholder}

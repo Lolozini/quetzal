@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useId, useRef, useState } from "react";
 import { api, APIKey, ApiError, SSHKey, User } from "../api";
 import { useT } from "../i18n";
 import { QRCode } from "./QRCode";
@@ -32,6 +32,7 @@ export function TwoFactor({
   username: string;
   onChanged: () => Promise<void>;
 }) {
+  const fieldId = useId();
   const { t } = useT();
   const [enabled, setEnabled] = useState(initialEnabled);
   const [enroll, setEnroll] = useState<{ secret: string; uri: string } | null>(null);
@@ -135,9 +136,9 @@ export function TwoFactor({
 
       {!recovery && enabled && disabling && (
         <div>
-          <p className="muted">{t("Confirm with a current code (or a recovery code) to disable.")}</p>
-          <label>{t("Code")}</label>
-          <input value={code} autoComplete="one-time-code" onChange={(e) => setCode(e.target.value)} />
+          <p id={`${fieldId}-disable-help`} className="muted">{t("Confirm with a current code (or a recovery code) to disable.")}</p>
+          <label htmlFor={`${fieldId}-disable-code`}>{t("Code")}</label>
+          <input aria-describedby={`${fieldId}-disable-help`} id={`${fieldId}-disable-code`} value={code} autoComplete="one-time-code" onChange={(e) => setCode(e.target.value)} />
           <div className="row" style={{ marginTop: 12 }}>
             <button className="danger" disabled={busy || !code} onClick={disable}>{t("Confirm disable")}</button>
             <button onClick={() => { setDisabling(false); setCode(""); setError(""); }}>{t("Cancel")}</button>
@@ -154,17 +155,17 @@ export function TwoFactor({
 
       {!recovery && !enabled && enroll && (
         <div>
-          <p className="muted">
+          <p id={`${fieldId}-verification-help`} className="muted">
             {t("Scan this QR code with your authenticator app, or enter the setup key by hand, then type the code it shows to confirm.")}
           </p>
           <QRCode value={enroll.uri} label={t("QR code that adds this account to an authenticator app")} />
           <div className="kv"><span className="k">{t("Account")}</span><span>{username}</span></div>
-          <label>{t("Setup key (manual entry)")}</label>
+          <div style={{ display: "block", margin: "10px 0 4px", color: "var(--ink-muted)", fontSize: 13 }}>{t("Setup key (manual entry)")}</div>
           <code style={{ display: "block", wordBreak: "break-all", marginBottom: 8 }}>{enroll.secret}</code>
-          <label>{t("otpauth URI (to paste)")}</label>
+          <div style={{ display: "block", margin: "10px 0 4px", color: "var(--ink-muted)", fontSize: 13 }}>{t("otpauth URI (to paste)")}</div>
           <code style={{ display: "block", wordBreak: "break-all" }}>{enroll.uri}</code>
-          <label style={{ marginTop: 12 }}>{t("Verification code")}</label>
-          <input value={code} autoComplete="one-time-code" onChange={(e) => setCode(e.target.value)} />
+          <label htmlFor={`${fieldId}-verification-code`} style={{ marginTop: 12 }}>{t("Verification code")}</label>
+          <input aria-describedby={`${fieldId}-verification-help`} id={`${fieldId}-verification-code`} value={code} autoComplete="one-time-code" onChange={(e) => setCode(e.target.value)} />
           <div className="row" style={{ marginTop: 12 }}>
             <button className="primary" disabled={busy || !code} onClick={confirm}>{t("Confirm & enable")}</button>
             <button onClick={() => { setEnroll(null); setCode(""); setError(""); }}>{t("Cancel")}</button>
@@ -179,6 +180,7 @@ export function TwoFactor({
 }
 
 function EmailCard({ initial }: { initial: string }) {
+  const fieldId = useId();
   const { t } = useT();
   const [email, setEmail] = useState(initial);
   const [me, setMe] = useState<User | null>(null);
@@ -264,8 +266,8 @@ function EmailCard({ initial }: { initial: string }) {
         </button>
       )}
       <form onSubmit={submit}>
-        <label>{t("Email address")}</label>
-        <input
+        <label htmlFor={`${fieldId}-email`}>{t("Email address")}</label>
+        <input id={`${fieldId}-email`}
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
@@ -280,6 +282,7 @@ function EmailCard({ initial }: { initial: string }) {
 }
 
 function ChangePassword() {
+  const fieldId = useId();
   const { t } = useT();
   const [oldPassword, setOld] = useState("");
   const [newPassword, setNew] = useState("");
@@ -304,10 +307,10 @@ function ChangePassword() {
     <div className="card">
       <h2>{t("Change password")}</h2>
       <form onSubmit={submit}>
-        <label>{t("Current password")}</label>
-        <input type="password" autoComplete="current-password" value={oldPassword} onChange={(e) => setOld(e.target.value)} required />
-        <label>{t("New password")}</label>
-        <input type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNew(e.target.value)} required />
+        <label htmlFor={`${fieldId}-current-password`}>{t("Current password")}</label>
+        <input id={`${fieldId}-current-password`} type="password" autoComplete="current-password" value={oldPassword} onChange={(e) => setOld(e.target.value)} required />
+        <label htmlFor={`${fieldId}-new-password`}>{t("New password")}</label>
+        <input id={`${fieldId}-new-password`} type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNew(e.target.value)} required />
         {msg && <div className="notice">{msg}</div>}
         {error && <div className="error">{error}</div>}
         <button className="primary" style={{ marginTop: 12 }} disabled={!oldPassword || !newPassword}>{t("Update password")}</button>
@@ -317,6 +320,7 @@ function ChangePassword() {
 }
 
 function SSHKeys() {
+  const fieldId = useId();
   const { t } = useT();
   const [keys, setKeys] = useState<SSHKey[]>([]);
   const [name, setName] = useState("");
@@ -392,10 +396,10 @@ function SSHKeys() {
       )}
       <form onSubmit={add} style={{ marginTop: 12 }}>
         <h3>{t("Add a key")}</h3>
-        <label>{t("Name (optional)")}</label>
-        <input value={name} placeholder={t("laptop")} onChange={(e) => setName(e.target.value)} />
-        <label>{t("Public key")}</label>
-        <textarea
+        <label htmlFor={`${fieldId}-key-name`}>{t("Name (optional)")}</label>
+        <input id={`${fieldId}-key-name`} value={name} placeholder={t("laptop")} onChange={(e) => setName(e.target.value)} />
+        <label htmlFor={`${fieldId}-public-key`}>{t("Public key")}</label>
+        <textarea id={`${fieldId}-public-key`}
           value={pub}
           onChange={(e) => setPub(e.target.value)}
           placeholder="ssh-ed25519 AAAA… you@host"
@@ -486,7 +490,7 @@ function APIKeys() {
         </div>
       )}
       <form onSubmit={create} className="row" style={{ marginTop: 12 }} aria-busy={busy}>
-        <input value={name} placeholder={t("key name (e.g. ci)")} onChange={(e) => setName(e.target.value)} required disabled={busy} />
+        <input aria-label={t("key name (e.g. ci)")} value={name} placeholder={t("key name (e.g. ci)")} onChange={(e) => setName(e.target.value)} required disabled={busy} />
         <button className="primary" disabled={busy || !name}>{busy ? t("Creating…") : t("Create key")}</button>
       </form>
       {error && <div className="error">{error}</div>}

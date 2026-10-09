@@ -3,6 +3,13 @@
 // calls in the components.
 export const fr: Record<string, string> = {
   // Generic / chrome
+  "Admin role for {name}": "Rôle administrateur de {name}",
+  Command: "Commande",
+  "Database host": "Hôte de base de données",
+  Protocol: "Protocole",
+  "Action for task {number}": "Action de la tâche {number}",
+  "Command for task {number}": "Commande de la tâche {number}",
+  "Paths to keep": "Chemins à conserver",
   "Loading…": "Chargement…",
   Servers: "Serveurs",
   Admin: "Admin",

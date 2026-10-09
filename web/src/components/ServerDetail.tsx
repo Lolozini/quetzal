@@ -607,7 +607,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
               <div className="kv">
                 <span className="k">{t("Exposure")}</span>
                 <span>
-                  <select
+                  <select aria-label={t("Exposure")}
                     value={srv.expose?.type || "ClusterIP"}
                     disabled={!may("settings")}
                     onChange={(e) => changeExpose(e.target.value as ExposeType)}
@@ -623,7 +623,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
               <div className="kv">
                 <span className="k">{t("Transfer")}</span>
                 <span>
-                  <select
+                  <select aria-label={t("Transfer")}
                     defaultValue=""
                     onChange={(e) => { const v = Number(e.target.value); e.currentTarget.value = ""; if (v) transfer(v); }}
                   >

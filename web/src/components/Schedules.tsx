@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { useId, FormEvent, useEffect, useState } from "react";
 import { api, ApiError, browserTimeZone, Schedule, ScheduleAction, ScheduleInput, ScheduleTask } from "../api";
 import { useT } from "../i18n";
 
@@ -19,6 +19,7 @@ function newTask(): ScheduleTask {
 // readOnly shows the schedules without the means to change them, for a server
 // an administrator has suspended.
 export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id: number; readOnly?: boolean; visible: boolean; onDirtyChange: (dirty: boolean) => void }) {
+  const fieldId = useId();
   const { t } = useT();
   const [list, setList] = useState<Schedule[]>([]);
   const [error, setError] = useState("");
@@ -154,29 +155,30 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
       <form onSubmit={add} onChange={() => setDirty(true)} style={{ marginTop: 12 }}>
         <div className="grid2">
           <div>
-            <label>{t("Name")}</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} required placeholder={t("nightly restart")} />
+            <label htmlFor={`${fieldId}-name`}>{t("Name")}</label>
+            <input id={`${fieldId}-name`} value={name} onChange={(e) => setName(e.target.value)} required placeholder={t("nightly restart")} />
           </div>
           <div>
-            <label>{t("Cron (5 fields)")}</label>
-            <input value={cron} onChange={(e) => setCron(e.target.value)} required placeholder="0 5 * * *" />
+            <label htmlFor={`${fieldId}-cron`}>{t("Cron (5 fields)")}</label>
+            <input id={`${fieldId}-cron`} value={cron} onChange={(e) => setCron(e.target.value)} required placeholder="0 5 * * *" />
           </div>
           <div>
-            <label>{t("Time zone")}</label>
-            <input value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="Europe/Paris" />
-            <p className="muted">{t("IANA name. Leave empty to use the control plane's zone, which is usually UTC.")}</p>
+            <label htmlFor={`${fieldId}-timezone`}>{t("Time zone")}</label>
+            <input aria-describedby={`${fieldId}-timezone-help`} id={`${fieldId}-timezone`} value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="Europe/Paris" />
+            <p id={`${fieldId}-timezone-help`} className="muted">{t("IANA name. Leave empty to use the control plane's zone, which is usually UTC.")}</p>
           </div>
         </div>
 
-        <label style={{ marginTop: 8 }}>{t("Tasks (run in order)")}</label>
+        <div id={`${fieldId}-tasks-label`} style={{ display: "block", margin: "10px 0 4px", color: "var(--ink-muted)", fontSize: 13, marginTop: 8 }}>{t("Tasks (run in order)")}</div>
+        <div role="group" aria-labelledby={`${fieldId}-tasks-label`}>
         {tasks.map((task, i) => (
           <div key={i} className="row" style={{ gap: 6, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
             <span className="muted" style={{ width: 18 }}>{i + 1}.</span>
-            <select value={task.action} onChange={(e) => patchTask(i, { action: e.target.value as ScheduleAction })} style={{ width: "auto" }}>
+            <select aria-label={t("Action for task {number}", { number: i + 1 })} value={task.action} onChange={(e) => patchTask(i, { action: e.target.value as ScheduleAction })} style={{ width: "auto" }}>
               {ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
             {task.action === "command" && (
-              <input
+              <input aria-label={t("Command for task {number}", { number: i + 1 })}
                 value={task.payload || ""}
                 onChange={(e) => patchTask(i, { payload: e.target.value })}
                 placeholder={t("say restarting soon")}
@@ -209,6 +211,7 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
             {t("A backup step ends when its backup does, so the next step runs after it. To copy a Minecraft world without stopping the server, send save-off and save-all flush before the backup and save-on after it, with \"continue on fail\" ticked on the backup so that saving always resumes.")}
           </p>
         )}
+        </div>
 
         {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
         <div>

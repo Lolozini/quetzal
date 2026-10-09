@@ -317,8 +317,8 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
         <button onClick={() => uploadRef.current?.click()} disabled={!!transfer}>{t("Upload")}</button>
         <button onClick={() => archiveRef.current?.click()} disabled={busy || !!transfer}>{t("Upload archive")}</button>
         <a href={api.fileArchiveUrl(id, path)}><button type="button">{t("Download folder")}</button></a>
-        <input ref={uploadRef} type="file" style={{ display: "none" }} onChange={upload} />
-        <input ref={archiveRef} type="file" accept=".zip,.tar,.gz,.tgz,.bz2,.xz" style={{ display: "none" }} onChange={uploadArchive} />
+        <input aria-label={t("Upload")} ref={uploadRef} type="file" style={{ display: "none" }} onChange={upload} />
+        <input aria-label={t("Upload archive")} ref={archiveRef} type="file" accept=".zip,.tar,.gz,.tgz,.bz2,.xz" style={{ display: "none" }} onChange={uploadArchive} />
       </div>
 
       {transfer && (
@@ -437,7 +437,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
           {editing && (
             <div style={{ marginTop: 12 }}>
               <h3>{t("Editing")} <code>/{editing.path}</code></h3>
-              <textarea
+              <textarea aria-label={t("Editing") + " /" + editing.path}
                 value={editing.content}
                 onChange={(e) => { setEditing({ ...editing, content: e.target.value }); setSaved(""); }}
                 spellCheck={false}

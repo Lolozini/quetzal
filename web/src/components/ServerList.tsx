@@ -44,7 +44,7 @@ export function ServerList({
       <div className="row">
         <h2>{t("Servers")}</h2>
         <div className="spacer" />
-        <input
+        <input aria-label={t("Search servers")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t("Search servers")}

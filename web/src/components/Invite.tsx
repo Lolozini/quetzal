@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { useId, FormEvent, useEffect, useState } from "react";
 import { ALL_PERMISSIONS, api, ApiError, InviteInfo, User } from "../api";
 import { useT } from "../i18n";
 import { Auth } from "./Auth";
@@ -19,6 +19,7 @@ export function Invite({
   onAuthed: (u: User) => void;
   onDone: (serverId?: number) => void;
 }) {
+  const fieldId = useId();
   const { t } = useT();
   const [info, setInfo] = useState<InviteInfo | null>(null);
   const [invalid, setInvalid] = useState("");
@@ -133,12 +134,12 @@ export function Invite({
               </>
             ) : mode === "signup" ? (
               <form onSubmit={register}>
-                <label>{t("Username")}</label>
-                <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required />
-                <label>{t("Password")}</label>
-                <input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-                <label>{t("Confirm password")}</label>
-                <input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+                <label htmlFor={`${fieldId}-username`}>{t("Username")}</label>
+                <input id={`${fieldId}-username`} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required />
+                <label htmlFor={`${fieldId}-password`}>{t("Password")}</label>
+                <input id={`${fieldId}-password`} type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+                <label htmlFor={`${fieldId}-confirm-password`}>{t("Confirm password")}</label>
+                <input id={`${fieldId}-confirm-password`} type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
                 <p className="muted" style={{ marginTop: 8 }}>
                   {t("Your account reaches the servers it is invited to. Its email is {email}.", { email: info.email })}
                 </p>

@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { useId, FormEvent, useEffect, useState } from "react";
 import { api, ApiError, ChannelType, EVENT_TYPES, NotificationChannel } from "../api";
 import { useT } from "../i18n";
 import { tlsHint } from "../smtp";
@@ -45,6 +45,7 @@ const blankForm = (serverId: number) => ({
 });
 
 export function Notifications({ serverId }: { serverId: number }) {
+  const fieldId = useId();
   const { t } = useT();
   // The TLS modes read as they do in the panel's email settings.
   const optionLabel = (o: string) => ({ starttls: "STARTTLS", tls: t("Implicit TLS"), none: t("None (cleartext)") } as Record<string, string>)[o] ?? o;
@@ -205,12 +206,12 @@ export function Notifications({ serverId }: { serverId: number }) {
         <h3>{form.id === 0 ? t("New channel") : t('Edit "{name}"', { name: form.name })}</h3>
         <div className="grid2">
           <div>
-            <label>{t("Name")}</label>
-            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+            <label htmlFor={`${fieldId}-name`}>{t("Name")}</label>
+            <input id={`${fieldId}-name`} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
           </div>
           <div>
-            <label>{t("Type")}</label>
-            <select
+            <label htmlFor={`${fieldId}-type`}>{t("Type")}</label>
+            <select id={`${fieldId}-type`}
               value={form.type}
               disabled={form.id !== 0}
               onChange={(e) => setForm({ ...form, type: e.target.value as ChannelType, config: {} })}
@@ -229,18 +230,18 @@ export function Notifications({ serverId }: { serverId: number }) {
             const hint = fld.key === "tls" && (form.config.host || "").trim() ? tlsHint(t, form.config.port, form.config.tls) : "";
             return (
               <div key={fld.key}>
-                <label>{t(fld.label)}</label>
-                <select value={form.config[fld.key] ?? fld.select[0]} onChange={(e) => setConfig(fld.key, e.target.value)}>
+                <label htmlFor={`${fieldId}-config-${fld.key}`}>{t(fld.label)}</label>
+                <select aria-describedby={!!hint ? `${fieldId}-config-help-${fld.key}` : undefined} id={`${fieldId}-config-${fld.key}`} value={form.config[fld.key] ?? fld.select[0]} onChange={(e) => setConfig(fld.key, e.target.value)}>
                   {fld.select.map((o) => <option key={o} value={o}>{optionLabel(o)}</option>)}
                 </select>
-                {hint && <div className="notice warn">{hint}</div>}
+                {hint && <div id={`${fieldId}-config-help-${fld.key}`} className="notice warn">{hint}</div>}
               </div>
             );
           }
           return (
             <div key={fld.key}>
-              <label>{t(fld.label)}{fld.secret && configured ? t(" (configured — leave blank to keep)") : ""}</label>
-              <input
+              <label htmlFor={`${fieldId}-config-${fld.key}`}>{t(fld.label)}{fld.secret && configured ? t(" (configured — leave blank to keep)") : ""}</label>
+              <input id={`${fieldId}-config-${fld.key}`}
                 type={fld.secret ? "password" : "text"}
                 autoComplete={fld.secret ? "new-password" : "off"}
                 placeholder={fld.placeholder}
@@ -251,8 +252,8 @@ export function Notifications({ serverId }: { serverId: number }) {
           );
         })}
 
-        <label style={{ marginTop: 8 }}>{t("Events (none selected = all, except schedule runs and changes to channels)")}</label>
-        <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+        <div id={`${fieldId}-events-label`} style={{ display: "block", margin: "10px 0 4px", color: "var(--ink-muted)", fontSize: 13, marginTop: 8 }}>{t("Events (none selected = all, except schedule runs and changes to channels)")}</div>
+        <div role="group" aria-labelledby={`${fieldId}-events-label`} className="row" style={{ flexWrap: "wrap", gap: 8 }}>
           {EVENT_TYPES.map((ev) => (
             <label key={ev} className="row" style={{ gap: 4 }}>
               <input

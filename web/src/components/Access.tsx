@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { useId, FormEvent, useEffect, useState } from "react";
 import { ALL_PERMISSIONS, api, ApiError, ServerAccess, ServerInvite } from "../api";
 import { useT } from "../i18n";
 
@@ -29,6 +29,7 @@ export function permissionHelp(t: ReturnType<typeof useT>["t"], p: (typeof ALL_P
 }
 
 export function Access({ id }: { id: number }) {
+  const fieldId = useId();
   const { t } = useT();
   const [list, setList] = useState<ServerAccess[]>([]);
   const [invites, setInvites] = useState<ServerInvite[]>([]);
@@ -135,15 +136,15 @@ export function Access({ id }: { id: number }) {
         </>
       )}
       <form onSubmit={grant} style={{ marginTop: 12 }}>
-        <label>{t("Username or email address")}</label>
-        <input value={who} onChange={(e) => setWho(e.target.value)} placeholder={t("an account, or an address to invite")} required />
-        <p className="muted" style={{ marginTop: 4 }}>
+        <label htmlFor={`${fieldId}-recipient`}>{t("Username or email address")}</label>
+        <input aria-describedby={`${fieldId}-recipient-help`} id={`${fieldId}-recipient`} value={who} onChange={(e) => setWho(e.target.value)} placeholder={t("an account, or an address to invite")} required />
+        <p id={`${fieldId}-recipient-help`} className="muted" style={{ marginTop: 4 }}>
           {byEmail
             ? t("They get a link by email, to accept from their account or a new one.")
             : t("An account on this panel gets access at once.")}
         </p>
-        <label>{t("Permissions")}</label>
-        <div className="perm-list">
+        <div id={`${fieldId}-permissions-label`} style={{ display: "block", margin: "10px 0 4px", color: "var(--ink-muted)", fontSize: 13 }}>{t("Permissions")}</div>
+        <div role="group" aria-labelledby={`${fieldId}-permissions-label`} className="perm-list">
           {ALL_PERMISSIONS.map((p) => (
             <label key={p}>
               <input type="checkbox" checked={perms.includes(p)} onChange={() => toggle(p)} />
