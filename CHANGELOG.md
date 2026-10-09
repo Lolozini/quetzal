@@ -9,6 +9,9 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Every administration tab stays visible.** Tab bars wrap at desktop and
+  tablet widths as well as on phones, so Notifications and Activity no longer
+  hide beyond a scrollbar that was not displayed.
 - **Template pickers close when focus leaves them.** Tab restores the selected
   model instead of leaving an apparently empty field and open menu. The picker
   exposes its list, selection and active option to assistive technology, keeps
