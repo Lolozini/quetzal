@@ -9,6 +9,10 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Template pickers close when focus leaves them.** Tab restores the selected
+  model instead of leaving an apparently empty field and open menu. The picker
+  exposes its list, selection and active option to assistive technology, keeps
+  keyboard navigation in range, and never submits the form on an empty search.
 - **Authentication cards fit small screens.** Sign-in, setup, recovery and
   account-link pages keep their side margins at 320 px instead of clipping a
   fixed-width card; long addresses and setup commands wrap inside the card.

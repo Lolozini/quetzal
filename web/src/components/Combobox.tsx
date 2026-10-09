@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 export interface ComboOption {
   value: string;
@@ -29,10 +29,17 @@ export function Combobox({
   const [filter, setFilter] = useState("");
   const [active, setActive] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const listId = useId();
 
   const selected = options.find((o) => o.value === value);
   const q = filter.trim().toLowerCase();
   const visible = q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+  const activeIndex = Math.max(0, Math.min(active, visible.length - 1));
+  const activeId = open && visible.length > 0 ? `${listId}-option-${activeIndex}` : undefined;
+
+  useEffect(() => {
+    if (activeId) document.getElementById(activeId)?.scrollIntoView({ block: "nearest" });
+  }, [activeId]);
 
   // Close when clicking outside the control.
   useEffect(() => {
@@ -47,7 +54,7 @@ export function Combobox({
   function openList() {
     setOpen(true);
     setFilter("");
-    setActive(0);
+    setActive(Math.max(0, options.findIndex((o) => o.value === value)));
   }
 
   function choose(v: string) {
@@ -57,9 +64,19 @@ export function Combobox({
   }
 
   return (
-    <div className="combobox" ref={ref}>
+    <div className="combobox" ref={ref} onBlur={(e) => {
+      if (!e.currentTarget.contains(e.relatedTarget)) {
+        setOpen(false);
+        setFilter("");
+      }
+    }}>
       <input id={id}
         type="text"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-activedescendant={activeId}
         value={open ? filter : selected?.label ?? ""}
         placeholder={placeholder}
         onFocus={openList}
@@ -75,27 +92,32 @@ export function Combobox({
           if (e.key === "ArrowDown") {
             e.preventDefault();
             setOpen(true);
-            setActive((a) => Math.min(a + 1, visible.length - 1));
+            setActive(open ? Math.min(activeIndex + 1, Math.max(0, visible.length - 1)) : 0);
           } else if (e.key === "ArrowUp") {
             e.preventDefault();
-            setActive((a) => Math.max(a - 1, 0));
+            setOpen(true);
+            setActive(open ? Math.max(activeIndex - 1, 0) : Math.max(0, visible.length - 1));
           } else if (e.key === "Enter") {
-            if (open && visible[active]) {
+            if (open) {
               e.preventDefault();
-              choose(visible[active].value);
+              if (visible[activeIndex]) choose(visible[activeIndex].value);
             }
           } else if (e.key === "Escape") {
+            if (open) e.preventDefault();
             setOpen(false);
           }
         }}
       />
       <span className="combobox-caret">▾</span>
       {open && (
-        <div className="combobox-list">
+        <div className="combobox-list" id={listId} role="listbox" aria-label={placeholder}>
           {visible.map((o, i) => (
             <div
               key={o.value}
-              className={"combobox-item" + (i === active ? " active" : "")}
+              id={`${listId}-option-${i}`}
+              role="option"
+              aria-selected={o.value === value}
+              className={"combobox-item" + (i === activeIndex ? " active" : "")}
               onMouseDown={(e) => {
                 e.preventDefault();
                 choose(o.value);
@@ -105,7 +127,7 @@ export function Combobox({
               {o.label}
             </div>
           ))}
-          {visible.length === 0 && <div className="combobox-empty">{emptyLabel}</div>}
+          {visible.length === 0 && <div className="combobox-empty" role="option" aria-disabled="true">{emptyLabel}</div>}
         </div>
       )}
     </div>
