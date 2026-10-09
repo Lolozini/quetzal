@@ -307,7 +307,7 @@ pre.log {
    and what only helps on a large screen goes. */
 @media (max-width: 600px) {
   .topbar { flex-wrap: wrap; gap: 8px; padding: 8px 12px; }
-  .lockup { height: 32px; }
+  .topbar .lockup { width: 140px; height: auto; }
   .topnav { width: 100%; gap: 6px; }
   .topnav .who { display: none; }
   .topnav button, .topnav select { padding: 6px 10px; }

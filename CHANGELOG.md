@@ -9,6 +9,9 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **The mobile sign-in logo keeps its proportions.** Only the horizontal
+  top-bar lockup is resized on phones, at the brand's 140 px minimum width;
+  the stacked authentication logo remains 168 px wide at its natural ratio.
 - **Scheduled actions use translated names.** Both the action picker and saved
   task chains say Start, Stop, Restart, Command and Backup in the selected
   language, while the API values stay unchanged.
