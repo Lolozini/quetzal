@@ -9,6 +9,10 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Editing the idle timeout no longer saves every keystroke.** The hibernation
+  delay keeps a local draft, accepts only positive whole minutes, and saves on
+  Enter or Save. Pending writes disable the policy controls, and older polls
+  cannot overwrite a policy that was just saved.
 - **A failed security-settings load is not a policy.** The two-factor and
   invitation cards show loading or an error with Retry until their real values
   arrive, instead of presenting permissive defaults after a failed request.

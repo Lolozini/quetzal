@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError, Cluster, endpointLines, EventEntry, ExposeType, hasAdminPerm, InstallLog, OFFLINE_PHASES, PowerAction, Server, ServerStats, User, wakesOnMinecraftLogin } from "../api";
 import { useT } from "../i18n";
 import { Access } from "./Access";
@@ -202,6 +202,10 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
+  const [idleDraft, setIdleDraft] = useState<string | null>(null);
+  const [hibBusy, setHibBusy] = useState(false);
+  const hibSaving = useRef(false);
+  const hibRevision = useRef(0);
   // Whether only a Minecraft login wakes this server (see the hibernation hint).
   const [mcWake, setMcWake] = useState(false);
 
@@ -222,9 +226,11 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
     const load = async () => {
       let phase = "";
       try {
+        const revision = hibRevision.current;
         const s = await api.server(id);
         if (!active) return;
-        setSrv(s);
+        // A poll begun before a policy save must not put its old value back.
+        if (revision === hibRevision.current && !hibSaving.current) setSrv(s);
         phase = s.status?.phase ?? "";
       } catch (e) {
         if (active) setError(String(e));
@@ -264,18 +270,30 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
 
   // saveHib patches the hibernation policy while preserving the unspecified
   // fields (so toggling one control never silently clears the others).
-  function saveHib(patch: Partial<NonNullable<Server["hibernation"]>>) {
+  async function saveHib(patch: Partial<NonNullable<Server["hibernation"]>>) {
+    if (hibSaving.current) return;
+    hibSaving.current = true;
+    hibRevision.current++;
+    setHibBusy(true);
+    setError("");
     const cur = srv?.hibernation;
-    api
-      .setHibernation(id, {
+    try {
+      const saved = await api.setHibernation(id, {
         enabled: cur?.enabled ?? false,
         idleMinutes: cur?.idleMinutes || 15,
         wakeOnConnect: cur?.wakeOnConnect ?? false,
         proxy: cur?.proxy ?? false,
         ...patch,
-      })
-      .then(setSrv)
-      .catch((err) => setError(String(err)));
+      });
+      hibRevision.current++;
+      setSrv(saved);
+      if (patch.idleMinutes !== undefined) setIdleDraft(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      hibSaving.current = false;
+      setHibBusy(false);
+    }
   }
 
   async function changeExpose(type: ExposeType) {
@@ -610,18 +628,34 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
                       type="checkbox"
                       style={{ width: "auto" }}
                       checked={!!srv.hibernation?.enabled}
+                      disabled={hibBusy}
                       onChange={(e) => saveHib({ enabled: e.target.checked })}
                     />
                     &nbsp;{t("auto-sleep when idle after")}&nbsp;
                   </label>
-                  <input
-                    type="number"
-                    min={1}
-                    style={{ width: 70 }}
-                    value={srv.hibernation?.idleMinutes || 15}
-                    onChange={(e) => saveHib({ idleMinutes: Number(e.target.value) })}
-                  />
-                  &nbsp;{t("min")}
+                  <form className="row" onSubmit={(e) => {
+                    e.preventDefault();
+                    const minutes = Number(idleDraft);
+                    if (idleDraft !== null && Number.isSafeInteger(minutes) && minutes >= 1) {
+                      void saveHib({ idleMinutes: minutes });
+                    }
+                  }}>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      required
+                      aria-label={t("Idle timeout (minutes)")}
+                      style={{ width: 90 }}
+                      value={idleDraft ?? String(srv.hibernation?.idleMinutes || 15)}
+                      onChange={(e) => setIdleDraft(e.target.value)}
+                      disabled={hibBusy}
+                    />
+                    <span>{t("min")}</span>
+                    <button disabled={hibBusy || idleDraft === null || !Number.isSafeInteger(Number(idleDraft)) || Number(idleDraft) < 1}>
+                      {hibBusy ? t("Saving…") : t("Save")}
+                    </button>
+                  </form>
                   {srv.hibernation?.enabled && (
                     <>
                       {tcpOnly && (
@@ -630,7 +664,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
                             type="checkbox"
                             style={{ width: "auto" }}
                             checked={!!srv.hibernation?.wakeOnConnect && !srv.hibernation?.proxy}
-                            disabled={!!srv.hibernation?.proxy}
+                            disabled={hibBusy || !!srv.hibernation?.proxy}
                             onChange={(e) => saveHib({ wakeOnConnect: e.target.checked })}
                           />
                           &nbsp;{t("wake when a player connects (TCP)")}
@@ -641,6 +675,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
                           type="checkbox"
                           style={{ width: "auto" }}
                           checked={!!srv.hibernation?.proxy}
+                          disabled={hibBusy}
                           onChange={(e) => saveHib({ proxy: e.target.checked })}
                         />
                         &nbsp;{t("transparent proxy (TCP+UDP, no reconnect)")}
