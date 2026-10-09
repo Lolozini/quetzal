@@ -1,5 +1,5 @@
 import { useId, FormEvent, useEffect, useState } from "react";
-import { api, ApiError, FileEntry, Server, Template, TemplateVariable } from "../api";
+import { api, FileEntry, Server, Template, TemplateVariable, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { keepLines, keepPreview } from "../keep";
 import { Combobox } from "./Combobox";
@@ -67,7 +67,7 @@ function RenameForm({ server, onSaved }: { server: Server; onSaved: (s: Server) 
       onSaved(await api.renameServer(server.id, name.trim()));
       setMsg(t("Name saved."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -131,7 +131,7 @@ function ReachesForm({ server, onSaved }: { server: Server; onSaved: (s: Server)
       onSaved(saved);
       setMsg(t("Saved: it applies within a few seconds, without a restart."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -188,7 +188,7 @@ function EULAToggle({ server, onSaved }: { server: Server; onSaved: (s: Server) 
     try {
       onSaved(await api.setEULA(server.id, accepted));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -247,7 +247,7 @@ function ServerPorts({ server, onSaved }: { server: Server; onSaved: (s: Server)
       onSaved(await api.setServerPorts(server.id, ports));
       setMsg(t("Ports saved; the server restarts to apply."));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -385,7 +385,7 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
       setMsg(done);
       onSaved(await api.server(server.id));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -558,7 +558,7 @@ function Variables({
       setSaved(values);
       setMsg(t("Variables saved."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -620,7 +620,7 @@ function StartupForm({ server, template, onSaved, canEdit }: { server: Server; t
       onSaved(saved);
       setMsg(saved.startup ? t("Startup command saved.") : t("The server runs its template's startup command again."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -704,7 +704,7 @@ function ImageForm({ server, template, onSaved }: { server: Server; template: Te
       onSaved(await api.setServerImage(server.id, image));
       setMsg(t("Image saved."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -747,7 +747,7 @@ function ResourcesForm({ server, onSaved }: { server: Server; onSaved: (s: Serve
       onSaved(s);
       setMsg(t("Resources saved."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }

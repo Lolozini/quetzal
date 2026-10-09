@@ -1,5 +1,5 @@
 import { useId, FormEvent, useEffect, useState } from "react";
-import { ALL_PERMISSIONS, api, ApiError, ServerAccess, ServerInvite } from "../api";
+import { ALL_PERMISSIONS, api, ServerAccess, ServerInvite, errorMessage } from "../api";
 import { useT } from "../i18n";
 
 // What each permission allows. The names alone left it to guess that "view"
@@ -48,7 +48,7 @@ export function Access({ id }: { id: number }) {
       setList(a);
       setInvites(i);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -76,7 +76,7 @@ export function Access({ id }: { id: number }) {
       setPerms(["view"]);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -84,13 +84,13 @@ export function Access({ id }: { id: number }) {
 
   async function revoke(a: ServerAccess) {
     if (!window.confirm(t("Revoke {name}'s access?", { name: a.username ?? "" }))) return;
-    await api.revokeAccess(id, a.userId).catch((e) => setError(String(e)));
+    await api.revokeAccess(id, a.userId).catch((e) => setError(errorMessage(e, t)));
     await load();
   }
 
   async function withdraw(inv: ServerInvite) {
     if (!window.confirm(t("Withdraw the invitation to {email}?", { email: inv.email }))) return;
-    await api.withdrawInvite(id, inv.id).catch((e) => setError(String(e)));
+    await api.withdrawInvite(id, inv.id).catch((e) => setError(errorMessage(e, t)));
     await load();
   }
 

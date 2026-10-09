@@ -1,5 +1,5 @@
 import { useId, FormEvent, useEffect, useState } from "react";
-import { api, ApiError, DatabaseHost } from "../api";
+import { api, DatabaseHost, errorMessage } from "../api";
 import { useT } from "../i18n";
 
 // DatabaseHosts is the admin registry of MySQL/MariaDB hosts: external servers
@@ -21,7 +21,7 @@ export function DatabaseHosts() {
     try {
       setHosts(await api.databaseHosts());
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -48,7 +48,7 @@ export function DatabaseHosts() {
       setForm({ ...form, name: "", host: "", adminPassword: "", connectHost: "", namespace: "" });
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -60,7 +60,7 @@ export function DatabaseHosts() {
       await api.testDatabaseHost(h.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -71,7 +71,7 @@ export function DatabaseHosts() {
       await api.deleteDatabaseHost(h.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 

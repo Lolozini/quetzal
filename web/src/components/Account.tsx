@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useId, useRef, useState } from "react";
-import { api, APIKey, ApiError, SSHKey, User } from "../api";
+import { api, APIKey, ApiError, SSHKey, User, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { QRCode } from "./QRCode";
 
@@ -49,7 +49,7 @@ export function TwoFactor({
   }, []);
 
   function fail(e: unknown) {
-    setError(e instanceof ApiError ? e.message : String(e));
+    setError(errorMessage(e, t));
   }
 
   async function begin() {
@@ -207,7 +207,7 @@ function EmailCard({ initial }: { initial: string }) {
       take(u);
       setMsg(done(u));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -299,7 +299,7 @@ function ChangePassword() {
       setNew("");
       setMsg(t("Password changed."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     }
   }
 
@@ -310,7 +310,8 @@ function ChangePassword() {
         <label htmlFor={`${fieldId}-current-password`}>{t("Current password")}</label>
         <input id={`${fieldId}-current-password`} type="password" autoComplete="current-password" value={oldPassword} onChange={(e) => setOld(e.target.value)} required />
         <label htmlFor={`${fieldId}-new-password`}>{t("New password")}</label>
-        <input id={`${fieldId}-new-password`} type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNew(e.target.value)} required />
+        <input id={`${fieldId}-new-password`} type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNew(e.target.value)} required minLength={8} aria-describedby={`${fieldId}-password-help`} />
+        <p id={`${fieldId}-password-help`} className="muted">{t("Password must be at least 8 characters.")}</p>
         {msg && <div className="notice">{msg}</div>}
         {error && <div className="error">{error}</div>}
         <button className="primary" style={{ marginTop: 12 }} disabled={!oldPassword || !newPassword}>{t("Update password")}</button>
@@ -332,7 +333,7 @@ function SSHKeys() {
     try {
       setKeys(await api.sshKeys());
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -352,7 +353,7 @@ function SSHKeys() {
     } catch (err) {
       const existing = err instanceof ApiError && err.status === 409 ? (err.data as { existing?: { name: string } })?.existing : undefined;
       if (existing) setError(t('This key is already on your account, as "{name}".', { name: existing.name }));
-      else setError(err instanceof ApiError ? err.message : String(err));
+      else setError(errorMessage(err, t));
     }
   }
 
@@ -364,7 +365,7 @@ function SSHKeys() {
       await api.deleteSSHKey(k.id);
       setNotice(t("Key deleted. SFTP refuses it within a minute or two, and closes the sessions opened with it."));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
     await load();
   }
@@ -426,7 +427,7 @@ function APIKeys() {
     try {
       setKeys(await api.apiKeys());
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -445,7 +446,7 @@ function APIKeys() {
       setName("");
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       creating.current = false;
       setBusy(false);
@@ -454,7 +455,7 @@ function APIKeys() {
 
   async function remove(k: APIKey) {
     if (!window.confirm(t('Revoke API key "{name}"?', { name: k.name }))) return;
-    await api.deleteAPIKey(k.id).catch((e) => setError(String(e)));
+    await api.deleteAPIKey(k.id).catch((e) => setError(errorMessage(e, t)));
     await load();
   }
 

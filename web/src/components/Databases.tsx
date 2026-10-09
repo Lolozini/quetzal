@@ -1,5 +1,5 @@
 import { useId, FormEvent, useEffect, useState } from "react";
-import { api, ApiError, DatabaseImport, ServerDatabase } from "../api";
+import { api, DatabaseImport, ServerDatabase, errorMessage } from "../api";
 import { useT } from "../i18n";
 
 // Databases lists and provisions a server's databases (a schema + scoped user on
@@ -22,7 +22,7 @@ export function Databases({ serverId, canImport = false }: { serverId: number; c
     try {
       setDbs(await api.serverDatabases(serverId));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -51,7 +51,7 @@ export function Databases({ serverId, canImport = false }: { serverId: number; c
       setReveal((m) => ({ ...m, [d.id]: d })); // show credentials right away
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -62,7 +62,7 @@ export function Databases({ serverId, canImport = false }: { serverId: number; c
       const full = await api.getServerDatabase(serverId, d.id);
       setReveal((m) => ({ ...m, [d.id]: full }));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -73,7 +73,7 @@ export function Databases({ serverId, canImport = false }: { serverId: number; c
       setReveal((m) => ({ ...m, [d.id]: rotated }));
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -88,7 +88,7 @@ export function Databases({ serverId, canImport = false }: { serverId: number; c
       });
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -98,7 +98,7 @@ export function Databases({ serverId, canImport = false }: { serverId: number; c
       await api.cancelDatabaseImport(serverId, d.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -217,7 +217,7 @@ function ImportForm({ serverId, db, onClose, onQueued }: { serverId: number; db:
       await api.importDatabase(serverId, db.id, path.trim(), wipe);
       onQueued();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }

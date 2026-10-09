@@ -1,5 +1,5 @@
 import { useId, FormEvent, useState } from "react";
-import { api, ApiError } from "../api";
+import { api, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { Lockup } from "./Brand";
 
@@ -30,7 +30,7 @@ export function ResetPassword({ token, onDone }: { token: string; onDone: () => 
       await api.resetPassword(token, password);
       setDone(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -54,10 +54,14 @@ export function ResetPassword({ token, onDone }: { token: string; onDone: () => 
             <input id={`${fieldId}-password`}
               type="password"
               autoComplete="new-password"
+              minLength={8}
+              required
+              aria-describedby={`${fieldId}-password-help`}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoFocus
             />
+            <p id={`${fieldId}-password-help`} className="muted">{t("Password must be at least 8 characters.")}</p>
             <label htmlFor={`${fieldId}-confirm-password`}>{t("Confirm password")}</label>
             <input id={`${fieldId}-confirm-password`}
               type="password"

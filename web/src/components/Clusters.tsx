@@ -1,5 +1,5 @@
 import { useId, FormEvent, useEffect, useState } from "react";
-import { api, ApiError, Cluster, ClusterNode, ClusterSetup, StorageClassInfo } from "../api";
+import { api, Cluster, ClusterNode, ClusterSetup, StorageClassInfo, errorMessage } from "../api";
 import { useT } from "../i18n";
 
 export function Clusters() {
@@ -23,7 +23,7 @@ export function Clusters() {
     try {
       setClusters(await api.clusters());
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -37,7 +37,7 @@ export function Clusters() {
     try {
       setSetup(await api.clusterSetupManifest());
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     }
   }
 
@@ -51,7 +51,7 @@ export function Clusters() {
       setKubeconfig("");
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -63,7 +63,7 @@ export function Clusters() {
       await api.testCluster(c.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -74,7 +74,7 @@ export function Clusters() {
       await api.deleteCluster(c.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -88,7 +88,7 @@ export function Clusters() {
       setNodes(await api.clusterNodes(c.id));
       setNodesFor(c.id);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -109,7 +109,7 @@ export function Clusters() {
       setEhFor(null);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -124,7 +124,7 @@ export function Clusters() {
       setScValue(c.defaultStorageClass ?? "");
       setScFor(c.id);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -135,7 +135,7 @@ export function Clusters() {
       setScFor(null);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 

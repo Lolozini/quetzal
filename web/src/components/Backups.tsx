@@ -1,5 +1,5 @@
 import { useId, FormEvent, useEffect, useState } from "react";
-import { api, ApiError, Backup, BackupConfig, BackupConfigInput } from "../api";
+import { api, Backup, BackupConfig, BackupConfigInput, errorMessage } from "../api";
 import { useT } from "../i18n";
 
 // readOnly lists the backups without the means to make, restore or delete one,
@@ -24,7 +24,7 @@ export function Backups({ id, readOnly = false, canDatabases = false }: { id: nu
       setList(bs);
       if (!c.configured && c.editable) setShowCfg(true);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -40,7 +40,7 @@ export function Backups({ id, readOnly = false, canDatabases = false }: { id: nu
       await api.createBackup(id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy("");
     }
@@ -54,7 +54,7 @@ export function Backups({ id, readOnly = false, canDatabases = false }: { id: nu
       setRestoring(null);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy("");
     }
@@ -75,7 +75,7 @@ export function Backups({ id, readOnly = false, canDatabases = false }: { id: nu
       await api.deleteBackup(id, b.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -250,7 +250,7 @@ function BackupConfigForm({ cfg, onSaved }: { cfg: BackupConfig | null; onSaved:
       setWarning(res?.warning ?? "");
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }

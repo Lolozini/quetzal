@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, Server } from "../api";
+import { api, Server, errorMessage } from "../api";
 import { useT } from "../i18n";
 
 export function ServerList({
@@ -28,14 +28,14 @@ export function ServerList({
         const s = await api.servers(search);
         if (active) setServers(s);
       } catch (e) {
-        if (active) setError(String(e));
+        if (active) setError(errorMessage(e, t));
       }
     };
     load();
-    const t = setInterval(load, 5000);
+    const timer = setInterval(load, 5000);
     return () => {
       active = false;
-      clearInterval(t);
+      clearInterval(timer);
     };
   }, [search]);
 

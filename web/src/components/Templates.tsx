@@ -1,5 +1,5 @@
 import { useId, useEffect, useState } from "react";
-import { api, ApiError, ImportConflict, ImportIfExists, Template } from "../api";
+import { api, ApiError, ImportConflict, ImportIfExists, Template, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { Collapsible } from "./Collapsible";
 
@@ -24,7 +24,7 @@ export function Templates({ open = false }: { open?: boolean }) {
     try {
       setTemplates(await api.templates());
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, tr));
     }
   }
   useEffect(() => {
@@ -55,7 +55,7 @@ export function Templates({ open = false }: { open?: boolean }) {
           retry: (mode) => importFrom(run, ok, mode),
         });
       } else {
-        setError(e instanceof ApiError ? e.message : String(e));
+        setError(errorMessage(e, tr));
       }
     } finally {
       setBusy(false);
@@ -86,7 +86,7 @@ export function Templates({ open = false }: { open?: boolean }) {
       const { suggestedPorts, allocatedPort, effectiveReinstallKeep, ...t } = await api.template(slug);
       setEditing({ slug, json: JSON.stringify(t, null, 2) });
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, tr));
     }
   }
 
@@ -101,7 +101,7 @@ export function Templates({ open = false }: { open?: boolean }) {
       setMsg(tr("Template saved."));
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, tr));
     } finally {
       setBusy(false);
     }
@@ -114,7 +114,7 @@ export function Templates({ open = false }: { open?: boolean }) {
       await api.deleteTemplate(t.slug);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, tr));
     }
   }
 

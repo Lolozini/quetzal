@@ -9,6 +9,12 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Form validation follows the selected language.** API errors are formatted
+  consistently across the panel, including account/password/link errors,
+  permissions, quotas and parameterized resource or schedule validation.
+  French messages retain the rejected values; unrecognized technical details
+  remain available rather than being replaced by a generic error. New-password
+  fields explain and enforce their minimum length before submission.
 - **Input examples use the brand's readable muted text colour.** Placeholders
   now have a 6.19:1 contrast on the panel's input surface instead of inheriting
   a browser grey below the normal-text accessibility threshold.

@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiError, FileEntry } from "../api";
+import { api, FileEntry, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { forgetUpload, sendInPieces, UploadTarget } from "../upload";
 
@@ -55,7 +55,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       setSelected(new Set());
     } catch (e) {
       setEntries([]);
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -94,7 +94,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       setOriginal(content);
       setSaved("");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     }
   }
 
@@ -107,7 +107,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       setOriginal(editing.content);
       setSaved(t("Saved."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -133,7 +133,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       setOriginal("");
       setSaved("");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -144,7 +144,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       await api.mkdir(id, join(path, name));
       changed();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -155,7 +155,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       await api.renameFile(id, join(path, e.name), join(path, to));
       changed();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     }
   }
 
@@ -167,7 +167,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       if (editing && (editing.path === removed || editing.path.startsWith(removed + "/"))) setEditing(null);
       changed();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     }
   }
 
@@ -182,7 +182,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       await sendInPieces(id, file, target, (p) => setTransfer((cur) => cur && { ...cur, ...p }), abort.signal);
       changed();
     } catch (err) {
-      if (!abort.signal.aborted) setError(err instanceof ApiError ? err.message : String(err));
+      if (!abort.signal.aborted) setError(errorMessage(err, t));
     } finally {
       setTransfer(null);
     }
@@ -221,7 +221,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
       await fn();
       changed();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }

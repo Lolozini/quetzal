@@ -1,5 +1,5 @@
 import { useId, FormEvent, useEffect, useState } from "react";
-import { api, ApiError, ChannelType, EVENT_TYPES, NotificationChannel } from "../api";
+import { api, ChannelType, EVENT_TYPES, NotificationChannel, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { tlsHint } from "../smtp";
 
@@ -62,7 +62,7 @@ export function Notifications({ serverId }: { serverId: number }) {
       // managed on their server page.
       setChannels(serverId === 0 ? all.filter((c) => c.serverId === 0) : all);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -123,7 +123,7 @@ export function Notifications({ serverId }: { serverId: number }) {
       reset();
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -134,7 +134,7 @@ export function Notifications({ serverId }: { serverId: number }) {
       await api.updateChannel(c.id, { name: c.name, enabled: !c.enabled, events: c.events });
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -147,7 +147,7 @@ export function Notifications({ serverId }: { serverId: number }) {
       // reload so the badge goes with it.
       await load();
     } catch (e) {
-      setStatus((s) => ({ ...s, [c.id]: e instanceof ApiError ? e.message : String(e) }));
+      setStatus((s) => ({ ...s, [c.id]: errorMessage(e, t) }));
     }
   }
 
@@ -157,7 +157,7 @@ export function Notifications({ serverId }: { serverId: number }) {
       await api.deleteChannel(c.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 

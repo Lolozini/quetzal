@@ -1,5 +1,5 @@
 import { useId, FormEvent, useEffect, useState } from "react";
-import { api, ApiError, browserTimeZone, Schedule, ScheduleAction, ScheduleInput, ScheduleTask } from "../api";
+import { api, browserTimeZone, Schedule, ScheduleAction, ScheduleInput, ScheduleTask, errorMessage } from "../api";
 import { useT } from "../i18n";
 
 const ACTIONS: ScheduleAction[] = ["start", "stop", "restart", "command", "backup"];
@@ -40,7 +40,7 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
     try {
       setList(await api.schedules(id));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -80,7 +80,7 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
       setDirty(false);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -92,7 +92,7 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
       await api.updateSchedule(id, s.id, { enabled: !s.enabled });
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -102,7 +102,7 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
       await api.deleteSchedule(id, s.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 

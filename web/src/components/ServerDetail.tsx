@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, Cluster, endpointLines, EventEntry, ExposeType, hasAdminPerm, InstallLog, OFFLINE_PHASES, PowerAction, Server, ServerStats, User, wakesOnMinecraftLogin } from "../api";
+import { api, Cluster, endpointLines, EventEntry, ExposeType, hasAdminPerm, InstallLog, OFFLINE_PHASES, PowerAction, Server, ServerStats, User, wakesOnMinecraftLogin, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { Access } from "./Access";
 import { Backups } from "./Backups";
@@ -245,7 +245,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
         if (revision === hibRevision.current && !hibSaving.current) setSrv(s);
         phase = s.status?.phase ?? "";
       } catch (e) {
-        if (active) setError(String(e));
+        if (active) setError(errorMessage(e, t));
       }
       // No pod when the server is offline: skip the stats call entirely (avoids a
       // pointless "no pod found" every poll) and clear the panel.
@@ -271,10 +271,10 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
     };
     load();
     api.clusters().then((cs) => active && setClusters(cs)).catch(() => {});
-    const t = setInterval(load, 4000);
+    const timer = setInterval(load, 4000);
     return () => {
       active = false;
-      clearInterval(t);
+      clearInterval(timer);
     };
   }, [id]);
 
@@ -301,7 +301,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
       setSrv(saved);
       if (patch.idleMinutes !== undefined) setIdleDraft(null);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       hibSaving.current = false;
       setHibBusy(false);
@@ -313,7 +313,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
     try {
       setSrv(await api.setExpose(id, { type }));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -323,7 +323,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
       await (want ? api.suspend(id) : api.unsuspend(id));
       setSrv(await api.server(id));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -343,7 +343,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
       await api.transferServer(id, targetCluster);
       setSrv(await api.server(id));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -382,7 +382,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
       setNotice(t(powerNotice[action]));
       window.setTimeout(() => setNotice(""), 6000);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy("");
     }
@@ -399,7 +399,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
       await api.deleteServer(id);
       onBack();
     } catch (e) {
-      setError(String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -479,7 +479,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
                       await api.cancelTransfer(id);
                       setSrv(await api.server(id));
                     } catch (e) {
-                      setError(e instanceof ApiError ? e.message : String(e));
+                      setError(errorMessage(e, t));
                     }
                   }}
                 >
@@ -754,7 +754,7 @@ function SetupLog({ id, phase }: { id: number; phase: string }) {
     try {
       setLog(await api.installLog(id));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -828,7 +828,7 @@ function SFTPCard({ id, initialEnabled, username, canToggle }: { id: number; ini
       setPort(info.port);
       setHost(info.host);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -865,7 +865,7 @@ function SFTPCard({ id, initialEnabled, username, canToggle }: { id: number; ini
       setPort(0);
       setHost("");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }

@@ -1,5 +1,5 @@
 import { useId, FormEvent, ReactNode, useEffect, useState } from "react";
-import { AdminPermInfo, AdminRole, api, ApiError, AuditEntry, EmailSettingsInput, hasAdminPerm, NetworkSettings, PolicyImpact, User } from "../api";
+import { AdminPermInfo, AdminRole, api, AuditEntry, EmailSettingsInput, hasAdminPerm, NetworkSettings, PolicyImpact, User, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { tlsHint } from "../smtp";
 import { Collapsible } from "./Collapsible";
@@ -86,7 +86,7 @@ function Users({ me }: { me: User }) {
       setUsers(await api.users());
       if (me.isAdmin) setRoles(await api.adminRoles());
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -110,7 +110,7 @@ function Users({ me }: { me: User }) {
       await api.setUserAdminRole(u.id, roleId);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -131,7 +131,7 @@ function Users({ me }: { me: User }) {
       setMaxMemoryMB("");
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -143,7 +143,7 @@ function Users({ me }: { me: User }) {
       await api.updateUser(u.id, { isAdmin: !u.isAdmin });
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -162,7 +162,7 @@ function Users({ me }: { me: User }) {
       setQuotaOf(null);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     }
   }
 
@@ -180,7 +180,7 @@ function Users({ me }: { me: User }) {
       await api.deleteUser(u.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -190,7 +190,7 @@ function Users({ me }: { me: User }) {
       await api.adminDisable2FA(u.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -267,7 +267,11 @@ function Users({ me }: { me: User }) {
         <h3>{t("New user")}</h3>
         <div className="grid2">
           <div><label htmlFor={`${fieldId}-username`}>{t("Username")}</label><input id={`${fieldId}-username`} value={username} onChange={(e) => setUsername(e.target.value)} required /></div>
-          <div><label htmlFor={`${fieldId}-password`}>{t("Password")}</label><input id={`${fieldId}-password`} type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
+          <div>
+            <label htmlFor={`${fieldId}-password`}>{t("Password")}</label>
+            <input id={`${fieldId}-password`} type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} aria-describedby={`${fieldId}-password-help`} />
+            <p id={`${fieldId}-password-help`} className="muted">{t("Password must be at least 8 characters.")}</p>
+          </div>
         </div>
         <div><label htmlFor={`${fieldId}-email`}>{t("Email (optional, for password reset)")}</label><input id={`${fieldId}-email`} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@example.com" /></div>
         <div className="grid2">
@@ -308,7 +312,7 @@ function Roles() {
       setRoles(await api.adminRoles());
       setCatalog(await api.adminPermissions());
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -349,7 +353,7 @@ function Roles() {
       resetForm();
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -363,7 +367,7 @@ function Roles() {
       if (editing === r.id) resetForm();
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -487,7 +491,7 @@ function SecuritySettingsCard({ isSuperadmin, hasTwoFactor }: { isSuperadmin: bo
       const res = await api.setSecuritySettings({ requireTwoFactor: mode });
       setSaved(res.requireTwoFactor);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -576,7 +580,7 @@ function InviteSettingsCard({ isSuperadmin }: { isSuperadmin: boolean }) {
       const res = await api.setSecuritySettings({ inviteSignup: on });
       setSaved(res.inviteSignup);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -618,7 +622,7 @@ function NetworkSettingsCard() {
       setSettings(s);
       setHost(s.endpointHost || "");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -635,7 +639,7 @@ function NetworkSettingsCard() {
       setMsg(t("Saved. New endpoints use it on the next reconcile."));
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -687,7 +691,7 @@ function EmailSettingsCard() {
         from: s.from || "", replyTo: s.replyTo || "", tls: s.tls || "starttls", publicUrl: s.publicUrl || "",
       });
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -707,7 +711,7 @@ function EmailSettingsCard() {
       setMsg(t("Saved."));
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -720,7 +724,7 @@ function EmailSettingsCard() {
       await api.testEmail(testTo.trim() || undefined);
       setMsg(t("Test email sent."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     }
   }
 

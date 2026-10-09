@@ -1,5 +1,5 @@
 import { useId, FormEvent, useState } from "react";
-import { api, ApiError, User } from "../api";
+import { api, ApiError, User, errorMessage } from "../api";
 import { LangSwitcher, useT } from "../i18n";
 import { Lockup } from "./Brand";
 
@@ -47,7 +47,7 @@ export function Auth({
       if (err instanceof ApiError && err.status === 429) {
         setError(t("Too many sign-in attempts. Try again in a few minutes."));
       } else {
-        setError(err instanceof ApiError ? err.message : String(err));
+        setError(errorMessage(err, t));
       }
     } finally {
       setBusy(false);
@@ -93,12 +93,15 @@ export function Auth({
                 fill in, or a new one to save on the setup screen. */}
             <input id={`${fieldId}-password`}
               type="password"
+              minLength={setupNeeded ? 8 : undefined}
+              aria-describedby={setupNeeded ? `${fieldId}-password-help` : undefined}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete={setupNeeded ? "new-password" : "current-password"}
             />
             {setupNeeded && (
               <>
+                <p id={`${fieldId}-password-help`} className="muted">{t("Password must be at least 8 characters.")}</p>
                 <label htmlFor={`${fieldId}-email`}>{t("Email (optional, for password reset)")}</label>
                 <input id={`${fieldId}-email`}
                   type="email"

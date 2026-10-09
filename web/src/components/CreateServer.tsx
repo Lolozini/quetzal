@@ -1,5 +1,5 @@
 import { useId, FormEvent, useEffect, useState } from "react";
-import { api, ApiError, Cluster, CreateServerRequest, ExposeType, Template, wakesOnMinecraftLogin } from "../api";
+import { api, Cluster, CreateServerRequest, ExposeType, Template, wakesOnMinecraftLogin, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { Combobox } from "./Combobox";
 import { PortRow, PortsEditor, portsToRows, PROTO_BOTH, rowsToPorts } from "./PortsEditor";
@@ -108,7 +108,7 @@ export function CreateServer({
         setTemplatesLoaded(true);
         if (ts[0]) selectTemplate(ts[0]);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(errorMessage(e, t)));
     api
       .clusters()
       .then((cs) => {
@@ -150,7 +150,7 @@ export function CreateServer({
       await api.createServer(body);
       onDone();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
