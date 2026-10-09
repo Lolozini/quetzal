@@ -193,7 +193,7 @@ function StatsPanel({ stats, history, phase, limits }: { stats: ServerStats | nu
 // The sections of a server's page, one tab each.
 type ServerTab = "console" | "files" | "backups" | "schedules" | "databases" | "access" | "settings" | "activity";
 
-export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: string; user: User; onBack: () => void }) {
+export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: number; tab?: string; user: User; onBack: () => void; onDirtyChange: (dirty: boolean) => void }) {
   const { t } = useT();
   const [srv, setSrv] = useState<Server | null>(null);
   const [clusters, setClusters] = useState<Cluster[]>([]);
@@ -208,6 +208,18 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
   const hibRevision = useRef(0);
   // Whether only a Minecraft login wakes this server (see the hibernation hint).
   const [mcWake, setMcWake] = useState(false);
+  const [fileDirty, setFileDirty] = useState(false);
+  const [scheduleDirty, setScheduleDirty] = useState(false);
+  const [visitedTabs, setVisitedTabs] = useState(() => new Set([tab]));
+  useEffect(() => {
+    if (tab === "files" || tab === "schedules") {
+      setVisitedTabs((seen) => seen.has(tab) ? seen : new Set([...seen, tab]));
+    }
+  }, [tab]);
+  useEffect(() => {
+    onDirtyChange(fileDirty || scheduleDirty);
+    return () => onDirtyChange(false);
+  }, [fileDirty, scheduleDirty, onDirtyChange]);
 
   useEffect(() => {
     if (!srv?.templateId) return;
@@ -540,14 +552,18 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
           {may("console") && !setupFirst && <SetupLog id={id} phase={phase} />}
         </div>
       )}
-      {current === "files" && (
-        <>
-          <Files id={id} offline={["Stopped", "Suspended", "Hibernated"].includes(phase)} />
+      {may("files") && (current === "files" || visitedTabs.has("files")) && (
+        <div hidden={current !== "files"}>
+          <Files id={id} offline={["Stopped", "Suspended", "Hibernated"].includes(phase)} onDirtyChange={setFileDirty} />
           <SFTPCard id={id} initialEnabled={!!srv.sftp?.enabled} username={user.username} canToggle={may("settings")} />
-        </>
+        </div>
       )}
       {current === "backups" && <Backups id={id} readOnly={!may("backups")} canDatabases={may("databases")} />}
-      {current === "schedules" && <Schedules id={id} readOnly={!may("schedules")} />}
+      {(current === "schedules" || visitedTabs.has("schedules")) && (
+        <div hidden={current !== "schedules"}>
+          <Schedules id={id} readOnly={!may("schedules")} visible={current === "schedules"} onDirtyChange={setScheduleDirty} />
+        </div>
+      )}
       {current === "databases" && <Databases serverId={id} canImport={may("files")} />}
       {current === "access" && <Access id={id} />}
       {current === "settings" && (

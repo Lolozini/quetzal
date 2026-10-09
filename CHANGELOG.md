@@ -9,6 +9,11 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Server tabs keep unfinished schedules and file edits.** Visiting another
+  tab no longer resets those drafts; leaving the server, signing out or closing
+  the page warns before discarding them. The file editor also asks before
+  closing or opening a different file, keeps edits after a failed save, and
+  no longer closes a similarly named file when its neighbour is deleted.
 - **Editing the idle timeout no longer saves every keystroke.** The hibernation
   delay keeps a local draft, accepts only positive whole minutes, and saves on
   Enter or Save. Pending writes disable the policy controls, and older polls

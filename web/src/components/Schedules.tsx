@@ -18,7 +18,7 @@ function newTask(): ScheduleTask {
 
 // readOnly shows the schedules without the means to change them, for a server
 // an administrator has suspended.
-export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boolean }) {
+export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id: number; readOnly?: boolean; visible: boolean; onDirtyChange: (dirty: boolean) => void }) {
   const { t } = useT();
   const [list, setList] = useState<Schedule[]>([]);
   const [error, setError] = useState("");
@@ -29,6 +29,11 @@ export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boo
   const [timezone, setTimezone] = useState(browserTimeZone());
   const [tasks, setTasks] = useState<ScheduleTask[]>([newTask()]);
   const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty, onDirtyChange]);
 
   async function load() {
     try {
@@ -38,18 +43,21 @@ export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boo
     }
   }
   useEffect(() => {
+    if (!visible) return;
     load();
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
-  }, [id]);
+  }, [id, visible]);
 
   function patchTask(i: number, patch: Partial<ScheduleTask>) {
     setTasks((ts) => ts.map((t, j) => (j === i ? { ...t, ...patch } : t)));
   }
   function addTask() {
+    setDirty(true);
     setTasks((ts) => [...ts, newTask()]);
   }
   function removeTask(i: number) {
+    setDirty(true);
     setTasks((ts) => (ts.length > 1 ? ts.filter((_, j) => j !== i) : ts));
   }
 
@@ -68,6 +76,7 @@ export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boo
       await api.createSchedule(id, body);
       setName("");
       setTasks([newTask()]);
+      setDirty(false);
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -142,7 +151,7 @@ export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boo
       {readOnly ? (
         error && <div className="error" style={{ marginTop: 8 }}>{error}</div>
       ) : (
-      <form onSubmit={add} style={{ marginTop: 12 }}>
+      <form onSubmit={add} onChange={() => setDirty(true)} style={{ marginTop: 12 }}>
         <div className="grid2">
           <div>
             <label>{t("Name")}</label>

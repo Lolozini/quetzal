@@ -863,4 +863,5 @@ export const fr: Record<string, string> = {
   "Could not load security settings. No policy is shown until they are available.":
     "Impossible de charger les réglages de sécurité. Aucune politique n’est affichée tant qu’ils ne sont pas disponibles.",
   "Idle timeout (minutes)": "Délai d’inactivité (minutes)",
+  "Discard unsaved changes?": "Abandonner les modifications non enregistrées ?",
 };

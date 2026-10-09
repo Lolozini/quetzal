@@ -15,7 +15,7 @@ const ARCHIVE_RE = /\.(zip|tar|tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz)$/i;
 
 type SortKey = "name" | "size" | "mtime";
 
-export function Files({ id, offline = false }: { id: number; offline?: boolean }) {
+export function Files({ id, offline = false, onDirtyChange }: { id: number; offline?: boolean; onDirtyChange: (dirty: boolean) => void }) {
   const { t } = useT();
   const [path, setPath] = useState(""); // relative to the data root
   const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -23,6 +23,16 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<{ path: string; content: string } | null>(null);
   const [saved, setSaved] = useState("");
+  const [original, setOriginal] = useState("");
+  const dirty = editing !== null && editing.content !== original;
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty, onDirtyChange]);
+
+  function mayDiscard() {
+    return !busy && (!dirty || window.confirm(t("Discard unsaved changes?")));
+  }
   const [mut, setMut] = useState(0); // bumped on changes so the tree refreshes
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "name", desc: false });
@@ -56,6 +66,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
   }, [load]);
 
   function nav(p: string) {
+    if (!mayDiscard()) return;
     setEditing(null);
     setActionsFor(null);
     setPath(p);
@@ -75,9 +86,12 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
       window.location.href = api.fileDownloadUrl(id, p);
       return;
     }
+    if (!mayDiscard()) return;
     setError("");
     try {
-      setEditing({ path: p, content: await api.readFile(id, p) });
+      const content = await api.readFile(id, p);
+      setEditing({ path: p, content });
+      setOriginal(content);
       setSaved("");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -90,6 +104,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
     setError("");
     try {
       await api.writeFile(id, editing.path, editing.content);
+      setOriginal(editing.content);
       setSaved(t("Saved."));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -102,6 +117,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
   // game needs (TeamSpeak's ts3db_mariadb.ini) had to be written elsewhere and
   // uploaded.
   async function newFile() {
+    if (!mayDiscard()) return;
     const name = window.prompt(t("New file name:"))?.trim();
     if (!name) return;
     if (entries.some((e) => e.name === name)) {
@@ -114,6 +130,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
       await api.writeFile(id, p, "");
       changed();
       setEditing({ path: p, content: "" });
+      setOriginal("");
       setSaved("");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
@@ -146,7 +163,8 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
     if (!window.confirm(e.dir ? t('Delete "{name}" and everything inside it?', { name: e.name }) : t('Delete "{name}"?', { name: e.name }))) return;
     try {
       await api.deleteFile(id, join(path, e.name));
-      if (editing && editing.path.startsWith(join(path, e.name))) setEditing(null);
+      const removed = join(path, e.name);
+      if (editing && (editing.path === removed || editing.path.startsWith(removed + "/"))) setEditing(null);
       changed();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
@@ -222,8 +240,14 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
 
   function removeSelected() {
     if (!window.confirm(t("Delete {n} selected items, folders included?", { n: sel.length }))) return;
-    if (editing && sel.some((n) => editing.path.startsWith(join(path, n)))) setEditing(null);
-    run(() => api.deleteFiles(id, path, sel));
+    const closesEditor = editing && sel.some((n) => {
+      const removed = join(path, n);
+      return editing.path === removed || editing.path.startsWith(removed + "/");
+    });
+    run(async () => {
+      await api.deleteFiles(id, path, sel);
+      if (closesEditor) setEditing(null);
+    });
   }
 
   function moveSelected() {
@@ -417,11 +441,12 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
                 value={editing.content}
                 onChange={(e) => { setEditing({ ...editing, content: e.target.value }); setSaved(""); }}
                 spellCheck={false}
+                disabled={busy}
                 style={{ width: "100%", minHeight: 320, fontFamily: "var(--font-mono)" }}
               />
               <div className="row" style={{ marginTop: 8 }}>
                 <button className="primary" onClick={save} disabled={busy}>{t("Save")}</button>
-                <button onClick={() => setEditing(null)}>{t("Close")}</button>
+                <button disabled={busy} onClick={() => { if (mayDiscard()) setEditing(null); }}>{t("Close")}</button>
                 {saved && <span className="notice">{saved}</span>}
               </div>
             </div>
