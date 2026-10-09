@@ -9,6 +9,9 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Input examples use the brand's readable muted text colour.** Placeholders
+  now have a 6.19:1 contrast on the panel's input surface instead of inheriting
+  a browser grey below the normal-text accessibility threshold.
 - **Every administration tab stays visible.** Tab bars wrap at desktop and
   tablet widths as well as on phones, so Notifications and Activity no longer
   hide beyond a scrollbar that was not displayed.

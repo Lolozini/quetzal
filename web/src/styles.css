@@ -113,6 +113,7 @@ input, select, button, textarea {
   border-radius: var(--radius-sm); padding: 8px 10px;
 }
 input, select, textarea { width: 100%; }
+input::placeholder, textarea::placeholder { color: var(--ink-muted); opacity: 1; }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 label { display: block; margin: 10px 0 4px; color: var(--ink-muted); font-size: 13px; }
 
