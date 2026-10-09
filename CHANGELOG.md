@@ -9,6 +9,9 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Authentication cards fit small screens.** Sign-in, setup, recovery and
+  account-link pages keep their side margins at 320 px instead of clipping a
+  fixed-width card; long addresses and setup commands wrap inside the card.
 - **Form labels identify their controls.** Authentication, account, server and
   administration forms associate labels and help text with unique field IDs;
   dynamically repeated fields and groups have distinct accessible names too.

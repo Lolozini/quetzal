@@ -90,7 +90,9 @@ code, kbd, samp { font-family: var(--font-mono); font-size: 0.93em; }
 }
 /* Sign-in, password reset: the stacked lockup above the card. */
 .center.auth { flex-direction: column; gap: 28px; }
-.center.auth .card { border-radius: var(--radius-lg); }
+.center.auth .card {
+  max-width: 100%; overflow-wrap: anywhere; border-radius: var(--radius-lg);
+}
 
 .card {
   background: var(--surface-raised); border: 1px solid var(--line);
