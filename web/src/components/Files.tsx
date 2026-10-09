@@ -369,9 +369,21 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
                       onChange={() => setSelected(allSelected ? new Set() : new Set(entries.map((e) => e.name)))}
                     />
                   </th>
-                  <th style={{ cursor: "pointer" }} onClick={() => sortBy("name")}>{t("Name")}{arrow("name")}</th>
-                  <th style={{ cursor: "pointer" }} onClick={() => sortBy("size")}>{t("Size")}{arrow("size")}</th>
-                  <th className="hide-narrow" style={{ cursor: "pointer" }} onClick={() => sortBy("mtime")}>{t("Modified")}{arrow("mtime")}</th>
+                  <th aria-sort={sort.key === "name" ? (sort.desc ? "descending" : "ascending") : "none"}>
+                    <button type="button" className="table-sort" onClick={() => sortBy("name")}>
+                      {t("Name")}<span aria-hidden="true">{arrow("name")}</span>
+                    </button>
+                  </th>
+                  <th aria-sort={sort.key === "size" ? (sort.desc ? "descending" : "ascending") : "none"}>
+                    <button type="button" className="table-sort" onClick={() => sortBy("size")}>
+                      {t("Size")}<span aria-hidden="true">{arrow("size")}</span>
+                    </button>
+                  </th>
+                  <th className="hide-narrow" aria-sort={sort.key === "mtime" ? (sort.desc ? "descending" : "ascending") : "none"}>
+                    <button type="button" className="table-sort" onClick={() => sortBy("mtime")}>
+                      {t("Modified")}<span aria-hidden="true">{arrow("mtime")}</span>
+                    </button>
+                  </th>
                   <th></th>
                 </tr>
               </thead>

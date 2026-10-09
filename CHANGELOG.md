@@ -9,6 +9,9 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **File sorting works from the keyboard.** Name, Size and Modified are native
+  buttons with the panel's focus ring; their headers expose the active sort
+  direction instead of relying on a visual arrow and a mouse-only click.
 - **A zero server quota is explained before filling a form.** The server list
   disables creation with guidance to ask an administrator, and a direct create
   URL shows that guidance instead of a form that must fail. Administrators

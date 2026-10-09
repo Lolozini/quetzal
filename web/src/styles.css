@@ -116,6 +116,8 @@ input, select, textarea { width: 100%; }
 input::placeholder, textarea::placeholder { color: var(--ink-muted); opacity: 1; }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 label { display: block; margin: 10px 0 4px; color: var(--ink-muted); font-size: 13px; }
+button.table-sort { border: 0; background: transparent; color: inherit; font: inherit; padding: 4px 0; text-align: inherit; }
+button.table-sort:hover { color: var(--ink); background: transparent; }
 
 :is(a, button, input, select, textarea, summary):focus-visible {
   outline: 2px solid transparent; box-shadow: var(--focus-ring);
