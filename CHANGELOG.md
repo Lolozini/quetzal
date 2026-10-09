@@ -9,6 +9,9 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **The documentation's light-theme selection is readable.** Active navigation
+  and accent text use the existing darker rust token (6.08:1 white-on-rust),
+  without recolouring the brand artwork.
 - **Role help links to the Users tab.** It no longer points to a nonexistent
   Users card above the role editor.
 - **The mobile sign-in logo keeps its proportions.** Only the horizontal

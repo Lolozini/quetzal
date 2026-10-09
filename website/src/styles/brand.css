@@ -43,6 +43,9 @@
 	--sl-color-accent-low: #f7e2da;
 	--sl-color-accent: #c8553d;
 	--sl-color-accent-high: #a8412b;
+	/* Text and filled controls need the accessible rust, not the logo's wing colour. */
+	--sl-color-text-accent: var(--sl-color-accent-high);
+	--sl-color-bg-accent: var(--sl-color-accent-high);
 	--sl-color-text-invert: #ffffff;
 
 	--sl-color-white: #2b2b2e;
