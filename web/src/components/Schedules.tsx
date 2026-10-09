@@ -2,8 +2,6 @@ import { useId, FormEvent, useEffect, useState } from "react";
 import { api, browserTimeZone, Schedule, ScheduleAction, ScheduleInput, ScheduleTask, errorMessage } from "../api";
 import { useT } from "../i18n";
 
-const ACTIONS: ScheduleAction[] = ["start", "stop", "restart", "command", "backup"];
-
 // chainOf normalizes a schedule into its task list (legacy single-action
 // schedules carry action/payload instead of tasks).
 function chainOf(s: Schedule): ScheduleTask[] {
@@ -21,6 +19,13 @@ function newTask(): ScheduleTask {
 export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id: number; readOnly?: boolean; visible: boolean; onDirtyChange: (dirty: boolean) => void }) {
   const fieldId = useId();
   const { t } = useT();
+  const actionLabels: Record<ScheduleAction, string> = {
+    start: t("Start"),
+    stop: t("Stop"),
+    restart: t("Restart"),
+    command: t("Command"),
+    backup: t("Backup"),
+  };
   const [list, setList] = useState<Schedule[]>([]);
   const [error, setError] = useState("");
   const [name, setName] = useState("");
@@ -131,7 +136,7 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
                   <td>{s.name}</td>
                   <td><code>{s.cron}</code></td>
                   <td className="muted">{s.timezone || t("UTC (default)")}</td>
-                  <td><TaskChain tasks={chainOf(s)} /></td>
+                  <td><TaskChain tasks={chainOf(s)} labels={actionLabels} /></td>
                   <td>{s.enabled ? fmt(s.nextRun) : "—"}</td>
                   <td title={s.lastStatus}>{s.lastRun ? fmt(s.lastRun) : t("never")}</td>
                   <td style={{ whiteSpace: "nowrap" }}>
@@ -175,7 +180,7 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
           <div key={i} className="row" style={{ gap: 6, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
             <span className="muted" style={{ width: 18 }}>{i + 1}.</span>
             <select aria-label={t("Action for task {number}", { number: i + 1 })} value={task.action} onChange={(e) => patchTask(i, { action: e.target.value as ScheduleAction })} style={{ width: "auto" }}>
-              {ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
+              {Object.entries(actionLabels).map(([action, label]) => <option key={action} value={action}>{label}</option>)}
             </select>
             {task.action === "command" && (
               <input aria-label={t("Command for task {number}", { number: i + 1 })}
@@ -226,7 +231,8 @@ export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id
 }
 
 // TaskChain renders a compact, ordered view of a schedule's tasks.
-function TaskChain({ tasks }: { tasks: ScheduleTask[] }) {
+function TaskChain({ tasks, labels }: { tasks: ScheduleTask[]; labels: Record<ScheduleAction, string> }) {
+  const { t: tr } = useT();
   if (tasks.length === 0) return <span className="muted">—</span>;
   return (
     <span style={{ fontSize: 13 }}>
@@ -234,9 +240,9 @@ function TaskChain({ tasks }: { tasks: ScheduleTask[] }) {
         <span key={i}>
           {i > 0 && <span className="muted"> → </span>}
           {t.timeOffset > 0 && <span className="muted">+{t.timeOffset}s </span>}
-          {t.action}
+          {labels[t.action]}
           {t.action === "command" && t.payload ? `: ${t.payload}` : ""}
-          {t.continueOnFailure ? <span className="muted" title="continues on failure">*</span> : ""}
+          {t.continueOnFailure ? <span className="muted" title={tr("Keep going even if this task fails")}>*</span> : ""}
         </span>
       ))}
     </span>

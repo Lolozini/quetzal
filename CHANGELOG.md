@@ -9,6 +9,9 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Scheduled actions use translated names.** Both the action picker and saved
+  task chains say Start, Stop, Restart, Command and Backup in the selected
+  language, while the API values stay unchanged.
 - **File sorting works from the keyboard.** Name, Size and Modified are native
   buttons with the panel's focus ring; their headers expose the active sort
   direction instead of relying on a visual arrow and a mouse-only click.
