@@ -8,6 +8,9 @@ import starlightLinksValidator from 'starlight-links-validator';
 export default defineConfig({
 	site: 'https://lolozini.github.io',
 	base: '/quetzal',
+	// Keep runtime imports external: Astro's script inlining precedes Vite's
+	// dynamic-import preload finalization and can leave __VITE_PRELOAD__ in HTML.
+	vite: { build: { assetsInlineLimit: (path) => path.endsWith('.js') ? false : undefined } },
 	integrations: [
 		starlight({
 			title: 'Quetzal',
@@ -25,6 +28,7 @@ export default defineConfig({
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/Lolozini/quetzal' }],
 			editLink: { baseUrl: 'https://github.com/Lolozini/quetzal/edit/main/website/' },
 			customCss: ['./src/styles/brand.css'],
+			components: { Search: './src/components/Search.astro' },
 			sidebar: [
 				{ label: 'Start here', items: ['why', 'quickstart', 'features', 'architecture'] },
 				{ label: 'Guides', items: ['install', 'upgrade', 'migrating'] },

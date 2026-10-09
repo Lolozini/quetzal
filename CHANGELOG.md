@@ -9,6 +9,13 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **Documentation search reports failures and can retry.** Search keeps the
+  query, presents an error instead of an endless loading message, and rebuilds
+  the failed Pagefind instance on Retry. Results, sub-results, pagination and
+  empty searches use the real index; the modal preserves focus and locks
+  background scrolling. Verification distinguished an audit-browser worker
+  instrumentation failure from ordinary Chromium, where the index already
+  worked; no speculative Pagefind upgrade or worker patch is applied.
 - **The documentation's light-theme selection is readable.** Active navigation
   and accent text use the existing darker rust token (6.08:1 white-on-rust),
   without recolouring the brand artwork.
