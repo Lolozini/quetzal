@@ -9,6 +9,9 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **One API-key creation at a time.** The name and submit button stay locked
+  while a key is being created, with a visible progress label; repeated clicks
+  cannot create extra keys or replace the token the user has yet to copy.
 - **Server tabs keep unfinished schedules and file edits.** Visiting another
   tab no longer resets those drafts; leaving the server, signing out or closing
   the page warns before discarding them. The file editor also asks before

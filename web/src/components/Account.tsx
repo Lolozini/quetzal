@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { api, APIKey, ApiError, SSHKey, User } from "../api";
 import { useT } from "../i18n";
 import { QRCode } from "./QRCode";
@@ -415,6 +415,8 @@ function APIKeys() {
   const [name, setName] = useState("");
   const [fresh, setFresh] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const creating = useRef(false);
 
   async function load() {
     try {
@@ -429,6 +431,9 @@ function APIKeys() {
 
   async function create(e: FormEvent) {
     e.preventDefault();
+    if (creating.current || !name) return;
+    creating.current = true;
+    setBusy(true);
     setError("");
     try {
       const res = await api.createAPIKey(name);
@@ -437,6 +442,9 @@ function APIKeys() {
       await load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      creating.current = false;
+      setBusy(false);
     }
   }
 
@@ -477,9 +485,9 @@ function APIKeys() {
           </table>
         </div>
       )}
-      <form onSubmit={create} className="row" style={{ marginTop: 12 }}>
-        <input value={name} placeholder={t("key name (e.g. ci)")} onChange={(e) => setName(e.target.value)} required />
-        <button className="primary" disabled={!name}>{t("Create key")}</button>
+      <form onSubmit={create} className="row" style={{ marginTop: 12 }} aria-busy={busy}>
+        <input value={name} placeholder={t("key name (e.g. ci)")} onChange={(e) => setName(e.target.value)} required disabled={busy} />
+        <button className="primary" disabled={busy || !name}>{busy ? t("Creating…") : t("Create key")}</button>
       </form>
       {error && <div className="error">{error}</div>}
     </div>
