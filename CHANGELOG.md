@@ -9,6 +9,9 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **The narrow documentation header also fits desktop scrollbars.** Below
+  360 px, the theme picker drops only its decorative icon, leaving the complete
+  logo and both controls visible even when a vertical scrollbar takes space.
 - **Newly granted creation rights take effect without signing in again.**
   The denied-creation notice refreshes the account on entry and offers Check
   access again, so an administrator granting a quota does not leave an open

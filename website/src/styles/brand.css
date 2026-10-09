@@ -96,3 +96,16 @@ h1,
 		display: none;
 	}
 }
+
+/* Leave room for the 140 px lockup even when a 320 px viewport has a scrollbar.
+   Drop only the theme's decorative icon, not its label or native select. */
+@media screen and (max-width: 22.5rem) {
+	:root:not([data-has-sidebar]) starlight-theme-select .label-icon {
+		display: none;
+	}
+
+	:root:not([data-has-sidebar]) starlight-theme-select select {
+		width: calc(var(--sl-select-width) + 2 * var(--sl-inline-padding) - var(--sl-label-icon-size) - 0.25rem);
+		padding-inline-start: var(--sl-inline-padding);
+	}
+}
