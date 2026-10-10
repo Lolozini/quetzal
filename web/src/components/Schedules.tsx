@@ -1,8 +1,6 @@
-import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, browserTimeZone, Schedule, ScheduleAction, ScheduleInput, ScheduleTask } from "../api";
+import { useId, FormEvent, useEffect, useState } from "react";
+import { api, browserTimeZone, Schedule, ScheduleAction, ScheduleInput, ScheduleTask, errorMessage } from "../api";
 import { useT } from "../i18n";
-
-const ACTIONS: ScheduleAction[] = ["start", "stop", "restart", "command", "backup"];
 
 // chainOf normalizes a schedule into its task list (legacy single-action
 // schedules carry action/payload instead of tasks).
@@ -18,10 +16,18 @@ function newTask(): ScheduleTask {
 
 // readOnly shows the schedules without the means to change them, for a server
 // an administrator has suspended.
-export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boolean }) {
+export function Schedules({ id, readOnly = false, visible, onDirtyChange }: { id: number; readOnly?: boolean; visible: boolean; onDirtyChange: (dirty: boolean) => void }) {
+  const fieldId = useId();
   const { t } = useT();
+  const actionLabels: Record<ScheduleAction, string> = {
+    start: t("Start"),
+    stop: t("Stop"),
+    restart: t("Restart"),
+    command: t("Command"),
+    backup: t("Backup"),
+  };
   const [list, setList] = useState<Schedule[]>([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [name, setName] = useState("");
   const [cron, setCron] = useState("0 5 * * *");
   // Prefilled with the reader's zone, so an hour typed here means that hour
@@ -29,27 +35,35 @@ export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boo
   const [timezone, setTimezone] = useState(browserTimeZone());
   const [tasks, setTasks] = useState<ScheduleTask[]>([newTask()]);
   const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty, onDirtyChange]);
 
   async function load() {
     try {
       setList(await api.schedules(id));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e);
     }
   }
   useEffect(() => {
+    if (!visible) return;
     load();
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
-  }, [id]);
+  }, [id, visible]);
 
   function patchTask(i: number, patch: Partial<ScheduleTask>) {
     setTasks((ts) => ts.map((t, j) => (j === i ? { ...t, ...patch } : t)));
   }
   function addTask() {
+    setDirty(true);
     setTasks((ts) => [...ts, newTask()]);
   }
   function removeTask(i: number) {
+    setDirty(true);
     setTasks((ts) => (ts.length > 1 ? ts.filter((_, j) => j !== i) : ts));
   }
 
@@ -68,9 +82,10 @@ export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boo
       await api.createSchedule(id, body);
       setName("");
       setTasks([newTask()]);
+      setDirty(false);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(err);
     } finally {
       setBusy(false);
     }
@@ -82,7 +97,7 @@ export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boo
       await api.updateSchedule(id, s.id, { enabled: !s.enabled });
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e);
     }
   }
 
@@ -92,7 +107,7 @@ export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boo
       await api.deleteSchedule(id, s.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e);
     }
   }
 
@@ -121,7 +136,7 @@ export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boo
                   <td>{s.name}</td>
                   <td><code>{s.cron}</code></td>
                   <td className="muted">{s.timezone || t("UTC (default)")}</td>
-                  <td><TaskChain tasks={chainOf(s)} /></td>
+                  <td><TaskChain tasks={chainOf(s)} labels={actionLabels} /></td>
                   <td>{s.enabled ? fmt(s.nextRun) : "—"}</td>
                   <td title={s.lastStatus}>{s.lastRun ? fmt(s.lastRun) : t("never")}</td>
                   <td style={{ whiteSpace: "nowrap" }}>
@@ -140,34 +155,35 @@ export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boo
       )}
 
       {readOnly ? (
-        error && <div className="error" style={{ marginTop: 8 }}>{error}</div>
+        !!error && <div className="error" style={{ marginTop: 8 }}>{errorMessage(error, t)}</div>
       ) : (
-      <form onSubmit={add} style={{ marginTop: 12 }}>
+      <form onSubmit={add} onChange={() => setDirty(true)} style={{ marginTop: 12 }}>
         <div className="grid2">
           <div>
-            <label>{t("Name")}</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} required placeholder={t("nightly restart")} />
+            <label htmlFor={`${fieldId}-name`}>{t("Name")}</label>
+            <input id={`${fieldId}-name`} value={name} onChange={(e) => setName(e.target.value)} required placeholder={t("nightly restart")} />
           </div>
           <div>
-            <label>{t("Cron (5 fields)")}</label>
-            <input value={cron} onChange={(e) => setCron(e.target.value)} required placeholder="0 5 * * *" />
+            <label htmlFor={`${fieldId}-cron`}>{t("Cron (5 fields)")}</label>
+            <input id={`${fieldId}-cron`} value={cron} onChange={(e) => setCron(e.target.value)} required placeholder="0 5 * * *" />
           </div>
           <div>
-            <label>{t("Time zone")}</label>
-            <input value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="Europe/Paris" />
-            <p className="muted">{t("IANA name. Leave empty to use the control plane's zone, which is usually UTC.")}</p>
+            <label htmlFor={`${fieldId}-timezone`}>{t("Time zone")}</label>
+            <input aria-describedby={`${fieldId}-timezone-help`} id={`${fieldId}-timezone`} value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="Europe/Paris" />
+            <p id={`${fieldId}-timezone-help`} className="muted">{t("IANA name. Leave empty to use the control plane's zone, which is usually UTC.")}</p>
           </div>
         </div>
 
-        <label style={{ marginTop: 8 }}>{t("Tasks (run in order)")}</label>
+        <div id={`${fieldId}-tasks-label`} style={{ display: "block", margin: "10px 0 4px", color: "var(--ink-muted)", fontSize: 13, marginTop: 8 }}>{t("Tasks (run in order)")}</div>
+        <div role="group" aria-labelledby={`${fieldId}-tasks-label`}>
         {tasks.map((task, i) => (
           <div key={i} className="row" style={{ gap: 6, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
             <span className="muted" style={{ width: 18 }}>{i + 1}.</span>
-            <select value={task.action} onChange={(e) => patchTask(i, { action: e.target.value as ScheduleAction })} style={{ width: "auto" }}>
-              {ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
+            <select aria-label={t("Action for task {number}", { number: i + 1 })} value={task.action} onChange={(e) => patchTask(i, { action: e.target.value as ScheduleAction })} style={{ width: "auto" }}>
+              {Object.entries(actionLabels).map(([action, label]) => <option key={action} value={action}>{label}</option>)}
             </select>
             {task.action === "command" && (
-              <input
+              <input aria-label={t("Command for task {number}", { number: i + 1 })}
                 value={task.payload || ""}
                 onChange={(e) => patchTask(i, { payload: e.target.value })}
                 placeholder={t("say restarting soon")}
@@ -200,8 +216,9 @@ export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boo
             {t("A backup step ends when its backup does, so the next step runs after it. To copy a Minecraft world without stopping the server, send save-off and save-all flush before the backup and save-on after it, with \"continue on fail\" ticked on the backup so that saving always resumes.")}
           </p>
         )}
+        </div>
 
-        {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
+        {!!error && <div className="error" style={{ marginTop: 8 }}>{errorMessage(error, t)}</div>}
         <div>
           <button className="primary" style={{ marginTop: 12 }} disabled={busy || !name || !cron}>
             {busy ? t("Adding…") : t("Add schedule")}
@@ -214,7 +231,8 @@ export function Schedules({ id, readOnly = false }: { id: number; readOnly?: boo
 }
 
 // TaskChain renders a compact, ordered view of a schedule's tasks.
-function TaskChain({ tasks }: { tasks: ScheduleTask[] }) {
+function TaskChain({ tasks, labels }: { tasks: ScheduleTask[]; labels: Record<ScheduleAction, string> }) {
+  const { t: tr } = useT();
   if (tasks.length === 0) return <span className="muted">—</span>;
   return (
     <span style={{ fontSize: 13 }}>
@@ -222,9 +240,9 @@ function TaskChain({ tasks }: { tasks: ScheduleTask[] }) {
         <span key={i}>
           {i > 0 && <span className="muted"> → </span>}
           {t.timeOffset > 0 && <span className="muted">+{t.timeOffset}s </span>}
-          {t.action}
+          {labels[t.action]}
           {t.action === "command" && t.payload ? `: ${t.payload}` : ""}
-          {t.continueOnFailure ? <span className="muted" title="continues on failure">*</span> : ""}
+          {t.continueOnFailure ? <span className="muted" title={tr("Keep going even if this task fails")}>*</span> : ""}
         </span>
       ))}
     </span>

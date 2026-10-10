@@ -104,7 +104,7 @@ export function PortsEditor({
             aria-label={i === primaryIdx ? t("game port") : t("Port")}
             onChange={(e) => setRow(i, { port: e.target.value })}
           />
-          <select
+          <select aria-label={t("Protocol")}
             style={{ width: "auto" }}
             value={p.protocol}
             onChange={(e) => setRow(i, { protocol: e.target.value })}

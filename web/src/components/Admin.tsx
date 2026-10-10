@@ -1,5 +1,5 @@
-import { FormEvent, ReactNode, useEffect, useState } from "react";
-import { AdminPermInfo, AdminRole, api, ApiError, AuditEntry, EmailSettingsInput, hasAdminPerm, NetworkSettings, PolicyImpact, User } from "../api";
+import { useId, FormEvent, ReactNode, useEffect, useState } from "react";
+import { AdminPermInfo, AdminRole, api, AuditEntry, EmailSettingsInput, hasAdminPerm, NetworkSettings, PolicyImpact, User, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { tlsHint } from "../smtp";
 import { Collapsible } from "./Collapsible";
@@ -63,6 +63,7 @@ const quotaText = (v: number | undefined) => (v === undefined || v === UNLIMITED
 // admin-role controls are superadmin-only (me.isAdmin) — a scoped users-admin
 // manages regular accounts but can't escalate privileges.
 function Users({ me }: { me: User }) {
+  const fieldId = useId();
   const { t } = useT();
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<AdminRole[]>([]);
@@ -85,7 +86,7 @@ function Users({ me }: { me: User }) {
       setUsers(await api.users());
       if (me.isAdmin) setRoles(await api.adminRoles());
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -109,7 +110,7 @@ function Users({ me }: { me: User }) {
       await api.setUserAdminRole(u.id, roleId);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -130,7 +131,7 @@ function Users({ me }: { me: User }) {
       setMaxMemoryMB("");
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -142,7 +143,7 @@ function Users({ me }: { me: User }) {
       await api.updateUser(u.id, { isAdmin: !u.isAdmin });
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -161,7 +162,7 @@ function Users({ me }: { me: User }) {
       setQuotaOf(null);
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     }
   }
 
@@ -179,7 +180,7 @@ function Users({ me }: { me: User }) {
       await api.deleteUser(u.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -189,7 +190,7 @@ function Users({ me }: { me: User }) {
       await api.adminDisable2FA(u.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -211,7 +212,7 @@ function Users({ me }: { me: User }) {
                   {me.isAdmin && !u.isAdmin && (
                     <>
                       {" "}
-                      <select
+                      <select aria-label={t("Admin role for {name}", { name: u.username })}
                         value={u.adminRoleId ?? ""}
                         onChange={(e) => setAdminRole(u, e.target.value ? Number(e.target.value) : null)}
                         style={{ width: "auto" }}
@@ -265,15 +266,19 @@ function Users({ me }: { me: User }) {
       <form onSubmit={add} style={{ marginTop: 12 }}>
         <h3>{t("New user")}</h3>
         <div className="grid2">
-          <div><label>{t("Username")}</label><input value={username} onChange={(e) => setUsername(e.target.value)} required /></div>
-          <div><label>{t("Password")}</label><input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
+          <div><label htmlFor={`${fieldId}-username`}>{t("Username")}</label><input id={`${fieldId}-username`} value={username} onChange={(e) => setUsername(e.target.value)} required /></div>
+          <div>
+            <label htmlFor={`${fieldId}-password`}>{t("Password")}</label>
+            <input id={`${fieldId}-password`} type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} aria-describedby={`${fieldId}-password-help`} />
+            <p id={`${fieldId}-password-help`} className="muted">{t("Password must be at least 8 characters.")}</p>
+          </div>
         </div>
-        <div><label>{t("Email (optional, for password reset)")}</label><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@example.com" /></div>
+        <div><label htmlFor={`${fieldId}-email`}>{t("Email (optional, for password reset)")}</label><input id={`${fieldId}-email`} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="user@example.com" /></div>
         <div className="grid2">
-          <div><label>{t("Max servers")}</label><input type="number" min={0} value={maxServers} placeholder="∞" onChange={(e) => setMaxServers(e.target.value)} /></div>
-          <div><label>{t("Max memory MB")}</label><input type="number" min={0} value={maxMemoryMB} placeholder="∞" onChange={(e) => setMaxMemoryMB(e.target.value)} /></div>
+          <div><label htmlFor={`${fieldId}-max-servers`}>{t("Max servers")}</label><input aria-describedby={`${fieldId}-quota-help`} id={`${fieldId}-max-servers`} type="number" min={0} value={maxServers} placeholder="∞" onChange={(e) => setMaxServers(e.target.value)} /></div>
+          <div><label htmlFor={`${fieldId}-max-memory`}>{t("Max memory MB")}</label><input aria-describedby={`${fieldId}-quota-help`} id={`${fieldId}-max-memory`} type="number" min={0} value={maxMemoryMB} placeholder="∞" onChange={(e) => setMaxMemoryMB(e.target.value)} /></div>
         </div>
-        <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+        <p id={`${fieldId}-quota-help`} className="muted" style={{ fontSize: 13, marginTop: 4 }}>
           {t("0 servers: the account creates none until you change it. Empty: no limit. Servers created by users always need a memory limit.")}
         </p>
         {me.isAdmin && (
@@ -291,6 +296,7 @@ function Users({ me }: { me: User }) {
 // Roles manages named bundles of admin permissions (superadmin only). Assigning
 // a role to a user happens in the Users card.
 function Roles() {
+  const fieldId = useId();
   const { t } = useT();
   const [roles, setRoles] = useState<AdminRole[]>([]);
   const [catalog, setCatalog] = useState<AdminPermInfo[]>([]);
@@ -306,7 +312,7 @@ function Roles() {
       setRoles(await api.adminRoles());
       setCatalog(await api.adminPermissions());
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -347,7 +353,7 @@ function Roles() {
       resetForm();
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -361,7 +367,7 @@ function Roles() {
       if (editing === r.id) resetForm();
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -369,7 +375,8 @@ function Roles() {
     <div className="card">
       <h2>{t("Admin roles")}</h2>
       <p className="muted">
-        {t("Bundles of admin permissions you can assign to users for scoped admin access. Assign a role to a user in the Users card above.")}
+        {t("Bundles of admin permissions you can assign to users for scoped admin access.")}{" "}
+        <a href="#/admin/users">{t("Assign roles in Users.")}</a>
       </p>
       <div className="table-scroll">
         <table>
@@ -395,11 +402,11 @@ function Roles() {
       <form onSubmit={save} style={{ marginTop: 12 }}>
         <h3>{editing != null ? t("Edit role") : t("New role")}</h3>
         <div className="grid2">
-          <div><label>{t("Name")}</label><input value={name} onChange={(e) => setName(e.target.value)} required /></div>
-          <div><label>{t("Description")}</label><input value={description} onChange={(e) => setDescription(e.target.value)} /></div>
+          <div><label htmlFor={`${fieldId}-name`}>{t("Name")}</label><input id={`${fieldId}-name`} value={name} onChange={(e) => setName(e.target.value)} required /></div>
+          <div><label htmlFor={`${fieldId}-description`}>{t("Description")}</label><input id={`${fieldId}-description`} value={description} onChange={(e) => setDescription(e.target.value)} /></div>
         </div>
-        <label>{t("Permissions")}</label>
-        <div className="perm-list">
+        <div id={`${fieldId}-permissions-label`} style={{ display: "block", margin: "10px 0 4px", color: "var(--ink-muted)", fontSize: 13 }}>{t("Permissions")}</div>
+        <div role="group" aria-labelledby={`${fieldId}-permissions-label`} className="perm-list">
           {catalog.map((p) => (
             <label key={p.key}>
               <input type="checkbox" checked={perms.has(p.key)} onChange={() => togglePerm(p.key)} />
@@ -425,18 +432,45 @@ function Roles() {
 // settings-admin, writable only by a superadmin: the policy decides who gets in,
 // which is the same reason the email relay is superadmin-only.
 function SecuritySettingsCard({ isSuperadmin, hasTwoFactor }: { isSuperadmin: boolean; hasTwoFactor: boolean }) {
+  const fieldId = useId();
   const { t } = useT();
   const [mode, setMode] = useState("off");
   const [saved, setSaved] = useState("off");
   const [impact, setImpact] = useState<Record<string, PolicyImpact>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+
+  async function load() {
+    setLoadState("loading");
+    try {
+      const s = await api.securitySettings();
+      setMode(s.requireTwoFactor);
+      setSaved(s.requireTwoFactor);
+      setImpact(s.impact ?? {});
+      setLoadState("ready");
+    } catch {
+      setLoadState("error");
+    }
+  }
 
   useEffect(() => {
-    api.securitySettings()
-      .then((s) => { setMode(s.requireTwoFactor); setSaved(s.requireTwoFactor); setImpact(s.impact ?? {}); })
-      .catch(() => {});
+    void load();
   }, []);
+
+  if (loadState !== "ready") {
+    return (
+      <div className="card">
+        <h3>{t("Two-factor policy")}</h3>
+        {loadState === "loading" ? <p role="status">{t("Loading…")}</p> : (
+          <>
+            <p className="error" role="alert">{t("Could not load security settings. No policy is shown until they are available.")}</p>
+            <button onClick={load}>{t("Retry")}</button>
+          </>
+        )}
+      </div>
+    );
+  }
 
   // A policy covers the superadmin who sets it, and the API refuses it until
   // they have a second factor of their own.
@@ -458,7 +492,7 @@ function SecuritySettingsCard({ isSuperadmin, hasTwoFactor }: { isSuperadmin: bo
       const res = await api.setSecuritySettings({ requireTwoFactor: mode });
       setSaved(res.requireTwoFactor);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -472,10 +506,10 @@ function SecuritySettingsCard({ isSuperadmin, hasTwoFactor }: { isSuperadmin: bo
   return (
     <div className="card">
       <h3>{t("Two-factor policy")}</h3>
-      <p className="muted">
+      <p id={`${fieldId}-policy-help`} className="muted">
         {t("Accounts covered by this keep their session but reach only the enrolment page until they have a second factor, and their API keys are refused meanwhile.")}
       </p>
-      <select value={mode} onChange={(e) => setMode(e.target.value)} disabled={!isSuperadmin}>
+      <select aria-label={t("Two-factor policy")} aria-describedby={`${fieldId}-policy-help`} value={mode} onChange={(e) => setMode(e.target.value)} disabled={!isSuperadmin}>
         {["off", "admins", "all"].map((m) => (
           <option key={m} value={m}>{labels[m]}</option>
         ))}
@@ -508,12 +542,37 @@ function InviteSettingsCard({ isSuperadmin }: { isSuperadmin: boolean }) {
   const [saved, setSaved] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+
+  async function load() {
+    setLoadState("loading");
+    try {
+      const s = await api.securitySettings();
+      setOn(s.inviteSignup);
+      setSaved(s.inviteSignup);
+      setLoadState("ready");
+    } catch {
+      setLoadState("error");
+    }
+  }
 
   useEffect(() => {
-    api.securitySettings()
-      .then((s) => { setOn(s.inviteSignup); setSaved(s.inviteSignup); })
-      .catch(() => {});
+    void load();
   }, []);
+
+  if (loadState !== "ready") {
+    return (
+      <div className="card">
+        <h3>{t("Invitations")}</h3>
+        {loadState === "loading" ? <p role="status">{t("Loading…")}</p> : (
+          <>
+            <p className="error" role="alert">{t("Could not load security settings. No policy is shown until they are available.")}</p>
+            <button onClick={load}>{t("Retry")}</button>
+          </>
+        )}
+      </div>
+    );
+  }
 
   async function save() {
     setError("");
@@ -522,7 +581,7 @@ function InviteSettingsCard({ isSuperadmin }: { isSuperadmin: boolean }) {
       const res = await api.setSecuritySettings({ inviteSignup: on });
       setSaved(res.inviteSignup);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -550,6 +609,7 @@ function InviteSettingsCard({ isSuperadmin }: { isSuperadmin: boolean }) {
 }
 
 function NetworkSettingsCard() {
+  const fieldId = useId();
   const { t } = useT();
   const [settings, setSettings] = useState<NetworkSettings>({ endpointHost: "", nodeAddress: "" });
   const [host, setHost] = useState("");
@@ -563,7 +623,7 @@ function NetworkSettingsCard() {
       setSettings(s);
       setHost(s.endpointHost || "");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -580,7 +640,7 @@ function NetworkSettingsCard() {
       setMsg(t("Saved. New endpoints use it on the next reconcile."));
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -593,10 +653,10 @@ function NetworkSettingsCard() {
         {t("Public hostname shown to players in server endpoints and the SFTP connection, instead of the raw node IP. Point a DNS record at your node, then enter it here.")}
       </p>
       <form onSubmit={save}>
-        <label>{t("Endpoint hostname (blank = use node IP)")}</label>
-        <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="play.example.com" />
+        <label htmlFor={`${fieldId}-endpoint-host`}>{t("Endpoint hostname (blank = use node IP)")}</label>
+        <input aria-describedby={!!settings.nodeAddress ? `${fieldId}-endpoint-help` : undefined} id={`${fieldId}-endpoint-host`} value={host} onChange={(e) => setHost(e.target.value)} placeholder="play.example.com" />
         {settings.nodeAddress && (
-          <p className="muted" style={{ marginTop: 4 }}>
+          <p id={`${fieldId}-endpoint-help`} className="muted" style={{ marginTop: 4 }}>
             {t("Detected node address:")} <code>{settings.nodeAddress}</code> — {t("your DNS record should point here.")}
           </p>
         )}
@@ -609,6 +669,7 @@ function NetworkSettingsCard() {
 }
 
 function EmailSettingsCard() {
+  const fieldId = useId();
   const { t } = useT();
   const empty: EmailSettingsInput = {
     host: "", port: "", username: "", password: "", from: "", replyTo: "", tls: "starttls", publicUrl: "",
@@ -631,7 +692,7 @@ function EmailSettingsCard() {
         from: s.from || "", replyTo: s.replyTo || "", tls: s.tls || "starttls", publicUrl: s.publicUrl || "",
       });
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -651,7 +712,7 @@ function EmailSettingsCard() {
       setMsg(t("Saved."));
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -664,7 +725,7 @@ function EmailSettingsCard() {
       await api.testEmail(testTo.trim() || undefined);
       setMsg(t("Test email sent."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     }
   }
 
@@ -677,43 +738,43 @@ function EmailSettingsCard() {
       </p>
       <form onSubmit={save}>
         <div className="grid2">
-          <div><label>{t("SMTP host (blank = disable)")}</label><input value={form.host} onChange={set("host")} placeholder="smtp.example.com" /></div>
-          <div><label>{t("Port")}</label><input value={form.port} onChange={set("port")} placeholder="587" /></div>
+          <div><label htmlFor={`${fieldId}-smtp-host`}>{t("SMTP host (blank = disable)")}</label><input id={`${fieldId}-smtp-host`} value={form.host} onChange={set("host")} placeholder="smtp.example.com" /></div>
+          <div><label htmlFor={`${fieldId}-smtp-port`}>{t("Port")}</label><input aria-describedby={!!tlsHint(t, form.port, form.tls) ? `${fieldId}-tls-help` : undefined} id={`${fieldId}-smtp-port`} value={form.port} onChange={set("port")} placeholder="587" /></div>
         </div>
         <div className="grid2">
-          <div><label>{t("Username")}</label><input value={form.username} onChange={set("username")} autoComplete="off" /></div>
+          <div><label htmlFor={`${fieldId}-smtp-username`}>{t("Username")}</label><input id={`${fieldId}-smtp-username`} value={form.username} onChange={set("username")} autoComplete="off" /></div>
           <div>
-            <label>{t("Password")}</label>
-            <input type="password" value={form.password} onChange={set("password")} autoComplete="new-password"
+            <label htmlFor={`${fieldId}-smtp-password`}>{t("Password")}</label>
+            <input id={`${fieldId}-smtp-password`} type="password" value={form.password} onChange={set("password")} autoComplete="new-password"
               placeholder={hasPassword ? t("•••••• (leave blank to keep)") : ""} />
           </div>
         </div>
         <div className="grid2">
-          <div><label>{t("From address")}</label><input value={form.from} onChange={set("from")} placeholder="Quetzal <quetzal@example.com>" /></div>
+          <div><label htmlFor={`${fieldId}-smtp-from`}>{t("From address")}</label><input id={`${fieldId}-smtp-from`} value={form.from} onChange={set("from")} placeholder="Quetzal <quetzal@example.com>" /></div>
           <div>
-            <label>{t("Reply-To (optional)")}</label>
-            <input value={form.replyTo ?? ""} onChange={set("replyTo")} placeholder="you@example.com" />
-            <div className="muted" style={{ fontSize: 12 }}>
+            <label htmlFor={`${fieldId}-smtp-reply-to`}>{t("Reply-To (optional)")}</label>
+            <input aria-describedby={`${fieldId}-reply-to-help`} id={`${fieldId}-smtp-reply-to`} value={form.replyTo ?? ""} onChange={set("replyTo")} placeholder="you@example.com" />
+            <div id={`${fieldId}-reply-to-help`} className="muted" style={{ fontSize: 12 }}>
               {t("Where an answer goes. Mail from an address that answers nothing is read as less legitimate, by people and by spam filters.")}
             </div>
           </div>
           <div>
-            <label>{t("TLS")}</label>
-            <select value={form.tls} onChange={set("tls")}>
+            <label htmlFor={`${fieldId}-smtp-tls`}>{t("TLS")}</label>
+            <select aria-describedby={!!tlsHint(t, form.port, form.tls) ? `${fieldId}-tls-help` : undefined} id={`${fieldId}-smtp-tls`} value={form.tls} onChange={set("tls")}>
               <option value="starttls">STARTTLS</option>
               <option value="tls">{t("Implicit TLS")}</option>
               <option value="none">{t("None (cleartext)")}</option>
             </select>
           </div>
         </div>
-        {tlsHint(t, form.port, form.tls) && <div className="notice warn">{tlsHint(t, form.port, form.tls)}</div>}
-        <div><label>{t("Panel public URL (for reset links)")}</label><input value={form.publicUrl} onChange={set("publicUrl")} placeholder="https://quetzal.example.com" /></div>
+        {tlsHint(t, form.port, form.tls) && <div id={`${fieldId}-tls-help`} className="notice warn">{tlsHint(t, form.port, form.tls)}</div>}
+        <div><label htmlFor={`${fieldId}-public-url`}>{t("Panel public URL (for reset links)")}</label><input id={`${fieldId}-public-url`} value={form.publicUrl} onChange={set("publicUrl")} placeholder="https://quetzal.example.com" /></div>
         {msg && <div className="notice">{msg}</div>}
         {error && <div className="error">{error}</div>}
         <button className="primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? t("Saving…") : t("Save")}</button>
       </form>
       <div className="row" style={{ marginTop: 12 }}>
-        <input value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder={t("test recipient (or your email)")} style={{ flex: 1 }} />
+        <input aria-label={t("test recipient (or your email)")} value={testTo} onChange={(e) => setTestTo(e.target.value)} placeholder={t("test recipient (or your email)")} style={{ flex: 1 }} />
         <button type="button" onClick={test} disabled={!configured}>{t("Send test email")}</button>
       </div>
     </div>

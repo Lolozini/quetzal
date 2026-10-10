@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError } from "../api";
+import { api, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { Lockup } from "./Brand";
 
@@ -19,7 +19,7 @@ export function ConfirmEmail({ token, onDone }: { token: string; onDone: () => v
     api
       .confirmEmail(token)
       .then((r) => setAddress(r.email))
-      .catch((err) => setError(err instanceof ApiError ? err.message : String(err)));
+      .catch((err) => setError(errorMessage(err, t)));
   }, [token]);
 
   return (

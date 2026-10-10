@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { api, ApiError, ImportConflict, ImportIfExists, Template } from "../api";
+import { useId, useEffect, useState } from "react";
+import { api, ApiError, ImportConflict, ImportIfExists, Template, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { Collapsible } from "./Collapsible";
 
@@ -7,6 +7,7 @@ import { Collapsible } from "./Collapsible";
 // by URL) or a template exported from another install, browse, edit (as native
 // JSON), export and delete templates.
 export function Templates({ open = false }: { open?: boolean }) {
+  const fieldId = useId();
   const { t: tr } = useT();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [error, setError] = useState("");
@@ -23,7 +24,7 @@ export function Templates({ open = false }: { open?: boolean }) {
     try {
       setTemplates(await api.templates());
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, tr));
     }
   }
   useEffect(() => {
@@ -54,7 +55,7 @@ export function Templates({ open = false }: { open?: boolean }) {
           retry: (mode) => importFrom(run, ok, mode),
         });
       } else {
-        setError(e instanceof ApiError ? e.message : String(e));
+        setError(errorMessage(e, tr));
       }
     } finally {
       setBusy(false);
@@ -85,7 +86,7 @@ export function Templates({ open = false }: { open?: boolean }) {
       const { suggestedPorts, allocatedPort, effectiveReinstallKeep, ...t } = await api.template(slug);
       setEditing({ slug, json: JSON.stringify(t, null, 2) });
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, tr));
     }
   }
 
@@ -100,7 +101,7 @@ export function Templates({ open = false }: { open?: boolean }) {
       setMsg(tr("Template saved."));
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, tr));
     } finally {
       setBusy(false);
     }
@@ -113,7 +114,7 @@ export function Templates({ open = false }: { open?: boolean }) {
       await api.deleteTemplate(t.slug);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, tr));
     }
   }
 
@@ -149,8 +150,8 @@ export function Templates({ open = false }: { open?: boolean }) {
       {editing ? (
         <div style={{ marginTop: 12 }}>
           <h3>{tr("Edit {slug}", { slug: editing.slug })}</h3>
-          <p className="muted">{tr("Native template JSON. The slug is fixed; changes bump the version and restart affected servers on the next reconcile.")}</p>
-          <textarea
+          <p id={`${fieldId}-edit-help`} className="muted">{tr("Native template JSON. The slug is fixed; changes bump the version and restart affected servers on the next reconcile.")}</p>
+          <textarea aria-label={tr("Edit {slug}", { slug: editing.slug })} aria-describedby={`${fieldId}-edit-help`}
             value={editing.json}
             onChange={(e) => setEditing({ ...editing, json: e.target.value })}
             spellCheck={false}
@@ -166,8 +167,8 @@ export function Templates({ open = false }: { open?: boolean }) {
       ) : (
         <div style={{ marginTop: 12 }}>
           <h3>{tr("Import an egg")}</h3>
-          <p className="muted">{tr("Paste a Pterodactyl/Pelican egg, or a template exported from another install. If a template already has its name, you choose whether to replace it or to add this one beside it.")}</p>
-          <textarea
+          <p id={`${fieldId}-import-help`} className="muted">{tr("Paste a Pterodactyl/Pelican egg, or a template exported from another install. If a template already has its name, you choose whether to replace it or to add this one beside it.")}</p>
+          <textarea aria-label={tr("Import an egg")} aria-describedby={`${fieldId}-import-help`}
             value={importJson}
             onChange={(e) => setImportJson(e.target.value)}
             spellCheck={false}
@@ -181,7 +182,7 @@ export function Templates({ open = false }: { open?: boolean }) {
           <h3 style={{ marginTop: 20 }}>{tr("Import from URL")}</h3>
           <p className="muted">{tr("Fetch an egg straight from a URL, e.g. a file in github.com/pelican-eggs (Pterodactyl JSON and Pelican YAML are both read).")}</p>
           <div className="row">
-            <input
+            <input aria-label={tr("Import from URL")} aria-describedby={`${fieldId}-url-help`}
               value={importUrl}
               onChange={(e) => setImportUrl(e.target.value)}
               placeholder="https://…/egg.json"
@@ -191,7 +192,7 @@ export function Templates({ open = false }: { open?: boolean }) {
               {tr("Import")}
             </button>
           </div>
-          <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+          <p id={`${fieldId}-url-help`} className="muted" style={{ fontSize: 12, marginTop: 4 }}>
             {tr("Point at the egg file; a GitHub/GitLab file page link is converted to the raw file automatically.")}
           </p>
 

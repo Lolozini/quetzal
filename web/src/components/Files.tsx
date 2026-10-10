@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiError, FileEntry } from "../api";
+import { api, FileEntry, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { forgetUpload, sendInPieces, UploadTarget } from "../upload";
 
@@ -15,14 +15,26 @@ const ARCHIVE_RE = /\.(zip|tar|tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz)$/i;
 
 type SortKey = "name" | "size" | "mtime";
 
-export function Files({ id, offline = false }: { id: number; offline?: boolean }) {
+export function Files({ id, offline = false, visible = true, onDirtyChange }: { id: number; offline?: boolean; visible?: boolean; onDirtyChange: (dirty: boolean) => void }) {
   const { t } = useT();
   const [path, setPath] = useState(""); // relative to the data root
   const [entries, setEntries] = useState<FileEntry[]>([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  // Only a write in flight holds the editor: a listing refresh must not.
+  const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<{ path: string; content: string } | null>(null);
   const [saved, setSaved] = useState("");
+  const [original, setOriginal] = useState("");
+  const dirty = editing !== null && editing.content !== original;
+  useEffect(() => {
+    onDirtyChange(dirty);
+    return () => onDirtyChange(false);
+  }, [dirty, onDirtyChange]);
+
+  function mayDiscard() {
+    return !saving && (!dirty || window.confirm(t("Discard unsaved changes?")));
+  }
   const [mut, setMut] = useState(0); // bumped on changes so the tree refreshes
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "name", desc: false });
@@ -45,7 +57,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
       setSelected(new Set());
     } catch (e) {
       setEntries([]);
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e);
     } finally {
       setBusy(false);
     }
@@ -54,8 +66,16 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
   useEffect(() => {
     load();
   }, [load]);
+  // The tab stays mounted while hidden; coming back to it re-reads the folder,
+  // which the console or SFTP may have changed meanwhile.
+  const wasVisible = useRef(visible);
+  useEffect(() => {
+    if (visible && !wasVisible.current) load();
+    wasVisible.current = visible;
+  }, [visible, load]);
 
   function nav(p: string) {
+    if (!mayDiscard()) return;
     setEditing(null);
     setActionsFor(null);
     setPath(p);
@@ -75,26 +95,30 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
       window.location.href = api.fileDownloadUrl(id, p);
       return;
     }
+    if (!mayDiscard()) return;
     setError("");
     try {
-      setEditing({ path: p, content: await api.readFile(id, p) });
+      const content = await api.readFile(id, p);
+      setEditing({ path: p, content });
+      setOriginal(content);
       setSaved("");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(err);
     }
   }
 
   async function save() {
     if (!editing) return;
-    setBusy(true);
+    setSaving(true);
     setError("");
     try {
       await api.writeFile(id, editing.path, editing.content);
+      setOriginal(editing.content);
       setSaved(t("Saved."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(err);
     } finally {
-      setBusy(false);
+      setSaving(false);
     }
   }
 
@@ -102,6 +126,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
   // game needs (TeamSpeak's ts3db_mariadb.ini) had to be written elsewhere and
   // uploaded.
   async function newFile() {
+    if (!mayDiscard()) return;
     const name = window.prompt(t("New file name:"))?.trim();
     if (!name) return;
     if (entries.some((e) => e.name === name)) {
@@ -114,9 +139,10 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
       await api.writeFile(id, p, "");
       changed();
       setEditing({ path: p, content: "" });
+      setOriginal("");
       setSaved("");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e);
     }
   }
 
@@ -127,7 +153,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
       await api.mkdir(id, join(path, name));
       changed();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e);
     }
   }
 
@@ -138,7 +164,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
       await api.renameFile(id, join(path, e.name), join(path, to));
       changed();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(err);
     }
   }
 
@@ -146,10 +172,11 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
     if (!window.confirm(e.dir ? t('Delete "{name}" and everything inside it?', { name: e.name }) : t('Delete "{name}"?', { name: e.name }))) return;
     try {
       await api.deleteFile(id, join(path, e.name));
-      if (editing && editing.path.startsWith(join(path, e.name))) setEditing(null);
+      const removed = join(path, e.name);
+      if (editing && (editing.path === removed || editing.path.startsWith(removed + "/"))) setEditing(null);
       changed();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(err);
     }
   }
 
@@ -164,7 +191,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
       await sendInPieces(id, file, target, (p) => setTransfer((cur) => cur && { ...cur, ...p }), abort.signal);
       changed();
     } catch (err) {
-      if (!abort.signal.aborted) setError(err instanceof ApiError ? err.message : String(err));
+      if (!abort.signal.aborted) setError(err);
     } finally {
       setTransfer(null);
     }
@@ -203,7 +230,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
       await fn();
       changed();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(err);
     } finally {
       setBusy(false);
     }
@@ -222,8 +249,14 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
 
   function removeSelected() {
     if (!window.confirm(t("Delete {n} selected items, folders included?", { n: sel.length }))) return;
-    if (editing && sel.some((n) => editing.path.startsWith(join(path, n)))) setEditing(null);
-    run(() => api.deleteFiles(id, path, sel));
+    const closesEditor = editing && sel.some((n) => {
+      const removed = join(path, n);
+      return editing.path === removed || editing.path.startsWith(removed + "/");
+    });
+    run(async () => {
+      await api.deleteFiles(id, path, sel);
+      if (closesEditor) setEditing(null);
+    });
   }
 
   function moveSelected() {
@@ -293,8 +326,8 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
         <button onClick={() => uploadRef.current?.click()} disabled={!!transfer}>{t("Upload")}</button>
         <button onClick={() => archiveRef.current?.click()} disabled={busy || !!transfer}>{t("Upload archive")}</button>
         <a href={api.fileArchiveUrl(id, path)}><button type="button">{t("Download folder")}</button></a>
-        <input ref={uploadRef} type="file" style={{ display: "none" }} onChange={upload} />
-        <input ref={archiveRef} type="file" accept=".zip,.tar,.gz,.tgz,.bz2,.xz" style={{ display: "none" }} onChange={uploadArchive} />
+        <input aria-label={t("Upload")} ref={uploadRef} type="file" style={{ display: "none" }} onChange={upload} />
+        <input aria-label={t("Upload archive")} ref={archiveRef} type="file" accept=".zip,.tar,.gz,.tgz,.bz2,.xz" style={{ display: "none" }} onChange={uploadArchive} />
       </div>
 
       {transfer && (
@@ -312,7 +345,7 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
           <progress max={transfer.total || 1} value={transfer.sent} style={{ width: "100%", marginTop: 6 }} />
         </div>
       )}
-      {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
+      {!!error && <div className="error" style={{ marginTop: 8 }}>{errorMessage(error, t)}</div>}
 
       {selected.size > 0 && (
         <div className="row notice" style={{ gap: 6, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -345,9 +378,21 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
                       onChange={() => setSelected(allSelected ? new Set() : new Set(entries.map((e) => e.name)))}
                     />
                   </th>
-                  <th style={{ cursor: "pointer" }} onClick={() => sortBy("name")}>{t("Name")}{arrow("name")}</th>
-                  <th style={{ cursor: "pointer" }} onClick={() => sortBy("size")}>{t("Size")}{arrow("size")}</th>
-                  <th className="hide-narrow" style={{ cursor: "pointer" }} onClick={() => sortBy("mtime")}>{t("Modified")}{arrow("mtime")}</th>
+                  <th aria-sort={sort.key === "name" ? (sort.desc ? "descending" : "ascending") : "none"}>
+                    <button type="button" className="table-sort" onClick={() => sortBy("name")}>
+                      {t("Name")}<span aria-hidden="true">{arrow("name")}</span>
+                    </button>
+                  </th>
+                  <th aria-sort={sort.key === "size" ? (sort.desc ? "descending" : "ascending") : "none"}>
+                    <button type="button" className="table-sort" onClick={() => sortBy("size")}>
+                      {t("Size")}<span aria-hidden="true">{arrow("size")}</span>
+                    </button>
+                  </th>
+                  <th className="hide-narrow" aria-sort={sort.key === "mtime" ? (sort.desc ? "descending" : "ascending") : "none"}>
+                    <button type="button" className="table-sort" onClick={() => sortBy("mtime")}>
+                      {t("Modified")}<span aria-hidden="true">{arrow("mtime")}</span>
+                    </button>
+                  </th>
                   <th></th>
                 </tr>
               </thead>
@@ -413,15 +458,16 @@ export function Files({ id, offline = false }: { id: number; offline?: boolean }
           {editing && (
             <div style={{ marginTop: 12 }}>
               <h3>{t("Editing")} <code>/{editing.path}</code></h3>
-              <textarea
+              <textarea aria-label={t("Editing") + " /" + editing.path}
                 value={editing.content}
                 onChange={(e) => { setEditing({ ...editing, content: e.target.value }); setSaved(""); }}
                 spellCheck={false}
+                disabled={saving}
                 style={{ width: "100%", minHeight: 320, fontFamily: "var(--font-mono)" }}
               />
               <div className="row" style={{ marginTop: 8 }}>
-                <button className="primary" onClick={save} disabled={busy}>{t("Save")}</button>
-                <button onClick={() => setEditing(null)}>{t("Close")}</button>
+                <button className="primary" onClick={save} disabled={saving}>{t("Save")}</button>
+                <button disabled={saving} onClick={() => { if (mayDiscard()) setEditing(null); }}>{t("Close")}</button>
                 {saved && <span className="notice">{saved}</span>}
               </div>
             </div>

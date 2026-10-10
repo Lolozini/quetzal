@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, DatabaseImport, ServerDatabase } from "../api";
+import { useId, FormEvent, useEffect, useState } from "react";
+import { api, DatabaseImport, ServerDatabase, errorMessage } from "../api";
 import { useT } from "../i18n";
 
 // Databases lists and provisions a server's databases (a schema + scoped user on
@@ -22,7 +22,7 @@ export function Databases({ serverId, canImport = false }: { serverId: number; c
     try {
       setDbs(await api.serverDatabases(serverId));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -51,7 +51,7 @@ export function Databases({ serverId, canImport = false }: { serverId: number; c
       setReveal((m) => ({ ...m, [d.id]: d })); // show credentials right away
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -62,7 +62,7 @@ export function Databases({ serverId, canImport = false }: { serverId: number; c
       const full = await api.getServerDatabase(serverId, d.id);
       setReveal((m) => ({ ...m, [d.id]: full }));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -73,7 +73,7 @@ export function Databases({ serverId, canImport = false }: { serverId: number; c
       setReveal((m) => ({ ...m, [d.id]: rotated }));
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -88,7 +88,7 @@ export function Databases({ serverId, canImport = false }: { serverId: number; c
       });
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -98,7 +98,7 @@ export function Databases({ serverId, canImport = false }: { serverId: number; c
       await api.cancelDatabaseImport(serverId, d.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -147,7 +147,7 @@ export function Databases({ serverId, canImport = false }: { serverId: number; c
           <span className="muted">{t("No database hosts are configured. Ask an admin to add one.")}</span>
         ) : (
           <>
-            <select value={hostId} onChange={(e) => setHostId(Number(e.target.value))}>
+            <select aria-label={t("Database host")} value={hostId} onChange={(e) => setHostId(Number(e.target.value))}>
               {hosts.map((h) => (
                 <option key={h.id} value={h.id} disabled={h.full}>
                   {h.name} ({h.kind}){h.full ? t(" — full") : ""}
@@ -187,6 +187,7 @@ function ImportStatus({ imp }: { imp: DatabaseImport }) {
 // uploaded first, with the file manager or SFTP; the .sql and .gz files at the
 // top of the server's files are offered.
 function ImportForm({ serverId, db, onClose, onQueued }: { serverId: number; db: ServerDatabase; onClose: () => void; onQueued: () => void }) {
+  const fieldId = useId();
   const { t } = useT();
   const [path, setPath] = useState("");
   const [wipe, setWipe] = useState(true);
@@ -216,30 +217,30 @@ function ImportForm({ serverId, db, onClose, onQueued }: { serverId: number; db:
       await api.importDatabase(serverId, db.id, path.trim(), wipe);
       onQueued();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
   }
 
-  const listId = `sql-files-${db.id}`;
+  const listId = `${fieldId}-sql-files`;
   return (
     <form onSubmit={submit} style={{ marginTop: 12 }}>
-      <label>{t("SQL file, from the server's files")}</label>
-      <input value={path} list={listId} onChange={(e) => setPath(e.target.value)} placeholder="/dump.sql" required />
+      <label htmlFor={`${fieldId}-sql-file`}>{t("SQL file, from the server's files")}</label>
+      <input aria-describedby={`${fieldId}-sql-help`} id={`${fieldId}-sql-file`} value={path} list={listId} onChange={(e) => setPath(e.target.value)} placeholder="/dump.sql" required />
       <datalist id={listId}>
         {found.map((f) => (
           <option key={f} value={f} />
         ))}
       </datalist>
-      <p className="muted">
+      <p id={`${fieldId}-sql-help`} className="muted">
         {t("Upload it first with the file manager or SFTP: a dump of one database (mysqldump, mariadb-dump), plain or gzipped. Lines that switch to another database and the definers of a dump made as root are left out, so a dump taken elsewhere fits.")}
       </p>
       <label className="row">
-        <input type="checkbox" style={{ width: "auto" }} checked={wipe} onChange={(e) => setWipe(e.target.checked)} />
+        <input aria-describedby={`${fieldId}-import-help`} type="checkbox" style={{ width: "auto" }} checked={wipe} onChange={(e) => setWipe(e.target.checked)} />
         &nbsp;{t("Empty the database first")}
       </label>
-      <p className="muted">{t("The server has to be stopped: the import waits for it, and the server cannot be started until the import is done.")}</p>
+      <p id={`${fieldId}-import-help`} className="muted">{t("The server has to be stopped: the import waits for it, and the server cannot be started until the import is done.")}</p>
       {error && <div className="error">{error}</div>}
       <div className="row" style={{ gap: 8, marginTop: 8 }}>
         <button className="primary" disabled={busy || !path.trim()}>{busy ? t("Queuing…") : t("Import")}</button>

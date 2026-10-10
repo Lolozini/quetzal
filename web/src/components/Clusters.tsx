@@ -1,8 +1,9 @@
-import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, Cluster, ClusterNode, ClusterSetup, StorageClassInfo } from "../api";
+import { useId, FormEvent, useEffect, useState } from "react";
+import { api, Cluster, ClusterNode, ClusterSetup, StorageClassInfo, errorMessage } from "../api";
 import { useT } from "../i18n";
 
 export function Clusters() {
+  const fieldId = useId();
   const { t } = useT();
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [error, setError] = useState("");
@@ -22,7 +23,7 @@ export function Clusters() {
     try {
       setClusters(await api.clusters());
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -36,7 +37,7 @@ export function Clusters() {
     try {
       setSetup(await api.clusterSetupManifest());
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     }
   }
 
@@ -50,7 +51,7 @@ export function Clusters() {
       setKubeconfig("");
       await load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -62,7 +63,7 @@ export function Clusters() {
       await api.testCluster(c.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -73,7 +74,7 @@ export function Clusters() {
       await api.deleteCluster(c.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -87,7 +88,7 @@ export function Clusters() {
       setNodes(await api.clusterNodes(c.id));
       setNodesFor(c.id);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -108,7 +109,7 @@ export function Clusters() {
       setEhFor(null);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -123,7 +124,7 @@ export function Clusters() {
       setScValue(c.defaultStorageClass ?? "");
       setScFor(c.id);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -134,7 +135,7 @@ export function Clusters() {
       setScFor(null);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -206,11 +207,11 @@ export function Clusters() {
       {scFor !== null && (
         <div className="card" style={{ marginTop: 8 }}>
           <h3>{t("Default storage class")}</h3>
-          <p className="muted">
+          <p id={`${fieldId}-storage-help`} className="muted">
             {t("New servers on this cluster use this storageClass for their data volume. Leave it as the cluster default unless you have a reason to pin one.")}
           </p>
           <div className="row" style={{ gap: 8, alignItems: "center" }}>
-            <select value={scValue} onChange={(e) => setScValue(e.target.value)} style={{ width: "auto" }}>
+            <select aria-label={t("Default storage class")} aria-describedby={`${fieldId}-storage-help`} value={scValue} onChange={(e) => setScValue(e.target.value)} style={{ width: "auto" }}>
               <option value="">{t("(cluster default)")}</option>
               {scList.map((sc) => (
                 <option key={sc.name} value={sc.name}>
@@ -236,11 +237,11 @@ export function Clusters() {
       {ehFor !== null && (
         <div className="card" style={{ marginTop: 8 }}>
           <h3>{t("Endpoint hostname")}</h3>
-          <p className="muted">
+          <p id={`${fieldId}-endpoint-help`} className="muted">
             {t("Hostname published to players for servers on this cluster. Each cluster fronts its own nodes, so set it per cluster; leave it blank to use the panel-wide hostname from Network settings.")}
           </p>
           <div className="row" style={{ gap: 8, alignItems: "center" }}>
-            <input
+            <input aria-label={t("Endpoint hostname")} aria-describedby={`${fieldId}-endpoint-help`}
               value={ehValue}
               onChange={(e) => setEhValue(e.target.value)}
               placeholder="play.example.com"
@@ -261,8 +262,8 @@ export function Clusters() {
 
       <form onSubmit={add} style={{ marginTop: 12 }}>
         <h3>{t("Register a remote cluster")}</h3>
-        <label>{t("Name")}</label>
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="edge-1" required />
+        <label htmlFor={`${fieldId}-name`}>{t("Name")}</label>
+        <input id={`${fieldId}-name`} value={name} onChange={(e) => setName(e.target.value)} placeholder="edge-1" required />
         <details style={{ margin: "10px 0" }} onToggle={loadSetup}>
           <summary style={{ cursor: "pointer" }}>
             {t("Prepare the remote cluster first (recommended)")}
@@ -272,23 +273,23 @@ export function Clusters() {
           </p>
           {setup ? (
             <>
-              <label>{t("1. Apply on the remote cluster")}</label>
-              <textarea
+              <label htmlFor={`${fieldId}-manifest`}>{t("1. Apply on the remote cluster")}</label>
+              <textarea id={`${fieldId}-manifest`}
                 readOnly
                 value={setup.manifest}
                 rows={10}
                 style={{ width: "100%", fontFamily: "var(--font-mono)", fontSize: 12 }}
                 onFocus={(e) => e.currentTarget.select()}
               />
-              <label>{t("2. Print the kubeconfig")}</label>
-              <textarea
+              <label htmlFor={`${fieldId}-kubeconfig-script`}>{t("2. Print the kubeconfig")}</label>
+              <textarea aria-describedby={`${fieldId}-kubeconfig-help`} id={`${fieldId}-kubeconfig-script`}
                 readOnly
                 value={setup.kubeconfigScript}
                 rows={8}
                 style={{ width: "100%", fontFamily: "var(--font-mono)", fontSize: 12 }}
                 onFocus={(e) => e.currentTarget.select()}
               />
-              <p className="muted">
+              <p id={`${fieldId}-kubeconfig-help`} className="muted">
                 {t("The script takes the cluster's address from your kubectl context. If that is an address only your machine reaches (127.0.0.1, a tunnel, a port-forward), replace it in the server line with one that Quetzal can reach.")}
               </p>
             </>
@@ -296,8 +297,8 @@ export function Clusters() {
             <p className="muted">{t("Loading…")}</p>
           )}
         </details>
-        <label>{t("Kubeconfig (YAML)")}</label>
-        <textarea
+        <label htmlFor={`${fieldId}-kubeconfig`}>{t("Kubeconfig (YAML)")}</label>
+        <textarea id={`${fieldId}-kubeconfig`}
           value={kubeconfig}
           onChange={(e) => setKubeconfig(e.target.value)}
           rows={8}

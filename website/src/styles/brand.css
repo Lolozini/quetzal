@@ -43,6 +43,9 @@
 	--sl-color-accent-low: #f7e2da;
 	--sl-color-accent: #c8553d;
 	--sl-color-accent-high: #a8412b;
+	/* Text and filled controls need the accessible rust, not the logo's wing colour. */
+	--sl-color-text-accent: var(--sl-color-accent-high);
+	--sl-color-bg-accent: var(--sl-color-accent-high);
 	--sl-color-text-invert: #ffffff;
 
 	--sl-color-white: #2b2b2e;
@@ -73,4 +76,36 @@ h1,
 .sl-markdown-content img[src*='/screenshots/'] {
 	border: 1px solid var(--sl-color-gray-5);
 	border-radius: 10px;
+}
+
+/* Splash pages have no mobile sidebar/menu: keep the existing theme picker reachable. */
+@media screen and (max-width: 49.99rem) {
+	:root:not([data-has-sidebar]) .header {
+		gap: 0.5rem;
+	}
+
+	:root:not([data-has-sidebar]) .site-title img {
+		min-width: 140px;
+	}
+
+	:root:not([data-has-sidebar]) .header .right-group {
+		display: flex;
+	}
+
+	:root:not([data-has-sidebar]) .header .right-group .social-icons {
+		display: none;
+	}
+}
+
+/* Leave room for the 140 px lockup even when a 320 px viewport has a scrollbar.
+   Drop only the theme's decorative icon, not its label or native select. */
+@media screen and (max-width: 22.5rem) {
+	:root:not([data-has-sidebar]) starlight-theme-select .label-icon {
+		display: none;
+	}
+
+	:root:not([data-has-sidebar]) starlight-theme-select select {
+		width: calc(var(--sl-select-width) + 2 * var(--sl-inline-padding) - var(--sl-label-icon-size) - 0.25rem);
+		padding-inline-start: var(--sl-inline-padding);
+	}
 }

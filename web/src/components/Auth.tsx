@@ -1,5 +1,5 @@
-import { FormEvent, useState } from "react";
-import { api, ApiError, User } from "../api";
+import { useId, FormEvent, useState } from "react";
+import { api, ApiError, User, errorMessage } from "../api";
 import { LangSwitcher, useT } from "../i18n";
 import { Lockup } from "./Brand";
 
@@ -15,6 +15,7 @@ export function Auth({
   setupCodeRequired?: boolean;
   onAuthed: (u: User) => void;
 }) {
+  const fieldId = useId();
   const { t } = useT();
   const [setupCode, setSetupCode] = useState("");
   const [username, setUsername] = useState("");
@@ -46,7 +47,7 @@ export function Auth({
       if (err instanceof ApiError && err.status === 429) {
         setError(t("Too many sign-in attempts. Try again in a few minutes."));
       } else {
-        setError(err instanceof ApiError ? err.message : String(err));
+        setError(errorMessage(err, t));
       }
     } finally {
       setBusy(false);
@@ -70,36 +71,39 @@ export function Auth({
         </p>
         {setupNeeded && setupCodeRequired && (
           <>
-            <label>{t("Setup code")}</label>
-            <input
+            <label htmlFor={`${fieldId}-setup-code`}>{t("Setup code")}</label>
+            <input aria-describedby={`${fieldId}-setup-help`} id={`${fieldId}-setup-code`}
               value={setupCode}
               onChange={(e) => setSetupCode(e.target.value)}
               autoComplete="off"
               autoFocus
               placeholder="XXXX-XXXX-XXXX"
             />
-            <p className="muted" style={{ fontSize: 12 }}>
+            <p id={`${fieldId}-setup-help`} className="muted" style={{ fontSize: 12 }}>
               {t("The panel prints it in its log:")} <code>kubectl -n quetzal logs deploy/quetzal -c apiserver</code>
             </p>
           </>
         )}
         {!twoFactor && (
           <>
-            <label>{t("Username")}</label>
-            <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus={!(setupNeeded && setupCodeRequired)} />
-            <label>{t("Password")}</label>
+            <label htmlFor={`${fieldId}-username`}>{t("Username")}</label>
+            <input id={`${fieldId}-username`} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus={!(setupNeeded && setupCodeRequired)} />
+            <label htmlFor={`${fieldId}-password`}>{t("Password")}</label>
             {/* Says to a password manager which password this is: the one to
                 fill in, or a new one to save on the setup screen. */}
-            <input
+            <input id={`${fieldId}-password`}
               type="password"
+              minLength={setupNeeded ? 8 : undefined}
+              aria-describedby={setupNeeded ? `${fieldId}-password-help` : undefined}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete={setupNeeded ? "new-password" : "current-password"}
             />
             {setupNeeded && (
               <>
-                <label>{t("Email (optional, for password reset)")}</label>
-                <input
+                <p id={`${fieldId}-password-help`} className="muted">{t("Password must be at least 8 characters.")}</p>
+                <label htmlFor={`${fieldId}-email`}>{t("Email (optional, for password reset)")}</label>
+                <input id={`${fieldId}-email`}
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -112,8 +116,8 @@ export function Auth({
         )}
         {twoFactor && (
           <>
-            <label>{t("Authentication code")}</label>
-            <input
+            <label htmlFor={`${fieldId}-authentication-code`}>{t("Authentication code")}</label>
+            <input aria-describedby={`${fieldId}-code-help`} id={`${fieldId}-authentication-code`}
               value={code}
               onChange={(e) => setCode(e.target.value)}
               autoFocus
@@ -121,7 +125,7 @@ export function Auth({
               inputMode="text"
               placeholder={t("6-digit code or recovery code")}
             />
-            <p className="muted">{t("From your authenticator app, or a recovery code.")}</p>
+            <p id={`${fieldId}-code-help`} className="muted">{t("From your authenticator app, or a recovery code.")}</p>
           </>
         )}
         {error && <div className="error">{error}</div>}
@@ -144,6 +148,7 @@ export function Auth({
 // Forgot asks for an identifier and requests a reset email. The response is
 // intentionally uniform (it never reveals whether the account exists).
 function Forgot({ onBack }: { onBack: () => void }) {
+  const fieldId = useId();
   const { t } = useT();
   const [identifier, setIdentifier] = useState("");
   const [sent, setSent] = useState(false);
@@ -173,8 +178,8 @@ function Forgot({ onBack }: { onBack: () => void }) {
         ) : (
           <>
             <p className="muted">{t("Reset your password")}</p>
-            <label>{t("Username or email")}</label>
-            <input value={identifier} onChange={(e) => setIdentifier(e.target.value)} autoComplete="username" autoFocus />
+            <label htmlFor={`${fieldId}-identifier`}>{t("Username or email")}</label>
+            <input id={`${fieldId}-identifier`} value={identifier} onChange={(e) => setIdentifier(e.target.value)} autoComplete="username" autoFocus />
             <button className="primary" style={{ marginTop: 16, width: "100%" }} disabled={busy || !identifier.trim()}>
               {busy ? "…" : t("Send reset link")}
             </button>

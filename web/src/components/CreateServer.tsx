@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, Cluster, CreateServerRequest, ExposeType, Template, wakesOnMinecraftLogin } from "../api";
+import { useId, FormEvent, useEffect, useState } from "react";
+import { api, Cluster, CreateServerRequest, ExposeType, Template, wakesOnMinecraftLogin, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { Combobox } from "./Combobox";
 import { PortRow, PortsEditor, portsToRows, PROTO_BOTH, rowsToPorts } from "./PortsEditor";
@@ -18,6 +18,7 @@ export function CreateServer({
   onDone: () => void;
   onCancel: () => void;
 }) {
+  const fieldId = useId();
   const { t } = useT();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templatesLoaded, setTemplatesLoaded] = useState(false);
@@ -107,7 +108,7 @@ export function CreateServer({
         setTemplatesLoaded(true);
         if (ts[0]) selectTemplate(ts[0]);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(errorMessage(e, t)));
     api
       .clusters()
       .then((cs) => {
@@ -149,7 +150,7 @@ export function CreateServer({
       await api.createServer(body);
       onDone();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -206,8 +207,8 @@ export function CreateServer({
         <button onClick={onCancel}>{t("Cancel")}</button>
       </div>
       <form onSubmit={submit}>
-        <label>{t("Template")}</label>
-        <Combobox
+        <label htmlFor={`${fieldId}-template`}>{t("Template")}</label>
+        <Combobox id={`${fieldId}-template`}
           options={templates.map((x) => ({ value: x.slug, label: x.name }))}
           value={tplSlug}
           placeholder={t("Search or select a template…")}
@@ -221,8 +222,8 @@ export function CreateServer({
 
         {clusters.length > 1 && (
           <>
-            <label>{t("Cluster")}</label>
-            <select value={cluster} onChange={(e) => setCluster(e.target.value)}>
+            <label htmlFor={`${fieldId}-cluster`}>{t("Cluster")}</label>
+            <select id={`${fieldId}-cluster`} value={cluster} onChange={(e) => setCluster(e.target.value)}>
               {clusters.map((c) => (
                 <option key={c.id} value={c.slug} disabled={!c.reachable}>
                   {c.name}
@@ -234,11 +235,11 @@ export function CreateServer({
           </>
         )}
 
-        <label>{t("Name")}</label>
-        <input value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
+        <label htmlFor={`${fieldId}-name`}>{t("Name")}</label>
+        <input id={`${fieldId}-name`} value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
 
-        <label>{t("Image")}</label>
-        <select value={image} onChange={(e) => setImage(e.target.value)}>
+        <label htmlFor={`${fieldId}-image`}>{t("Image")}</label>
+        <select id={`${fieldId}-image`} value={image} onChange={(e) => setImage(e.target.value)}>
           {(tpl?.images ?? []).map((i) => (
             <option key={i.ref} value={i.ref}>
               {i.displayName} ({i.ref})
@@ -248,32 +249,33 @@ export function CreateServer({
 
         <div className="grid2">
           <div>
-            <label>{t("Memory limit")}</label>
-            <input
+            <label htmlFor={`${fieldId}-memory`}>{t("Memory limit")}</label>
+            <input aria-describedby={!memoryRequired && !memory.trim() ? `${fieldId}-memory-help` : undefined} id={`${fieldId}-memory`}
               value={memory}
               required={memoryRequired}
               placeholder={memoryRequired ? t("e.g. 4Gi") : t("e.g. 4Gi (optional)")}
               onChange={(e) => setMemory(e.target.value)}
             />
             {!memoryRequired && !memory.trim() && (
-              <div className="muted" style={{ fontSize: 12 }}>
+              <div id={`${fieldId}-memory-help`} className="muted" style={{ fontSize: 12 }}>
                 {t("Without a limit the server may use all of its node's memory, and a Java server sizes itself from it.")}
               </div>
             )}
           </div>
           <div>
-            <label>{t("CPU limit")}</label>
-            <input value={cpu} placeholder={t("e.g. 2 or 1500m (optional)")} onChange={(e) => setCpu(e.target.value)} />
+            <label htmlFor={`${fieldId}-cpu`}>{t("CPU limit")}</label>
+            <input id={`${fieldId}-cpu`} value={cpu} placeholder={t("e.g. 2 or 1500m (optional)")} onChange={(e) => setCpu(e.target.value)} />
           </div>
           <div>
-            <label>{t("Volume size")}</label>
-            <input value={size} onChange={(e) => setSize(e.target.value)} placeholder="10Gi" />
+            <label htmlFor={`${fieldId}-size`}>{t("Volume size")}</label>
+            <input id={`${fieldId}-size`} value={size} onChange={(e) => setSize(e.target.value)} placeholder="10Gi" />
           </div>
         </div>
 
         {usingCustomPorts && (
           <>
-            <label>{t("Ports")}</label>
+            <div id={`${fieldId}-ports-label`} style={{ display: "block", margin: "10px 0 4px", color: "var(--ink-muted)", fontSize: 13 }}>{t("Ports")}</div>
+            <div role="group" aria-labelledby={`${fieldId}-ports-label`}>
             <div className="muted" style={{ fontSize: 12 }}>
               {tpl?.allocatedPort
                 ? t("The primary port is the one the game listens on: the egg hands it to the game as SERVER_PORT, so enter the game's usual port. The others come from the egg's variables.")
@@ -288,18 +290,19 @@ export function CreateServer({
                 setPrimaryIdx(i);
               }}
             />
+            </div>
           </>
         )}
 
         {hasPorts && (
           <>
-            <label>{t("Network exposure")}</label>
-            <select value={expose} onChange={(e) => setExpose(e.target.value as ExposeType)}>
+            <label htmlFor={`${fieldId}-expose`}>{t("Network exposure")}</label>
+            <select aria-describedby={`${fieldId}-exposure-help`} id={`${fieldId}-expose`} value={expose} onChange={(e) => setExpose(e.target.value as ExposeType)}>
               <option value="NodePort">{t("NodePort (node IP : allocated port)")}</option>
               <option value="LoadBalancer">{t("LoadBalancer (external IP)")}</option>
               <option value="ClusterIP">{t("ClusterIP (in-cluster only)")}</option>
             </select>
-            <div className="muted" style={{ fontSize: 12 }}>
+            <div id={`${fieldId}-exposure-help`} className="muted" style={{ fontSize: 12 }}>
               {t("Ports: {ports}", { ports: effPorts.map((p) => `${p.port}/${p.protocol}`).join(", ") })}
             </div>
             <label className="row" style={{ marginTop: 8 }}>
@@ -310,7 +313,7 @@ export function CreateServer({
                 onChange={(e) => setHibernate(e.target.checked)}
               />
               &nbsp;{t("Auto-sleep when idle (no players) after")}&nbsp;
-              <input
+              <input aria-label={t("Idle timeout (minutes)")}
                 type="number"
                 min={1}
                 style={{ width: 70 }}
@@ -357,12 +360,12 @@ export function CreateServer({
             <h3 style={{ marginTop: 16 }}>{t("Variables")}</h3>
             {editable.map((v) => (
               <div key={v.envVariable}>
-                <label>
+                <label htmlFor={`${fieldId}-variable-${v.envVariable}`}>
                   {v.name}
                   {v.required ? " *" : ""}
                 </label>
                 {v.type === "enum" && v.options ? (
-                  <select
+                  <select aria-describedby={!!v.description ? `${fieldId}-variable-help-${v.envVariable}` : undefined} id={`${fieldId}-variable-${v.envVariable}`}
                     value={env[v.envVariable] ?? ""}
                     onChange={(e) => setEnv({ ...env, [v.envVariable]: e.target.value })}
                   >
@@ -373,13 +376,13 @@ export function CreateServer({
                     ))}
                   </select>
                 ) : v.type === "bool" ? (
-                  <BoolSelect
+                  <BoolSelect aria-describedby={!!v.description ? `${fieldId}-variable-help-${v.envVariable}` : undefined} id={`${fieldId}-variable-${v.envVariable}`}
                     value={env[v.envVariable]}
                     fallback={v.default}
                     onChange={(val) => setEnv({ ...env, [v.envVariable]: val })}
                   />
                 ) : (
-                  <input
+                  <input aria-describedby={!!v.description ? `${fieldId}-variable-help-${v.envVariable}` : undefined} id={`${fieldId}-variable-${v.envVariable}`}
                     type={v.secret ? "password" : "text"}
                     autoComplete={v.secret ? "new-password" : "off"}
                     value={env[v.envVariable] ?? ""}
@@ -387,7 +390,7 @@ export function CreateServer({
                   />
                 )}
                 {v.description && (
-                  <div className="muted" style={{ fontSize: 12 }}>
+                  <div id={`${fieldId}-variable-help-${v.envVariable}`} className="muted" style={{ fontSize: 12 }}>
                     {v.description}
                   </div>
                 )}
@@ -438,10 +441,10 @@ export function CreateServer({
 // true/false, and their scripts test for the form they use, so the choice keeps
 // that form: a true/false choice showed "true" for a 0, and its "false" read as
 // on to a script testing for "0" (Counter-Strike 2's RCON switch).
-function BoolSelect({ value, fallback, onChange }: { value?: string; fallback?: string; onChange: (v: string) => void }) {
+function BoolSelect({ id, "aria-describedby": describedBy, value, fallback, onChange }: { id: string; "aria-describedby"?: string; value?: string; fallback?: string; onChange: (v: string) => void }) {
   const [on, off] = /^[01]$/.test(value || fallback || "") ? ["1", "0"] : ["true", "false"];
   return (
-    <select value={value || off} onChange={(e) => onChange(e.target.value)}>
+    <select id={id} aria-describedby={describedBy} value={value || off} onChange={(e) => onChange(e.target.value)}>
       <option value={on}>true</option>
       <option value={off}>false</option>
     </select>

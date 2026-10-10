@@ -1,11 +1,12 @@
-import { FormEvent, useState } from "react";
-import { api, ApiError } from "../api";
+import { useId, FormEvent, useState } from "react";
+import { api, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { Lockup } from "./Brand";
 
 // ResetPassword is shown when the app loads with a #reset=<token> link from a
 // password-reset email. On success it returns to the login screen.
 export function ResetPassword({ token, onDone }: { token: string; onDone: () => void }) {
+  const fieldId = useId();
   const { t } = useT();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -29,7 +30,7 @@ export function ResetPassword({ token, onDone }: { token: string; onDone: () => 
       await api.resetPassword(token, password);
       setDone(true);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -49,16 +50,20 @@ export function ResetPassword({ token, onDone }: { token: string; onDone: () => 
         ) : (
           <>
             <p className="muted">{t("Choose a new password")}</p>
-            <label>{t("New password")}</label>
-            <input
+            <label htmlFor={`${fieldId}-password`}>{t("New password")}</label>
+            <input id={`${fieldId}-password`}
               type="password"
               autoComplete="new-password"
+              minLength={8}
+              required
+              aria-describedby={`${fieldId}-password-help`}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoFocus
             />
-            <label>{t("Confirm password")}</label>
-            <input
+            <p id={`${fieldId}-password-help`} className="muted">{t("Password must be at least 8 characters.")}</p>
+            <label htmlFor={`${fieldId}-confirm-password`}>{t("Confirm password")}</label>
+            <input id={`${fieldId}-confirm-password`}
               type="password"
               autoComplete="new-password"
               value={confirm}

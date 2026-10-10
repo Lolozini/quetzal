@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { api, ApiError, Cluster, endpointLines, EventEntry, ExposeType, hasAdminPerm, InstallLog, OFFLINE_PHASES, PowerAction, Server, ServerStats, User, wakesOnMinecraftLogin } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { api, Cluster, endpointLines, EventEntry, ExposeType, hasAdminPerm, InstallLog, OFFLINE_PHASES, PowerAction, Server, ServerStats, User, wakesOnMinecraftLogin, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { Access } from "./Access";
 import { Backups } from "./Backups";
@@ -193,17 +193,33 @@ function StatsPanel({ stats, history, phase, limits }: { stats: ServerStats | nu
 // The sections of a server's page, one tab each.
 type ServerTab = "console" | "files" | "backups" | "schedules" | "databases" | "access" | "settings" | "activity";
 
-export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: string; user: User; onBack: () => void }) {
+export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: number; tab?: string; user: User; onBack: () => void; onDirtyChange: (dirty: boolean) => void }) {
   const { t } = useT();
   const [srv, setSrv] = useState<Server | null>(null);
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [stats, setStats] = useState<ServerStats | null>(null);
   const [history, setHistory] = useState<Sample[]>([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
+  const [idleDraft, setIdleDraft] = useState<string | null>(null);
+  const [hibBusy, setHibBusy] = useState(false);
+  const hibSaving = useRef(false);
+  const hibRevision = useRef(0);
   // Whether only a Minecraft login wakes this server (see the hibernation hint).
   const [mcWake, setMcWake] = useState(false);
+  const [fileDirty, setFileDirty] = useState(false);
+  const [scheduleDirty, setScheduleDirty] = useState(false);
+  const [visitedTabs, setVisitedTabs] = useState(() => new Set([tab]));
+  useEffect(() => {
+    if (tab === "files" || tab === "schedules") {
+      setVisitedTabs((seen) => seen.has(tab) ? seen : new Set([...seen, tab]));
+    }
+  }, [tab]);
+  useEffect(() => {
+    onDirtyChange(fileDirty || scheduleDirty);
+    return () => onDirtyChange(false);
+  }, [fileDirty, scheduleDirty, onDirtyChange]);
 
   useEffect(() => {
     if (!srv?.templateId) return;
@@ -222,12 +238,14 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
     const load = async () => {
       let phase = "";
       try {
+        const revision = hibRevision.current;
         const s = await api.server(id);
         if (!active) return;
-        setSrv(s);
+        // A poll begun before a policy save must not put its old value back.
+        if (revision === hibRevision.current && !hibSaving.current) setSrv(s);
         phase = s.status?.phase ?? "";
       } catch (e) {
-        if (active) setError(String(e));
+        if (active) setError(e);
       }
       // No pod when the server is offline: skip the stats call entirely (avoids a
       // pointless "no pod found" every poll) and clear the panel.
@@ -253,10 +271,10 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
     };
     load();
     api.clusters().then((cs) => active && setClusters(cs)).catch(() => {});
-    const t = setInterval(load, 4000);
+    const timer = setInterval(load, 4000);
     return () => {
       active = false;
-      clearInterval(t);
+      clearInterval(timer);
     };
   }, [id]);
 
@@ -264,18 +282,30 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
 
   // saveHib patches the hibernation policy while preserving the unspecified
   // fields (so toggling one control never silently clears the others).
-  function saveHib(patch: Partial<NonNullable<Server["hibernation"]>>) {
+  async function saveHib(patch: Partial<NonNullable<Server["hibernation"]>>) {
+    if (hibSaving.current) return;
+    hibSaving.current = true;
+    hibRevision.current++;
+    setHibBusy(true);
+    setError("");
     const cur = srv?.hibernation;
-    api
-      .setHibernation(id, {
+    try {
+      const saved = await api.setHibernation(id, {
         enabled: cur?.enabled ?? false,
         idleMinutes: cur?.idleMinutes || 15,
         wakeOnConnect: cur?.wakeOnConnect ?? false,
         proxy: cur?.proxy ?? false,
         ...patch,
-      })
-      .then(setSrv)
-      .catch((err) => setError(String(err)));
+      });
+      hibRevision.current++;
+      setSrv(saved);
+      if (patch.idleMinutes !== undefined) setIdleDraft(null);
+    } catch (err) {
+      setError(err);
+    } finally {
+      hibSaving.current = false;
+      setHibBusy(false);
+    }
   }
 
   async function changeExpose(type: ExposeType) {
@@ -283,7 +313,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
     try {
       setSrv(await api.setExpose(id, { type }));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e);
     }
   }
 
@@ -293,7 +323,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
       await (want ? api.suspend(id) : api.unsuspend(id));
       setSrv(await api.server(id));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e);
     }
   }
 
@@ -313,7 +343,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
       await api.transferServer(id, targetCluster);
       setSrv(await api.server(id));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e);
     }
   }
 
@@ -352,7 +382,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
       setNotice(t(powerNotice[action]));
       window.setTimeout(() => setNotice(""), 6000);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e);
     } finally {
       setBusy("");
     }
@@ -369,7 +399,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
       await api.deleteServer(id);
       onBack();
     } catch (e) {
-      setError(String(e));
+      setError(e);
     }
   }
 
@@ -377,7 +407,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
     return (
       <div className="card">
         <button onClick={onBack}>← {t("Back")}</button>
-        {error && <div className="error">{error}</div>}
+        {!!error && <div className="error">{errorMessage(error, t)}</div>}
         <p className="muted">{t("Loading…")}</p>
       </div>
     );
@@ -449,7 +479,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
                       await api.cancelTransfer(id);
                       setSrv(await api.server(id));
                     } catch (e) {
-                      setError(e instanceof ApiError ? e.message : String(e));
+                      setError(e);
                     }
                   }}
                 >
@@ -493,7 +523,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
           )}
         </div>
         {notice && <div className="notice">{notice}</div>}
-        {error && <div className="error">{error}</div>}
+        {!!error && <div className="error">{errorMessage(error, t)}</div>}
       </div>
 
       <nav className="tabs" aria-label={t("Server sections")}>
@@ -522,14 +552,18 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
           {may("console") && !setupFirst && <SetupLog id={id} phase={phase} />}
         </div>
       )}
-      {current === "files" && (
-        <>
-          <Files id={id} offline={["Stopped", "Suspended", "Hibernated"].includes(phase)} />
+      {may("files") && (current === "files" || visitedTabs.has("files")) && (
+        <div hidden={current !== "files"}>
+          <Files id={id} offline={["Stopped", "Suspended", "Hibernated"].includes(phase)} visible={current === "files"} onDirtyChange={setFileDirty} />
           <SFTPCard id={id} initialEnabled={!!srv.sftp?.enabled} username={user.username} canToggle={may("settings")} />
-        </>
+        </div>
       )}
       {current === "backups" && <Backups id={id} readOnly={!may("backups")} canDatabases={may("databases")} />}
-      {current === "schedules" && <Schedules id={id} readOnly={!may("schedules")} />}
+      {(current === "schedules" || visitedTabs.has("schedules")) && (
+        <div hidden={current !== "schedules"}>
+          <Schedules id={id} readOnly={!may("schedules")} visible={current === "schedules"} onDirtyChange={setScheduleDirty} />
+        </div>
+      )}
       {current === "databases" && <Databases serverId={id} canImport={may("files")} />}
       {current === "access" && <Access id={id} />}
       {current === "settings" && (
@@ -573,7 +607,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
               <div className="kv">
                 <span className="k">{t("Exposure")}</span>
                 <span>
-                  <select
+                  <select aria-label={t("Exposure")}
                     value={srv.expose?.type || "ClusterIP"}
                     disabled={!may("settings")}
                     onChange={(e) => changeExpose(e.target.value as ExposeType)}
@@ -589,7 +623,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
               <div className="kv">
                 <span className="k">{t("Transfer")}</span>
                 <span>
-                  <select
+                  <select aria-label={t("Transfer")}
                     defaultValue=""
                     onChange={(e) => { const v = Number(e.target.value); e.currentTarget.value = ""; if (v) transfer(v); }}
                   >
@@ -610,18 +644,34 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
                       type="checkbox"
                       style={{ width: "auto" }}
                       checked={!!srv.hibernation?.enabled}
+                      disabled={hibBusy}
                       onChange={(e) => saveHib({ enabled: e.target.checked })}
                     />
                     &nbsp;{t("auto-sleep when idle after")}&nbsp;
                   </label>
-                  <input
-                    type="number"
-                    min={1}
-                    style={{ width: 70 }}
-                    value={srv.hibernation?.idleMinutes || 15}
-                    onChange={(e) => saveHib({ idleMinutes: Number(e.target.value) })}
-                  />
-                  &nbsp;{t("min")}
+                  <form className="row" onSubmit={(e) => {
+                    e.preventDefault();
+                    const minutes = Number(idleDraft);
+                    if (idleDraft !== null && Number.isSafeInteger(minutes) && minutes >= 1) {
+                      void saveHib({ idleMinutes: minutes });
+                    }
+                  }}>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      required
+                      aria-label={t("Idle timeout (minutes)")}
+                      style={{ width: 90 }}
+                      value={idleDraft ?? String(srv.hibernation?.idleMinutes || 15)}
+                      onChange={(e) => setIdleDraft(e.target.value)}
+                      disabled={hibBusy}
+                    />
+                    <span>{t("min")}</span>
+                    <button disabled={hibBusy || idleDraft === null || !Number.isSafeInteger(Number(idleDraft)) || Number(idleDraft) < 1}>
+                      {hibBusy ? t("Saving…") : t("Save")}
+                    </button>
+                  </form>
                   {srv.hibernation?.enabled && (
                     <>
                       {tcpOnly && (
@@ -630,7 +680,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
                             type="checkbox"
                             style={{ width: "auto" }}
                             checked={!!srv.hibernation?.wakeOnConnect && !srv.hibernation?.proxy}
-                            disabled={!!srv.hibernation?.proxy}
+                            disabled={hibBusy || !!srv.hibernation?.proxy}
                             onChange={(e) => saveHib({ wakeOnConnect: e.target.checked })}
                           />
                           &nbsp;{t("wake when a player connects (TCP)")}
@@ -641,6 +691,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
                           type="checkbox"
                           style={{ width: "auto" }}
                           checked={!!srv.hibernation?.proxy}
+                          disabled={hibBusy}
                           onChange={(e) => saveHib({ proxy: e.target.checked })}
                         />
                         &nbsp;{t("transparent proxy (TCP+UDP, no reconnect)")}
@@ -693,7 +744,7 @@ export function ServerDetail({ id, tab, user, onBack }: { id: number; tab?: stri
 function SetupLog({ id, phase }: { id: number; phase: string }) {
   const { t } = useT();
   const [log, setLog] = useState<InstallLog | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const relevant = phase === "Installing" || phase === "Error";
 
@@ -703,7 +754,7 @@ function SetupLog({ id, phase }: { id: number; phase: string }) {
     try {
       setLog(await api.installLog(id));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e);
     } finally {
       setBusy(false);
     }
@@ -733,7 +784,7 @@ function SetupLog({ id, phase }: { id: number; phase: string }) {
         <button type="button" onClick={load} disabled={busy}>
           {busy ? t("Loading…") : t("Refresh")}
         </button>
-        {error && <p className="error">{error}</p>}
+        {!!error && <p className="error">{errorMessage(error, t)}</p>}
         {log && steps.length === 0 && !error && (
           <p className="muted">{t("This template has no install step.")}</p>
         )}
@@ -768,7 +819,7 @@ function SFTPCard({ id, initialEnabled, username, canToggle }: { id: number; ini
   const [port, setPort] = useState(0);
   const [host, setHost] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
 
   async function refresh() {
     try {
@@ -777,7 +828,7 @@ function SFTPCard({ id, initialEnabled, username, canToggle }: { id: number; ini
       setPort(info.port);
       setHost(info.host);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e);
     }
   }
   useEffect(() => {
@@ -814,7 +865,7 @@ function SFTPCard({ id, initialEnabled, username, canToggle }: { id: number; ini
       setPort(0);
       setHost("");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(e);
     } finally {
       setBusy(false);
     }
@@ -842,7 +893,7 @@ function SFTPCard({ id, initialEnabled, username, canToggle }: { id: number; ini
           )}
         </div>
       )}
-      {error && <div className="error">{error}</div>}
+      {!!error && <div className="error">{errorMessage(error, t)}</div>}
     </div>
   );
 }

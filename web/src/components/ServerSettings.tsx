@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, FileEntry, Server, Template, TemplateVariable } from "../api";
+import { useId, FormEvent, useEffect, useState } from "react";
+import { api, FileEntry, Server, Template, TemplateVariable, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { keepLines, keepPreview } from "../keep";
 import { Combobox } from "./Combobox";
@@ -49,6 +49,7 @@ export function ServerSettings({ server, onSaved, canSwitchTemplate, canEditStar
 // RenameForm changes the name shown for the server. The slug, and with it the
 // server's Kubernetes objects and addresses, never changes.
 function RenameForm({ server, onSaved }: { server: Server; onSaved: (s: Server) => void }) {
+  const fieldId = useId();
   const { t } = useT();
   const [name, setName] = useState(server.displayName);
   const [busy, setBusy] = useState(false);
@@ -66,7 +67,7 @@ function RenameForm({ server, onSaved }: { server: Server; onSaved: (s: Server) 
       onSaved(await api.renameServer(server.id, name.trim()));
       setMsg(t("Name saved."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -76,10 +77,10 @@ function RenameForm({ server, onSaved }: { server: Server; onSaved: (s: Server) 
     <form className="card" onSubmit={submit}>
       <h2>{t("Name")}</h2>
       <div className="row" style={{ gap: 8 }}>
-        <input value={name} maxLength={190} onChange={(e) => setName(e.target.value)} aria-label={t("Name")} style={{ flex: "1 1 200px", width: "auto" }} />
+        <input aria-describedby={`${fieldId}-rename-help`} value={name} maxLength={190} onChange={(e) => setName(e.target.value)} aria-label={t("Name")} style={{ flex: "1 1 200px", width: "auto" }} />
         <button className="primary" disabled={busy || !dirty || !name.trim()}>{busy ? t("Saving…") : t("Rename")}</button>
       </div>
-      <p className="muted">{t("Only the displayed name changes: the server's address and ID stay the same.")}</p>
+      <p id={`${fieldId}-rename-help`} className="muted">{t("Only the displayed name changes: the server's address and ID stay the same.")}</p>
       {msg && <div className="notice">{msg}</div>}
       {error && <div className="error">{error}</div>}
     </form>
@@ -130,7 +131,7 @@ function ReachesForm({ server, onSaved }: { server: Server; onSaved: (s: Server)
       onSaved(saved);
       setMsg(t("Saved: it applies within a few seconds, without a restart."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -187,7 +188,7 @@ function EULAToggle({ server, onSaved }: { server: Server; onSaved: (s: Server) 
     try {
       onSaved(await api.setEULA(server.id, accepted));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -246,7 +247,7 @@ function ServerPorts({ server, onSaved }: { server: Server; onSaved: (s: Server)
       onSaved(await api.setServerPorts(server.id, ports));
       setMsg(t("Ports saved; the server restarts to apply."));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -278,6 +279,7 @@ type FilesMode = "keep" | "clean" | "wipe";
 // the world) or another game -- and to another of its images. Only the owner or
 // an administrator may switch (canSwitch), which is also who the API lets.
 function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; current: Template; onSaved: (s: Server) => void; canSwitch: boolean }) {
+  const fieldId = useId();
   const { t } = useT();
   const [templates, setTemplates] = useState<Template[]>([]);
   const [slug, setSlug] = useState(current.slug);
@@ -383,7 +385,7 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
       setMsg(done);
       onSaved(await api.server(server.id));
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -405,8 +407,8 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
       </p>
       {canSwitch && (
         <>
-          <label>{t("Template")}</label>
-          <Combobox
+          <label htmlFor={`${fieldId}-template`}>{t("Template")}</label>
+          <Combobox id={`${fieldId}-template`}
             options={templates.map((x) => ({ value: x.slug, label: x.slug === current.slug ? `${x.name} ${t("(current)")}` : x.name }))}
             value={slug}
             placeholder={t("Search or select a template…")}
@@ -420,8 +422,8 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
           {canSwitch ? t("This template has no install step. Pick another template to switch to.") : t("This template has no install step.")}
         </p>
       )}
-      <label>{t("Image")}</label>
-      <select value={image} onChange={(e) => setImage(e.target.value)}>
+      <label htmlFor={`${fieldId}-image`}>{t("Image")}</label>
+      <select id={`${fieldId}-image`} value={image} onChange={(e) => setImage(e.target.value)}>
         {(target.images ?? []).map((i) => (
           <option key={i.ref} value={i.ref}>
             {i.displayName} ({i.ref})
@@ -430,10 +432,10 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
       </select>
       {needed.map((v) => (
         <div key={v.envVariable}>
-          <label>
+          <label htmlFor={`${fieldId}-required-${v.envVariable}`}>
             {v.name} <code>{v.envVariable}</code> — {t("required by the new template")}
           </label>
-          <input
+          <input id={`${fieldId}-required-${v.envVariable}`}
             type={v.secret ? "password" : "text"}
             value={values[v.envVariable] ?? ""}
             placeholder={v.secret ? t("leave blank to keep the current value, if any") : ""}
@@ -441,21 +443,22 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
           />
         </div>
       ))}
-      <label style={{ marginTop: 8 }}>{t("The server's files")}</label>
+      <div id={`${fieldId}-files-label`} style={{ display: "block", margin: "10px 0 4px", color: "var(--ink-muted)", fontSize: 13, marginTop: 8 }}>{t("The server's files")}</div>
+      <div role="group" aria-labelledby={`${fieldId}-files-label`}>
       <label className="row" style={{ gap: 6 }}>
-        <input type="radio" name="files-mode" style={{ width: "auto" }} checked={mode === "keep"} onChange={() => setMode("keep")} />
+        <input type="radio" name={`${fieldId}-files-mode`} style={{ width: "auto" }} checked={mode === "keep"} onChange={() => setMode("keep")} />
         {t("Keep them all: the install runs over them")}
       </label>
       <label className="row" style={{ gap: 6 }}>
-        <input type="radio" name="files-mode" style={{ width: "auto" }} checked={mode === "clean"} disabled={!installs} onChange={() => setMode("clean")} />
+        <input type="radio" name={`${fieldId}-files-mode`} style={{ width: "auto" }} checked={mode === "clean"} disabled={!installs} onChange={() => setMode("clean")} />
         {t("Delete them all except the paths below — to update a modpack")}
       </label>
       {mode === "clean" && (
         <div style={{ marginLeft: 22 }}>
-          <p className="muted">
+          <p id={`${fieldId}-keep-help`} className="muted">
             {t("The new version goes in clean: what the old one shipped and the new one does not — mods, configs, scripts — is gone, and the world stays. One path per line, from the server's files; * matches any name. The list is remembered for next time. A backup first is wise.")}
           </p>
-          <textarea
+          <textarea aria-label={t("Paths to keep")} aria-describedby={`${fieldId}-keep-help`}
             value={keepText}
             rows={Math.min(14, Math.max(4, keep.length + 1))}
             spellCheck={false}
@@ -491,9 +494,10 @@ function Reinstall({ server, current, onSaved, canSwitch }: { server: Server; cu
         </div>
       )}
       <label className="row" style={{ gap: 6 }}>
-        <input type="radio" name="files-mode" style={{ width: "auto" }} checked={mode === "wipe"} disabled={!installs} onChange={() => setMode("wipe")} />
+        <input type="radio" name={`${fieldId}-files-mode`} style={{ width: "auto" }} checked={mode === "wipe"} disabled={!installs} onChange={() => setMode("wipe")} />
         {t("Delete them all")}
       </label>
+      </div>
       {msg && <div className="notice">{msg}</div>}
       {error && <div className="error">{error}</div>}
       <button className={wipe ? "danger" : ""} style={{ marginTop: 8 }} onClick={run} disabled={busy || blocked}>
@@ -526,6 +530,7 @@ function Variables({
   env: Record<string, string>;
   onSaved: (s: Server) => void;
 }) {
+  const fieldId = useId();
   const { t } = useT();
   // Seed each field: current value, else the variable default. Secrets start
   // blank (their value isn't returned); blank means "keep the stored secret".
@@ -553,7 +558,7 @@ function Variables({
       setSaved(values);
       setMsg(t("Variables saved."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -564,14 +569,14 @@ function Variables({
       <h3>{t("Variables")} {dirty && <RestartHint />}</h3>
       {vars.map((v) => (
         <div key={v.envVariable} style={{ marginBottom: 8 }}>
-          <label>{v.name || v.envVariable}{v.required ? " *" : ""}</label>
-          {v.description && <p className="muted" style={{ margin: "2px 0" }}>{v.description}</p>}
+          <label htmlFor={`${fieldId}-variable-${v.envVariable}`}>{v.name || v.envVariable}{v.required ? " *" : ""}</label>
+          {v.description && <p id={`${fieldId}-variable-help-${v.envVariable}`} className="muted" style={{ margin: "2px 0" }}>{v.description}</p>}
           {v.type === "enum" && v.options?.length ? (
-            <select value={values[v.envVariable]} onChange={(e) => setValues({ ...values, [v.envVariable]: e.target.value })}>
+            <select aria-describedby={!!v.description ? `${fieldId}-variable-help-${v.envVariable}` : undefined} id={`${fieldId}-variable-${v.envVariable}`} value={values[v.envVariable]} onChange={(e) => setValues({ ...values, [v.envVariable]: e.target.value })}>
               {v.options.map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           ) : (
-            <input
+            <input aria-describedby={!!v.description ? `${fieldId}-variable-help-${v.envVariable}` : undefined} id={`${fieldId}-variable-${v.envVariable}`}
               type={v.secret ? "password" : "text"}
               value={values[v.envVariable]}
               placeholder={v.secret ? t("•••••• (leave blank to keep)") : v.default}
@@ -594,6 +599,7 @@ function Variables({
 // for one server) took a copy of the template. Everyone else sees the command,
 // and edits its variables above.
 function StartupForm({ server, template, onSaved, canEdit }: { server: Server; template: Template; onSaved: (s: Server) => void; canEdit: boolean }) {
+  const fieldId = useId();
   const { t } = useT();
   const own = server.startup ?? "";
   const effective = own || template.startup || "";
@@ -614,7 +620,7 @@ function StartupForm({ server, template, onSaved, canEdit }: { server: Server; t
       onSaved(saved);
       setMsg(saved.startup ? t("Startup command saved.") : t("The server runs its template's startup command again."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -632,7 +638,7 @@ function StartupForm({ server, template, onSaved, canEdit }: { server: Server; t
         {t("Startup command")} {own && <span className="badge warn">{t("custom")}</span>} {dirty && <RestartHint />}
       </h3>
       {canEdit ? (
-        <textarea
+        <textarea aria-describedby={`${fieldId}-startup-help`}
           value={value}
           rows={3}
           onChange={(e) => setValue(e.target.value)}
@@ -643,7 +649,7 @@ function StartupForm({ server, template, onSaved, canEdit }: { server: Server; t
       ) : (
         <pre className="log" style={{ maxHeight: 160 }}>{effective}</pre>
       )}
-      <p className="muted">
+      <p id={`${fieldId}-startup-help`} className="muted">
         {own
           ? t("This server has a startup command of its own, set by an administrator: it no longer follows its template's.")
           : t("The template's startup command.")}{" "}
@@ -698,7 +704,7 @@ function ImageForm({ server, template, onSaved }: { server: Server; template: Te
       onSaved(await api.setServerImage(server.id, image));
       setMsg(t("Image saved."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -707,7 +713,7 @@ function ImageForm({ server, template, onSaved }: { server: Server; template: Te
   return (
     <form onSubmit={submit} style={{ marginTop: 12 }}>
       <h3>{t("Image")} {dirty && <RestartHint />}</h3>
-      <select value={image} onChange={(e) => setImage(e.target.value)}>
+      <select aria-label={t("Image")} value={image} onChange={(e) => setImage(e.target.value)}>
         {options.map((i) => (
           <option key={i.ref} value={i.ref}>
             {i.displayName} ({i.ref})
@@ -722,6 +728,7 @@ function ImageForm({ server, template, onSaved }: { server: Server; template: Te
 }
 
 function ResourcesForm({ server, onSaved }: { server: Server; onSaved: (s: Server) => void }) {
+  const fieldId = useId();
   const { t } = useT();
   const [memory, setMemory] = useState(server.resources.memory ?? "");
   const [cpu, setCpu] = useState(server.resources.cpu ?? "");
@@ -740,7 +747,7 @@ function ResourcesForm({ server, onSaved }: { server: Server; onSaved: (s: Serve
       onSaved(s);
       setMsg(t("Resources saved."));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -750,8 +757,8 @@ function ResourcesForm({ server, onSaved }: { server: Server; onSaved: (s: Serve
     <form onSubmit={submit} style={{ marginTop: 12 }}>
       <h3>{t("Resource limits")} {dirty && <RestartHint />}</h3>
       <div className="grid2">
-        <div><label>{t("Memory (blank = unlimited)")}</label><input value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="2Gi" /></div>
-        <div><label>{t("CPU (blank = unlimited)")}</label><input value={cpu} onChange={(e) => setCpu(e.target.value)} placeholder="1000m" /></div>
+        <div><label htmlFor={`${fieldId}-memory`}>{t("Memory (blank = unlimited)")}</label><input id={`${fieldId}-memory`} value={memory} onChange={(e) => setMemory(e.target.value)} placeholder="2Gi" /></div>
+        <div><label htmlFor={`${fieldId}-cpu`}>{t("CPU (blank = unlimited)")}</label><input id={`${fieldId}-cpu`} value={cpu} onChange={(e) => setCpu(e.target.value)} placeholder="1000m" /></div>
       </div>
       {msg && <div className="notice">{msg}</div>}
       {error && <div className="error">{error}</div>}

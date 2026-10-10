@@ -9,6 +9,86 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **The narrow documentation header also fits desktop scrollbars.** Below
+  360 px, the theme picker drops only its decorative icon, leaving the complete
+  logo and both controls visible even when a vertical scrollbar takes space.
+- **Newly granted creation rights take effect without signing in again.**
+  The denied-creation notice refreshes the account on entry and offers Check
+  access again, so an administrator granting a quota does not leave an open
+  session permanently stuck behind its previous zero quota.
+- **A language switch also updates errors on retained server tabs.** File,
+  schedule and server-list/detail loaders keep the original error and translate
+  it when displayed, so a later refresh cannot reuse the previous language.
+  Changing language does not restart polling or discard metric history.
+- **The documentation home page keeps its theme picker on phones.** Light,
+  Dark and Auto remain reachable without entering a guide. The compact header
+  fits at 320 px while preserving the logo's 140 px brand minimum.
+- **Documentation search reports failures and can retry.** Search keeps the
+  query, presents an error instead of an endless loading message, and rebuilds
+  the failed Pagefind instance on Retry. Results, sub-results, pagination and
+  empty searches use the real index; the modal preserves focus and locks
+  background scrolling. Verification distinguished an audit-browser worker
+  instrumentation failure from ordinary Chromium, where the index already
+  worked; no speculative Pagefind upgrade or worker patch is applied.
+- **The documentation's light-theme selection is readable.** Active navigation
+  and accent text use the existing darker rust token (6.08:1 white-on-rust),
+  without recolouring the brand artwork.
+- **Role help links to the Users tab.** It no longer points to a nonexistent
+  Users card above the role editor.
+- **The mobile sign-in logo keeps its proportions.** Only the horizontal
+  top-bar lockup is resized on phones, at the brand's 140 px minimum width;
+  the stacked authentication logo remains 168 px wide at its natural ratio.
+- **Scheduled actions use translated names.** Both the action picker and saved
+  task chains say Start, Stop, Restart, Command and Backup in the selected
+  language, while the API values stay unchanged.
+- **File sorting works from the keyboard.** Name, Size and Modified are native
+  buttons with the panel's focus ring; their headers expose the active sort
+  direction instead of relying on a visual arrow and a mouse-only click.
+- **A zero server quota is explained before filling a form.** The server list
+  disables creation with guidance to ask an administrator, and a direct create
+  URL shows that guidance instead of a form that must fail. Administrators
+  with server-management permission retain the API's quota exemption.
+- **Form validation follows the selected language.** API errors are formatted
+  consistently across the panel, including account/password/link errors,
+  permissions, quotas and parameterized resource or schedule validation.
+  French messages retain the rejected values; unrecognized technical details
+  remain available rather than being replaced by a generic error. New-password
+  fields explain and enforce their minimum length before submission.
+- **Input examples use the brand's readable muted text colour.** Placeholders
+  now have a 6.19:1 contrast on the panel's input surface instead of inheriting
+  a browser grey below the normal-text accessibility threshold.
+- **Every administration tab stays visible.** Tab bars wrap at desktop and
+  tablet widths as well as on phones, so Notifications and Activity no longer
+  hide beyond a scrollbar that was not displayed.
+- **Template pickers close when focus leaves them.** Tab restores the selected
+  model instead of leaving an apparently empty field and open menu. The picker
+  exposes its list, selection and active option to assistive technology, keeps
+  keyboard navigation in range, and never submits the form on an empty search.
+- **Authentication cards fit small screens.** Sign-in, setup, recovery and
+  account-link pages keep their side margins at 320 px instead of clipping a
+  fixed-width card; long addresses and setup commands wrap inside the card.
+- **Form labels identify their controls.** Authentication, account, server and
+  administration forms associate labels and help text with unique field IDs;
+  dynamically repeated fields and groups have distinct accessible names too.
+  Clicking a label focuses its control, and screen readers no longer have to
+  infer a field's purpose from its placeholder.
+- **One API-key creation at a time.** The name and submit button stay locked
+  while a key is being created, with a visible progress label; repeated clicks
+  cannot create extra keys or replace the token the user has yet to copy.
+- **Server tabs keep unfinished schedules and file edits.** Visiting another
+  tab no longer resets those drafts; leaving the server, signing out or closing
+  the page warns before discarding them. The file editor also asks before
+  closing or opening a different file, keeps edits after a failed save, and
+  no longer closes a similarly named file when its neighbour is deleted.
+- **Editing the idle timeout no longer saves every keystroke.** The hibernation
+  delay keeps a local draft, accepts only positive whole minutes, and saves on
+  Enter or Save. Pending writes disable the policy controls, and older polls
+  cannot overwrite a policy that was just saved.
+- **A failed security-settings load is not a policy.** The two-factor and
+  invitation cards show loading or an error with Retry until their real values
+  arrive, instead of presenting permissive defaults after a failed request.
+- **Open a server without a mouse.** Server names in the list are now real
+  links: Tab reaches them, Enter opens them, and they can be opened in a new tab.
 - **An install that keeps failing says so, instead of reporting "installing"
   for as long as it fails.** A failed install step is retried in place by
   Kubernetes, and the panel read that as a failure only once the step reached

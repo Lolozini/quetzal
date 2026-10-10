@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
-import { api, ApiError, Backup, BackupConfig, BackupConfigInput } from "../api";
+import { useId, FormEvent, useEffect, useState } from "react";
+import { api, Backup, BackupConfig, BackupConfigInput, errorMessage } from "../api";
 import { useT } from "../i18n";
 
 // readOnly lists the backups without the means to make, restore or delete one,
@@ -24,7 +24,7 @@ export function Backups({ id, readOnly = false, canDatabases = false }: { id: nu
       setList(bs);
       if (!c.configured && c.editable) setShowCfg(true);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
   useEffect(() => {
@@ -40,7 +40,7 @@ export function Backups({ id, readOnly = false, canDatabases = false }: { id: nu
       await api.createBackup(id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy("");
     }
@@ -54,7 +54,7 @@ export function Backups({ id, readOnly = false, canDatabases = false }: { id: nu
       setRestoring(null);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy("");
     }
@@ -75,7 +75,7 @@ export function Backups({ id, readOnly = false, canDatabases = false }: { id: nu
       await api.deleteBackup(id, b.id);
       await load();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     }
   }
 
@@ -221,6 +221,7 @@ export function Backups({ id, readOnly = false, canDatabases = false }: { id: nu
 }
 
 function BackupConfigForm({ cfg, onSaved }: { cfg: BackupConfig | null; onSaved: () => void }) {
+  const fieldId = useId();
   const { t } = useT();
   const [f, setF] = useState<BackupConfigInput>({
     endpoint: cfg?.endpoint ?? "",
@@ -249,7 +250,7 @@ function BackupConfigForm({ cfg, onSaved }: { cfg: BackupConfig | null; onSaved:
       setWarning(res?.warning ?? "");
       onSaved();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -258,32 +259,32 @@ function BackupConfigForm({ cfg, onSaved }: { cfg: BackupConfig | null; onSaved:
   return (
     <form onSubmit={submit} style={{ borderBottom: "1px solid var(--line)", paddingBottom: 12, marginBottom: 12 }}>
       <div className="grid2">
-        <div><label>{t("S3 endpoint (host:port)")}</label>
-          <input value={f.endpoint} onChange={(e) => set("endpoint", e.target.value)} placeholder="s3.gra.io.cloud.ovh.net" required /></div>
-        <div><label>{t("Bucket")}</label>
-          <input value={f.bucket} onChange={(e) => set("bucket", e.target.value)} placeholder="quetzal-backups" required /></div>
+        <div><label htmlFor={`${fieldId}-endpoint`}>{t("S3 endpoint (host:port)")}</label>
+          <input id={`${fieldId}-endpoint`} value={f.endpoint} onChange={(e) => set("endpoint", e.target.value)} placeholder="s3.gra.io.cloud.ovh.net" required /></div>
+        <div><label htmlFor={`${fieldId}-bucket`}>{t("Bucket")}</label>
+          <input id={`${fieldId}-bucket`} value={f.bucket} onChange={(e) => set("bucket", e.target.value)} placeholder="quetzal-backups" required /></div>
       </div>
       <div className="grid2">
-        <div><label>{t("Prefix (optional)")}</label>
-          <input value={f.prefix} onChange={(e) => set("prefix", e.target.value)} placeholder="games" /></div>
-        <div><label>{t("Region (optional)")}</label>
-          <input value={f.region} onChange={(e) => set("region", e.target.value)} placeholder="gra" /></div>
+        <div><label htmlFor={`${fieldId}-prefix`}>{t("Prefix (optional)")}</label>
+          <input id={`${fieldId}-prefix`} value={f.prefix} onChange={(e) => set("prefix", e.target.value)} placeholder="games" /></div>
+        <div><label htmlFor={`${fieldId}-region`}>{t("Region (optional)")}</label>
+          <input id={`${fieldId}-region`} value={f.region} onChange={(e) => set("region", e.target.value)} placeholder="gra" /></div>
       </div>
       <div className="grid2">
-        <div><label>{t("Keep last (snapshots)")}</label>
-          <input type="number" min={1} value={f.keepLast} onChange={(e) => set("keepLast", Number(e.target.value))} /></div>
-        <div><label>{t("Runner image (optional, restic 0.17 or later)")}</label>
-          <input value={f.runnerImage} onChange={(e) => set("runnerImage", e.target.value)} placeholder="restic/restic:0.19.1" /></div>
+        <div><label htmlFor={`${fieldId}-keep-last`}>{t("Keep last (snapshots)")}</label>
+          <input id={`${fieldId}-keep-last`} type="number" min={1} value={f.keepLast} onChange={(e) => set("keepLast", Number(e.target.value))} /></div>
+        <div><label htmlFor={`${fieldId}-runner-image`}>{t("Runner image (optional, restic 0.17 or later)")}</label>
+          <input id={`${fieldId}-runner-image`} value={f.runnerImage} onChange={(e) => set("runnerImage", e.target.value)} placeholder="restic/restic:0.19.1" /></div>
       </div>
       <label className="row"><input type="checkbox" style={{ width: "auto" }} checked={f.useSSL} onChange={(e) => set("useSSL", e.target.checked)} />&nbsp;{t("Use TLS (https)")}</label>
       <div className="grid2" style={{ marginTop: 8 }}>
-        <div><label>{t("Access key")} {cfg?.hasCredentials ? t("(set — leave blank to keep)") : ""}</label>
-          <input value={f.accessKey ?? ""} autoComplete="off" onChange={(e) => set("accessKey", e.target.value)} /></div>
-        <div><label>{t("Secret key")} {cfg?.hasCredentials ? t("(set — leave blank to keep)") : ""}</label>
-          <input type="password" value={f.secretKey ?? ""} autoComplete="new-password" onChange={(e) => set("secretKey", e.target.value)} /></div>
+        <div><label htmlFor={`${fieldId}-access-key`}>{t("Access key")} {cfg?.hasCredentials ? t("(set — leave blank to keep)") : ""}</label>
+          <input id={`${fieldId}-access-key`} value={f.accessKey ?? ""} autoComplete="off" onChange={(e) => set("accessKey", e.target.value)} /></div>
+        <div><label htmlFor={`${fieldId}-secret-key`}>{t("Secret key")} {cfg?.hasCredentials ? t("(set — leave blank to keep)") : ""}</label>
+          <input id={`${fieldId}-secret-key`} type="password" value={f.secretKey ?? ""} autoComplete="new-password" onChange={(e) => set("secretKey", e.target.value)} /></div>
       </div>
-      <label>{t("Repository password")} {cfg?.hasPassword ? t("(set — leave blank to keep)") : t("(restic encryption key)")}</label>
-      <input type="password" value={f.repoPassword ?? ""} autoComplete="new-password" onChange={(e) => set("repoPassword", e.target.value)} />
+      <label htmlFor={`${fieldId}-repository-password`}>{t("Repository password")} {cfg?.hasPassword ? t("(set — leave blank to keep)") : t("(restic encryption key)")}</label>
+      <input id={`${fieldId}-repository-password`} type="password" value={f.repoPassword ?? ""} autoComplete="new-password" onChange={(e) => set("repoPassword", e.target.value)} />
       {error && <div className="error">{error}</div>}
       {saved && !warning && <div className="notice">{t("Backup target saved.")}</div>}
       {warning && (

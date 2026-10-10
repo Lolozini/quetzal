@@ -1,5 +1,7 @@
 // Typed client for the Quetzal API. Cookies carry the session, so every
 // request uses credentials: "include".
+import type { TFunc } from "./i18n";
+
 
 export interface User {
   id: number;
@@ -717,6 +719,48 @@ export class ApiError extends Error {
   constructor(public status: number, message: string, public data?: unknown) {
     super(message);
   }
+}
+
+// API messages use the same English-source keys as the rest of the interface.
+// Keep unknown diagnostics intact rather than replace useful server details
+// with a generic failure. Parameterized validation messages retain their values.
+const validationMessages: readonly [RegExp, string][] = [
+  [/^name is longer than (\d+) characters$/, "Name must be at most {value} characters."],
+  [/^quota exceeded: at most (\d+) servers$/, "Server quota reached: at most {value} servers."],
+  [/^quota exceeded: memory limit (\d+) MB$/, "Memory quota exceeded: {value} MB."],
+  [/^quota exceeded: CPU limit (\d+)m$/, "CPU quota exceeded: {value}m."],
+  [/^unknown variable (.+)$/, "Unknown variable: {value}."],
+  [/^variable (.+) is required$/, "Variable {value} is required."],
+  [/^variable (.+) is not editable$/, "Variable {value} cannot be edited."],
+  [/^variable (.+) must be one of (.+)$/, "Variable {value} must be one of {other}."],
+  [/^invalid memory (.+)$/, "Invalid memory limit: {value}."],
+  [/^invalid cpu (.+)$/, "Invalid CPU limit: {value}."],
+  [/^memory limit (.+) is too small — did you forget a unit\? e\.g\. 4Gi or 512Mi$/, "Memory limit {value} is too small. Include a unit such as 4Gi or 512Mi."],
+  [/^invalid storage size (.+) — use a Kubernetes quantity such as 10Gi or 500Mi$/, "Invalid storage size {value}. Use a quantity such as 10Gi or 500Mi."],
+  [/^storage size (.+) must be greater than zero$/, "Storage size {value} must be greater than zero."],
+  [/^unknown time zone (.+) \(use an IANA name such as Europe\/Paris\)$/, "Unknown time zone {value}. Use an IANA name such as Europe/Paris."],
+  [/^too many tasks \(max (\d+)\)$/, "Too many tasks: the maximum is {value}."],
+  [/^task (\d+): command action requires a payload$/, "Task {value} needs a command."],
+  [/^task (\d+): timeOffset must be 0–(\d+) seconds$/, "Task {value}: the delay must be between 0 and {other} seconds."],
+  [/^task (\d+): action must be start\|stop\|restart\|command\|backup$/, "Task {value} has an invalid action."],
+  [/^unknown cluster (.+)$/, "Unknown cluster: {value}."],
+];
+
+export function errorMessage(error: unknown, t: TFunc): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const translated = t(message);
+  if (translated !== message) return translated;
+  for (const [pattern, key] of validationMessages) {
+    const match = pattern.exec(message);
+    if (match) return t(key, { value: match[1], other: match[2] ?? "" });
+  }
+  const colon = message.indexOf(": ");
+  if (colon > 0) {
+    const prefix = message.slice(0, colon);
+    const translatedPrefix = t(prefix);
+    if (translatedPrefix !== prefix) return `${translatedPrefix}: ${message.slice(colon + 2)}`;
+  }
+  return message;
 }
 
 // ImportConflict is the body of an egg import refused because its slug is taken.

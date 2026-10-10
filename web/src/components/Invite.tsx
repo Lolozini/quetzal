@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
-import { ALL_PERMISSIONS, api, ApiError, InviteInfo, User } from "../api";
+import { useId, FormEvent, useEffect, useState } from "react";
+import { ALL_PERMISSIONS, api, InviteInfo, User, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { Auth } from "./Auth";
 import { Lockup } from "./Brand";
@@ -19,6 +19,7 @@ export function Invite({
   onAuthed: (u: User) => void;
   onDone: (serverId?: number) => void;
 }) {
+  const fieldId = useId();
   const { t } = useT();
   const [info, setInfo] = useState<InviteInfo | null>(null);
   const [invalid, setInvalid] = useState("");
@@ -32,7 +33,7 @@ export function Invite({
   useEffect(() => {
     api.inspectInvite(token)
       .then(setInfo)
-      .catch((e) => setInvalid(e instanceof ApiError ? e.message : String(e)));
+      .catch((e) => setInvalid(errorMessage(e, t)));
   }, [token]);
 
   async function accept() {
@@ -42,7 +43,7 @@ export function Invite({
       const res = await api.acceptInvite(token);
       onDone(res.serverId);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : String(e));
+      setError(errorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -66,7 +67,7 @@ export function Invite({
       onAuthed(await api.me().catch(() => res.user));
       onDone(res.serverId);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
+      setError(errorMessage(err, t));
     } finally {
       setBusy(false);
     }
@@ -133,12 +134,13 @@ export function Invite({
               </>
             ) : mode === "signup" ? (
               <form onSubmit={register}>
-                <label>{t("Username")}</label>
-                <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required />
-                <label>{t("Password")}</label>
-                <input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-                <label>{t("Confirm password")}</label>
-                <input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+                <label htmlFor={`${fieldId}-username`}>{t("Username")}</label>
+                <input id={`${fieldId}-username`} value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" autoFocus required />
+                <label htmlFor={`${fieldId}-password`}>{t("Password")}</label>
+                <input id={`${fieldId}-password`} type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} aria-describedby={`${fieldId}-password-help`} />
+                <p id={`${fieldId}-password-help`} className="muted">{t("Password must be at least 8 characters.")}</p>
+                <label htmlFor={`${fieldId}-confirm-password`}>{t("Confirm password")}</label>
+                <input id={`${fieldId}-confirm-password`} type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
                 <p className="muted" style={{ marginTop: 8 }}>
                   {t("Your account reaches the servers it is invited to. Its email is {email}.", { email: info.email })}
                 </p>

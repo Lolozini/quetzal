@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, hasAdminPerm, User, isAnyAdmin } from "../api";
 import { LangSwitcher, useT } from "../i18n";
-import { ServerList } from "./ServerList";
+import { CreationRestriction, ServerList } from "./ServerList";
 import { CreateServer } from "./CreateServer";
 import { ServerDetail } from "./ServerDetail";
 import { Admin } from "./Admin";
@@ -53,15 +53,40 @@ function viewToHash(v: View): string {
 
 export function Dashboard({ user, onLogout, onUserRefresh }: { user: User; onLogout: () => void; onUserRefresh: () => Promise<void> }) {
   const [view, setView] = useState<View>(parseHash);
+  const [unsaved, setUnsaved] = useState(false);
+  const acceptedHash = useRef(window.location.hash);
   const { t } = useT();
+  const canCreate = hasAdminPerm(user, "servers") || user.maxServers !== 0;
 
   // The hash is the source of truth: navigation writes it, and a hashchange
   // (our own writes, plus browser back/forward) drives the view state.
   useEffect(() => {
-    const onHash = () => setView(parseHash());
+    const onHash = () => {
+      const next = parseHash();
+      const keepsDrafts = view.name === "detail" && next.name === "detail" && view.id === next.id;
+      if (unsaved && !keepsDrafts && !window.confirm(t("Discard unsaved changes?"))) {
+        // The browser has already moved to the new entry: push the kept address
+        // on top instead of overwriting the one it moved to, which Back would lose.
+        window.history.pushState(null, "", window.location.pathname + window.location.search + acceptedHash.current);
+        return;
+      }
+      acceptedHash.current = window.location.hash;
+      if (!keepsDrafts) setUnsaved(false);
+      setView(next);
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
-  }, []);
+  }, [view, unsaved, t]);
+
+  useEffect(() => {
+    if (!unsaved) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsaved]);
   const go = (v: View) => {
     const h = viewToHash(v);
     if (window.location.hash === h) setView(v); // same hash: no hashchange fires
@@ -83,7 +108,9 @@ export function Dashboard({ user, onLogout, onUserRefresh }: { user: User; onLog
             {user.isAdmin ? ` ${t("(admin)")}` : isAnyAdmin(user) ? ` ${t("(scoped admin)")}` : ""}
           </span>
           <LangSwitcher />
-          <button onClick={onLogout}>{t("Logout")}</button>
+          <button onClick={() => {
+            if (!unsaved || window.confirm(t("Discard unsaved changes?"))) onLogout();
+          }}>{t("Logout")}</button>
         </div>
       </div>
       <div className="container">
@@ -104,22 +131,30 @@ export function Dashboard({ user, onLogout, onUserRefresh }: { user: User; onLog
         >
           {view.name === "list" && (
             <ServerList
+              canCreate={canCreate}
+              onUserRefresh={onUserRefresh}
               onCreate={() => go({ name: "create" })}
               onOpen={(id) => go({ name: "detail", id })}
             />
           )}
-          {view.name === "create" && (
+          {view.name === "create" && (canCreate ? (
             <CreateServer
               memoryRequired={!hasAdminPerm(user, "servers")}
               canImportTemplates={hasAdminPerm(user, "templates")}
               onDone={() => go({ name: "list" })}
               onCancel={() => go({ name: "list" })}
             />
-          )}
+          ) : (
+            <div className="card">
+              <h2>{t("New server")}</h2>
+              <CreationRestriction onRefresh={onUserRefresh} />
+              <button onClick={() => go({ name: "list" })}>{t("Back to the servers")}</button>
+            </div>
+          ))}
           {view.name === "detail" && (
-            <ServerDetail id={view.id} tab={view.tab} user={user} onBack={() => go({ name: "list" })} />
+            <ServerDetail key={view.id} id={view.id} tab={view.tab} user={user} onBack={() => go({ name: "list" })} onDirtyChange={setUnsaved} />
           )}
-          {view.name === "admin" && (isAnyAdmin(user) ? <Admin user={user} section={view.section} /> : <ServerList onCreate={() => go({ name: "create" })} onOpen={(id) => go({ name: "detail", id })} />)}
+          {view.name === "admin" && (isAnyAdmin(user) ? <Admin user={user} section={view.section} /> : <ServerList canCreate={canCreate} onUserRefresh={onUserRefresh} onCreate={() => go({ name: "create" })} onOpen={(id) => go({ name: "detail", id })} />)}
           {view.name === "account" && <Account user={user} onUserRefresh={onUserRefresh} />}
         </ErrorBoundary>
       </div>

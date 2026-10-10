@@ -156,7 +156,7 @@ export function Console({ id, phase, visible = true }: { id: number; phase: stri
         ))}
       </div>
       <form className="console-input" onSubmit={send}>
-        <input
+        <input aria-label={t("Command")}
           placeholder={t("type a command and press Enter…")}
           value={input}
           onChange={(e) => setInput(e.target.value)}
