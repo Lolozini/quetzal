@@ -20,9 +20,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The image's binaries are compiled by the Dockerfile's Go, not by
+      # GO_VERSION: 0.15.1 shipped Go 1.27.1's standard-library advisories while
+      # this job, on the newest 1.27, scanned clean. Lint and scan with exactly
+      # the Go the image is built with, so an advisory fixed in a later patch
+      # fails here until the Dockerfile moves to it.
+      - name: Go version of the image
+        id: image-go
+        run: |
+          v="$(sed -nE 's/^FROM .*golang:([0-9]+\.[0-9]+\.[0-9]+)-alpine.*/\1/p' Dockerfile)"
+          if [ -z "$v" ]; then
+            echo "The Dockerfile's golang image must name a full version (golang:X.Y.Z-alpine@sha256:...)."; exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: ${{ steps.image-go.outputs.version }}
       - name: gofmt
         run: |
           unformatted="$(gofmt -l .)"
