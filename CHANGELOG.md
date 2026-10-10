@@ -7,6 +7,14 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-10-11
+
+0.15.1 was compiled with Go 1.27.1, so its images still carried the HTTP/2
+advisories it set out to close, along with six more in the standard library.
+This release rebuilds the same code with Go 1.27.2; anyone on 0.15.1 should
+update. The CI now scans with the exact Go version the image is built with, so
+the two can no longer drift apart unnoticed.
+
 ### Security
 
 - **The image is built with Go 1.27.2.** 0.15.1 moved `golang.org/x/net` to
@@ -2290,7 +2298,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.15.2...HEAD
+[0.15.2]: https://github.com/lolozini/quetzal/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/lolozini/quetzal/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/lolozini/quetzal/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/lolozini/quetzal/compare/v0.13.0...v0.14.0
