@@ -5,6 +5,7 @@ const t = Astro.locals.t;
 const messages = {
 	loading: t('search.loading'),
 	empty: t('search.empty', { term: '[TERM]' }),
+	result: t('search.result', { term: '[TERM]' }),
 	results: t('search.results', { term: '[TERM]', total: '[COUNT]' }),
 	failure: t('search.failure'),
 };
@@ -145,7 +146,7 @@ const messages = {
 						results = response.results;
 						shown = 0;
 						await loadPage(id);
-						if (id === revision) status.textContent = text(results.length ? messages.results : messages.empty, term, results.length);
+						if (id === revision) status.textContent = text(results.length === 1 ? messages.result : results.length ? messages.results : messages.empty, term, results.length);
 					} catch (error) { await fail(error, id); }
 				});
 			};

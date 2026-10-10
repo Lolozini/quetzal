@@ -65,7 +65,9 @@ export function Dashboard({ user, onLogout, onUserRefresh }: { user: User; onLog
       const next = parseHash();
       const keepsDrafts = view.name === "detail" && next.name === "detail" && view.id === next.id;
       if (unsaved && !keepsDrafts && !window.confirm(t("Discard unsaved changes?"))) {
-        window.history.replaceState(null, "", window.location.pathname + window.location.search + acceptedHash.current);
+        // The browser has already moved to the new entry: push the kept address
+        // on top instead of overwriting the one it moved to, which Back would lose.
+        window.history.pushState(null, "", window.location.pathname + window.location.search + acceptedHash.current);
         return;
       }
       acceptedHash.current = window.location.hash;
@@ -150,7 +152,7 @@ export function Dashboard({ user, onLogout, onUserRefresh }: { user: User; onLog
             </div>
           ))}
           {view.name === "detail" && (
-            <ServerDetail id={view.id} tab={view.tab} user={user} onBack={() => go({ name: "list" })} onDirtyChange={setUnsaved} />
+            <ServerDetail key={view.id} id={view.id} tab={view.tab} user={user} onBack={() => go({ name: "list" })} onDirtyChange={setUnsaved} />
           )}
           {view.name === "admin" && (isAnyAdmin(user) ? <Admin user={user} section={view.section} /> : <ServerList canCreate={canCreate} onUserRefresh={onUserRefresh} onCreate={() => go({ name: "create" })} onOpen={(id) => go({ name: "detail", id })} />)}
           {view.name === "account" && <Account user={user} onUserRefresh={onUserRefresh} />}

@@ -554,7 +554,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
       )}
       {may("files") && (current === "files" || visitedTabs.has("files")) && (
         <div hidden={current !== "files"}>
-          <Files id={id} offline={["Stopped", "Suspended", "Hibernated"].includes(phase)} onDirtyChange={setFileDirty} />
+          <Files id={id} offline={["Stopped", "Suspended", "Hibernated"].includes(phase)} visible={current === "files"} onDirtyChange={setFileDirty} />
           <SFTPCard id={id} initialEnabled={!!srv.sftp?.enabled} username={user.username} canToggle={may("settings")} />
         </div>
       )}

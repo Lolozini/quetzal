@@ -1,6 +1,7 @@
 {
   "search.loading": "Searching…",
   "search.empty": "No results for “{{term}}”.",
+  "search.result": "1 result for “{{term}}”.",
   "search.results": "{{total}} results for “{{term}}”.",
   "search.failure": "Search could not be loaded. Check your connection and try again.",
   "search.retry": "Try again",

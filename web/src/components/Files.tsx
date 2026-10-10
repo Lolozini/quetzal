@@ -15,12 +15,14 @@ const ARCHIVE_RE = /\.(zip|tar|tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz)$/i;
 
 type SortKey = "name" | "size" | "mtime";
 
-export function Files({ id, offline = false, onDirtyChange }: { id: number; offline?: boolean; onDirtyChange: (dirty: boolean) => void }) {
+export function Files({ id, offline = false, visible = true, onDirtyChange }: { id: number; offline?: boolean; visible?: boolean; onDirtyChange: (dirty: boolean) => void }) {
   const { t } = useT();
   const [path, setPath] = useState(""); // relative to the data root
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  // Only a write in flight holds the editor: a listing refresh must not.
+  const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<{ path: string; content: string } | null>(null);
   const [saved, setSaved] = useState("");
   const [original, setOriginal] = useState("");
@@ -31,7 +33,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
   }, [dirty, onDirtyChange]);
 
   function mayDiscard() {
-    return !busy && (!dirty || window.confirm(t("Discard unsaved changes?")));
+    return !saving && (!dirty || window.confirm(t("Discard unsaved changes?")));
   }
   const [mut, setMut] = useState(0); // bumped on changes so the tree refreshes
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -64,6 +66,13 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
   useEffect(() => {
     load();
   }, [load]);
+  // The tab stays mounted while hidden; coming back to it re-reads the folder,
+  // which the console or SFTP may have changed meanwhile.
+  const wasVisible = useRef(visible);
+  useEffect(() => {
+    if (visible && !wasVisible.current) load();
+    wasVisible.current = visible;
+  }, [visible, load]);
 
   function nav(p: string) {
     if (!mayDiscard()) return;
@@ -100,7 +109,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
 
   async function save() {
     if (!editing) return;
-    setBusy(true);
+    setSaving(true);
     setError("");
     try {
       await api.writeFile(id, editing.path, editing.content);
@@ -109,7 +118,7 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
     } catch (err) {
       setError(err);
     } finally {
-      setBusy(false);
+      setSaving(false);
     }
   }
 
@@ -453,12 +462,12 @@ export function Files({ id, offline = false, onDirtyChange }: { id: number; offl
                 value={editing.content}
                 onChange={(e) => { setEditing({ ...editing, content: e.target.value }); setSaved(""); }}
                 spellCheck={false}
-                disabled={busy}
+                disabled={saving}
                 style={{ width: "100%", minHeight: 320, fontFamily: "var(--font-mono)" }}
               />
               <div className="row" style={{ marginTop: 8 }}>
-                <button className="primary" onClick={save} disabled={busy}>{t("Save")}</button>
-                <button disabled={busy} onClick={() => { if (mayDiscard()) setEditing(null); }}>{t("Close")}</button>
+                <button className="primary" onClick={save} disabled={saving}>{t("Save")}</button>
+                <button disabled={saving} onClick={() => { if (mayDiscard()) setEditing(null); }}>{t("Close")}</button>
                 {saved && <span className="notice">{saved}</span>}
               </div>
             </div>
