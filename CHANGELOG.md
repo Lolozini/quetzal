@@ -28,6 +28,12 @@ releases may include breaking changes).
   list says. A wipe with no list still takes it: that resets the server on
   purpose.
 
+### Security
+
+- `golang.org/x/net` 0.60.0, for GO-2026-6603, GO-2026-6610, GO-2026-6611,
+  GO-2026-6612 and GO-2026-6617, which govulncheck finds on paths Quetzal
+  calls.
+
 ## [0.15.0] - 2026-10-07
 
 An external security audit of the panel, by @Loulouw, with a regression test for
