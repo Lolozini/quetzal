@@ -7,6 +7,16 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Security
+
+- **The image is built with Go 1.27.2.** 0.15.1 moved `golang.org/x/net` to
+  0.60.0, but its binaries were compiled with Go 1.27.1, whose standard library
+  carries the same HTTP/2 advisories in `net/http` (GO-2026-6610, GO-2026-6611,
+  GO-2026-6612, GO-2026-6617) along with GO-2026-6604, GO-2026-6605,
+  GO-2026-6607, GO-2026-6608, GO-2026-6609 and GO-2026-6613 in `os`,
+  `net/http`, `crypto/tls` and `net/textproto`. The CI scanned with Go 1.27.2
+  and so did not see them in the image.
+
 ## [0.15.1] - 2026-10-10
 
 A patch for five advisories in `golang.org/x/net` that govulncheck finds on
