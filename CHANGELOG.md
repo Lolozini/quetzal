@@ -7,32 +7,40 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-10-10
+
+A patch for five advisories in `golang.org/x/net` that govulncheck finds on
+paths Quetzal calls. It also carries a user-interface audit of the panel and
+the documentation site, by @Loulouw: keyboard and screen-reader access,
+drafts that survive a tab change, errors in the selected language, and layouts
+that hold at 320 px. Two controller fixes come with it: an install that keeps
+failing now says so, and a clean reinstall no longer deletes `.quetzalignore`.
+
+**Upgrading from 0.15.0** — one thing behaves differently:
+
+- **The hibernation idle timeout is saved with Enter or Save,** no longer on
+  every keystroke. See *Fixed*.
+
 ### Fixed
 
-- **The narrow documentation header also fits desktop scrollbars.** Below
-  360 px, the theme picker drops only its decorative icon, leaving the complete
-  logo and both controls visible even when a vertical scrollbar takes space.
-- **Newly granted creation rights take effect without signing in again.**
-  The denied-creation notice refreshes the account on entry and offers Check
-  access again, so an administrator granting a quota does not leave an open
-  session permanently stuck behind its previous zero quota.
-- **A language switch also updates errors on retained server tabs.** File,
-  schedule and server-list/detail loaders keep the original error and translate
-  it when displayed, so a later refresh cannot reuse the previous language.
-  Changing language does not restart polling or discard metric history.
-- **The documentation home page keeps its theme picker on phones.** Light,
-  Dark and Auto remain reachable without entering a guide. The compact header
-  fits at 320 px while preserving the logo's 140 px brand minimum.
-- **Documentation search reports failures and can retry.** Search keeps the
-  query, presents an error instead of an endless loading message, and rebuilds
-  the failed Pagefind instance on Retry. Results, sub-results, pagination and
-  empty searches use the real index; the modal preserves focus and locks
-  background scrolling. Verification distinguished an audit-browser worker
-  instrumentation failure from ordinary Chromium, where the index already
-  worked; no speculative Pagefind upgrade or worker patch is applied.
-- **The documentation's light-theme selection is readable.** Active navigation
-  and accent text use the existing darker rust token (6.08:1 white-on-rust),
-  without recolouring the brand artwork.
+- **An install that keeps failing says so, instead of reporting "installing"
+  for as long as it fails.** A failed install step is retried in place by
+  Kubernetes, and the panel read that as a failure only once the step reached
+  CrashLoopBackOff. A step that takes minutes and fails at the end never gets
+  there: each attempt runs long enough to reset the back-off, so the container
+  is simply running again. A modpack install that spent four minutes in `apt`
+  before failing therefore looped every five minutes while the server said
+  "running install" — and the install log, which shows the current attempt,
+  almost always showed the slow part rather than the error at the end of the
+  previous one. The phase is now the error, with the step, its exit code, what
+  it wrote, and which attempt is running.
+- **A clean reinstall no longer deletes `.quetzalignore`.** It is Quetzal's own
+  file, not something a modpack shipped, and nobody thinks to add it to the
+  paths they keep. Deleting it silently put back into the server's backups
+  everything the list had been leaving out — a Steam game's own gigabytes —
+  and nothing said so until a restore came up short. It is spared whatever the
+  list says. A wipe with no list still takes it: that resets the server on
+  purpose.
 - **Role help links to the Users tab.** It no longer points to a nonexistent
   Users card above the role editor.
 - **The mobile sign-in logo keeps its proportions.** Only the horizontal
@@ -89,24 +97,19 @@ releases may include breaking changes).
   arrive, instead of presenting permissive defaults after a failed request.
 - **Open a server without a mouse.** Server names in the list are now real
   links: Tab reaches them, Enter opens them, and they can be opened in a new tab.
-- **An install that keeps failing says so, instead of reporting "installing"
-  for as long as it fails.** A failed install step is retried in place by
-  Kubernetes, and the panel read that as a failure only once the step reached
-  CrashLoopBackOff. A step that takes minutes and fails at the end never gets
-  there: each attempt runs long enough to reset the back-off, so the container
-  is simply running again. A modpack install that spent four minutes in `apt`
-  before failing therefore looped every five minutes while the server said
-  "running install" — and the install log, which shows the current attempt,
-  almost always showed the slow part rather than the error at the end of the
-  previous one. The phase is now the error, with the step, its exit code, what
-  it wrote, and which attempt is running.
-- **A clean reinstall no longer deletes `.quetzalignore`.** It is Quetzal's own
-  file, not something a modpack shipped, and nobody thinks to add it to the
-  paths they keep. Deleting it silently put back into the server's backups
-  everything the list had been leaving out — a Steam game's own gigabytes —
-  and nothing said so until a restore came up short. It is spared whatever the
-  list says. A wipe with no list still takes it: that resets the server on
-  purpose.
+- **The documentation home page keeps its theme picker on phones.** Light,
+  Dark and Auto remain reachable without entering a guide. The compact header
+  fits at 320 px while preserving the logo's 140 px brand minimum.
+- **Documentation search reports failures and can retry.** Search keeps the
+  query, presents an error instead of an endless loading message, and rebuilds
+  the failed Pagefind instance on Retry. Results, sub-results, pagination and
+  empty searches use the real index; the modal preserves focus and locks
+  background scrolling. Verification distinguished an audit-browser worker
+  instrumentation failure from ordinary Chromium, where the index already
+  worked; no speculative Pagefind upgrade or worker patch is applied.
+- **The documentation's light-theme selection is readable.** Active navigation
+  and accent text use the existing darker rust token (6.08:1 white-on-rust),
+  without recolouring the brand artwork.
 
 ### Security
 
@@ -2277,7 +2280,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.15.1...HEAD
+[0.15.1]: https://github.com/lolozini/quetzal/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/lolozini/quetzal/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/lolozini/quetzal/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/lolozini/quetzal/compare/v0.12.0...v0.13.0
