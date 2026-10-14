@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -923,7 +924,7 @@ func TestInstallDropsTheCapabilitiesPackageManagersNeverUse(t *testing.T) {
 // and unrelated workloads sharing the cluster alike.
 func TestManagedDBNetworkPolicyNamesOnlyItsTenants(t *testing.T) {
 	h := &models.DatabaseHost{ID: 7, Name: "shared", Kind: models.DBHostManaged}
-	np := BuildManagedDBNetworkPolicy(h, []string{"quetzal-srv-a", "quetzal-srv-b", "quetzal"})
+	np := BuildManagedDBNetworkPolicy(h, []string{"quetzal-srv-a", "quetzal-srv-b", "quetzal"}, nil)
 
 	if np.Namespace != h.ManagedNamespace() {
 		t.Errorf("policy namespace = %q, want the database's own", np.Namespace)
@@ -956,10 +957,49 @@ func TestManagedDBNetworkPolicyNamesOnlyItsTenants(t *testing.T) {
 	if len(rule.Ports) != 1 || rule.Ports[0].Port.IntVal != ManagedDBPort {
 		t.Errorf("ports = %+v, want only %d", rule.Ports, ManagedDBPort)
 	}
-	// Ingress only: the database opens no connections of its own, and a broken
-	// egress rule there would be a self-inflicted outage.
-	if len(np.Spec.PolicyTypes) != 1 || np.Spec.PolicyTypes[0] != networkingv1.PolicyTypeIngress {
-		t.Errorf("policy types = %v, want Ingress only", np.Spec.PolicyTypes)
+}
+
+// A managed database opens no connections of its own, yet its egress was left
+// open: a compromised MariaDB, or a plugin like FederatedX, could reach the
+// cluster, the LAN and the internet from there. It may now resolve names, and
+// nothing else.
+func TestManagedDBNetworkPolicyDeniesEgressButDNS(t *testing.T) {
+	h := &models.DatabaseHost{ID: 7, Name: "shared", Kind: models.DBHostManaged}
+	np := BuildManagedDBNetworkPolicy(h, []string{"quetzal"}, []string{"10.96.0.10", "not-an-ip"})
+
+	hasEgress := false
+	for _, pt := range np.Spec.PolicyTypes {
+		hasEgress = hasEgress || pt == networkingv1.PolicyTypeEgress
+	}
+	if !hasEgress {
+		t.Fatalf("policy types = %v: without Egress the database may connect anywhere", np.Spec.PolicyTypes)
+	}
+	if len(np.Spec.Egress) != 1 {
+		t.Fatalf("want a single egress rule (DNS), got %d", len(np.Spec.Egress))
+	}
+	rule := np.Spec.Egress[0]
+	if len(rule.To) == 0 {
+		t.Fatal("an egress rule with no peers allows every destination")
+	}
+	for _, p := range rule.Ports {
+		if p.Port == nil || p.Port.IntVal != 53 {
+			t.Errorf("egress port %+v, want 53 only", p)
+		}
+	}
+	if len(rule.Ports) != 2 {
+		t.Errorf("ports = %+v, want 53/UDP and 53/TCP", rule.Ports)
+	}
+	var cidrs []string
+	for _, p := range rule.To {
+		if p.IPBlock != nil {
+			cidrs = append(cidrs, p.IPBlock.CIDR)
+			if len(p.IPBlock.Except) == 0 && p.IPBlock.CIDR == "0.0.0.0/0" {
+				t.Error("DNS rule opens port 53 of every address")
+			}
+		}
+	}
+	if !slices.Contains(cidrs, "10.96.0.10/32") {
+		t.Errorf("DNS peers %v miss the controller's resolver", cidrs)
 	}
 }
 

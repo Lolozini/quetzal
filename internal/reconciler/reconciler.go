@@ -771,14 +771,8 @@ func (r *Reconciler) egressPeersFor(s *models.Server) []EgressPeer {
 	for _, c := range r.ExtraEgressCIDRs {
 		peers = append(peers, EgressPeer{CIDR: c})
 	}
-	for _, ip := range r.DNSServers {
-		if a := net.ParseIP(ip); a != nil {
-			bits := 32
-			if a.To4() == nil {
-				bits = 128
-			}
-			peers = append(peers, EgressPeer{CIDR: fmt.Sprintf("%s/%d", a, bits), DNS: true})
-		}
+	for _, c := range resolverCIDRs(r.DNSServers) {
+		peers = append(peers, EgressPeer{CIDR: c, DNS: true})
 	}
 	if r.Store == nil {
 		return peers
@@ -823,6 +817,22 @@ func (r *Reconciler) egressPeersFor(s *models.Server) []EgressPeer {
 		peers = append(peers, EgressPeer{Namespace: t.Namespace})
 	}
 	return peers
+}
+
+// resolverCIDRs turns resolver addresses into the single-host blocks a
+// NetworkPolicy names them by, skipping anything that is not an IP.
+func resolverCIDRs(ips []string) []string {
+	var out []string
+	for _, ip := range ips {
+		if a := net.ParseIP(ip); a != nil {
+			bits := 32
+			if a.To4() == nil {
+				bits = 128
+			}
+			out = append(out, fmt.Sprintf("%s/%d", a, bits))
+		}
+	}
+	return out
 }
 
 // Nameservers reads the resolvers of a resolv.conf. On a pod they are the

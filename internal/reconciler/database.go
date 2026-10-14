@@ -130,7 +130,7 @@ func (r *Reconciler) ensureManagedDBNetworkPolicy(ctx context.Context, h *models
 		log.Printf("db host %d: list server namespaces (its ingress policy is left as it is): %v", h.ID, err)
 		return
 	}
-	if err := r.apply(ctx, BuildManagedDBNetworkPolicy(h, append(namespaces, r.ControlPlaneNamespace))); err != nil {
+	if err := r.apply(ctx, BuildManagedDBNetworkPolicy(h, append(namespaces, r.ControlPlaneNamespace), r.DNSServers)); err != nil {
 		log.Printf("db host %d: apply ingress policy: %v", h.ID, err)
 	}
 }
@@ -145,9 +145,18 @@ func (r *Reconciler) ensureManagedDBNetworkPolicy(ctx context.Context, h *models
 // and they hold; this removes the chance to try at all, and to reach a MariaDB
 // that is unpatched or misconfigured.
 //
-// Only ingress is constrained. The pod's own egress is left alone: it needs DNS
-// and nothing else, and a policy there would be one more thing to get wrong on a
-// component that initiates no connections.
+// Egress is closed except for DNS. The database initiates no connections of its
+// own, so nothing legitimate is lost, and a compromised or misused MariaDB — a
+// plugin such as CONNECT or FederatedX opens outbound connections by design —
+// can no longer reach the cluster, the LAN or the internet from there. DNS stays
+// open because MariaDB resolves the hostname of every client that connects
+// (unless run with skip-name-resolve): without it each login would wait out the
+// resolver's timeout. dnsServers are the resolvers the controller was given, as
+// for the servers' own policy (see clusterDNSPeers).
+//
+// The object keeps its quetzal-db-ingress name from when it only held ingress:
+// it is rewritten in place on existing hosts, and a rename would leave the old
+// one behind.
 //
 // The readiness probe is a connection from the kubelet, which NetworkPolicy does
 // not govern — verified on Cilium, where the pod goes Ready under a policy that
@@ -155,9 +164,15 @@ func (r *Reconciler) ensureManagedDBNetworkPolicy(ctx context.Context, h *models
 // is refused. Naming it here because the symptom on a CNI that did enforce it
 // would be a database that never becomes ready, which reads like anything but a
 // policy problem.
-func BuildManagedDBNetworkPolicy(h *models.DatabaseHost, allowed []string) *networkingv1.NetworkPolicy {
+func BuildManagedDBNetworkPolicy(h *models.DatabaseHost, allowed, dnsServers []string) *networkingv1.NetworkPolicy {
 	tcp := corev1.ProtocolTCP
+	udp := corev1.ProtocolUDP
 	port := intstr.FromInt32(ManagedDBPort)
+	dnsPort := intstr.FromInt32(53)
+	dnsPeers := clusterDNSPeers()
+	for _, c := range resolverCIDRs(dnsServers) {
+		dnsPeers = append(dnsPeers, networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: c}})
+	}
 	peers := make([]networkingv1.NetworkPolicyPeer, 0, len(allowed))
 	for _, ns := range allowed {
 		peers = append(peers, networkingv1.NetworkPolicyPeer{
@@ -178,10 +193,17 @@ func BuildManagedDBNetworkPolicy(h *models.DatabaseHost, allowed []string) *netw
 		},
 		Spec: networkingv1.NetworkPolicySpec{
 			PodSelector: metav1.LabelSelector{MatchLabels: managedDBLabels(h)},
-			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress},
 			Ingress: []networkingv1.NetworkPolicyIngressRule{{
 				From:  peers,
 				Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: &port}},
+			}},
+			Egress: []networkingv1.NetworkPolicyEgressRule{{
+				To: dnsPeers,
+				Ports: []networkingv1.NetworkPolicyPort{
+					{Protocol: &udp, Port: &dnsPort},
+					{Protocol: &tcp, Port: &dnsPort},
+				},
 			}},
 		},
 	}
