@@ -7,6 +7,21 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-10-14
+
+A security patch: the namespaces Quetzal creates for game servers and managed
+databases now enforce Pod Security baseline, so the control plane's account can
+no longer be used to run a privileged or hostPath pod on your nodes.
+
+**Upgrading from 0.16.0** — two things to know:
+
+- Upgrade the chart and the image together, as `helm upgrade` does by default.
+  If you pin the image yourself, move it to 0.16.1 first: a 0.16.0 controller
+  creates namespaces the new admission policy refuses. Nothing restarts; existing
+  namespaces get the label on their next reconcile.
+- On a cluster registered with the manifest the panel offers, re-apply that
+  manifest to pick up the same policy.
+
 ### Security
 
 - **The namespaces Quetzal owns enforce Pod Security baseline.** Its account
@@ -2342,7 +2357,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.16.1...HEAD
+[0.16.1]: https://github.com/lolozini/quetzal/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/lolozini/quetzal/compare/v0.15.2...v0.16.0
 [0.15.2]: https://github.com/lolozini/quetzal/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/lolozini/quetzal/compare/v0.15.0...v0.15.1
