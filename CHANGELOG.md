@@ -7,6 +7,28 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Security
+
+- **A managed database can no longer open connections of its own.** Its
+  NetworkPolicy decided who could reach it, but left its egress open: a
+  compromised MariaDB, or a plugin such as FederatedX that connects out by
+  design, could reach the cluster network, your LAN and the internet. It may now
+  resolve names and nothing else (MariaDB looks up the host of each client).
+  Existing database hosts get the new policy on the controller's next resync.
+
+### Added
+
+- **A NetworkPolicy for the control plane** (`networkPolicy.enabled`, off by
+  default). The panel's account creates namespaces and grants roles in them,
+  yet any pod in the cluster could open its port, and it could connect
+  anywhere. With the policy on, it accepts the UI and API from the peers you
+  list (your ingress controller), the wake-on-connect callbacks of your
+  servers' activators, and metrics scrapes from the peers you list; it reaches
+  DNS, the API server, its own PostgreSQL, managed database hosts and the
+  public internet, and nothing private. The API server is named by address,
+  or, under Cilium, which ignores addresses for it, by a CiliumNetworkPolicy
+  (`networkPolicy.apiserver.cilium`).
+
 ## [0.15.2] - 2026-10-11
 
 0.15.1 was compiled with Go 1.27.1, so its images still carried the HTTP/2

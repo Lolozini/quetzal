@@ -1,0 +1,112 @@
+{{- /*
+The control plane's own NetworkPolicy (networkPolicy.enabled). It holds the
+service account that creates namespaces and grants roles in them, so it should
+accept only who needs it and reach only what it uses. See values.yaml for each
+field; what the panel calls and why is listed there too.
+*/}}
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quetzal.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quetzal.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quetzal.selectorLabels" . | nindent 6 }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Wake-on-connect: a server's activator calls back /api/internal/* on the
+    # http port while the server hibernates. Requests are HMAC-authenticated;
+    # this only keeps the rest of the cluster from reaching the port at all.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/managed-by: quetzal
+          podSelector:
+            matchExpressions:
+              - { key: quetzal.dev/activator, operator: Exists }
+      {{- with $np.ingressFrom }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      ports:
+        - { port: http, protocol: TCP }
+    {{- with $np.metricsFrom }}
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - { port: metrics, protocol: TCP }
+        - { port: api-metrics, protocol: TCP }
+    {{- end }}
+  egress:
+    # DNS: the cluster resolver, wherever it runs, and a node-local cache.
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+        - ipBlock:
+            cidr: 169.254.0.0/16
+      ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    # Managed database hosts: the panel creates and drops tenants' databases.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/managed-by: quetzal
+              app.kubernetes.io/component: database
+      ports:
+        - { port: 3306, protocol: TCP }
+    {{- with $np.apiserver.cidrs }}
+    # The Kubernetes API, by address.
+    - to:
+        {{- range . }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - { port: {{ $np.apiserver.port }}, protocol: TCP }
+    {{- end }}
+    {{- with $np.database }}
+    # The panel's own database.
+    - to:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - { port: {{ $.Values.db.port }}, protocol: TCP }
+    {{- end }}
+    # The public internet, nothing private: egg imports by URL, webhooks, SMTP,
+    # checking a backup bucket.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- toYaml $np.privateRanges | nindent 14 }}
+    {{- with $np.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- if $np.apiserver.cilium }}
+---
+# Under Cilium the API server is the "kube-apiserver" entity, which an ipBlock
+# does not match even with its address: this is the only way to name it there.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "quetzal.fullname" . }}-to-apiserver
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quetzal.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "quetzal.selectorLabels" . | nindent 6 }}
+  egress:
+    - toEntities: [kube-apiserver]
+      toPorts:
+        - ports:
+            - { port: {{ $np.apiserver.port | quote }}, protocol: TCP }
+{{- end }}
+{{- end }}

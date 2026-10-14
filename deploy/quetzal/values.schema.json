@@ -101,6 +101,27 @@
     "leaderElection": { "type": "boolean" },
     "resync": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h)$" },
     "egressAllow": { "type": "array", "items": { "type": "string" } },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "ingressFrom": { "type": "array", "items": { "type": "object" } },
+        "metricsFrom": { "type": "array", "items": { "type": "object" } },
+        "apiserver": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cidrs": { "type": "array", "items": { "type": "string" } },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "cilium": { "type": "boolean" }
+          }
+        },
+        "database": { "type": "array", "items": { "type": "object" } },
+        "privateRanges": { "type": "array", "items": { "type": "string" } },
+        "extraEgress": { "type": "array", "items": { "type": "object" } }
+      }
+    },
     "admissionPolicy": {
       "type": "object",
       "additionalProperties": false,

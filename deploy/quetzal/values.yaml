@@ -122,6 +122,53 @@ resync: "15s"
 #   egressAllow: ["192.168.10.20/32"]
 egressAllow: []
 
+# A NetworkPolicy for the control plane itself. Its account creates namespaces
+# and grants roles in them, so it should accept only who needs it and reach only
+# what it uses. Off by default because two of its rules depend on your cluster:
+# where the ingress controller runs, and how the API server can be named.
+#
+# Always allowed when enabled: the http port from your servers' wake-on-connect
+# activators; DNS; managed database hosts on 3306; the public internet (egg
+# imports, webhooks, SMTP, backup bucket checks), private ranges excepted.
+networkPolicy:
+  enabled: false
+  # Who may open the UI and API: your ingress controller's pods, as
+  # NetworkPolicyPeers. Leave it empty and only the activators get in.
+  #   ingressFrom:
+  #     - namespaceSelector:
+  #         matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+  ingressFrom: []
+  # Who may scrape the metrics ports (controller 9090, apiserver 9091).
+  metricsFrom: []
+  # The Kubernetes API, which the panel uses for everything. A NetworkPolicy
+  # names it by address (`kubectl get endpointslices -l
+  # kubernetes.io/service-name=kubernetes`), except under Cilium, which ignores
+  # that for the API server: set cilium to true there, and a CiliumNetworkPolicy
+  # is added for it.
+  apiserver:
+    cidrs: []
+    port: 6443
+    cilium: false
+  # The panel's own PostgreSQL (db.driver=postgres), as NetworkPolicyPeers; the
+  # port is db.port. Not needed with SQLite.
+  #   database:
+  #     - namespaceSelector:
+  #         matchLabels: { kubernetes.io/metadata.name: postgres }
+  #       podSelector:
+  #         matchLabels: { app: postgres }
+  database: []
+  # Address space left out of the internet rule.
+  privateRanges:
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 100.64.0.0/10
+    - 169.254.0.0/16
+    - 127.0.0.0/8
+  # Egress rules added as they are: an external database host or a remote
+  # cluster's API server on a private address, an S3 endpoint in the cluster.
+  extraEgress: []
+
 # An admission policy that keeps the control plane's account inside the
 # namespaces it creates. RBAC scopes what it can read; this scopes the one write
 # — handing itself its own role — that would otherwise undo that scoping, and the

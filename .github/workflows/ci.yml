@@ -127,6 +127,20 @@ jobs:
           [ "$ports" = 3 ] || fail "nodePort pool reached $ports of 3 containers"
           # Log retention has to reach the apiserver, which is what prunes.
           echo "$out" | grep -q 'QUETZAL_EVENT_RETENTION_DAYS' || fail retention
+          # The control plane's own NetworkPolicy: nothing unless asked for, and
+          # then every peer it is given ends up in the policy.
+          ! echo "$out" | grep -q 'NetworkPolicy' || fail "a NetworkPolicy rendered while disabled"
+          np="$(helm template quetzal deploy/quetzal --set networkPolicy.enabled=true \
+            --set 'networkPolicy.apiserver.cidrs[0]=192.0.2.10/32' --set networkPolicy.apiserver.cilium=true \
+            --set 'networkPolicy.ingressFrom[0].namespaceSelector.matchLabels.role=edge' \
+            --set 'networkPolicy.metricsFrom[0].namespaceSelector.matchLabels.role=scraper' \
+            --set 'networkPolicy.database[0].podSelector.matchLabels.role=pg')"
+          echo "$np" | grep -q 'policyTypes: \[Ingress, Egress\]' || fail networkPolicy.enabled
+          echo "$np" | grep -q 'cidr: 192.0.2.10/32' || fail networkPolicy.apiserver.cidrs
+          echo "$np" | grep -q 'kind: CiliumNetworkPolicy' || fail networkPolicy.apiserver.cilium
+          echo "$np" | grep -q 'role: edge'    || fail networkPolicy.ingressFrom
+          echo "$np" | grep -q 'role: scraper' || fail networkPolicy.metricsFrom
+          echo "$np" | grep -q 'role: pg'      || fail networkPolicy.database
           # More than one replica is safe on Postgres and destroys a SQLite
           # database. The chart must refuse the second case rather than let it be
           # discovered in production.
