@@ -7,14 +7,13 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
-### Security
+## [0.16.0] - 2026-10-14
 
-- **A managed database can no longer open connections of its own.** Its
-  NetworkPolicy decided who could reach it, but left its egress open: a
-  compromised MariaDB, or a plugin such as FederatedX that connects out by
-  design, could reach the cluster network, your LAN and the internet. It may now
-  resolve names and nothing else (MariaDB looks up the host of each client).
-  Existing database hosts get the new policy on the controller's next resync.
+Quetzal's control plane can now be fenced in by a NetworkPolicy of its own,
+from the chart (`networkPolicy.enabled`), and a managed database host can no
+longer open connections: its policy, rewritten by the controller, now closes
+its egress but for DNS. Existing hosts pick it up on the first resync after
+upgrading; nothing restarts.
 
 ### Added
 
@@ -28,6 +27,15 @@ releases may include breaking changes).
   public internet, and nothing private. The API server is named by address,
   or, under Cilium, which ignores addresses for it, by a CiliumNetworkPolicy
   (`networkPolicy.apiserver.cilium`).
+
+### Security
+
+- **A managed database can no longer open connections of its own.** Its
+  NetworkPolicy decided who could reach it, but left its egress open: a
+  compromised MariaDB, or a plugin such as FederatedX that connects out by
+  design, could reach the cluster network, your LAN and the internet. It may now
+  resolve names and nothing else (MariaDB looks up the host of each client).
+  Existing database hosts get the new policy on the controller's next resync.
 
 ## [0.15.2] - 2026-10-11
 
@@ -2320,7 +2328,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.15.2...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/lolozini/quetzal/compare/v0.15.2...v0.16.0
 [0.15.2]: https://github.com/lolozini/quetzal/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/lolozini/quetzal/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/lolozini/quetzal/compare/v0.14.0...v0.15.0
