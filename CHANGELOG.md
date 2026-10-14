@@ -7,6 +7,20 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Security
+
+- **The namespaces Quetzal owns enforce Pod Security baseline.** Its account
+  may create Deployments in each server's and each managed database's
+  namespace, and nothing stopped one of them from mounting the node's
+  filesystem or running privileged: a stolen token was root on the node. The
+  controller now labels those namespaces `pod-security.kubernetes.io/enforce:
+  baseline` (existing ones on their next reconcile, nothing restarts; one you
+  tightened to `restricted` stays so), and the admission policy, in the chart
+  and in the remote cluster manifest, refuses a namespace of Quetzal's without
+  that label or relabelled to `privileged`. Baseline admits everything Quetzal
+  runs, the eggs' root install container included. Upgrade the image before
+  the chart: an older controller creates namespaces the new policy refuses.
+
 ## [0.16.0] - 2026-10-14
 
 Quetzal's control plane can now be fenced in by a NetworkPolicy of its own,

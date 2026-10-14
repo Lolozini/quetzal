@@ -348,7 +348,12 @@ that cluster-wide — which on its own would let the account bind its own role
 anywhere and read everything after all. `admissionPolicy.enabled` closes that:
 an admission policy confines those bindings to namespaces Quetzal owns, to its
 own role and to its own account, and does the same for creating, relabelling
-and deleting namespaces. It needs 1.30, as the chart does. A cluster
+and deleting namespaces. Those namespaces enforce the Pod Security Standards'
+`baseline` level, which the policy keeps the account from lifting: inside them
+it creates Deployments, and a privileged or hostPath pod would be root on the
+node. Baseline still admits the eggs' root install container; tighten a
+namespace to `restricted` yourself and Quetzal leaves it so. It needs 1.30, as
+the chart does. A cluster
 registered with the manifest the panel offers gets the same policy; on one
 older than 1.30, leave the policy out of that manifest and the scoping still
 stands, but the escalation becomes possible again — noisily, since creating a

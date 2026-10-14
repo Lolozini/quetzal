@@ -152,6 +152,24 @@ current-context: remote
 		_ = c.Delete(context.Background(), stray)
 	}
 
+	// Its own namespaces enforce Pod Security baseline, and it cannot lift that:
+	// it creates Deployments there, and a privileged pod is root on the node.
+	var own corev1.Namespace
+	if err := c.Get(ctx, client.ObjectKey{Name: srv.Namespace}, &own); err != nil {
+		t.Fatalf("server namespace: %v", err)
+	}
+	if l := own.Labels[reconciler.PodSecurityLabel]; l != "baseline" {
+		t.Errorf("server namespace enforces %q, want baseline", l)
+	}
+	_, err = cs.CoreV1().Namespaces().Patch(ctx, srv.Namespace, types.MergePatchType,
+		[]byte(`{"metadata":{"labels":{"pod-security.kubernetes.io/enforce":"privileged"}}}`), metav1.PatchOptions{})
+	refused("relaxing its own namespace to privileged", err)
+	unfenced := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "quetzal-srv-e2e-unfenced"}}
+	if _, err := cs.CoreV1().Namespaces().Create(ctx, unfenced, metav1.CreateOptions{}); err == nil {
+		t.Errorf("creating one of its namespaces without Pod Security: allowed")
+		_ = c.Delete(context.Background(), unfenced)
+	}
+
 	// Volumes are not its business at all: a PersistentVolume's claimRef is
 	// what decides whose data a claim mounts.
 	_, err = cs.CoreV1().PersistentVolumes().List(ctx, metav1.ListOptions{})

@@ -65,6 +65,17 @@ spec:
             s.namespace == '{{ .Release.Namespace }}' &&
             s.name == '{{ include "quetzal.serviceAccountName" . }}')))
       message: Quetzal may only bind its own namespaced role, and only to itself
+    # Its namespaces enforce Pod Security baseline, and it cannot lift that: the
+    # account may create Deployments there, and a privileged or hostPath pod is
+    # root on the node. The controller stamps the label on every namespace it
+    # owns; this keeps a stolen token from creating one without it, or
+    # relabelling one to privileged.
+    - expression: >-
+        request.resource.resource != 'namespaces' || request.operation == 'DELETE' || (
+          has(object.metadata.labels) &&
+          'pod-security.kubernetes.io/enforce' in object.metadata.labels &&
+          object.metadata.labels['pod-security.kubernetes.io/enforce'] in ['baseline', 'restricted'])
+      message: Quetzal's namespaces must enforce Pod Security baseline or restricted
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

@@ -250,7 +250,7 @@ func (r *Reconciler) gcManagedDBNamespaces(ctx context.Context, valid map[string
 func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) ([]client.Object, error) {
 	ns := h.ManagedNamespace()
 	labels := managedDBLabels(h)
-	nsLabels := managedDBLabels(h)
+	nsLabels := stampPodSecurity(managedDBLabels(h))
 	if instanceID != "" {
 		nsLabels[InstanceLabel] = instanceID
 	}

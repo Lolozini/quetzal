@@ -49,6 +49,13 @@ const (
 	ActivatorLabel = "quetzal.dev/activator"
 	// ActivatorName is the activator Deployment's name within a server namespace.
 	ActivatorName = "activator"
+	// PodSecurityLabel is the Pod Security Admission level every namespace
+	// Quetzal owns is stamped with. Its account may create Deployments there, so
+	// without it a stolen token could start a privileged or hostPath pod — root
+	// on the node. Baseline still admits everything Quetzal itself runs, the
+	// root install container of the eggs included; restricted would not.
+	PodSecurityLabel = "pod-security.kubernetes.io/enforce"
+	podSecurityLevel = "baseline"
 	// DataLabel marks a server's permanent data-manager pod (value = slug). Like
 	// ActivatorLabel it is deliberately distinct from ServerLabel so the game
 	// Deployment never adopts it and console/status code never mistakes it for the
@@ -103,9 +110,22 @@ func BuildNamespace(s *models.Server) *corev1.Namespace {
 	return &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   s.Namespace,
-			Labels: labelsFor(s),
+			Labels: stampPodSecurity(labelsFor(s)),
 		},
 	}
+}
+
+// stampPodSecurity sets the namespace's Pod Security level to baseline, unless
+// it already enforces something at least as strict: an operator who tightened
+// a namespace to restricted keeps it.
+func stampPodSecurity(labels map[string]string) map[string]string {
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	if l := labels[PodSecurityLabel]; l != "baseline" && l != "restricted" {
+		labels[PodSecurityLabel] = podSecurityLevel
+	}
+	return labels
 }
 
 // BuildPVC returns the data PersistentVolumeClaim backing the server.

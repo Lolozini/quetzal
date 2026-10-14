@@ -200,6 +200,12 @@ spec:
             s.namespace == '` + RemoteNamespace + `' &&
             s.name == '` + RemoteServiceAccount + `')))
       message: Quetzal may only bind its own namespaced role, and only to itself
+    - expression: >-
+        request.resource.resource != 'namespaces' || request.operation == 'DELETE' || (
+          has(object.metadata.labels) &&
+          'pod-security.kubernetes.io/enforce' in object.metadata.labels &&
+          object.metadata.labels['pod-security.kubernetes.io/enforce'] in ['baseline', 'restricted'])
+      message: Quetzal's namespaces must enforce Pod Security baseline or restricted
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

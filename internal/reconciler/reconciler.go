@@ -496,7 +496,7 @@ func (r *Reconciler) ensureOwnedNamespace(ctx context.Context, name string, labe
 		if err := r.checkNamespaceOwner(ns, labels); err != nil {
 			return err
 		}
-		ns.Labels = mergeLabels(ns.Labels, labels)
+		ns.Labels = stampPodSecurity(mergeLabels(ns.Labels, labels))
 		// Stamp ownership so orphan collection can tell this control plane's
 		// namespaces from another's (see InstanceLabel). Also adopts namespaces
 		// created before the label existed.
