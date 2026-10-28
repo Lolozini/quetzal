@@ -339,12 +339,19 @@ jobs:
       # ready" and looks like a failure of whatever is in the changeset. Pulling
       # here makes a bad image a step failure that says so -- which is how the
       # MinIO move off Docker Hub was identified rather than guessed at.
+      # `kind load docker-image` imports the whole image index, and the runner
+      # holds only its own platform of a multi-arch image: the import stopped on
+      # the missing arm64 manifest of versitygw (2026-10-28). An archive of the
+      # runner's platform alone imports whole.
       - name: Preload the fixture images into kind
         run: |
           set -eux
+          platform=$(docker version -f '{{.Server.Os}}/{{.Server.Arch}}')
           for img in versity/versitygw:v1.8.0 restic/restic:0.19.1 mariadb:12.3; do
-            docker pull "$img"
-            kind load docker-image "$img" --name quetzal-e2e
+            docker pull --platform "$platform" "$img"
+            docker save --platform "$platform" -o fixture.tar "$img"
+            kind load image-archive fixture.tar --name quetzal-e2e
+            rm fixture.tar
           done
       - name: e2e tests (kind)
         # kind-action points the default kubeconfig at the cluster.
