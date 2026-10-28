@@ -104,7 +104,11 @@ func TestTickFiresDueSchedule(t *testing.T) {
 	if err := st.CreateServer(srv); err != nil {
 		t.Fatalf("create server: %v", err)
 	}
-	past := time.Now().Add(-time.Minute)
+	// The clock is pinned a second before a minute turns: NextRun is computed
+	// from the tick's start, and checked against the wall clock it fell behind
+	// whenever the run crossed the minute (CI, 2026-10-15).
+	now := time.Date(2026, 10, 15, 1, 37, 59, 0, time.UTC)
+	past := now.Add(-time.Minute)
 	// Legacy single-action schedule (no Tasks): exercises TaskChain normalization.
 	sc := &models.Schedule{ServerID: srv.ID, Name: "wake", Cron: "* * * * *", Action: models.SchedStart, Enabled: true, NextRun: &past}
 	if err := st.CreateSchedule(sc); err != nil {
@@ -112,7 +116,9 @@ func TestTickFiresDueSchedule(t *testing.T) {
 	}
 
 	m := &mockExec{st: st}
-	runTick(New(st, m), context.Background())
+	s := New(st, m)
+	s.Now = func() time.Time { return now }
+	runTick(s, context.Background())
 
 	if m.started != 1 {
 		t.Fatalf("Start called %d times, want 1", m.started)
@@ -121,8 +127,8 @@ func TestTickFiresDueSchedule(t *testing.T) {
 	if got.LastRun == nil {
 		t.Error("LastRun not recorded")
 	}
-	if got.NextRun == nil || !got.NextRun.After(time.Now()) {
-		t.Errorf("NextRun not advanced into the future: %v", got.NextRun)
+	if want := now.Truncate(time.Minute).Add(time.Minute); got.NextRun == nil || !got.NextRun.Equal(want) {
+		t.Errorf("NextRun = %v, want the next minute %v", got.NextRun, want)
 	}
 	if !strings.Contains(got.LastStatus, "ok") {
 		t.Errorf("LastStatus = %q, want it to contain ok", got.LastStatus)
