@@ -7,6 +7,18 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.16.2] - 2026-10-29
+
+A security and bug-fix patch. The image is rebuilt with Go 1.27.3 for a
+`crypto/x509` advisory, and switching a server's exposure type in the panel no
+longer erases the service annotations an admin set, which had external-dns
+delete the server's DNS record. Anyone on 0.16.1 should update.
+
+**Upgrading from 0.16.1** — one thing behaves differently:
+
+- An API client that cleared a server's annotations by sending an exposure
+  without them now keeps them: send `"annotations": {}` instead. See *Fixed*.
+
 ### Fixed
 
 - **Switching a server's exposure type no longer drops its service
@@ -2374,7 +2386,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.16.1...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.16.2...HEAD
+[0.16.2]: https://github.com/lolozini/quetzal/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/lolozini/quetzal/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/lolozini/quetzal/compare/v0.15.2...v0.16.0
 [0.15.2]: https://github.com/lolozini/quetzal/compare/v0.15.1...v0.15.2
