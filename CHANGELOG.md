@@ -7,6 +7,16 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Switching a server's exposure type no longer drops its service
+  annotations.** The panel sends the type alone, and the API took it as the
+  whole exposure: the annotations an admin had set were erased, so
+  external-dns in sync mode deleted the server's DNS record, and a
+  `preserveClientIP` turned off came back on. An exposure PATCH now changes
+  only the fields it carries, as the rest of that endpoint does; send an empty
+  `annotations` object to clear them.
+
 ### Security
 
 - **The image is built with Go 1.27.3.** Go 1.27.2's `crypto/x509` still

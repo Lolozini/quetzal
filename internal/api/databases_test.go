@@ -185,6 +185,67 @@ func TestServiceAnnotationsAreAdminOnly(t *testing.T) {
 	}
 }
 
+// Switching the exposure type in the panel sends the type alone. Taking that as
+// the whole exposure dropped the annotations an admin had set, and external-dns,
+// in sync mode, deleted the server's DNS record; a preserveClientIP turned off
+// came back on.
+func TestExposePatchKeepsWhatItLeavesOut(t *testing.T) {
+	srv, admin := newTestServer(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+	const hostname = "external-dns.alpha.kubernetes.io/hostname"
+	r := post(t, admin, srv.URL+"/api/servers", map[string]any{
+		"name": "s", "template": "generic-process",
+		"ports": []map[string]any{{"port": 25565, "protocol": "TCP"}},
+		"expose": map[string]any{
+			"type": "NodePort", "annotations": map[string]string{hostname: "mc.example.org"},
+			"preserveClientIP": false,
+		},
+	})
+	if r.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d", r.StatusCode)
+	}
+	var created struct{ ID uint }
+	json.NewDecoder(r.Body).Decode(&created)
+	r.Body.Close()
+	url := srv.URL + "/api/servers/" + itoa(created.ID)
+
+	type exposure struct {
+		Type             string
+		Annotations      map[string]string
+		PreserveClientIP *bool
+	}
+	patch := func(body map[string]any) exposure {
+		t.Helper()
+		resp := doPatch(t, admin, url, map[string]any{"expose": body})
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("PATCH %v = %d", body, resp.StatusCode)
+		}
+		var got struct{ Expose exposure }
+		getJSON(t, admin, url, &got)
+		return got.Expose
+	}
+
+	got := patch(map[string]any{"type": "ClusterIP"})
+	if got.Type != "ClusterIP" {
+		t.Errorf("type = %q, want ClusterIP", got.Type)
+	}
+	if got.Annotations[hostname] != "mc.example.org" {
+		t.Errorf("switching the type dropped the annotations: %v", got.Annotations)
+	}
+	if got.PreserveClientIP == nil || *got.PreserveClientIP {
+		t.Errorf("switching the type reset preserveClientIP: %v", got.PreserveClientIP)
+	}
+
+	got = patch(map[string]any{"annotations": map[string]string{}})
+	if len(got.Annotations) != 0 {
+		t.Errorf("an empty annotations object left %v", got.Annotations)
+	}
+	if got.Type != "ClusterIP" {
+		t.Errorf("clearing the annotations changed the type to %q", got.Type)
+	}
+}
+
 // A port name goes on both the Service and the container port, and Kubernetes
 // refuses what it does not like. Accepting one it will refuse created the server
 // happily and then had its Service rejected on every reconcile for good: no

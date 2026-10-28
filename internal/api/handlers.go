@@ -1199,7 +1199,7 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	}
 	expose := srv.Expose
 	if req.Expose != nil {
-		expose = *req.Expose
+		expose = patchExpose(srv.Expose, *req.Expose)
 	}
 	if err := authorizeExposeAnnotations(userFrom(r.Context()), &expose, srv.Expose.Annotations); err != nil {
 		writeError(w, http.StatusForbidden, err.Error())
@@ -1512,6 +1512,24 @@ func authorizeExposeAnnotations(u *models.User, e *models.Expose, prev map[strin
 	}
 	e.Annotations = prev
 	return nil
+}
+
+// patchExpose applies an exposure PATCH field by field: what the request
+// leaves out keeps its value. The panel sends the type alone when it switches
+// it, and replacing the whole exposure dropped the annotations an admin had
+// set (external-dns then deleted the server's record) and a preserveClientIP
+// turned off. An empty annotations object clears them.
+func patchExpose(cur, req models.Expose) models.Expose {
+	if req.Type != "" {
+		cur.Type = req.Type
+	}
+	if req.Annotations != nil {
+		cur.Annotations = req.Annotations
+	}
+	if req.PreserveClientIP != nil {
+		cur.PreserveClientIP = req.PreserveClientIP
+	}
+	return cur
 }
 
 func sameAnnotations(a, b map[string]string) bool {

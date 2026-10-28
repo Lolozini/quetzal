@@ -1057,7 +1057,8 @@ paths:
       tags: [Servers]
       summary: Update settings (name, exposure, hibernation, SFTP, startup variables, resources, image, startup command)
       description: >-
-        All fields are optional; only the present ones change. A rename changes
+        All fields are optional; only the present ones change, inside expose
+        too (an empty annotations object clears them). A rename changes
         the displayed name only, never the slug. Editing env, resources, the
         image or the startup command is applied on the next reconcile, which
         restarts the server.
