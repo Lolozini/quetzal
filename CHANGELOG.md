@@ -7,6 +7,13 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Security
+
+- **The image is built with Go 1.27.3.** Go 1.27.2's `crypto/x509` still
+  trusted a set of intermediate certificates known to be compromised
+  (GO-2026-6809, CVE-2026-111943); 1.27.3 adds them to a denylist that
+  `Verify` refuses, for the hosts whose system trust store was not updated.
+
 ## [0.16.1] - 2026-10-14
 
 A security patch: the namespaces Quetzal creates for game servers and managed
