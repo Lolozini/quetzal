@@ -204,8 +204,10 @@ spec:
         request.resource.resource != 'namespaces' || request.operation == 'DELETE' || (
           has(object.metadata.labels) &&
           'pod-security.kubernetes.io/enforce' in object.metadata.labels &&
-          object.metadata.labels['pod-security.kubernetes.io/enforce'] in ['baseline', 'restricted'])
-      message: Quetzal's namespaces must enforce Pod Security baseline or restricted
+          object.metadata.labels['pod-security.kubernetes.io/enforce'] in ['baseline', 'restricted'] &&
+          (!('pod-security.kubernetes.io/enforce-version' in object.metadata.labels) ||
+            object.metadata.labels['pod-security.kubernetes.io/enforce-version'] == 'latest'))
+      message: Quetzal's namespaces must enforce Pod Security baseline or restricted, at its latest version
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

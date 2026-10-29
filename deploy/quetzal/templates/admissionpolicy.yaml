@@ -69,13 +69,16 @@ spec:
     # account may create Deployments there, and a privileged or hostPath pod is
     # root on the node. The controller stamps the label on every namespace it
     # owns; this keeps a stolen token from creating one without it, or
-    # relabelling one to privileged.
+    # relabelling one to privileged -- or pinning the level to an old version
+    # of itself, which let through what the checks added since refuse.
     - expression: >-
         request.resource.resource != 'namespaces' || request.operation == 'DELETE' || (
           has(object.metadata.labels) &&
           'pod-security.kubernetes.io/enforce' in object.metadata.labels &&
-          object.metadata.labels['pod-security.kubernetes.io/enforce'] in ['baseline', 'restricted'])
-      message: Quetzal's namespaces must enforce Pod Security baseline or restricted
+          object.metadata.labels['pod-security.kubernetes.io/enforce'] in ['baseline', 'restricted'] &&
+          (!('pod-security.kubernetes.io/enforce-version' in object.metadata.labels) ||
+            object.metadata.labels['pod-security.kubernetes.io/enforce-version'] == 'latest'))
+      message: Quetzal's namespaces must enforce Pod Security baseline or restricted, at its latest version
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

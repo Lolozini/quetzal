@@ -25,6 +25,8 @@ func TestOwnedNamespacesEnforcePodSecurity(t *testing.T) {
 		"unlabelled": {map[string]string{managedByLabel: managedByValue, serverLabel: "s"}, "baseline"},
 		"privileged": {map[string]string{managedByLabel: managedByValue, serverLabel: "s", PodSecurityLabel: "privileged"}, "baseline"},
 		"tightened":  {map[string]string{managedByLabel: managedByValue, serverLabel: "s", PodSecurityLabel: "restricted"}, "restricted"},
+		// Pinned to an old release, baseline let through what was added since.
+		"pinned": {map[string]string{managedByLabel: managedByValue, serverLabel: "s", PodSecurityLabel: "baseline", PodSecurityVersionLabel: "v1.18"}, "baseline"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -43,6 +45,9 @@ func TestOwnedNamespacesEnforcePodSecurity(t *testing.T) {
 			}
 			if l := got.Labels[PodSecurityLabel]; l != tc.want {
 				t.Errorf("%s = %q, want %q", PodSecurityLabel, l, tc.want)
+			}
+			if v, ok := got.Labels[PodSecurityVersionLabel]; ok && v != "latest" {
+				t.Errorf("%s = %q, want unset or latest", PodSecurityVersionLabel, v)
 			}
 		})
 	}

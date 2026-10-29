@@ -69,6 +69,13 @@ releases may include breaking changes).
   accounts are `%` and `localhost`. Each managed database restarts once on the
   upgrade (its Deployment is `Recreate`): a few seconds without its database
   for the servers using it.
+- **Pod Security cannot be pinned to an old version in Quetzal's
+  namespaces.** The admission policy checked the level, not
+  `pod-security.kubernetes.io/enforce-version`: with the control plane's
+  token, a namespace could be held to baseline as an old release defined it,
+  which lets through what the checks added since refuse. The policy (in the
+  chart and in the manifest for remote clusters) now wants that label unset
+  or `latest`, and the controller sets a pinned one back to `latest`.
 
 ## [0.16.2] - 2026-10-29
 

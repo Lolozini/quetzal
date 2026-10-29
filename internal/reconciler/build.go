@@ -59,6 +59,10 @@ const (
 	// root install container of the eggs included; restricted would not.
 	PodSecurityLabel = "pod-security.kubernetes.io/enforce"
 	podSecurityLevel = "baseline"
+	// PodSecurityVersionLabel pins the level to the checks of a Kubernetes
+	// release. Pinned to an old one, baseline lets through what has been added
+	// to it since; Quetzal's namespaces leave it unset or at latest.
+	PodSecurityVersionLabel = "pod-security.kubernetes.io/enforce-version"
 	// DataLabel marks a server's permanent data-manager pod (value = slug). Like
 	// ActivatorLabel it is deliberately distinct from ServerLabel so the game
 	// Deployment never adopts it and console/status code never mistakes it for the
@@ -127,6 +131,9 @@ func stampPodSecurity(labels map[string]string) map[string]string {
 	}
 	if l := labels[PodSecurityLabel]; l != "baseline" && l != "restricted" {
 		labels[PodSecurityLabel] = podSecurityLevel
+	}
+	if v, ok := labels[PodSecurityVersionLabel]; ok && v != "latest" {
+		labels[PodSecurityVersionLabel] = "latest"
 	}
 	return labels
 }
