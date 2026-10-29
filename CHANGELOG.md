@@ -17,6 +17,18 @@ releases may include breaking changes).
   panel offers the choice to administrators alone); a server already behind
   one keeps it when someone else edits its exposure, and can give it up.
 
+### Security
+
+- **A server stops at its namespace when it cannot hold it to Pod Security.**
+  A namespace that already existed without `baseline` or `restricted` at its
+  latest version, on a cluster whose role does not let Quetzal relabel
+  namespaces, was used anyway with a warning in the controller's log: pods
+  there were admitted with whatever the cluster allows, and the control
+  plane's token could run a privileged one. The server's reconcile now stops
+  at that step, and its status says Kubernetes refused the namespace, until
+  the namespace is labelled or the role grants `update` on namespaces. A
+  namespace Quetzal created since 0.16.1 already has the label.
+
 ## [0.17.0] - 2026-10-29
 
 A public address per server and the service annotations in the panel, a

@@ -522,22 +522,25 @@ func (r *Reconciler) ensureOwnedNamespace(ctx context.Context, name string, labe
 		return err
 	}
 	// Having the namespace is a hard requirement; re-labelling one that already
-	// exists is not. This is the first step of a server's reconcile, so letting a
-	// label write fail the whole call freezes everything after it — the
-	// Deployment, the Service, the SFTP keys — while the panel still reports the
-	// server as running. A role without update on namespaces is enough to trigger
-	// it: adding any new label (as the ownership stamp did) turns a create-only
-	// reconcile into an update on every pre-existing namespace.
+	// exists mostly is not. This is the first step of a server's reconcile, so
+	// letting a label write fail the whole call freezes everything after it --
+	// the Deployment, the Service, the SFTP keys -- while the panel still reports
+	// the server as running. A role without update on namespaces is enough to
+	// trigger it: adding any new label (as the ownership stamp did) turns a
+	// create-only reconcile into an update on every pre-existing namespace.
 	if getErr := r.Client.Get(ctx, client.ObjectKey{Name: name}, ns); getErr != nil {
 		return err
 	}
 	if ownerErr := r.checkNamespaceOwner(ns, labels); ownerErr != nil {
 		return ownerErr
 	}
-	// The Pod Security level is the label that matters most, and the warning
-	// below is about orphan collection: one that says so, per namespace.
-	if lvl := ns.Labels[PodSecurityLabel]; lvl != podSecurityLevel && lvl != "restricted" {
-		r.warnOnce("namespace-pod-security:"+name, "namespace %s enforces no Pod Security level and I may not give it one (%v): pods there are admitted with whatever the cluster allows; grant the control plane update on namespaces", name, err)
+	// Except for the Pod Security level. It is what stops the control plane's
+	// token from running a privileged pod, or one that mounts the node, in a
+	// namespace it may create Deployments in: a namespace without it is not one
+	// to put anything in, the server's own pods included, until an operator
+	// labels it or grants the update.
+	if !podSecurityHolds(ns.Labels) {
+		return fmt.Errorf("namespace %s does not enforce Pod Security baseline at its latest version, and the control plane may not label it (grant it update on namespaces, or label it yourself): %w", name, err)
 	}
 	r.Memo.sawNamespace(name, ns.UID)
 	r.warnOnce("namespace-labels", "cannot update namespace labels (%v); servers keep reconciling, but orphan-collection ownership will not be stamped on existing namespaces", err)

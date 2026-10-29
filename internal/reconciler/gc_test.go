@@ -3,6 +3,7 @@ package reconciler
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -194,7 +195,7 @@ func TestEnsureNamespaceToleratesForbiddenLabelUpdate(t *testing.T) {
 		t.Fatalf("scheme: %v", err)
 	}
 	existing := nsWithLabels("quetzal-srv-old", map[string]string{
-		managedByLabel: managedByValue, serverLabel: "old",
+		managedByLabel: managedByValue, serverLabel: "old", PodSecurityLabel: "baseline",
 	})
 	forbid := func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.UpdateOption) error {
 		return apierrors.NewForbidden(
@@ -232,6 +233,45 @@ func TestEnsureNamespaceToleratesForbiddenLabelUpdate(t *testing.T) {
 	strictR := &Reconciler{Client: strict, InstanceID: "inst-1"}
 	if err := strictR.ensureNamespace(ctx, &models.Server{Slug: "gone", Namespace: "quetzal-srv-gone"}); err == nil {
 		t.Fatal("a namespace that cannot be created must fail the reconcile")
+	}
+}
+
+// The one label a server's reconcile does not go on without is the Pod Security
+// level: a namespace that has none, or holds it to an old release's checks, is
+// where the control plane's token could run a privileged pod. When the
+// controller may not set it, the server's objects stop there.
+func TestEnsureNamespaceStopsWithoutPodSecurityItCannotSet(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("scheme: %v", err)
+	}
+	forbid := func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.UpdateOption) error {
+		return apierrors.NewForbidden(
+			schema.GroupResource{Resource: "namespaces"}, obj.GetName(),
+			errors.New("cannot update resource \"namespaces\""))
+	}
+	ctx := context.Background()
+	for name, extra := range map[string]map[string]string{
+		"no level":       {},
+		"privileged":     {PodSecurityLabel: "privileged"},
+		"pinned version": {PodSecurityLabel: "baseline", PodSecurityVersionLabel: "v1.30"},
+	} {
+		labels := map[string]string{managedByLabel: managedByValue, serverLabel: "old"}
+		for k, v := range extra {
+			labels[k] = v
+		}
+		cl := fake.NewClientBuilder().WithScheme(scheme).
+			WithObjects(nsWithLabels("quetzal-srv-old", labels)).
+			WithInterceptorFuncs(interceptor.Funcs{Update: forbid}).Build()
+		r := &Reconciler{Client: cl, InstanceID: "inst-1"}
+		err := r.ensureNamespace(ctx, &models.Server{Slug: "old", Namespace: "quetzal-srv-old"})
+		if err == nil {
+			t.Errorf("%s: the reconcile went on in a namespace it could not hold to Pod Security", name)
+			continue
+		}
+		if !strings.Contains(err.Error(), "Pod Security") {
+			t.Errorf("%s: the error does not say why: %v", name, err)
+		}
 	}
 }
 

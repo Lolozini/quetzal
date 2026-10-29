@@ -138,6 +138,16 @@ func stampPodSecurity(labels map[string]string) map[string]string {
 	return labels
 }
 
+// podSecurityHolds reports whether labels already enforce what stampPodSecurity
+// would: baseline or restricted, at the latest version.
+func podSecurityHolds(labels map[string]string) bool {
+	if l := labels[PodSecurityLabel]; l != "baseline" && l != "restricted" {
+		return false
+	}
+	v, ok := labels[PodSecurityVersionLabel]
+	return !ok || v == "latest"
+}
+
 // BuildPVC returns the data PersistentVolumeClaim backing the server.
 func BuildPVC(s *models.Server) *corev1.PersistentVolumeClaim {
 	size := s.Storage.Size

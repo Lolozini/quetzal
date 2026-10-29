@@ -361,8 +361,10 @@ and deleting namespaces. Those namespaces enforce the Pod Security Standards'
 `baseline` level, which the policy keeps the account from lifting: inside them
 it creates Deployments, and a privileged or hostPath pod would be root on the
 node. Baseline still admits the eggs' root install container; tighten a
-namespace to `restricted` yourself and Quetzal leaves it so. It needs 1.30, as
-the chart does. A cluster
+namespace to `restricted` yourself and Quetzal leaves it so. A namespace that
+exists without that label, which a role without `update` on namespaces keeps
+Quetzal from adding, stops its server at that step until you label it or grant
+the update. It needs 1.30, as the chart does. A cluster
 registered with the manifest the panel offers gets the same policy; on one
 older than 1.30, leave the policy out of that manifest and the scoping still
 stands, but the escalation becomes possible again — noisily, since creating a
