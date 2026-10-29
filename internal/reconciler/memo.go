@@ -28,8 +28,11 @@ const memoAbsent = "absent"
 // of the API server's audit log. With a Memo, an object applied with the same
 // content, or found absent, less than memoTTL ago is left alone.
 //
-// Until then, an object edited or deleted by hand stays so. A namespace made
-// again under the same name has a new UID, and starts with nothing remembered.
+// Until then, an object edited or deleted by hand stays so -- except the ones
+// that fence a server in, its NetworkPolicies and ResourceQuota: those are read
+// back on every pass, and sent again as soon as their resourceVersion is not
+// the one Quetzal's write left. A namespace made again under the same name has
+// a new UID, and starts with nothing remembered.
 //
 // A nil Memo remembers nothing: every pass writes everything, as before.
 type Memo struct {
@@ -44,7 +47,9 @@ type Memo struct {
 type memoEntry struct {
 	namespace string
 	sum       string
-	at        time.Time
+	// version is the resourceVersion the write left, for an object read back.
+	version string
+	at      time.Time
 }
 
 // NewMemo returns an empty Memo.
@@ -72,26 +77,31 @@ func memoSum(obj client.Object) (string, error) {
 	return hex.EncodeToString(h[:]), nil
 }
 
-// fresh reports whether key was recorded with sum less than memoTTL ago.
-func (m *Memo) fresh(key, sum string) bool {
+// fresh reports whether key was recorded with sum less than memoTTL ago, and
+// the resourceVersion that write left.
+func (m *Memo) fresh(key, sum string) (bool, string) {
 	if m == nil {
-		return false
+		return false, ""
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e, ok := m.entries[key]
-	return ok && e.sum == sum && m.now().Sub(e.at) < memoTTL
+	if !ok || e.sum != sum || m.now().Sub(e.at) >= memoTTL {
+		return false, ""
+	}
+	return true, e.version
 }
 
-// record remembers that key now holds sum.
-func (m *Memo) record(namespace, key, sum string) {
+// record remembers that key now holds sum, at resourceVersion version when the
+// object is read back ("" otherwise).
+func (m *Memo) record(namespace, key, sum, version string) {
 	if m == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := m.now()
-	m.entries[key] = memoEntry{namespace: namespace, sum: sum, at: now}
+	m.entries[key] = memoEntry{namespace: namespace, sum: sum, version: version, at: now}
 	// Entries past their TTL are worth nothing; dropping them keeps the
 	// servers deleted since from being remembered for good.
 	if now.Sub(m.swept) >= memoTTL {

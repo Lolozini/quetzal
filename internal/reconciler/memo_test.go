@@ -9,6 +9,7 @@ import (
 	"time"
 
 	authnv1 "k8s.io/api/authentication/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -98,6 +99,34 @@ func TestUnchangedServerIsNotWrittenAgain(t *testing.T) {
 		t.Errorf("a pass over an unchanged server wrote %v", again)
 	}
 
+	// What fences the game in is read back on every pass: a policy deleted or
+	// edited by hand is written again at once, not when the memory runs out.
+	np := &networkingv1.NetworkPolicy{}
+	if !get(t, cl, srv.Namespace, "quetzal-default", np) {
+		t.Fatal("no quetzal-default policy")
+	}
+	if err := cl.Delete(context.Background(), np); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	w.take()
+	if restored := pass(); !hasWrite(restored, "patch *v1.NetworkPolicy") {
+		t.Errorf("a deleted policy was not written again: %v", restored)
+	}
+	if !get(t, cl, srv.Namespace, "quetzal-default", np) {
+		t.Fatal("quetzal-default did not come back")
+	}
+	np.Spec.Egress = nil
+	if err := cl.Update(context.Background(), np); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	w.take()
+	if restored := pass(); !hasWrite(restored, "patch *v1.NetworkPolicy") {
+		t.Errorf("a policy edited by hand was not written again: %v", restored)
+	}
+	if again := pass(); len(again) != 0 {
+		t.Errorf("a pass after the repair wrote %v", again)
+	}
+
 	if err := st.SetDesiredState(srv.ID, models.StateStopped); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
@@ -125,17 +154,17 @@ func hasWrite(lines []string, prefix string) bool {
 func TestMemoForgetsANamespaceMadeAgain(t *testing.T) {
 	m := NewMemo()
 	m.sawNamespace("quetzal-srv-a", "uid-1")
-	m.record("quetzal-srv-a", "k", "sum")
-	m.record("quetzal-srv-b", "other", "sum")
+	m.record("quetzal-srv-a", "k", "sum", "")
+	m.record("quetzal-srv-b", "other", "sum", "")
 	m.sawNamespace("quetzal-srv-a", "uid-1")
-	if !m.fresh("k", "sum") {
+	if ok, _ := m.fresh("k", "sum"); !ok {
 		t.Fatal("the same namespace seen again lost what was written to it")
 	}
 	m.sawNamespace("quetzal-srv-a", "uid-2")
-	if m.fresh("k", "sum") {
+	if ok, _ := m.fresh("k", "sum"); ok {
 		t.Error("a namespace made again still counts as holding what the old one held")
 	}
-	if !m.fresh("other", "sum") {
+	if ok, _ := m.fresh("other", "sum"); !ok {
 		t.Error("another namespace was forgotten with it")
 	}
 }
@@ -143,9 +172,9 @@ func TestMemoForgetsANamespaceMadeAgain(t *testing.T) {
 // A nil Memo, which tests and older callers have, remembers nothing.
 func TestNilMemoRemembersNothing(t *testing.T) {
 	var m *Memo
-	m.record("ns", "k", "sum")
+	m.record("ns", "k", "sum", "")
 	m.sawNamespace("ns", "uid")
-	if m.fresh("k", "sum") {
+	if ok, _ := m.fresh("k", "sum"); ok {
 		t.Error("a nil Memo said an object was written")
 	}
 }

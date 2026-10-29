@@ -16,6 +16,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -533,6 +534,11 @@ func (r *Reconciler) ensureOwnedNamespace(ctx context.Context, name string, labe
 	if ownerErr := r.checkNamespaceOwner(ns, labels); ownerErr != nil {
 		return ownerErr
 	}
+	// The Pod Security level is the label that matters most, and the warning
+	// below is about orphan collection: one that says so, per namespace.
+	if lvl := ns.Labels[PodSecurityLabel]; lvl != podSecurityLevel && lvl != "restricted" {
+		r.warnOnce("namespace-pod-security:"+name, "namespace %s enforces no Pod Security level and I may not give it one (%v): pods there are admitted with whatever the cluster allows; grant the control plane update on namespaces", name, err)
+	}
 	r.Memo.sawNamespace(name, ns.UID)
 	r.warnOnce("namespace-labels", "cannot update namespace labels (%v); servers keep reconciling, but orphan-collection ownership will not be stamped on existing namespaces", err)
 	return nil
@@ -691,16 +697,46 @@ const fieldOwner = "quetzal-controller"
 func (r *Reconciler) apply(ctx context.Context, obj client.Object) error {
 	key := memoKey(obj)
 	sum, sumErr := memoSum(obj)
-	if sumErr == nil && r.Memo.fresh(key, sum) {
-		return nil
+	if sumErr == nil {
+		if ok, version := r.Memo.fresh(key, sum); ok && (!readBack(obj) || r.unchangedSince(ctx, obj, version)) {
+			return nil
+		}
 	}
 	if err := r.Client.Patch(ctx, obj, client.Apply, client.FieldOwner(fieldOwner), client.ForceOwnership); err != nil {
 		return err
 	}
 	if sumErr == nil {
-		r.Memo.record(obj.GetNamespace(), key, sum)
+		version := ""
+		if readBack(obj) {
+			version = obj.GetResourceVersion()
+		}
+		r.Memo.record(obj.GetNamespace(), key, sum, version)
 	}
 	return nil
+}
+
+// readBack says which objects are checked on every pass even when remembered:
+// those that fence a server in. A policy deleted by hand left the game with the
+// run of the cluster network until the memory ran out.
+func readBack(obj client.Object) bool {
+	switch obj.(type) {
+	case *networkingv1.NetworkPolicy, *corev1.ResourceQuota:
+		return true
+	}
+	return false
+}
+
+// unchangedSince reports whether obj is still at the resourceVersion Quetzal's
+// last write left: a read, where re-applying is a write.
+func (r *Reconciler) unchangedSince(ctx context.Context, obj client.Object, version string) bool {
+	if version == "" {
+		return false
+	}
+	live := obj.DeepCopyObject().(client.Object)
+	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(obj), live); err != nil {
+		return false
+	}
+	return live.GetResourceVersion() == version
 }
 
 // deleteIfPresent deletes obj, and remembers it gone: most servers never have
@@ -708,13 +744,13 @@ func (r *Reconciler) apply(ctx context.Context, obj client.Object) error {
 // server to delete them again, for a 404.
 func (r *Reconciler) deleteIfPresent(ctx context.Context, obj client.Object) error {
 	key := memoKey(obj)
-	if r.Memo.fresh(key, memoAbsent) {
+	if ok, _ := r.Memo.fresh(key, memoAbsent); ok {
 		return nil
 	}
 	if err := r.Client.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
-	r.Memo.record(obj.GetNamespace(), key, memoAbsent)
+	r.Memo.record(obj.GetNamespace(), key, memoAbsent, "")
 	return nil
 }
 

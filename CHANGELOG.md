@@ -29,9 +29,11 @@ releases may include breaking changes).
   of the API server's audit log. An object applied with the same content, or
   found absent, in the last five minutes is now left alone, and an idle server
   costs no writes at all. A change Quetzal makes is still written on the next
-  pass; one made by hand to an object Quetzal manages is undone within five
-  minutes rather than fifteen seconds. Warnings meant to be logged once per
-  controller are, instead of once per resync.
+  pass. The objects that fence a server in, its network policies and resource
+  quota, are read back on every pass and written again as soon as someone else
+  changed or deleted them; any other object changed by hand is undone within
+  five minutes rather than fifteen seconds. Warnings meant to be logged once
+  per controller are, instead of once per resync.
 
 ### Fixed
 
