@@ -1567,7 +1567,7 @@ func sameAnnotations(a, b map[string]string) bool {
 		return false
 	}
 	for k, v := range a {
-		if b[k] != v {
+		if w, ok := b[k]; !ok || w != v {
 			return false
 		}
 	}
