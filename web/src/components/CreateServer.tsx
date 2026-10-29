@@ -7,6 +7,7 @@ import { PortRow, PortsEditor, portsToRows, PROTO_BOTH, rowsToPorts } from "./Po
 export function CreateServer({
   memoryRequired = false,
   canImportTemplates = false,
+  canUseLoadBalancer = false,
   onDone,
   onCancel,
 }: {
@@ -15,6 +16,9 @@ export function CreateServer({
   memoryRequired?: boolean;
   // May import eggs: with no template yet, the form points there.
   canImportTemplates?: boolean;
+  // A load balancer is an address from the operator's pool or a line on their
+  // cloud bill: the panel gives that choice to administrators alone.
+  canUseLoadBalancer?: boolean;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -299,7 +303,7 @@ export function CreateServer({
             <label htmlFor={`${fieldId}-expose`}>{t("Network exposure")}</label>
             <select aria-describedby={`${fieldId}-exposure-help`} id={`${fieldId}-expose`} value={expose} onChange={(e) => setExpose(e.target.value as ExposeType)}>
               <option value="NodePort">{t("NodePort (node IP : allocated port)")}</option>
-              <option value="LoadBalancer">{t("LoadBalancer (external IP)")}</option>
+              {canUseLoadBalancer && <option value="LoadBalancer">{t("LoadBalancer (external IP)")}</option>}
               <option value="ClusterIP">{t("ClusterIP (in-cluster only)")}</option>
             </select>
             <div id={`${fieldId}-exposure-help`} className="muted" style={{ fontSize: 12 }}>

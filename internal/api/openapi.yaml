@@ -2761,7 +2761,12 @@ components:
     Expose:
       type: object
       properties:
-        type: { type: string, enum: [ClusterIP, NodePort, LoadBalancer] }
+        type:
+          type: string
+          enum: [ClusterIP, NodePort, LoadBalancer]
+          description: >-
+            Only an administrator can switch a server to LoadBalancer; anyone who
+            may edit the server keeps one an administrator gave, or gives it up.
         annotations:
           type: object
           additionalProperties: { type: string }

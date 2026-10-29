@@ -137,7 +137,7 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
 
 ### Networking
 - Publish in-cluster (ClusterIP), on node IPs (**NodePort** from a managed port
-  pool), or via a **LoadBalancer** — TCP **and** UDP.
+  pool), or via a **LoadBalancer**, an administrator's choice — TCP **and** UDP.
 - `externalTrafficPolicy: Local` by default so the game sees the real player IP;
   provider-neutral Service annotations (external-dns, MetalLB, …), edited by an
   administrator in the panel.

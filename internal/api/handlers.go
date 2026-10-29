@@ -472,7 +472,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := authorizeExposeAnnotations(userFrom(r.Context()), &req.Expose, models.Expose{}); err != nil {
+	if err := authorizeExpose(userFrom(r.Context()), &req.Expose, models.Expose{}); err != nil {
 		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
@@ -1202,7 +1202,7 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	if req.Expose != nil {
 		expose = patchExpose(srv.Expose, *req.Expose)
 	}
-	if err := authorizeExposeAnnotations(userFrom(r.Context()), &expose, srv.Expose); err != nil {
+	if err := authorizeExpose(userFrom(r.Context()), &expose, srv.Expose); err != nil {
 		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
@@ -1494,19 +1494,27 @@ func clearNodePorts(ports []models.PortSpec) []models.PortSpec {
 	return out
 }
 
-// authorizeExposeAnnotations settles who may put annotations on a server's
-// Service. They are copied onto it verbatim, and other controllers act on them:
-// external-dns creates the record a hostname annotation names, MetalLB hands out
-// the address one asks for, a cloud provider bills for the load balancer. That
-// is the operator's business, and the panel does not offer it — but the endpoint
-// did, to anyone who could create a server, which on a shared install means a
-// player claiming a record in the operator's DNS zone.
+// authorizeExpose settles what of a server's exposure only an administrator
+// may change. Annotations are copied onto the Service verbatim, and other
+// controllers act on them: external-dns creates the record a hostname
+// annotation names, MetalLB hands out the address one asks for, a cloud
+// provider bills for the load balancer. That is the operator's business, and the
+// panel does not offer it — but the endpoint did, to anyone who could create a
+// server, which on a shared install means a player claiming a record in the
+// operator's DNS zone.
 //
 // prev is what is already stored, so a non-admin editing anything else about the
 // exposure keeps annotations an admin set rather than silently dropping them.
-func authorizeExposeAnnotations(u *models.User, e *models.Expose, prev models.Expose) error {
+func authorizeExpose(u *models.User, e *models.Expose, prev models.Expose) error {
 	if u != nil && u.HasAdminPerm(models.AdminPermServers) {
 		return nil
+	}
+	// A load balancer is an address out of the operator's pool, or one their
+	// cloud bills by the month: a server's owner, or a subuser allowed its
+	// settings, could take one per click. Keeping one an admin gave, or giving
+	// it up, is theirs to do.
+	if e.ServiceType() == models.ExposeLoadBalancer && prev.ServiceType() != models.ExposeLoadBalancer {
+		return errors.New("only an administrator can expose a server through a load balancer")
 	}
 	if len(e.Annotations) > 0 && !sameAnnotations(e.Annotations, prev.Annotations) {
 		return errors.New("only an administrator can set service annotations")

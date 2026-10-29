@@ -615,7 +615,9 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
                   >
                     <option value="ClusterIP">ClusterIP</option>
                     <option value="NodePort">NodePort</option>
-                    <option value="LoadBalancer">LoadBalancer</option>
+                    {(hasAdminPerm(user, "servers") || srv.expose?.type === "LoadBalancer") && (
+                      <option value="LoadBalancer">LoadBalancer</option>
+                    )}
                   </select>
                 </span>
               </div>

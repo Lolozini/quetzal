@@ -7,6 +7,16 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- **Only an administrator can put a server behind a load balancer.** A
+  load balancer is an address from the operator's pool, or one their cloud
+  bills by the month, and a server's owner or a subuser allowed its settings
+  could take one from the panel. Creating a server as a LoadBalancer or
+  switching one to it now takes an administrator (403 otherwise, and the
+  panel offers the choice to administrators alone); a server already behind
+  one keeps it when someone else edits its exposure, and can give it up.
+
 ## [0.17.0] - 2026-10-29
 
 A public address per server and the service annotations in the panel, a

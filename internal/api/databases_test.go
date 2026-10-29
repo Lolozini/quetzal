@@ -352,3 +352,62 @@ func TestPublicAddressIsAdminOnlyAndChecked(t *testing.T) {
 		t.Errorf("an empty public address left %+v", got.Public)
 	}
 }
+
+// A load balancer is an address from the operator's pool or a line on their
+// cloud bill: a server's owner, or a subuser with its settings, cannot take one,
+// but can keep one an admin gave and give it up.
+func TestLoadBalancerIsAdminOnly(t *testing.T) {
+	srv, admin := newTestServer(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+	createUser(t, admin, srv.URL, map[string]any{"username": "player", "password": "playerpw12"})
+	player := loginAs(t, srv.URL, "player", "playerpw12")
+	body := func(typ string) map[string]any {
+		return map[string]any{
+			"name": "s", "template": "generic-process", "memory": "512Mi",
+			"ports":  []map[string]any{{"port": 9987, "protocol": "UDP"}},
+			"expose": map[string]any{"type": typ},
+		}
+	}
+	if r := post(t, player, srv.URL+"/api/servers", body("LoadBalancer")); r.StatusCode != http.StatusForbidden {
+		t.Errorf("a player created a server behind a load balancer: %d", r.StatusCode)
+	}
+	r := post(t, player, srv.URL+"/api/servers", body("NodePort"))
+	if r.StatusCode != http.StatusCreated {
+		t.Fatalf("a player could not create a NodePort server: %d", r.StatusCode)
+	}
+	var created struct{ ID uint }
+	json.NewDecoder(r.Body).Decode(&created)
+	r.Body.Close()
+	url := srv.URL + "/api/servers/" + itoa(created.ID)
+
+	patch := func(c *http.Client, expose map[string]any) int {
+		t.Helper()
+		resp := doPatch(t, c, url, map[string]any{"expose": expose})
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	exposed := func() string {
+		t.Helper()
+		var got struct{ Expose struct{ Type string } }
+		getJSON(t, admin, url, &got)
+		return got.Expose.Type
+	}
+	if code := patch(player, map[string]any{"type": "LoadBalancer"}); code != http.StatusForbidden {
+		t.Errorf("the owner switched to a load balancer: %d", code)
+	}
+	if got := exposed(); got != "NodePort" {
+		t.Errorf("type after a refused switch = %q", got)
+	}
+	if code := patch(admin, map[string]any{"type": "LoadBalancer"}); code != http.StatusOK {
+		t.Fatalf("admin switch = %d", code)
+	}
+	if code := patch(player, map[string]any{"type": "LoadBalancer", "preserveClientIP": false}); code != http.StatusOK {
+		t.Errorf("the owner could not edit a load balancer an admin gave: %d", code)
+	}
+	if code := patch(player, map[string]any{"type": "NodePort"}); code != http.StatusOK {
+		t.Errorf("the owner could not give up the load balancer: %d", code)
+	}
+	if got := exposed(); got != "NodePort" {
+		t.Errorf("type = %q, want NodePort", got)
+	}
+}
