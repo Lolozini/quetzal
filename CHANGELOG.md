@@ -7,6 +7,31 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-29
+
+A game's images are now looked up in their registry at every start, as Wings
+pulls them, so an image fixed upstream under the same tag reaches the server
+on its next start instead of never. Only an administrator can put a server
+behind a load balancer, the activator reaches the panel's pods alone, and a
+server whose namespace cannot be held to Pod Security stops there instead of
+running with a warning.
+
+**Upgrading from 0.17.0** — three things to know:
+
+- Each server takes the current image of its tag, and of its install step's,
+  at its next start: one whose tag moved upstream since its node pulled it
+  starts on the new image, which for an image that carries the game, such as
+  a `:latest` one, can be a new game version. A running server does not
+  change until it restarts. The controller reaches the registries over the
+  public internet, as the chart's network policy already allows. See
+  *Changed*.
+- A server's owner, or a subuser with its settings, can no longer switch it
+  to a load balancer (403); a server already behind one keeps it. See
+  *Changed*.
+- On a cluster whose role does not let Quetzal relabel namespaces (a manifest
+  from before 0.16.1 not re-applied), a server whose namespace has no Pod
+  Security level stops at that step until it is labelled. See *Security*.
+
 ### Changed
 
 - **A game's images are looked up at every start.** They were pulled
@@ -2528,7 +2553,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/lolozini/quetzal/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/lolozini/quetzal/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/lolozini/quetzal/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/lolozini/quetzal/compare/v0.16.0...v0.16.1
