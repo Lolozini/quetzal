@@ -130,7 +130,7 @@ func (r *Reconciler) ensureManagedDBNetworkPolicy(ctx context.Context, h *models
 		log.Printf("db host %d: list server namespaces (its ingress policy is left as it is): %v", h.ID, err)
 		return
 	}
-	if err := r.apply(ctx, BuildManagedDBNetworkPolicy(h, append(namespaces, r.ControlPlaneNamespace), r.DNSServers)); err != nil {
+	if err := r.apply(ctx, BuildManagedDBNetworkPolicy(h, append(namespaces, r.ControlPlaneNamespace))); err != nil {
 		log.Printf("db host %d: apply ingress policy: %v", h.ID, err)
 	}
 }
@@ -145,14 +145,14 @@ func (r *Reconciler) ensureManagedDBNetworkPolicy(ctx context.Context, h *models
 // and they hold; this removes the chance to try at all, and to reach a MariaDB
 // that is unpatched or misconfigured.
 //
-// Egress is closed except for DNS. The database initiates no connections of its
-// own, so nothing legitimate is lost, and a compromised or misused MariaDB — a
-// plugin such as CONNECT or FederatedX opens outbound connections by design —
-// can no longer reach the cluster, the LAN or the internet from there. DNS stays
-// open because MariaDB resolves the hostname of every client that connects
-// (unless run with skip-name-resolve): without it each login would wait out the
-// resolver's timeout. dnsServers are the resolvers the controller was given, as
-// for the servers' own policy (see clusterDNSPeers).
+// Egress is closed. The database initiates no connections of its own, so
+// nothing legitimate is lost, and a compromised or misused MariaDB — a plugin
+// such as CONNECT or FederatedX opens outbound connections by design — can
+// reach neither the cluster, the LAN nor the internet from there. DNS was left
+// open, for MariaDB resolves the name of every client that connects, and a
+// login without a resolver would wait out its timeout; but it runs with
+// --skip-name-resolve now (its accounts are '%' and localhost, which need no
+// name), and DNS was a way out too: a tunnel through the cluster's resolver.
 //
 // The object keeps its quetzal-db-ingress name from when it only held ingress:
 // it is rewritten in place on existing hosts, and a rename would leave the old
@@ -164,15 +164,9 @@ func (r *Reconciler) ensureManagedDBNetworkPolicy(ctx context.Context, h *models
 // is refused. Naming it here because the symptom on a CNI that did enforce it
 // would be a database that never becomes ready, which reads like anything but a
 // policy problem.
-func BuildManagedDBNetworkPolicy(h *models.DatabaseHost, allowed, dnsServers []string) *networkingv1.NetworkPolicy {
+func BuildManagedDBNetworkPolicy(h *models.DatabaseHost, allowed []string) *networkingv1.NetworkPolicy {
 	tcp := corev1.ProtocolTCP
-	udp := corev1.ProtocolUDP
 	port := intstr.FromInt32(ManagedDBPort)
-	dnsPort := intstr.FromInt32(53)
-	dnsPeers := clusterDNSPeers()
-	for _, c := range resolverCIDRs(dnsServers) {
-		dnsPeers = append(dnsPeers, networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: c}})
-	}
 	peers := make([]networkingv1.NetworkPolicyPeer, 0, len(allowed))
 	for _, ns := range allowed {
 		peers = append(peers, networkingv1.NetworkPolicyPeer{
@@ -198,13 +192,7 @@ func BuildManagedDBNetworkPolicy(h *models.DatabaseHost, allowed, dnsServers []s
 				From:  peers,
 				Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: &port}},
 			}},
-			Egress: []networkingv1.NetworkPolicyEgressRule{{
-				To: dnsPeers,
-				Ports: []networkingv1.NetworkPolicyPort{
-					{Protocol: &udp, Port: &dnsPort},
-					{Protocol: &tcp, Port: &dnsPort},
-				},
-			}},
+			// Egress in PolicyTypes and no rule: nothing goes out.
 		},
 	}
 }
@@ -325,6 +313,11 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) ([]
 					Containers: []corev1.Container{{
 						Name:  "mariadb",
 						Image: image,
+						// No name lookups for clients: the policy gives the
+						// database no DNS (BuildManagedDBNetworkPolicy). The
+						// official image sets it in its own configuration; this
+						// holds for any other image as well.
+						Args:  []string{"--skip-name-resolve"},
 						Ports: []corev1.ContainerPort{{Name: "mysql", ContainerPort: ManagedDBPort}},
 						Env: []corev1.EnvVar{{
 							Name: dbRootPassword,

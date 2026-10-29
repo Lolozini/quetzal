@@ -924,7 +924,7 @@ func TestInstallDropsTheCapabilitiesPackageManagersNeverUse(t *testing.T) {
 // and unrelated workloads sharing the cluster alike.
 func TestManagedDBNetworkPolicyNamesOnlyItsTenants(t *testing.T) {
 	h := &models.DatabaseHost{ID: 7, Name: "shared", Kind: models.DBHostManaged}
-	np := BuildManagedDBNetworkPolicy(h, []string{"quetzal-srv-a", "quetzal-srv-b", "quetzal"}, nil)
+	np := BuildManagedDBNetworkPolicy(h, []string{"quetzal-srv-a", "quetzal-srv-b", "quetzal"})
 
 	if np.Namespace != h.ManagedNamespace() {
 		t.Errorf("policy namespace = %q, want the database's own", np.Namespace)
@@ -961,11 +961,12 @@ func TestManagedDBNetworkPolicyNamesOnlyItsTenants(t *testing.T) {
 
 // A managed database opens no connections of its own, yet its egress was left
 // open: a compromised MariaDB, or a plugin like FederatedX, could reach the
-// cluster, the LAN and the internet from there. It may now resolve names, and
-// nothing else.
-func TestManagedDBNetworkPolicyDeniesEgressButDNS(t *testing.T) {
-	h := &models.DatabaseHost{ID: 7, Name: "shared", Kind: models.DBHostManaged}
-	np := BuildManagedDBNetworkPolicy(h, []string{"quetzal"}, []string{"10.96.0.10", "not-an-ip"})
+// cluster, the LAN and the internet from there. DNS was kept for its lookups of
+// clients' names, and was a way out of its own (a tunnel through the resolver);
+// it runs with --skip-name-resolve now, and nothing goes out.
+func TestManagedDBNetworkPolicyDeniesAllEgress(t *testing.T) {
+	h := &models.DatabaseHost{ID: 7, Name: "shared", Kind: models.DBHostManaged, Image: "mariadb:12.3", StorageSize: "1Gi", Namespace: "quetzal-db-7"}
+	np := BuildManagedDBNetworkPolicy(h, []string{"quetzal"})
 
 	hasEgress := false
 	for _, pt := range np.Spec.PolicyTypes {
@@ -974,32 +975,20 @@ func TestManagedDBNetworkPolicyDeniesEgressButDNS(t *testing.T) {
 	if !hasEgress {
 		t.Fatalf("policy types = %v: without Egress the database may connect anywhere", np.Spec.PolicyTypes)
 	}
-	if len(np.Spec.Egress) != 1 {
-		t.Fatalf("want a single egress rule (DNS), got %d", len(np.Spec.Egress))
+	if len(np.Spec.Egress) != 0 {
+		t.Errorf("egress rules = %+v, want none", np.Spec.Egress)
 	}
-	rule := np.Spec.Egress[0]
-	if len(rule.To) == 0 {
-		t.Fatal("an egress rule with no peers allows every destination")
+
+	objs, err := buildManagedDB(h, "pw", "inst")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, p := range rule.Ports {
-		if p.Port == nil || p.Port.IntVal != 53 {
-			t.Errorf("egress port %+v, want 53 only", p)
-		}
-	}
-	if len(rule.Ports) != 2 {
-		t.Errorf("ports = %+v, want 53/UDP and 53/TCP", rule.Ports)
-	}
-	var cidrs []string
-	for _, p := range rule.To {
-		if p.IPBlock != nil {
-			cidrs = append(cidrs, p.IPBlock.CIDR)
-			if len(p.IPBlock.Except) == 0 && p.IPBlock.CIDR == "0.0.0.0/0" {
-				t.Error("DNS rule opens port 53 of every address")
+	for _, o := range objs {
+		if d, ok := o.(*appsv1.Deployment); ok {
+			if args := d.Spec.Template.Spec.Containers[0].Args; !slices.Contains(args, "--skip-name-resolve") {
+				t.Errorf("args = %v: without --skip-name-resolve every login waits for a resolver it cannot reach", args)
 			}
 		}
-	}
-	if !slices.Contains(cidrs, "10.96.0.10/32") {
-		t.Errorf("DNS peers %v miss the controller's resolver", cidrs)
 	}
 }
 

@@ -63,9 +63,12 @@ releases may include breaking changes).
   Security `restricted` would have refused. The pod now starts as uid 999 with
   `fsGroup` 999, no privilege escalation and the runtime's seccomp profile;
   the official image supports this, and a data directory it made as root is
-  already `mysql`'s. Each managed database restarts once on the upgrade (its
-  Deployment is `Recreate`): a few seconds without its database for the
-  servers using it.
+  already `mysql`'s. Its network policy closes the last way out it had, DNS,
+  which a compromised database could tunnel through: it runs with
+  `--skip-name-resolve`, which the official image already set, and its
+  accounts are `%` and `localhost`. Each managed database restarts once on the
+  upgrade (its Deployment is `Recreate`): a few seconds without its database
+  for the servers using it.
 
 ## [0.16.2] - 2026-10-29
 
