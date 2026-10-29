@@ -48,6 +48,14 @@ releases may include breaking changes).
   at that step, and its status says Kubernetes refused the namespace, until
   the namespace is labelled or the role grants `update` on namespaces. A
   namespace Quetzal created since 0.16.1 already has the label.
+- **The activator reaches the panel's pods alone, on the port it calls.**
+  When the wake URL names the panel's Service, which is how the chart sets
+  it, the activator's network policy let it reach every pod of the panel's
+  namespace on every port: the activator runs in a tenant's namespace, next
+  to the game, and the panel's database may live there too. It now reaches
+  the pods the Service selects, on the port the Service sends the URL's to
+  (`http` with the chart). A Service the controller cannot read, or one with
+  no selector, keeps the namespace-wide way.
 
 ## [0.17.0] - 2026-10-29
 

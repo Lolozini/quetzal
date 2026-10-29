@@ -11,6 +11,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/lolozini/quetzal/internal/models"
 )
@@ -84,27 +85,27 @@ func BuildJobsNetworkPolicy(s *models.Server, extra []EgressPeer) *networkingv1.
 // whether or not an activator or a Job does, so that neither ever starts
 // before its policy.
 func (r *Reconciler) ensureAuxPolicies(ctx context.Context, s *models.Server, t *models.Template) error {
-	if err := r.apply(ctx, BuildActivatorNetworkPolicy(s, t, r.proxyActive(s, t), r.callbackPeers(r.WakeURL))); err != nil {
+	if err := r.apply(ctx, BuildActivatorNetworkPolicy(s, t, r.proxyActive(s, t), r.callbackPeers(ctx, r.WakeURL))); err != nil {
 		return err
 	}
 	return r.apply(ctx, BuildJobsNetworkPolicy(s, append(r.peersFor(s, false), r.backupTargetPeers()...)))
 }
 
-// callbackPeers are the ways to the panel at rawURL: its namespace when the URL
-// names its Service (the port it listens on may not be the Service's), else
+// callbackPeers are the ways to the panel at rawURL: when the URL names its
+// Service, the pods behind it on the port the Service sends that one to, else
 // each address the name has, public ones too, the activator having no internet.
-func (r *Reconciler) callbackPeers(rawURL string) []EgressPeer {
+func (r *Reconciler) callbackPeers(ctx context.Context, rawURL string) []EgressPeer {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Hostname() == "" {
 		return nil
 	}
 	host := u.Hostname()
-	if ns, ok := serviceNamespace(host); ok {
-		return []EgressPeer{{Namespace: ns}}
-	}
 	port, ok := portOr(u.Port(), defaultPort(u.Scheme == "https"))
 	if !ok {
 		return nil
+	}
+	if ns, ok := serviceNamespace(host); ok {
+		return []EgressPeer{r.servicePeer(ctx, ns, strings.SplitN(host, ".", 2)[0], port)}
 	}
 	var peers []EgressPeer
 	for _, ip := range r.addresses(host) {
@@ -113,6 +114,47 @@ func (r *Reconciler) callbackPeers(rawURL string) []EgressPeer {
 		}
 	}
 	return peers
+}
+
+// servicePeer is the way to the pods behind Service ns/name, on the port its
+// port carries traffic to. The whole namespace, on any port, was the way: the
+// port a Service listens on need not be its pods', and the activator -- in a
+// tenant's namespace, next to the game -- could reach every pod of the panel's,
+// its database included when it lives there. A Service that cannot be read, or
+// that selects nothing, keeps that.
+func (r *Reconciler) servicePeer(ctx context.Context, ns, name string, port int32) EgressPeer {
+	key := ns + "/" + name + ":" + strconv.Itoa(int(port))
+	r.servicePeersMu.Lock()
+	defer r.servicePeersMu.Unlock()
+	if p, ok := r.servicePeers[key]; ok {
+		return p
+	}
+	peer := EgressPeer{Namespace: ns}
+	var svc corev1.Service
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, &svc); err != nil {
+		r.warnOnce("service-peer:"+key, "wake URL names Service %s/%s, which I cannot read (%v): the activators may reach every pod of %s", ns, name, err, ns)
+	} else if len(svc.Spec.Selector) > 0 {
+		for _, sp := range svc.Spec.Ports {
+			if sp.Port != port || (sp.Protocol != "" && sp.Protocol != corev1.ProtocolTCP) {
+				continue
+			}
+			peer.Pods = svc.Spec.Selector
+			switch {
+			case sp.TargetPort.Type == intstr.String && sp.TargetPort.StrVal != "":
+				peer.PortName = sp.TargetPort.StrVal
+			case sp.TargetPort.IntVal != 0:
+				peer.Port = sp.TargetPort.IntVal
+			default:
+				peer.Port = sp.Port
+			}
+			break
+		}
+	}
+	if r.servicePeers == nil {
+		r.servicePeers = map[string]EgressPeer{}
+	}
+	r.servicePeers[key] = peer
+	return peer
 }
 
 // defaultPort is HTTP's or HTTPS's.

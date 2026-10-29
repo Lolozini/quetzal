@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"reflect"
 	"testing"
 
 	networkingv1 "k8s.io/api/networking/v1"
@@ -69,7 +70,7 @@ func TestExternalDatabaseHostIsReachedOnItsPort(t *testing.T) {
 			continue
 		}
 		for i := range got {
-			if got[i] != c.want[i] {
+			if !reflect.DeepEqual(got[i], c.want[i]) {
 				t.Errorf("%s: %v, want %v", c.name, got, c.want)
 			}
 		}

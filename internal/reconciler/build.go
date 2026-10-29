@@ -715,6 +715,12 @@ type EgressPeer struct {
 	// DNS makes CIDR a resolver: reachable on port 53 only, as the cluster's
 	// own DNS is.
 	DNS bool
+	// Pods narrows a Namespace peer to the pods with these labels: those behind
+	// a Service, rather than everything in its namespace.
+	Pods map[string]string
+	// PortName narrows the peer to a named container port, as a Service's
+	// targetPort may name one. Port, when both are set.
+	PortName string
 }
 
 // clusterDNSPeers are where a server's DNS queries may go. The rule used to
@@ -865,19 +871,26 @@ func peerRules(extra []EgressPeer) []networkingv1.NetworkPolicyEgressRule {
 			continue // in the DNS rule
 		}
 		var ports []networkingv1.NetworkPolicyPort
-		if p.Port != 0 {
+		if p.Port != 0 || p.PortName != "" {
 			tcp := corev1.ProtocolTCP
-			port := intstr.FromInt32(p.Port)
+			port := intstr.FromString(p.PortName)
+			if p.Port != 0 {
+				port = intstr.FromInt32(p.Port)
+			}
 			ports = []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: &port}}
 		}
 		switch {
 		case p.Namespace != "":
+			peer := networkingv1.NetworkPolicyPeer{
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{corev1.LabelMetadataName: p.Namespace},
+				},
+			}
+			if len(p.Pods) > 0 {
+				peer.PodSelector = &metav1.LabelSelector{MatchLabels: p.Pods}
+			}
 			rules = append(rules, networkingv1.NetworkPolicyEgressRule{
-				To: []networkingv1.NetworkPolicyPeer{{
-					NamespaceSelector: &metav1.LabelSelector{
-						MatchLabels: map[string]string{corev1.LabelMetadataName: p.Namespace},
-					},
-				}},
+				To:    []networkingv1.NetworkPolicyPeer{peer},
 				Ports: ports,
 			})
 		case p.CIDR != "":

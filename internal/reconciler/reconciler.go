@@ -73,6 +73,11 @@ type Reconciler struct {
 	// as whatever its node pulled first.
 	ResolveImage func(ctx context.Context, ref string) (string, error)
 
+	// servicePeers keeps, for a pass, the way to a Service a wake URL names
+	// (servicePeer), read once rather than once per server.
+	servicePeersMu sync.Mutex
+	servicePeers   map[string]EgressPeer
+
 	// LogTail, if set, returns the last lines of a container's log, its previous
 	// run's when previous is true. A crash's message quotes the error it ends
 	// with. Injected by the controller, which holds the clientset logs need.
