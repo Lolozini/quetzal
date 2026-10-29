@@ -296,9 +296,16 @@ func destinationReady(ctx context.Context, cs kubernetes.Interface, srv *models.
 	return err == nil, err
 }
 
+// hasServerPods reports whether a pod may still have the server's volume
+// mounted: the game's, the data manager's, or an operation's (in the server's
+// own namespace, every one is this server's).
 func hasServerPods(ctx context.Context, cs kubernetes.Interface, ns, slug string) (bool, error) {
-	for _, label := range []string{reconciler.ServerLabel, reconciler.DataLabel} {
-		pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: label + "=" + slug})
+	for _, sel := range []string{
+		reconciler.ServerLabel + "=" + slug,
+		reconciler.DataLabel + "=" + slug,
+		reconciler.BackupJobLabel,
+	} {
+		pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 		if err != nil {
 			return false, err
 		}

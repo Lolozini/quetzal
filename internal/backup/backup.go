@@ -147,10 +147,15 @@ func JobName(p Params) string {
 	return fmt.Sprintf("quetzal-%s-%d", p.Direction, p.BackupID)
 }
 
+// labels mark an operation's Job, its pods and its Secret. Not with the
+// server's own label: that is what the game's Service selects, and what the
+// console, the kill action and the wait for a stopped game look for, so a
+// backup's pod was taken for the game -- an endpoint players were sent to while
+// it ran, the pod a stop command was delivered to, a pod the kill action
+// deleted.
 func labels(p Params) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/managed-by": "quetzal",
-		reconciler.ServerLabel:         p.Slug,
 		BackupLabel:                    fmt.Sprintf("%d", p.BackupID),
 	}
 }

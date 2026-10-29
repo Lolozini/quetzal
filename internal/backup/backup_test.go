@@ -43,6 +43,14 @@ func TestServerHasPodsDetectsDataPod(t *testing.T) {
 		t.Fatalf("workload-only: has=%v err=%v, want true", has, err)
 	}
 
+	// Only an earlier operation's pod, still going -> true: it may mount the
+	// volume, and no longer carries the server's label.
+	job := BuildJob(Params{Namespace: ns, Slug: slug, BackupID: 7, Direction: models.DirBackup})
+	cs = fake.NewSimpleClientset(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "quetzal-backup-7-x", Namespace: ns, Labels: job.Spec.Template.Labels}})
+	if has, err := serverHasPods(context.Background(), cs, ns, slug); err != nil || !has {
+		t.Fatalf("operation-only: has=%v err=%v, want true", has, err)
+	}
+
 	// Only an activator pod (does not mount data) -> false.
 	cs = fake.NewSimpleClientset(mkPod("activator-xyz", reconciler.ActivatorLabel))
 	if has, err := serverHasPods(context.Background(), cs, ns, slug); err != nil || has {
@@ -463,6 +471,30 @@ func TestJobPodsAreSelectedByTheJobsPolicy(t *testing.T) {
 		job := BuildJob(p)
 		if !sel.Matches(k8slabels.Set(job.Spec.Template.Labels)) {
 			t.Errorf("%s: the Jobs policy does not select %v", JobName(p), job.Spec.Template.Labels)
+		}
+	}
+}
+
+// An operation's pods carried the server's label, which the game's Service
+// selects: while a backup ran, its pod was an endpoint players were sent to,
+// the console could deliver a stop command to restic instead of the game, and
+// the kill action deleted it. They carry none of the game's labels now.
+func TestOperationPodsAreNotTakenForTheGame(t *testing.T) {
+	s := &models.Server{Slug: "s1", Namespace: "quetzal-srv-s1"}
+	tmpl := &models.Template{Ports: []models.PortSpec{{Port: 25565, Protocol: "TCP"}}}
+	svc := reconciler.BuildService(s, tmpl, false)
+	sel := k8slabels.SelectorFromSet(svc.Spec.Selector)
+	for _, p := range []Params{
+		{Slug: "s1", BackupID: 1, Direction: models.DirBackup},
+		{Slug: "s1", BackupID: 2, Direction: models.DirRestore},
+		{Slug: "s1", BackupID: 3, Forget: true},
+	} {
+		pod := BuildJob(p).Spec.Template.Labels
+		if sel.Matches(k8slabels.Set(pod)) {
+			t.Errorf("%s: the game's Service selects the operation's pods %v", JobName(p), pod)
+		}
+		if _, ok := pod[reconciler.ServerLabel]; ok {
+			t.Errorf("%s: the operation's pods carry the server's label, which the console and the kill action look for", JobName(p))
 		}
 	}
 }

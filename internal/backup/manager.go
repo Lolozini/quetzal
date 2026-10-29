@@ -753,14 +753,16 @@ func gameHasPods(ctx context.Context, cs kubernetes.Interface, ns, slug string) 
 
 // serverHasPods reports whether any pod that mounts the data volume still exists
 // for a server — i.e. whether its data volume may still be mounted. That is the
-// game pod (ServerLabel) or the data-manager pod (DataLabel); the activator never
-// mounts data, so it is intentionally excluded. The reconciler scales the
-// data-manager down while a restore is active, so this returns false once both
-// are gone and the restore Job can take the volume exclusively.
+// game pod (ServerLabel), the data-manager pod (DataLabel) or an earlier
+// operation's pod (BackupLabel, in the server's own namespace); the activator
+// never mounts data, so it is intentionally excluded. The reconciler scales the
+// data-manager down while a restore is active, so this returns false once they
+// are all gone and the restore Job can take the volume exclusively.
 func serverHasPods(ctx context.Context, cs kubernetes.Interface, ns, slug string) (bool, error) {
 	for _, sel := range []string{
 		reconciler.ServerLabel + "=" + slug,
 		reconciler.DataLabel + "=" + slug,
+		BackupLabel,
 	} {
 		pods, err := cs.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: sel})
 		if err != nil {

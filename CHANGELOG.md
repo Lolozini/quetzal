@@ -33,6 +33,16 @@ releases may include breaking changes).
   minutes rather than fifteen seconds. Warnings meant to be logged once per
   controller are, instead of once per resync.
 
+### Fixed
+
+- **A backup's pod is no longer taken for the game.** The pods of backups,
+  restores and imports carried the server's own label, which the game's
+  Service selects: while one ran, it was an endpoint some players were sent to
+  and that never answered, a stop command could be delivered to it instead of
+  the game (which then did not save on the way down), and the kill action
+  deleted it. They carry only their operation's label now; a restore still
+  waits for an earlier operation's pod to be gone before it takes the volume.
+
 ### Security
 
 - **The activator and the backup Jobs get network policies of their own.**
