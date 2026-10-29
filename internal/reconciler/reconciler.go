@@ -68,6 +68,11 @@ type Reconciler struct {
 	// avoid an import cycle with the console package.
 	OnStop func(ctx context.Context, namespace, slug, stopCommand string) error
 
+	// ResolveImage, if set, returns the digest an image tag points at in its
+	// registry (registry.Resolver.Digest). Nil, a game runs its images' tags
+	// as whatever its node pulled first.
+	ResolveImage func(ctx context.Context, ref string) (string, error)
+
 	// LogTail, if set, returns the last lines of a container's log, its previous
 	// run's when previous is true. A crash's message quotes the error it ends
 	// with. Injected by the controller, which holds the clientset logs need.
@@ -332,6 +337,7 @@ func (r *Reconciler) ensureObjects(ctx context.Context, srv *models.Server, tmpl
 			return failed("passwd file", err)
 		}
 	}
+	r.refreshImagePins(ctx, srv, tmpl)
 	if err := r.ensureDeployment(ctx, srv, tmpl, secretKeys); err != nil {
 		return failed("game Deployment", err)
 	}

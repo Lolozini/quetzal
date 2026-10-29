@@ -206,7 +206,7 @@ func BuildDeployment(s *models.Server, t *models.Template, systemImage string, s
 
 	container := corev1.Container{
 		Name:            workloadName,
-		Image:           s.Image,
+		Image:           s.RunImage(s.Image),
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		// Interim startup shim: when the server or its template defines a startup
 		// command, run it via a shell with {{VAR}} -> ${VAR} substitution. The full
@@ -1359,7 +1359,7 @@ func configRenderInitContainers(s *models.Server, t *models.Template, systemImag
 		},
 		{
 			Name:            RenderConfigContainer,
-			Image:           s.Image,
+			Image:           s.RunImage(s.Image),
 			ImagePullPolicy: corev1.PullIfNotPresent,
 			Command:         []string{renderBinPath},
 			Env:             renderEnv,
@@ -1413,7 +1413,11 @@ func sftpCopyInitContainer(systemImage string, t *models.Template) corev1.Contai
 }
 
 // sftpSidecar runs the SFTP server from the game image (same user as the server)
-// against the data volume, with the host key and authorized_keys mounted.
+// against the data volume, with the host key and authorized_keys mounted. It
+// takes the tag rather than the game's pinned digest: the data manager runs
+// whether the game does or not, and a pin that moves on a start would replace
+// it, and the file manager with it, under whoever is using them. What it runs
+// is Quetzal's own binary, copied in.
 func sftpSidecar(s *models.Server, t *models.Template, dataPath string) corev1.Container {
 	return corev1.Container{
 		Name:            "sftp",
@@ -1808,14 +1812,24 @@ done
 echo "quetzal: no usable shell in this install image (tried '$QUETZAL_INSTALL_SHELL', bash, ash, sh)" >&2
 exit 127`
 
-func installInitContainers(s *models.Server, t *models.Template, secretKeys []string) []corev1.Container {
+// installImage is the image a template's install step runs in, "" when it has
+// none.
+func installImage(t *models.Template) string {
 	if t.Install == nil || t.Install.Script == "" {
+		return ""
+	}
+	if t.Install.Image == "" {
+		return "alpine:3.24"
+	}
+	return t.Install.Image
+}
+
+func installInitContainers(s *models.Server, t *models.Template, secretKeys []string) []corev1.Container {
+	image := installImage(t)
+	if image == "" {
 		return nil
 	}
-	image := t.Install.Image
-	if image == "" {
-		image = "alpine:3.24"
-	}
+	image = s.RunImage(image)
 	entrypoint := t.Install.Entrypoint
 	if entrypoint == "" {
 		entrypoint = "sh"

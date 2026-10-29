@@ -9,6 +9,19 @@ releases may include breaking changes).
 
 ### Changed
 
+- **A game's images are looked up at every start.** They were pulled
+  `IfNotPresent`: a node that had a tag kept it, so an image fixed upstream
+  under the same tag -- a runtime rebuilt for a CVE, `steamcmd:debian` for an
+  exploited brotli flaw -- never reached a server that had run the old one.
+  When a game's pod is about to be made (a start, the start half of a restart,
+  a wake, the first install), the controller now asks the registry what the
+  game's tag and its install step's point at, and the pod runs them at that
+  digest (`imagePins` on the server). Nothing changes while the game runs,
+  and a registry that does not answer within five seconds leaves the digest
+  it ran last, as Wings falls back on the image it has. Public images only,
+  read anonymously; a private one, or a registry on a private address, runs
+  its tag as before.
+
 - **Only an administrator can put a server behind a load balancer.** A
   load balancer is an address from the operator's pool, or one their cloud
   bills by the month, and a server's owner or a subuser allowed its settings

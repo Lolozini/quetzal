@@ -101,6 +101,9 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   command before its pod goes — on a stop, a restart, or a new setting. A
   running server keeps the template version it started with until it
   restarts.
+- **Images are looked up at every start**, as Wings pulls them: a fix published
+  under the same tag reaches the server on its next start, and a registry that
+  does not answer leaves the image it ran last.
 - Edit startup variables and CPU/RAM limits after creation (validated against the
   template; secrets preserved). An administrator can give one server a **startup
   command of its own** — an argument its egg has no variable for — without

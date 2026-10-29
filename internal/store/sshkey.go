@@ -116,6 +116,13 @@ func (s *Store) UpdateServerSFTP(id uint, cfg models.SFTPConfig) error {
 		Updates(models.Server{SFTP: cfg}).Error
 }
 
+// SetServerImagePins persists the digests a server's game pod runs at
+// (models.Server.ImagePins).
+func (s *Store) SetServerImagePins(id uint, pins map[string]string) error {
+	return s.db.Model(&models.Server{ID: id}).Select("image_pins").
+		Updates(models.Server{ImagePins: pins}).Error
+}
+
 // UpdateServerReaches persists the servers a server may reach (models.Server.Reaches).
 func (s *Store) UpdateServerReaches(id uint, slugs []string) error {
 	return s.db.Model(&models.Server{ID: id}).Select("reaches").

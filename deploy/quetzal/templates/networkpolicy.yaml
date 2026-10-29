@@ -79,7 +79,7 @@ spec:
         - { port: {{ $.Values.db.port }}, protocol: TCP }
     {{- end }}
     # The public internet, nothing private: egg imports by URL, webhooks, SMTP,
-    # checking a backup bucket.
+    # checking a backup bucket, looking a game's images up in their registries.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

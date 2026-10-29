@@ -2846,6 +2846,14 @@ components:
           format: date-time
           description: A restart under way, stopping the game before it starts again
         image: { type: string }
+        imagePins:
+          type: object
+          readOnly: true
+          description: >-
+            Digest each tag of the game's pod (its image, its install step's)
+            pointed at when the game last started; the pod runs tag@digest.
+            Looked up by the controller, public registries only.
+          additionalProperties: { type: string }
         startup:
           type: string
           description: The server's own startup command, set by an administrator; absent when it runs its template's

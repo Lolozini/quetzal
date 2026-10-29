@@ -215,6 +215,12 @@ type Server struct {
 	TemplateVersion int  `json:"templateVersion"`
 	// Image is the selected template image ref.
 	Image string `json:"image"`
+	// ImagePins are the digests the tags of the game pod's images -- the game's
+	// and the install step's -- pointed at when the game last started, looked
+	// up in their registries by the controller. The pod runs ref@digest, so a
+	// tag moved upstream is pulled on the next start, and a registry that does
+	// not answer then leaves the digest that was. See RunImage.
+	ImagePins map[string]string `gorm:"serializer:json" json:"imagePins,omitempty"`
 	// Startup is the server's own startup command, run in place of its
 	// template's: an argument the template has no variable for, given to one
 	// server -- TeamSpeak on MariaDB, a JVM flag -- without copying the
@@ -290,6 +296,15 @@ type Server struct {
 	Transfer *TransferState `gorm:"serializer:json" json:"transfer,omitempty"`
 
 	Status Status `gorm:"serializer:json" json:"status"`
+}
+
+// RunImage is ref as the game's pod runs it: at the digest its tag pointed at
+// when the game last started, when that is known.
+func (s *Server) RunImage(ref string) string {
+	if d := s.ImagePins[ref]; d != "" && !strings.Contains(ref, "@") {
+		return ref + "@" + d
+	}
+	return ref
 }
 
 // Replicas returns the desired pod replica count. A server runs only when the

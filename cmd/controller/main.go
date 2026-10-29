@@ -41,6 +41,7 @@ import (
 	"github.com/lolozini/quetzal/internal/metrics"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/reconciler"
+	"github.com/lolozini/quetzal/internal/registry"
 	"github.com/lolozini/quetzal/internal/scheduler"
 	"github.com/lolozini/quetzal/internal/sftpactivity"
 	"github.com/lolozini/quetzal/internal/startup"
@@ -394,6 +395,7 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 		rec.OnStop = onStopFor(clients)
 		rec.StartupSeen = startupSeenFor(watcher, clients)
 		rec.LogTail = logTailFor(clients)
+		rec.ResolveImage = (&registry.Resolver{}).Digest
 		rec.ActivatorImage = actCfg.image
 		rec.WakeURL = actCfg.wakeURL
 		rec.ActiveURL = actCfg.activeURL
