@@ -7,6 +7,19 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- **The controller no longer rewrites every object on every resync.** Each
+  pass re-applied each object of each server, deleted again the objects a mode
+  the server does not use would need, and created a RoleBinding that was
+  already there: about two hundred writes a minute for five idle servers, most
+  of the API server's audit log. An object applied with the same content, or
+  found absent, in the last five minutes is now left alone, and an idle server
+  costs no writes at all. A change Quetzal makes is still written on the next
+  pass; one made by hand to an object Quetzal manages is undone within five
+  minutes rather than fifteen seconds. Warnings meant to be logged once per
+  controller are, instead of once per resync.
+
 ## [0.16.2] - 2026-10-29
 
 A security and bug-fix patch. The image is rebuilt with Go 1.27.3 for a

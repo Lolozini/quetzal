@@ -161,9 +161,12 @@ func main() {
 			default:
 			}
 		}
+		// What was written to each cluster, kept from one pass to the next for
+		// as long as this replica leads: a new term starts from nothing.
+		memos := map[uint]*reconciler.Memo{}
 		reconcile := func() {
 			_ = guarded("reconcile", func() error {
-				reconcileAll(ctx, reg, st, actCfg, egressAllow, dnsServers, namespacedRole, watcher)
+				reconcileAll(ctx, reg, st, actCfg, egressAllow, dnsServers, namespacedRole, watcher, memos)
 				return nil
 			})
 		}
@@ -348,7 +351,7 @@ func apiCallbackURL(base, kind string) string {
 	return base + "/api/internal/" + kind
 }
 
-func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, actCfg activatorConfig, egressAllow, dnsServers []string, namespacedRole string, watcher *startup.Watcher) {
+func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, actCfg activatorConfig, egressAllow, dnsServers []string, namespacedRole string, watcher *startup.Watcher, memos map[uint]*reconciler.Memo) {
 	servers, err := st.ListServers()
 	if err != nil {
 		log.Printf("list servers: %v", err)
@@ -384,6 +387,10 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 			continue
 		}
 		rec := reconciler.New(clients.Client, st)
+		if memos[c.ID] == nil {
+			memos[c.ID] = reconciler.NewMemo()
+		}
+		rec.Memo = memos[c.ID]
 		rec.OnStop = onStopFor(clients)
 		rec.StartupSeen = startupSeenFor(watcher, clients)
 		rec.LogTail = logTailFor(clients)

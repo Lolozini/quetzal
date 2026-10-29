@@ -33,6 +33,12 @@ func (r *Reconciler) ensureRoleBinding(ctx context.Context, namespace string) {
 	if r.NamespacedRole == "" {
 		return // not configured (tests, or an install that predates the split)
 	}
+	// Bindings are not read back (the role grants create alone), so a binding
+	// there is remembered rather than created again for a 409 on every pass.
+	key := memoKey(&rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: RoleBindingName, Namespace: namespace}})
+	if r.Memo.fresh(key, r.NamespacedRole) {
+		return
+	}
 	subject, ok := r.identity(ctx)
 	if !ok {
 		return
@@ -52,9 +58,11 @@ func (r *Reconciler) ensureRoleBinding(ctx context.Context, namespace string) {
 	err := r.Client.Create(ctx, rb)
 	if err == nil {
 		r.waitForAccess(ctx, namespace)
+		r.Memo.record(namespace, key, r.NamespacedRole)
 		return
 	}
 	if apierrors.IsAlreadyExists(err) {
+		r.Memo.record(namespace, key, r.NamespacedRole)
 		return
 	}
 	r.warnOnce("role-binding", "cannot grant myself access in %s (%v); this is expected when the cluster was registered with an administrator's kubeconfig, and a problem otherwise", namespace, err)

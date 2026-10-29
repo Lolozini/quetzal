@@ -1,0 +1,135 @@
+package reconciler
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"sync"
+	"time"
+
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+// memoTTL is how long a write is taken as still holding. Past it, the next pass
+// sends the object again, which undoes a change made behind Quetzal's back.
+const memoTTL = 5 * time.Minute
+
+// memoAbsent is what an object found deleted is remembered as; no content hash
+// is ever equal to it.
+const memoAbsent = "absent"
+
+// Memo is what a control plane remembers about one cluster from one pass to the
+// next. The Reconciler is made anew on every resync, and every pass applied
+// each object of each server again, deleted the objects a server does not use
+// and tried to create a RoleBinding that was already there: some two hundred
+// writes a minute for five servers that had not changed, nine requests in ten
+// of the API server's audit log. With a Memo, an object applied with the same
+// content, or found absent, less than memoTTL ago is left alone.
+//
+// Until then, an object edited or deleted by hand stays so. A namespace made
+// again under the same name has a new UID, and starts with nothing remembered.
+//
+// A nil Memo remembers nothing: every pass writes everything, as before.
+type Memo struct {
+	mu         sync.Mutex
+	now        func() time.Time
+	entries    map[string]memoEntry
+	namespaces map[string]types.UID
+	warned     map[string]bool
+	swept      time.Time
+}
+
+type memoEntry struct {
+	namespace string
+	sum       string
+	at        time.Time
+}
+
+// NewMemo returns an empty Memo.
+func NewMemo() *Memo {
+	return &Memo{
+		now:        time.Now,
+		entries:    map[string]memoEntry{},
+		namespaces: map[string]types.UID{},
+		warned:     map[string]bool{},
+	}
+}
+
+// memoKey names an object: its Go type, namespace and name.
+func memoKey(obj client.Object) string {
+	return fmt.Sprintf("%T|%s|%s", obj, obj.GetNamespace(), obj.GetName())
+}
+
+// memoSum is a hash of everything about obj Quetzal would send.
+func memoSum(obj client.Object) (string, error) {
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:]), nil
+}
+
+// fresh reports whether key was recorded with sum less than memoTTL ago.
+func (m *Memo) fresh(key, sum string) bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.entries[key]
+	return ok && e.sum == sum && m.now().Sub(e.at) < memoTTL
+}
+
+// record remembers that key now holds sum.
+func (m *Memo) record(namespace, key, sum string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	m.entries[key] = memoEntry{namespace: namespace, sum: sum, at: now}
+	// Entries past their TTL are worth nothing; dropping them keeps the
+	// servers deleted since from being remembered for good.
+	if now.Sub(m.swept) >= memoTTL {
+		for k, e := range m.entries {
+			if now.Sub(e.at) >= memoTTL {
+				delete(m.entries, k)
+			}
+		}
+		m.swept = now
+	}
+}
+
+// sawNamespace forgets everything remembered in namespace name when it is not
+// the namespace it was: deleted and made again, it holds none of it.
+func (m *Memo) sawNamespace(name string, uid types.UID) {
+	if m == nil || uid == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.namespaces[name] == uid {
+		return
+	}
+	for k, e := range m.entries {
+		if e.namespace == name {
+			delete(m.entries, k)
+		}
+	}
+	m.namespaces[name] = uid
+}
+
+// warnOnce reports whether key is seen for the first time.
+func (m *Memo) warnOnce(key string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.warned[key] {
+		return false
+	}
+	m.warned[key] = true
+	return true
+}

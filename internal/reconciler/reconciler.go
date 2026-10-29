@@ -42,7 +42,12 @@ type Reconciler struct {
 	// cluster registered with an administrator's kubeconfig, looks like.
 	NamespacedRole string
 
-	// warned de-duplicates warnings that would otherwise repeat every resync.
+	// Memo carries what was written to this cluster from one pass to the next
+	// (memo.go). Nil, every pass writes everything.
+	Memo *Memo
+
+	// warned de-duplicates warnings that would otherwise repeat every resync,
+	// for a Reconciler without a Memo.
 	warnMu sync.Mutex
 	warned map[string]bool
 
@@ -505,6 +510,9 @@ func (r *Reconciler) ensureOwnedNamespace(ctx context.Context, name string, labe
 		}
 		return nil
 	})
+	if err == nil {
+		r.Memo.sawNamespace(name, ns.UID)
+	}
 	if err == nil || !apierrors.IsForbidden(err) {
 		return err
 	}
@@ -521,6 +529,7 @@ func (r *Reconciler) ensureOwnedNamespace(ctx context.Context, name string, labe
 	if ownerErr := r.checkNamespaceOwner(ns, labels); ownerErr != nil {
 		return ownerErr
 	}
+	r.Memo.sawNamespace(name, ns.UID)
 	r.warnOnce("namespace-labels", "cannot update namespace labels (%v); servers keep reconciling, but orphan-collection ownership will not be stamped on existing namespaces", err)
 	return nil
 }
@@ -528,6 +537,12 @@ func (r *Reconciler) ensureOwnedNamespace(ctx context.Context, name string, labe
 // warnOnce logs a message the first time a given key is seen, so a condition
 // that repeats on every 15s resync is reported without flooding the log.
 func (r *Reconciler) warnOnce(key, format string, args ...any) {
+	if r.Memo != nil {
+		if r.Memo.warnOnce(key) {
+			log.Printf(format, args...)
+		}
+		return
+	}
 	r.warnMu.Lock()
 	defer r.warnMu.Unlock()
 	if r.warned == nil {
@@ -633,8 +648,8 @@ func (r *Reconciler) ensureSFTPHostKey(ctx context.Context, s *models.Server) er
 }
 
 func (r *Reconciler) deleteSFTP(ctx context.Context, s *models.Server) {
-	_ = r.Client.Delete(ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: SFTPServiceName, Namespace: s.Namespace}})
-	_ = r.Client.Delete(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: SFTPAuthKeysConfigMap, Namespace: s.Namespace}})
+	_ = r.deleteIfPresent(ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: SFTPServiceName, Namespace: s.Namespace}})
+	_ = r.deleteIfPresent(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: SFTPAuthKeysConfigMap, Namespace: s.Namespace}})
 	// Return the SFTP node port to the pool so it can be reused.
 	_ = r.Store.ReleaseNodePort(s.ID, SFTPPortName)
 }
@@ -667,9 +682,36 @@ const fieldOwner = "quetzal-controller"
 
 // apply performs a server-side apply. Unlike overwriting the whole spec on each
 // reconcile, SSA is idempotent and leaves server-defaulted fields untouched, so
-// unchanged objects produce no write churn.
+// unchanged objects produce no write churn. An object applied with the same
+// content a moment ago is not sent at all (Memo).
 func (r *Reconciler) apply(ctx context.Context, obj client.Object) error {
-	return r.Client.Patch(ctx, obj, client.Apply, client.FieldOwner(fieldOwner), client.ForceOwnership)
+	key := memoKey(obj)
+	sum, sumErr := memoSum(obj)
+	if sumErr == nil && r.Memo.fresh(key, sum) {
+		return nil
+	}
+	if err := r.Client.Patch(ctx, obj, client.Apply, client.FieldOwner(fieldOwner), client.ForceOwnership); err != nil {
+		return err
+	}
+	if sumErr == nil {
+		r.Memo.record(obj.GetNamespace(), key, sum)
+	}
+	return nil
+}
+
+// deleteIfPresent deletes obj, and remembers it gone: most servers never have
+// the objects a mode they do not use needs, and every pass asked the API
+// server to delete them again, for a 404.
+func (r *Reconciler) deleteIfPresent(ctx context.Context, obj client.Object) error {
+	key := memoKey(obj)
+	if r.Memo.fresh(key, memoAbsent) {
+		return nil
+	}
+	if err := r.Client.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	r.Memo.record(obj.GetNamespace(), key, memoAbsent)
+	return nil
 }
 
 // ensureDeployment applies the game's Deployment. A change to its pod -- new
@@ -724,11 +766,7 @@ func (r *Reconciler) dropActive(s *models.Server, t *models.Template) bool {
 // removes it when neither mode applies.
 func (r *Reconciler) ensureActivator(ctx context.Context, s *models.Server, t *models.Template, proxy, drop bool) error {
 	if !proxy && !drop {
-		dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: ActivatorName, Namespace: s.Namespace}}
-		if err := r.Client.Delete(ctx, dep); err != nil && !apierrors.IsNotFound(err) {
-			return err
-		}
-		return nil
+		return r.deleteIfPresent(ctx, &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: ActivatorName, Namespace: s.Namespace}})
 	}
 	dep := BuildActivatorDeployment(s, t, ActivatorParams{
 		Image:     r.ActivatorImage,
@@ -746,11 +784,7 @@ func (r *Reconciler) ensureActivator(ctx context.Context, s *models.Server, t *m
 // ensureInternalService maintains the proxy's stable backend Service.
 func (r *Reconciler) ensureInternalService(ctx context.Context, s *models.Server, t *models.Template, proxy bool) error {
 	if !proxy || len(serverPorts(s, t)) == 0 {
-		svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: InternalServiceName, Namespace: s.Namespace}}
-		if err := r.Client.Delete(ctx, svc); err != nil && !apierrors.IsNotFound(err) {
-			return err
-		}
-		return nil
+		return r.deleteIfPresent(ctx, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: InternalServiceName, Namespace: s.Namespace}})
 	}
 	return r.apply(ctx, BuildInternalService(s, t))
 }
