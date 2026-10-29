@@ -123,6 +123,8 @@ func TestE2ELifecycle(t *testing.T) {
 	// Portless: namespace + deployment + networkpolicy + running pod, but NO service.
 	assertExists(ctx, t, c, &appsv1.Deployment{}, portless.Namespace, "server")
 	assertExists(ctx, t, c, &networkingv1.NetworkPolicy{}, portless.Namespace, "quetzal-default")
+	assertExists(ctx, t, c, &networkingv1.NetworkPolicy{}, portless.Namespace, reconciler.ActivatorPolicyName)
+	assertExists(ctx, t, c, &networkingv1.NetworkPolicy{}, portless.Namespace, reconciler.JobsPolicyName)
 	assertNotExists(ctx, t, c, &corev1.Service{}, portless.Namespace, "server")
 	assertPodRunning(ctx, t, c, portless.Namespace)
 

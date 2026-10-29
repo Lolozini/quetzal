@@ -118,8 +118,9 @@ type hostAddrs struct {
 	expires time.Time
 }
 
-// lookup resolves a database host's name, through a short cache. A name that
-// does not resolve gives no way through, and is said in the log.
+// lookup resolves a host's name -- a database host's, the backup target's, the
+// panel's -- through a short cache. A name that does not resolve gives no way
+// through, and is said in the log.
 func (r *Reconciler) lookup(host string) []net.IP {
 	r.lookupMu.Lock()
 	if a, ok := r.lookups[host]; ok && time.Now().Before(a.expires) {
@@ -138,7 +139,7 @@ func (r *Reconciler) lookup(host string) []net.IP {
 	defer cancel()
 	ips, err := resolve(ctx, host)
 	if err != nil {
-		log.Printf("database host %q does not resolve, so no server can reach it: %v", host, err)
+		log.Printf("host %q does not resolve, so no pod of a server can reach it: %v", host, err)
 		ips = nil
 	}
 	r.lookupMu.Lock()

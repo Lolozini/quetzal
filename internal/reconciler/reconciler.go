@@ -246,6 +246,10 @@ func (r *Reconciler) ensureObjects(ctx context.Context, srv *models.Server, tmpl
 	if err := r.ensureNetworkPolicy(ctx, srv, tmpl); err != nil {
 		return failed("network policy", err)
 	}
+	// Before the activator and any Job, for the same reason.
+	if err := r.ensureAuxPolicies(ctx, srv, tmpl); err != nil {
+		return failed("network policy", err)
+	}
 	if err := r.ensureResourceQuota(ctx, srv); err != nil {
 		return failed("resource quota", err)
 	}
@@ -801,6 +805,12 @@ func (r *Reconciler) ensureNetworkPolicy(ctx context.Context, s *models.Server, 
 // has no notion of hostnames — so one on a private address needs its range in
 // ExtraEgressCIDRs. A public one is already covered by the internet rule.
 func (r *Reconciler) egressPeersFor(s *models.Server) []EgressPeer {
+	return r.peersFor(s, true)
+}
+
+// peersFor is egressPeersFor, with the servers this one was given to reach
+// only when reaches is set: they are the game's, not its backup Jobs'.
+func (r *Reconciler) peersFor(s *models.Server, reaches bool) []EgressPeer {
 	peers := make([]EgressPeer, 0, len(r.ExtraEgressCIDRs)+len(r.DNSServers))
 	for _, c := range r.ExtraEgressCIDRs {
 		peers = append(peers, EgressPeer{CIDR: c})
@@ -838,6 +848,9 @@ func (r *Reconciler) egressPeersFor(s *models.Server) []EgressPeer {
 				}
 			}
 		}
+	}
+	if !reaches {
+		return peers
 	}
 	// The servers it was given to reach, a proxy's backends: their namespaces,
 	// where their own policy admits only their game ports. One deleted since,

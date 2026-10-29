@@ -26,7 +26,7 @@ const (
 	// CredsSecretName is the per-namespace Secret holding restic credentials.
 	CredsSecretName = "quetzal-backup-creds"
 	// BackupLabel marks backup Jobs/Secrets (value = backup operation ID).
-	BackupLabel         = "quetzal.dev/backup"
+	BackupLabel         = reconciler.BackupJobLabel
 	mountPath           = "/data"
 	defaultImage        = "restic/restic:0.19.1"
 	retentionAnnotation = "quetzal.dev/keep-last"

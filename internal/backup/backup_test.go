@@ -11,6 +11,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8slabels "k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/lolozini/quetzal/internal/models"
@@ -442,5 +443,26 @@ func TestParseBackupSizeFromRetriedSnapshot(t *testing.T) {
 	logs = "[]\nnot JSON\n" + `{"message_type":"summary","total_bytes_processed":42}`
 	if got := ParseBackupSize(logs); got != 42 {
 		t.Fatalf("backup after empty snapshot search size = %d, want 42", got)
+	}
+}
+
+// The Jobs' policy is worth nothing unless it selects the pods of every Job,
+// whatever it does.
+func TestJobPodsAreSelectedByTheJobsPolicy(t *testing.T) {
+	np := reconciler.BuildJobsNetworkPolicy(&models.Server{Namespace: "ns"}, nil)
+	sel, err := metav1.LabelSelectorAsSelector(&np.Spec.PodSelector)
+	if err != nil {
+		t.Fatalf("selector: %v", err)
+	}
+	for _, p := range []Params{
+		{Slug: "s1", BackupID: 1, Direction: models.DirBackup},
+		{Slug: "s1", BackupID: 2, Direction: models.DirRestore},
+		{Slug: "s1", BackupID: 3, Direction: models.DirDatabaseImport, Databases: twoDatabases()[:1], ImportPath: "/dumps/a.sql"},
+		{Slug: "s1", BackupID: 4, Forget: true},
+	} {
+		job := BuildJob(p)
+		if !sel.Matches(k8slabels.Set(job.Spec.Template.Labels)) {
+			t.Errorf("%s: the Jobs policy does not select %v", JobName(p), job.Spec.Template.Labels)
+		}
 	}
 }

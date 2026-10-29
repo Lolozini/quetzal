@@ -20,6 +20,19 @@ releases may include breaking changes).
   minutes rather than fifteen seconds. Warnings meant to be logged once per
   controller are, instead of once per resync.
 
+### Security
+
+- **The activator and the backup Jobs get network policies of their own.**
+  They ran in the server's namespace with none, so with ingress and egress
+  open: the Jobs read and write the players' files, and the activator takes
+  the game's connections. `quetzal-activator` admits the game's ports and lets
+  the activator reach DNS, the panel it wakes and, in proxy mode, the game
+  behind it, and no internet. `quetzal-jobs` admits nothing and lets the Jobs
+  reach DNS, the public internet, the server's databases and the backup
+  target, which gets a way of its own when it is a Service of the cluster or a
+  private address (a host name is resolved by the controller, as a database
+  host's is).
+
 ## [0.16.2] - 2026-10-29
 
 A security and bug-fix patch. The image is rebuilt with Go 1.27.3 for a

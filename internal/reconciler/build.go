@@ -47,6 +47,9 @@ const (
 	// Deployment never adopts activator pods; the Service selector flips between
 	// the two.
 	ActivatorLabel = "quetzal.dev/activator"
+	// BackupJobLabel marks the pods of a server's backup, restore, import and
+	// snapshot deletion Jobs (value = the backup's id).
+	BackupJobLabel = "quetzal.dev/backup"
 	// ActivatorName is the activator Deployment's name within a server namespace.
 	ActivatorName = "activator"
 	// PodSecurityLabel is the Pod Security Admission level every namespace
@@ -68,9 +71,9 @@ const (
 	// netpolLabel marks the pods that get the restrictive default NetworkPolicy:
 	// the game pod and the data-manager (they run game images / hold untrusted
 	// data, so their egress is limited to DNS + the internet, never the cluster).
-	// The activator and backup Job deliberately don't carry it — they are
-	// Quetzal-controlled and need cluster/external egress (the apiserver, S3) that
-	// the generic per-server policy can't express.
+	// The activator and backup Jobs don't carry it: they need egress this policy
+	// does not give (the panel, a private S3 target), and have policies of their
+	// own (auxpolicy.go).
 	netpolLabel      = "quetzal.dev/netpol"
 	netpolRestricted = "restricted"
 	// WorkloadName is the Deployment/Service name within a server's namespace.
@@ -786,10 +789,8 @@ func BuildNetworkPolicy(s *models.Server, t *models.Template, extra []EgressPeer
 		Spec: networkingv1.NetworkPolicySpec{
 			// Apply to the untrusted workload pods — the game pod and the
 			// data-manager (files/SFTP) — which must not reach the cluster (k8s
-			// API, node metadata, other tenants). The activator and backup Job
-			// carry no netpol label: they're Quetzal-controlled and need egress the
-			// generic policy can't express (the apiserver for wake callbacks, S3),
-			// so they're intentionally left out of this restrictive policy.
+			// API, node metadata, other tenants). The activator and backup Jobs
+			// have policies of their own (auxpolicy.go).
 			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{netpolLabel: netpolRestricted}},
 			PolicyTypes: []networkingv1.PolicyType{
 				networkingv1.PolicyTypeIngress,
@@ -806,21 +807,8 @@ func BuildNetworkPolicy(s *models.Server, t *models.Template, extra []EgressPeer
 // egressRules builds the egress side: DNS, the public internet, and whatever
 // else this server was explicitly given.
 func egressRules(dnsUDP, dnsTCP corev1.Protocol, dnsPort intstr.IntOrString, extra []EgressPeer) []networkingv1.NetworkPolicyEgressRule {
-	dnsPeers := clusterDNSPeers()
-	for _, p := range extra {
-		if p.DNS && p.CIDR != "" {
-			dnsPeers = append(dnsPeers, networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: p.CIDR}})
-		}
-	}
 	rules := []networkingv1.NetworkPolicyEgressRule{
-		{ // DNS. The resolver lives in the cluster, which the rule below denies,
-			// so it needs one of its own: the resolver, nothing else on port 53.
-			To: dnsPeers,
-			Ports: []networkingv1.NetworkPolicyPort{
-				{Protocol: &dnsUDP, Port: &dnsPort},
-				{Protocol: &dnsTCP, Port: &dnsPort},
-			},
-		},
+		dnsRule(dnsUDP, dnsTCP, dnsPort, extra),
 		{ // The public internet, and nothing that is not.
 			To: []networkingv1.NetworkPolicyPeer{{
 				IPBlock: &networkingv1.IPBlock{
@@ -830,9 +818,34 @@ func egressRules(dnsUDP, dnsTCP corev1.Protocol, dnsPort intstr.IntOrString, ext
 			}},
 		},
 	}
+	return append(rules, peerRules(extra)...)
+}
+
+// dnsRule is the way to DNS. The resolver lives in the cluster, which the
+// internet rule denies, so it needs one of its own: the resolver, nothing else
+// on port 53.
+func dnsRule(dnsUDP, dnsTCP corev1.Protocol, dnsPort intstr.IntOrString, extra []EgressPeer) networkingv1.NetworkPolicyEgressRule {
+	dnsPeers := clusterDNSPeers()
+	for _, p := range extra {
+		if p.DNS && p.CIDR != "" {
+			dnsPeers = append(dnsPeers, networkingv1.NetworkPolicyPeer{IPBlock: &networkingv1.IPBlock{CIDR: p.CIDR}})
+		}
+	}
+	return networkingv1.NetworkPolicyEgressRule{
+		To: dnsPeers,
+		Ports: []networkingv1.NetworkPolicyPort{
+			{Protocol: &dnsUDP, Port: &dnsPort},
+			{Protocol: &dnsTCP, Port: &dnsPort},
+		},
+	}
+}
+
+// peerRules are the rules for extra's peers, resolvers aside.
+func peerRules(extra []EgressPeer) []networkingv1.NetworkPolicyEgressRule {
+	var rules []networkingv1.NetworkPolicyEgressRule
 	for _, p := range extra {
 		if p.DNS {
-			continue // in the DNS rule above
+			continue // in the DNS rule
 		}
 		var ports []networkingv1.NetworkPolicyPort
 		if p.Port != 0 {
