@@ -41,10 +41,10 @@ const defaultRevokeInterval = 5 * time.Second
 // defaultHandshakeTimeout bounds a connection that has not authenticated yet.
 // Without one, a client that opens a socket and then says nothing holds a
 // goroutine and a file descriptor for as long as it likes -- and this server is
-// a sidecar in the game server's own pod, sharing its memory limit, published on
-// a NodePort. Enough silent connections and the kubelet OOM-kills the pod: the
-// game goes down, from the internet, with no credentials at all. A real SSH
-// handshake finishes in well under a second.
+// a sidecar in the server's data-manager pod, sharing its memory limit,
+// published on a NodePort. Enough silent connections and the kubelet OOM-kills
+// the pod: the file manager and SFTP go down, from the internet, with no
+// credentials at all. A real SSH handshake finishes in well under a second.
 const defaultHandshakeTimeout = 15 * time.Second
 
 // defaultMaxPending bounds how many connections may be mid-handshake at once, so
@@ -53,8 +53,8 @@ const defaultHandshakeTimeout = 15 * time.Second
 //
 // This does mean a flood can fill the slots and keep legitimate clients out. That
 // is the trade deliberately taken: SFTP being unreachable for a while is a far
-// smaller failure than the game server being killed, and the handshake timeout
-// keeps the slots turning over.
+// smaller failure than the pod, and the file manager with it, being killed, and
+// the handshake timeout keeps the slots turning over.
 const defaultMaxPending = 256
 
 // pubkeyExt carries the authenticated public key (base64 of its wire form) from
