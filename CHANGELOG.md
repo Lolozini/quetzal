@@ -7,6 +7,28 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-29
+
+A public address per server and the service annotations in the panel, a
+controller that no longer rewrites every object of every server on each
+resync, and network policies for the last pods of a server that had none, the
+activator and the backup Jobs. Backup pods are no longer taken for the game,
+which sent players to them and could deliver a stop command to them, and
+managed databases run without root.
+
+**Upgrading from 0.16.2** — three things to know:
+
+- Each managed database restarts once, for a few seconds. A game server that
+  keeps its database connections open, such as TeamSpeak, can be left holding
+  dead ones without logging anything: restart it once the database is back.
+  See *Security*.
+- An object of a server changed by hand is put back within five minutes rather
+  than fifteen seconds, except its network policies and resource quota, which
+  are still put back on the next pass. See *Changed*.
+- On a cluster registered with the manifest the panel offers, re-apply that
+  manifest to pick up the tightened admission policy; `helm upgrade` carries
+  it for the panel's own cluster. See *Security*.
+
 ### Added
 
 - **A public address per server.** Behind a router that forwards 9987 to node
@@ -2456,7 +2478,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.16.2...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/lolozini/quetzal/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/lolozini/quetzal/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/lolozini/quetzal/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/lolozini/quetzal/compare/v0.15.2...v0.16.0
