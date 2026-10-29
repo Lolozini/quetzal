@@ -112,8 +112,9 @@ func TestBuildManagedDB(t *testing.T) {
 // A managed database's probes must not be a bare TCP connect: MariaDB logs a
 // warning for every connection closed without authenticating, and two probes
 // every ten seconds left its log holding nothing else. The image's own health
-// check connects over the local socket as the mysql user, with no credentials
-// to hand it.
+// check connects over the local socket as the mysql user the pod runs as, with
+// no credentials to hand it, and without --su-mysql: switching user is root's
+// alone, and the probe would fail.
 func TestManagedDBProbesDoNotOpenUnauthenticatedConnections(t *testing.T) {
 	h := &models.DatabaseHost{ID: 4, Kind: models.DBHostManaged, Namespace: "quetzal-db-4", Image: "mariadb:12.3", StorageSize: "1Gi"}
 	objs, err := buildManagedDB(h, "pw", "inst")
@@ -136,13 +137,15 @@ func TestManagedDBProbesDoNotOpenUnauthenticatedConnections(t *testing.T) {
 			if p.Exec == nil || len(p.Exec.Command) == 0 || p.Exec.Command[0] != "healthcheck.sh" {
 				t.Fatalf("%s probe = %+v, want the image's healthcheck.sh", name, p.Exec)
 			}
-			// --su-mysql is what makes it work without credentials, and
 			// --connect is what makes it mean anything.
 			joined := strings.Join(p.Exec.Command, " ")
-			for _, want := range []string{"--su-mysql", "--connect", "--innodb_initialized"} {
+			for _, want := range []string{"--connect", "--innodb_initialized"} {
 				if !strings.Contains(joined, want) {
 					t.Errorf("%s probe %q is missing %s", name, joined, want)
 				}
+			}
+			if strings.Contains(joined, "--su") {
+				t.Errorf("%s probe %q switches user, which the pod's user may not", name, joined)
 			}
 		}
 	}
@@ -154,5 +157,43 @@ func TestBuildManagedDBRejectsInvalidStorage(t *testing.T) {
 		if err == nil || len(objs) != 0 {
 			t.Errorf("invalid historical storage %q produced objects: %v", size, err)
 		}
+	}
+}
+
+// A managed database ran as root with every capability root has, the one
+// database pod of Quetzal's that Pod Security "restricted" would have refused.
+// It runs as the image's mysql user from the start now, which the official
+// entrypoint supports, with nothing to escalate to.
+func TestManagedDBRunsAsMySQLWithNothingToEscalateTo(t *testing.T) {
+	h := &models.DatabaseHost{ID: 4, Kind: models.DBHostManaged, Namespace: "quetzal-db-4", Image: "mariadb:12.3", StorageSize: "1Gi"}
+	objs, err := buildManagedDB(h, "pw", "inst")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d *appsv1.Deployment
+	for _, o := range objs {
+		if dep, ok := o.(*appsv1.Deployment); ok {
+			d = dep
+		}
+	}
+	if d == nil {
+		t.Fatal("no Deployment")
+	}
+	pod := d.Spec.Template.Spec.SecurityContext
+	if pod == nil || pod.RunAsUser == nil || *pod.RunAsUser != 999 || pod.RunAsNonRoot == nil || !*pod.RunAsNonRoot {
+		t.Fatalf("pod security = %+v, want uid 999, non-root", pod)
+	}
+	if pod.FSGroup == nil || *pod.FSGroup != 999 {
+		t.Errorf("fsGroup = %v, want 999: a volume handed to root would not be writable", pod.FSGroup)
+	}
+	if pod.SeccompProfile == nil || pod.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
+		t.Errorf("seccomp = %+v, want RuntimeDefault", pod.SeccompProfile)
+	}
+	c := d.Spec.Template.Spec.Containers[0].SecurityContext
+	if c == nil || c.AllowPrivilegeEscalation == nil || *c.AllowPrivilegeEscalation {
+		t.Errorf("the container may escalate: %+v", c)
+	}
+	if c == nil || c.Capabilities == nil || len(c.Capabilities.Drop) != 1 || c.Capabilities.Drop[0] != "ALL" || len(c.Capabilities.Add) != 0 {
+		t.Errorf("capabilities = %+v, want all dropped and none added", c)
 	}
 }

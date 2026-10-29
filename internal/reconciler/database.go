@@ -268,7 +268,7 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) ([]
 	}
 	selector := map[string]string{dbHostLabel: strconv.FormatUint(uint64(h.ID), 10)}
 	replicas := int32(1)
-	noAutomount := false
+	noAutomount, noEscalation := false, false
 
 	namespace := &corev1.Namespace{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
@@ -290,8 +290,9 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) ([]
 		},
 	}
 	// The image's own health check, which connects over the local socket as the
-	// mysql user (unix_socket auth, so no credentials) and asks whether InnoDB
-	// is up. It was a TCP probe on the MySQL port, which opens a connection and
+	// mysql user the pod runs as (unix_socket auth, so no credentials) and asks
+	// whether InnoDB is up. Not --su-mysql: that switches user with gosu, which
+	// a process that is not root may not do, and the probe failed. It was a TCP probe on the MySQL port, which opens a connection and
 	// closes it without authenticating: MariaDB logs a warning for each one, and
 	// two probes every ten seconds filled the log with nothing else -- about
 	// 17 000 lines a day, which is where a real problem would have been. This
@@ -301,7 +302,7 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) ([]
 	probe := &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
 			Exec: &corev1.ExecAction{Command: []string{
-				"healthcheck.sh", "--su-mysql", "--connect", "--innodb_initialized",
+				"healthcheck.sh", "--connect", "--innodb_initialized",
 			}},
 		},
 		InitialDelaySeconds: 10,
@@ -320,6 +321,7 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) ([]
 				ObjectMeta: metav1.ObjectMeta{Labels: mergeLabels(labels, selector)},
 				Spec: corev1.PodSpec{
 					AutomountServiceAccountToken: &noAutomount,
+					SecurityContext:              managedDBPodSecurity(),
 					Containers: []corev1.Container{{
 						Name:  "mariadb",
 						Image: image,
@@ -341,11 +343,10 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) ([]
 							},
 							Limits: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")},
 						},
-						// No hardened securityContext here on purpose: the official
-						// MariaDB entrypoint runs as root to chown the data dir and
-						// gosu down to the mysql user, so dropping capabilities would
-						// break initialization. This is a trusted, Quetzal-owned image
-						// (not untrusted game code); the pod still mounts no SA token.
+						SecurityContext: &corev1.SecurityContext{
+							AllowPrivilegeEscalation: &noEscalation,
+							Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
+						},
 					}},
 					Volumes: []corev1.Volume{{
 						Name: dbDataVolume,
@@ -369,4 +370,27 @@ func buildManagedDB(h *models.DatabaseHost, rootPassword, instanceID string) ([]
 		},
 	}
 	return []client.Object{namespace, secret, pvc, deploy, svc}, nil
+}
+
+// managedDBUID is the mysql user of the official MariaDB image.
+const managedDBUID = 999
+
+// managedDBPodSecurity runs a managed database as the image's mysql user from
+// the start. It ran as root, the entrypoint giving the data directory to mysql
+// and switching to it with gosu: the one database pod of Quetzal's that Pod
+// Security "restricted" would have refused, with every capability root has.
+// The entrypoint started as mysql skips both steps; fsGroup makes a new volume
+// writable to it where the provisioner hands one to root. A data directory
+// made by the root entrypoint is mysql's already, and is taken as it is.
+func managedDBPodSecurity() *corev1.PodSecurityContext {
+	uid, yes := int64(managedDBUID), true
+	onMismatch := corev1.FSGroupChangeOnRootMismatch
+	return &corev1.PodSecurityContext{
+		RunAsUser:           &uid,
+		RunAsGroup:          &uid,
+		FSGroup:             &uid,
+		FSGroupChangePolicy: &onMismatch,
+		RunAsNonRoot:        &yes,
+		SeccompProfile:      &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
+	}
 }

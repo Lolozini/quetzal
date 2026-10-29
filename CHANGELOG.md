@@ -32,6 +32,15 @@ releases may include breaking changes).
   target, which gets a way of its own when it is a Service of the cluster or a
   private address (a host name is resolved by the controller, as a database
   host's is).
+- **Managed databases run as the image's `mysql` user, with every capability
+  dropped.** They ran as root, the entrypoint handing the data directory to
+  `mysql` and switching to it: the one database pod of Quetzal's that Pod
+  Security `restricted` would have refused. The pod now starts as uid 999 with
+  `fsGroup` 999, no privilege escalation and the runtime's seccomp profile;
+  the official image supports this, and a data directory it made as root is
+  already `mysql`'s. Each managed database restarts once on the upgrade (its
+  Deployment is `Recreate`): a few seconds without its database for the
+  servers using it.
 
 ## [0.16.2] - 2026-10-29
 
