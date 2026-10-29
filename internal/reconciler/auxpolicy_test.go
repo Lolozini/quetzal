@@ -152,6 +152,7 @@ func TestBackupTargetPeers(t *testing.T) {
 		{"192.168.1.10:9000", false, "192.168.1.10/32", 9000},
 		{"10.1.2.3", true, "10.1.2.3/32", 443},
 		{"s3.fr-par.scw.cloud", true, "", 0},
+		{"192.168.1.10:4294976296", false, "", 0}, // wrapped to 9000
 	} {
 		if err := st.SaveBackupConfig(&models.BackupConfig{Endpoint: c.endpoint, Bucket: "b", UseSSL: c.ssl}, "ak", "sk", "pw"); err != nil {
 			t.Fatalf("backup config: %v", err)
@@ -159,7 +160,7 @@ func TestBackupTargetPeers(t *testing.T) {
 		np := BuildJobsNetworkPolicy(&models.Server{Namespace: "ns"}, r.backupTargetPeers())
 		if c.cidr == "" {
 			if len(np.Spec.Egress) != 2 {
-				t.Errorf("%s: a public target got rules of its own: %+v", c.endpoint, np.Spec.Egress)
+				t.Errorf("%s: got rules of its own: %+v", c.endpoint, np.Spec.Egress)
 			}
 			continue
 		}
@@ -191,5 +192,11 @@ func TestCallbackPeers(t *testing.T) {
 	}
 	if got := r.callbackPeers("http://169.254.169.254/latest"); len(got) != 0 {
 		t.Errorf("a link-local callback was given a way: %+v", got)
+	}
+	// A URL parses with any digits for a port; 4294975488 wrapped to 8192.
+	for _, bad := range []string{"http://10.0.0.5:4294975488/", "http://10.0.0.5:70000/", "http://10.0.0.5:0/"} {
+		if got := r.callbackPeers(bad); len(got) != 0 {
+			t.Errorf("%s: a port no one listens on was given a way: %+v", bad, got)
+		}
 	}
 }

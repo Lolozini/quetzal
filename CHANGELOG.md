@@ -17,6 +17,13 @@ releases may include breaking changes).
   panel offers the choice to administrators alone); a server already behind
   one keeps it when someone else edits its exposure, and can give it up.
 
+### Fixed
+
+- A port out of range in the panel's wake URL or the backup endpoint, which a
+  URL parses as long as it is digits, gave the activator or the backup Jobs a
+  way to whatever port it wrapped to (`:4294975488` to 8192). It gives none
+  now: nothing listens on such a port.
+
 ### Security
 
 - **A server stops at its namespace when it cannot hold it to Pod Security.**

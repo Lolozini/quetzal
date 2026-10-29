@@ -9,7 +9,9 @@ import (
 	"time"
 
 	authnv1 "k8s.io/api/authentication/v1"
+	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -176,5 +178,33 @@ func TestNilMemoRemembersNothing(t *testing.T) {
 	m.sawNamespace("ns", "uid")
 	if ok, _ := m.fresh("k", "sum"); ok {
 		t.Error("a nil Memo said an object was written")
+	}
+}
+
+// Secrets go through the memo's hash, passwords and all: it has to tell one
+// version of an object from the next, and be of no use outside the process.
+func TestMemoSumIsKeyedPerMemo(t *testing.T) {
+	sec := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "env", Namespace: "ns"},
+		StringData: map[string]string{"DB_PASSWORD": "hunter2"},
+	}
+	a, b := NewMemo(), NewMemo()
+	first, err := a.sum(sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := a.sum(sec); again != first {
+		t.Errorf("one memo hashed the same object two ways: %s, %s", first, again)
+	}
+	if other, _ := b.sum(sec); other == first {
+		t.Error("two memos hash an object the same way: the hash is a digest of the password")
+	}
+	sec.StringData["DB_PASSWORD"] = "hunter3"
+	if changed, _ := a.sum(sec); changed == first {
+		t.Error("a changed password hashes as before")
+	}
+	var none *Memo
+	if s, err := none.sum(sec); s != "" || err != nil {
+		t.Errorf("a nil memo hashed: %q, %v", s, err)
 	}
 }

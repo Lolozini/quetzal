@@ -1,10 +1,10 @@
 package reconciler
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash/maphash"
+	"strconv"
 	"sync"
 	"time"
 
@@ -38,6 +38,7 @@ const memoAbsent = "absent"
 type Memo struct {
 	mu         sync.Mutex
 	now        func() time.Time
+	seed       maphash.Seed
 	entries    map[string]memoEntry
 	namespaces map[string]types.UID
 	warned     map[string]bool
@@ -56,6 +57,7 @@ type memoEntry struct {
 func NewMemo() *Memo {
 	return &Memo{
 		now:        time.Now,
+		seed:       maphash.MakeSeed(),
 		entries:    map[string]memoEntry{},
 		namespaces: map[string]types.UID{},
 		warned:     map[string]bool{},
@@ -67,14 +69,20 @@ func memoKey(obj client.Object) string {
 	return fmt.Sprintf("%T|%s|%s", obj, obj.GetNamespace(), obj.GetName())
 }
 
-// memoSum is a hash of everything about obj Quetzal would send.
-func memoSum(obj client.Object) (string, error) {
+// sum is a hash of everything about obj Quetzal would send, or "" when there is
+// nothing to remember it in. Secrets go through it, passwords included, so it
+// is not a digest of them: the hash is keyed with a seed drawn when the Memo is
+// made, never leaves the process, and means nothing to another one. It only
+// has to tell one version of an object from the next.
+func (m *Memo) sum(obj client.Object) (string, error) {
+	if m == nil {
+		return "", nil
+	}
 	b, err := json.Marshal(obj)
 	if err != nil {
 		return "", err
 	}
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:]), nil
+	return strconv.FormatUint(maphash.Bytes(m.seed, b), 16), nil
 }
 
 // fresh reports whether key was recorded with sum less than memoTTL ago, and

@@ -699,7 +699,7 @@ const fieldOwner = "quetzal-controller"
 // content a moment ago is not sent at all (Memo).
 func (r *Reconciler) apply(ctx context.Context, obj client.Object) error {
 	key := memoKey(obj)
-	sum, sumErr := memoSum(obj)
+	sum, sumErr := r.Memo.sum(obj)
 	if sumErr == nil {
 		if ok, version := r.Memo.fresh(key, sum); ok && (!readBack(obj) || r.unchangedSince(ctx, obj, version)) {
 			return nil

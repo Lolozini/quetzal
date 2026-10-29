@@ -102,20 +102,39 @@ func (r *Reconciler) callbackPeers(rawURL string) []EgressPeer {
 	if ns, ok := serviceNamespace(host); ok {
 		return []EgressPeer{{Namespace: ns}}
 	}
-	port := 80
-	if u.Scheme == "https" {
-		port = 443
-	}
-	if p, err := strconv.Atoi(u.Port()); err == nil {
-		port = p
+	port, ok := portOr(u.Port(), defaultPort(u.Scheme == "https"))
+	if !ok {
+		return nil
 	}
 	var peers []EgressPeer
 	for _, ip := range r.addresses(host) {
 		if !inAny(ip, neverReached) {
-			peers = append(peers, EgressPeer{CIDR: hostCIDR(ip), Port: int32(port)})
+			peers = append(peers, EgressPeer{CIDR: hostCIDR(ip), Port: port})
 		}
 	}
 	return peers
+}
+
+// defaultPort is HTTP's or HTTPS's.
+func defaultPort(tls bool) int32 {
+	if tls {
+		return 443
+	}
+	return 80
+}
+
+// portOr reads the port of an address an admin typed, or gives def when there
+// is none. One out of range, which a URL parses, gets no way at all: whatever
+// is meant to answer there cannot.
+func portOr(s string, def int32) (int32, bool) {
+	if s == "" {
+		return def, true
+	}
+	p, err := strconv.ParseUint(s, 10, 16)
+	if err != nil || p == 0 {
+		return 0, false
+	}
+	return int32(p), true
 }
 
 // backupTargetPeers are the ways to the S3 endpoint backups go to when it is on
@@ -134,19 +153,16 @@ func (r *Reconciler) backupTargetPeers() []EgressPeer {
 	if err != nil {
 		host, portStr = strings.TrimSpace(cfg.Endpoint), ""
 	}
-	port := 80
-	if cfg.UseSSL {
-		port = 443
-	}
-	if p, err := strconv.Atoi(portStr); err == nil {
-		port = p
+	port, ok := portOr(portStr, defaultPort(cfg.UseSSL))
+	if !ok {
+		return nil
 	}
 	if ns, ok := serviceNamespace(host); ok {
 		return []EgressPeer{{Namespace: ns}}
 	}
 	var peers []EgressPeer
 	for _, ip := range r.addresses(host) {
-		if peer, ok := dbHostPeer(ip, int32(port)); ok {
+		if peer, ok := dbHostPeer(ip, port); ok {
 			peers = append(peers, peer)
 		}
 	}
