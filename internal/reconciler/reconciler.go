@@ -1417,9 +1417,12 @@ func noteInit(h *podHealth, statuses []corev1.ContainerStatus) {
 // endpointsFor computes the reachable addresses for a server and picks a primary
 // one (the primary port, or the sole port). External exposure (NodePort/
 // LoadBalancer) yields node/LB addresses; otherwise the in-cluster DNS names.
+// A public address the admin gave replaces the host, and the port of each port
+// it names (publicEndpoint).
 func (r *Reconciler) endpointsFor(ctx context.Context, s *models.Server, t *models.Template) (eps []string, addr string, portEps []models.PortEndpoint) {
 	ports := serverPorts(s, t)
-	add := func(p models.PortSpec, ep string) {
+	add := func(p models.PortSpec, host string, port int32) {
+		ep := publicEndpoint(s.Expose.Public, p, host, port)
 		eps = append(eps, ep)
 		primary := p.Primary || len(ports) == 1
 		if addr == "" && primary {
@@ -1440,25 +1443,40 @@ func (r *Reconciler) endpointsFor(ctx context.Context, s *models.Server, t *mode
 			if p.NodePort == 0 {
 				continue
 			}
-			add(p, net.JoinHostPort(host, strconv.Itoa(int(p.NodePort))))
+			add(p, host, p.NodePort)
 		}
 	case models.ExposeLoadBalancer:
 		host := r.loadBalancerAddress(ctx, s.Namespace)
-		if host == "" {
+		if host == "" && (s.Expose.Public == nil || s.Expose.Public.Host == "") {
 			break // not yet provisioned
 		}
 		for _, p := range ports {
-			add(p, net.JoinHostPort(host, strconv.Itoa(int(p.Port))))
+			add(p, host, p.Port)
 		}
 	default: // ClusterIP
 		for _, p := range ports {
-			add(p, fmt.Sprintf("%s.%s.svc.cluster.local:%d", workloadName, s.Namespace, p.Port))
+			add(p, fmt.Sprintf("%s.%s.svc.cluster.local", workloadName, s.Namespace), p.Port)
 		}
 	}
 	if addr == "" && len(eps) > 0 {
 		addr = eps[0]
 	}
 	return eps, addr, portEps
+}
+
+// publicEndpoint is the address of port p, at host and port unless pub says
+// otherwise: behind a router that forwards 9987 to node port 30025, players
+// go to ts.example.org:9987, and the panel said example.org:30025.
+func publicEndpoint(pub *models.PublicAddress, p models.PortSpec, host string, port int32) string {
+	if pub != nil {
+		if pub.Host != "" {
+			host = pub.Host
+		}
+		if pp, ok := pub.Ports[models.PublicPortKey(p.Port, p.Protocol)]; ok && pp > 0 {
+			port = pp
+		}
+	}
+	return net.JoinHostPort(host, strconv.Itoa(int(port)))
 }
 
 // endpointHost is the host published in a server's external NodePort endpoints:

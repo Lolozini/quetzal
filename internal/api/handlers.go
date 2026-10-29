@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"regexp"
 	"slices"
@@ -471,11 +472,11 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := authorizeExposeAnnotations(userFrom(r.Context()), &req.Expose, nil); err != nil {
+	if err := authorizeExposeAnnotations(userFrom(r.Context()), &req.Expose, models.Expose{}); err != nil {
 		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
-	if err := validateExpose(req.Expose, len(ports) > 0); err != nil {
+	if err := validateExpose(req.Expose, ports); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1201,11 +1202,11 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	if req.Expose != nil {
 		expose = patchExpose(srv.Expose, *req.Expose)
 	}
-	if err := authorizeExposeAnnotations(userFrom(r.Context()), &expose, srv.Expose.Annotations); err != nil {
+	if err := authorizeExposeAnnotations(userFrom(r.Context()), &expose, srv.Expose); err != nil {
 		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
-	if err := validateExpose(expose, len(newPorts) > 0); err != nil {
+	if err := validateExpose(expose, newPorts); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -1503,15 +1504,37 @@ func clearNodePorts(ports []models.PortSpec) []models.PortSpec {
 //
 // prev is what is already stored, so a non-admin editing anything else about the
 // exposure keeps annotations an admin set rather than silently dropping them.
-func authorizeExposeAnnotations(u *models.User, e *models.Expose, prev map[string]string) error {
+func authorizeExposeAnnotations(u *models.User, e *models.Expose, prev models.Expose) error {
 	if u != nil && u.HasAdminPerm(models.AdminPermServers) {
 		return nil
 	}
-	if len(e.Annotations) > 0 && !sameAnnotations(e.Annotations, prev) {
+	if len(e.Annotations) > 0 && !sameAnnotations(e.Annotations, prev.Annotations) {
 		return errors.New("only an administrator can set service annotations")
 	}
-	e.Annotations = prev
+	// The public address says where the operator's network sends players: a
+	// player who could set it could point everyone sharing the server at an
+	// address of their choosing.
+	if !samePublicAddress(e.Public, prev.Public) {
+		return errors.New("only an administrator can set the public address")
+	}
+	e.Annotations, e.Public = prev.Annotations, prev.Public
 	return nil
+}
+
+func samePublicAddress(a, b *models.PublicAddress) bool {
+	empty := func(p *models.PublicAddress) bool { return p == nil || (p.Host == "" && len(p.Ports) == 0) }
+	if empty(a) || empty(b) {
+		return empty(a) && empty(b)
+	}
+	if a.Host != b.Host || len(a.Ports) != len(b.Ports) {
+		return false
+	}
+	for k, v := range a.Ports {
+		if w, ok := b.Ports[k]; !ok || w != v {
+			return false
+		}
+	}
+	return true
 }
 
 // patchExpose applies an exposure PATCH field by field: what the request
@@ -1529,6 +1552,13 @@ func patchExpose(cur, req models.Expose) models.Expose {
 	if req.PreserveClientIP != nil {
 		cur.PreserveClientIP = req.PreserveClientIP
 	}
+	// The public address is edited as a whole; an empty one clears it.
+	if req.Public != nil {
+		cur.Public = req.Public
+		if cur.Public.Host == "" && len(cur.Public.Ports) == 0 {
+			cur.Public = nil
+		}
+	}
 	return cur
 }
 
@@ -1544,14 +1574,44 @@ func sameAnnotations(a, b map[string]string) bool {
 	return true
 }
 
-func validateExpose(e models.Expose, hasPorts bool) error {
+func validateExpose(e models.Expose, ports []models.PortSpec) error {
 	switch e.ServiceType() {
 	case models.ExposeClusterIP, models.ExposeNodePort, models.ExposeLoadBalancer:
 	default:
 		return fmt.Errorf("invalid expose type %q", e.Type)
 	}
-	if e.External() && !hasPorts {
+	if e.External() && len(ports) == 0 {
 		return errors.New("cannot publish a server that declares no ports")
+	}
+	return validatePublicAddress(e.Public, ports)
+}
+
+// publicHostRe is a host name or an IPv4 address: what players type, without
+// a scheme, a port or a path.
+var publicHostRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$`)
+
+// validatePublicAddress checks a public address against the server's ports: a
+// host players can type, and public ports for ports the server has.
+func validatePublicAddress(pub *models.PublicAddress, ports []models.PortSpec) error {
+	if pub == nil {
+		return nil
+	}
+	if h := pub.Host; h != "" {
+		if len(h) > 253 || (!publicHostRe.MatchString(h) && net.ParseIP(h) == nil) {
+			return fmt.Errorf("public host %q is not a host name or an IP address", h)
+		}
+	}
+	have := map[string]bool{}
+	for _, p := range ports {
+		have[models.PublicPortKey(p.Port, p.Protocol)] = true
+	}
+	for k, v := range pub.Ports {
+		if !have[k] {
+			return fmt.Errorf("public port given for %s, which the server does not have", k)
+		}
+		if v < 1 || v > 65535 {
+			return fmt.Errorf("public port %d for %s is out of range", v, k)
+		}
 	}
 	return nil
 }

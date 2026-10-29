@@ -139,9 +139,13 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
 - Publish in-cluster (ClusterIP), on node IPs (**NodePort** from a managed port
   pool), or via a **LoadBalancer** — TCP **and** UDP.
 - `externalTrafficPolicy: Local` by default so the game sees the real player IP;
-  provider-neutral Service annotations (external-dns, MetalLB, …).
+  provider-neutral Service annotations (external-dns, MetalLB, …), edited by an
+  administrator in the panel.
 - Publish a **hostname instead of a node IP** (panel-wide, or per cluster) so
   players and SFTP clients get a stable, memorable address.
+- A **public address per server** for what sits between players and the
+  cluster: behind a router forwarding 9987 to node port 30025, the panel shows
+  `ts.example.org:9987`, not the node port.
 - A port can serve **TCP and UDP on the same number** (a Minecraft query, a
   Source RCON), sharing one external port.
 - **Proxies and their servers**: a server can be given others to reach inside

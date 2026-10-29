@@ -7,6 +7,19 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **A public address per server.** Behind a router that forwards 9987 to node
+  port 30025, players go to `ts.example.org:9987`, and the panel showed
+  `example.org:30025`, an address nothing outside answers on. An administrator
+  can now give a server the host players use and, port by port, the port they
+  connect to; the panel shows that in place of the address it works out
+  (`expose.public` in the API). Nothing in the cluster changes.
+- **Service annotations are edited in the panel.** The API accepted them for
+  administrators, but nothing in the interface did: an external-dns name or a
+  MetalLB pool took a call to the API. Both live under *Public address and
+  Service annotations* in a server's settings, for administrators only.
+
 ### Changed
 
 - **The controller no longer rewrites every object on every resync.** Each

@@ -10,6 +10,7 @@ import { Files } from "./Files";
 import { Notifications } from "./Notifications";
 import { Schedules } from "./Schedules";
 import { ServerSettings } from "./ServerSettings";
+import { ExposeAdmin } from "./ExposeAdmin";
 
 function formatMem(bytes: number): string {
   if (bytes <= 0) return "0 MiB";
@@ -619,6 +620,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
                 </span>
               </div>
             )}
+            {hasPorts && hasAdminPerm(user, "servers") && <ExposeAdmin server={srv} onSaved={setSrv} />}
             {hasAdminPerm(user, "servers") && clusters.length > 1 && !srv.transfer && (
               <div className="kv">
                 <span className="k">{t("Transfer")}</span>

@@ -155,3 +155,43 @@ func TestEachEndpointNamesItsPort(t *testing.T) {
 		t.Errorf("in-cluster port endpoints = %+v", ports)
 	}
 }
+
+// Behind a router that forwards 9987 to the node port, players go to the name
+// and port the router answers on: the panel showed the node port at the
+// instance's host, an address that led nowhere from outside. The public
+// address the admin gives replaces the host of every port, and the port of
+// each port it names.
+func TestPublicAddressReplacesWhatPlayersAreShown(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("scheme: %v", err)
+	}
+	s, tmpl := testServerAndTemplate()
+	s.Expose = models.Expose{Type: models.ExposeNodePort, Public: &models.PublicAddress{
+		Host:  "ts.example.org",
+		Ports: map[string]int32{"9987/UDP": 9987},
+	}}
+	s.Ports = []models.PortSpec{
+		{Name: "p9987", Port: 9987, Protocol: "UDP", Primary: true, NodePort: 30025},
+		{Name: "p30033", Port: 30033, Protocol: "TCP", NodePort: 30023},
+	}
+	st := reconStore(t)
+	if err := st.SetSetting(store.SettingEndpointHost, "lolozini.fr"); err != nil {
+		t.Fatalf("setting: %v", err)
+	}
+	r := &Reconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build(), Store: st}
+	_, addr, ports := r.endpointsFor(context.Background(), s, tmpl)
+	if addr != "ts.example.org:9987" {
+		t.Errorf("address = %q, want the public one", addr)
+	}
+	if len(ports) != 2 || ports[0].Address != "ts.example.org:9987" || ports[1].Address != "ts.example.org:30023" {
+		t.Errorf("port endpoints = %+v, want the public host, and the public port where one is given", ports)
+	}
+
+	// A load balancer not provisioned yet has no address of its own; the
+	// public one still says where players go.
+	s.Expose.Type = models.ExposeLoadBalancer
+	if _, addr, _ := r.endpointsFor(context.Background(), s, tmpl); addr != "ts.example.org:9987" {
+		t.Errorf("load balancer address = %q, want the public one", addr)
+	}
+}

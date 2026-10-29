@@ -155,6 +155,15 @@ range), so a block at the bottom of the range is the quietest place:
 --set nodePort.min=30000 --set nodePort.max=30085
 ```
 
+**Behind a router.** When players reach the cluster through a port forward —
+a home router sending 9987 to node port 30025 — the address the panel works
+out is the node port, which nothing outside answers on. An administrator
+gives the server its public address in its settings (*Public address and
+Service annotations*): a host, and the port players use for each of its
+ports. The panel shows that instead; the cluster is not touched. The same
+place edits the Service's annotations, such as an external-dns
+`hostname` (external-dns must run with `--source=service` to read it).
+
 **Behind a proxy.** The file manager sends uploads in pieces of at most
 16 MiB, each its own request sized to take a few seconds, so a proxy's read
 timeout (Traefik 3 gives a request 60 seconds) no longer bounds the size of a

@@ -334,6 +334,15 @@ export interface Expose {
   type?: ExposeType;
   annotations?: Record<string, string>;
   preserveClientIP?: boolean;
+  // Where players are sent when a router or a DNS name stands between them and
+  // the cluster; shown in place of the address worked out. Administrators only.
+  public?: PublicAddress;
+}
+
+export interface PublicAddress {
+  host?: string;
+  // Public port per server port, keyed "<port>/<TCP|UDP>".
+  ports?: Record<string, number>;
 }
 
 export interface Hibernation {

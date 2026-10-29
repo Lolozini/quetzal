@@ -279,3 +279,76 @@ func TestPortNamesKubernetesWouldRefuseAreRejected(t *testing.T) {
 		}
 	}
 }
+
+// The public address says where the operator's network sends players. An admin
+// sets it, checked against the server's ports; a player with the settings
+// permission cannot, or could point everyone sharing the server elsewhere; an
+// empty one clears it.
+func TestPublicAddressIsAdminOnlyAndChecked(t *testing.T) {
+	srv, admin := newTestServer(t)
+	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
+	createUser(t, admin, srv.URL, map[string]any{"username": "player", "password": "playerpw12"})
+	player := loginAs(t, srv.URL, "player", "playerpw12")
+	r := post(t, admin, srv.URL+"/api/servers", map[string]any{
+		"name": "s", "template": "generic-process",
+		"ports":  []map[string]any{{"port": 9987, "protocol": "UDP"}},
+		"expose": map[string]any{"type": "NodePort"},
+	})
+	if r.StatusCode != http.StatusCreated {
+		t.Fatalf("create = %d", r.StatusCode)
+	}
+	var created struct{ ID uint }
+	json.NewDecoder(r.Body).Decode(&created)
+	r.Body.Close()
+	url := srv.URL + "/api/servers/" + itoa(created.ID)
+	post(t, admin, url+"/access", map[string]any{"username": "player", "permissions": []string{"view", "settings"}})
+
+	patch := func(c *http.Client, public map[string]any) int {
+		t.Helper()
+		resp := doPatch(t, c, url, map[string]any{"expose": map[string]any{"public": public}})
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	type exposure struct {
+		Public *struct {
+			Host  string
+			Ports map[string]int32
+		}
+	}
+	public := func() exposure {
+		t.Helper()
+		var got struct{ Expose exposure }
+		getJSON(t, admin, url, &got)
+		return got.Expose
+	}
+
+	good := map[string]any{"host": "ts.example.org", "ports": map[string]int{"9987/UDP": 9987}}
+	if code := patch(player, good); code != http.StatusForbidden {
+		t.Errorf("a player set the public address: %d", code)
+	}
+	for name, bad := range map[string]map[string]any{
+		"a URL":                    {"host": "https://ts.example.org"},
+		"a port it does not have":  {"ports": map[string]int{"25565/TCP": 25565}},
+		"a port out of range":      {"ports": map[string]int{"9987/UDP": 70000}},
+		"a host with a port in it": {"host": "ts.example.org:9987"},
+	} {
+		if code := patch(admin, bad); code != http.StatusBadRequest {
+			t.Errorf("%s was accepted: %d", name, code)
+		}
+	}
+	if code := patch(admin, good); code != http.StatusOK {
+		t.Fatalf("admin patch = %d", code)
+	}
+	if got := public(); got.Public == nil || got.Public.Host != "ts.example.org" || got.Public.Ports["9987/UDP"] != 9987 {
+		t.Errorf("public address = %+v", got.Public)
+	}
+	if code := patch(player, map[string]any{}); code != http.StatusForbidden {
+		t.Errorf("a player cleared the public address: %d", code)
+	}
+	if code := patch(admin, map[string]any{}); code != http.StatusOK {
+		t.Fatalf("admin clear = %d", code)
+	}
+	if got := public(); got.Public != nil {
+		t.Errorf("an empty public address left %+v", got.Public)
+	}
+}

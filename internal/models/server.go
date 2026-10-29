@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 // DesiredState is the power state requested by the user.
 type DesiredState string
@@ -81,6 +85,31 @@ type Expose struct {
 	// the real player IP (matters for bans, geo, anti-abuse). Defaults to true
 	// for NodePort/LoadBalancer when unset; ignored for ClusterIP.
 	PreserveClientIP *bool `json:"preserveClientIP,omitempty"`
+	// Public is the address players use when something between them and the
+	// cluster changes it: a router forwarding 9987 to the node port, a name
+	// external-dns or the operator gave the server. The panel shows it in
+	// place of the address it works out; nothing in the cluster acts on it.
+	Public *PublicAddress `json:"public,omitempty"`
+}
+
+// PublicAddress is how players reach a server from outside.
+type PublicAddress struct {
+	// Host replaces the host of every address shown. Empty keeps the one the
+	// panel works out.
+	Host string `json:"host,omitempty"`
+	// Ports maps a server port, as PublicPortKey names it ("9987/UDP"), to the
+	// port players connect to. A port not listed keeps the one worked out.
+	Ports map[string]int32 `json:"ports,omitempty"`
+}
+
+// PublicPortKey names a server port in PublicAddress.Ports: its number and
+// protocol, TCP when none is given.
+func PublicPortKey(port int32, protocol string) string {
+	p := strings.ToUpper(protocol)
+	if p != "UDP" {
+		p = "TCP"
+	}
+	return fmt.Sprintf("%d/%s", port, p)
 }
 
 // ServiceType returns the effective exposure type, defaulting to ClusterIP.

@@ -2766,6 +2766,21 @@ components:
           type: object
           additionalProperties: { type: string }
         preserveClientIP: { type: boolean }
+        public:
+          type: object
+          description: >-
+            The address players use when something between them and the cluster
+            changes it (a router's port forward, a DNS name). Shown in place of
+            the address the panel works out; nothing in the cluster acts on it.
+            Administrators only. Edited as a whole; an empty object clears it.
+          properties:
+            host:
+              type: string
+              description: Host name or IP address, without scheme or port
+            ports:
+              type: object
+              description: Public port per server port, keyed "<port>/<TCP|UDP>"
+              additionalProperties: { type: integer, minimum: 1, maximum: 65535 }
     Hibernation:
       type: object
       properties:

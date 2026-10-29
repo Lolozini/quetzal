@@ -1024,4 +1024,15 @@ export const fr: Record<string, string> = {
   Backup: "Sauvegarde",
   "Checking…": "Vérification…",
   "Check access again": "Vérifier à nouveau mes droits",
+  "Public address and Service annotations": "Adresse publique et annotations du Service",
+  "Public host": "Hôte public",
+  "What players type when a router or a DNS name stands between them and the cluster. Shown in place of the address worked out; nothing in the cluster changes.":
+    "Ce que tapent les joueurs quand une box ou un nom DNS se trouve entre eux et le cluster. Affiché à la place de l’adresse calculée ; rien ne change dans le cluster.",
+  "Public port for {port}": "Port public de {port}",
+  "Service annotations": "Annotations du Service",
+  "One key=value per line, copied onto the server's Service: an external-dns name, a MetalLB pool, a cloud load balancer's options. Leave empty to remove them.":
+    "Une paire clé=valeur par ligne, recopiée sur le Service du serveur : un nom external-dns, un pool MetalLB, les options d’un load balancer cloud. Laisser vide pour les retirer.",
+  "This line is not key=value: {line}": "Cette ligne n’est pas de la forme clé=valeur : {line}",
+  "The public port for {port} must be between 1 and 65535.": "Le port public de {port} doit être compris entre 1 et 65535.",
+  "Saved. The address shown follows within a few seconds.": "Enregistré. L’adresse affichée suit d’ici quelques secondes.",
 };
