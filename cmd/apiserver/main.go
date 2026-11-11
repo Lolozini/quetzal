@@ -25,6 +25,7 @@ import (
 	"github.com/lolozini/quetzal/internal/notify"
 	"github.com/lolozini/quetzal/internal/store"
 	"github.com/lolozini/quetzal/internal/version"
+	"github.com/lolozini/quetzal/templates"
 	webui "github.com/lolozini/quetzal/web"
 )
 
@@ -60,6 +61,13 @@ func main() {
 	}
 	if _, err := st.EnsureLocalCluster(); err != nil {
 		log.Fatalf("ensure local cluster: %v", err)
+	}
+	// A new install has no template to create a first server from: give it the
+	// built-in ones, once. Not fatal, an instance can still import eggs without.
+	if seeded, err := templates.SeedOnce(st); err != nil {
+		log.Printf("seed built-in templates: %v", err)
+	} else if seeded {
+		log.Printf("a new instance: loaded the built-in templates")
 	}
 
 	// Migration-only mode (used by an init container so a single process owns

@@ -252,10 +252,16 @@ From there you can register clusters, import templates/eggs, and create
 servers. Coming from Pterodactyl, see [Migrating from Pterodactyl](MIGRATING.md) to bring your
 eggs over and move your servers' files in.
 
-A new install has **no template**, and a server is created from one: import the
-eggs of the games you run first, under Admin → Eggs / templates. An egg file from
-[Pelican's repositories](https://github.com/pelican-eggs) can be imported by its
-URL; see [Import the eggs](MIGRATING.md#1-import-the-eggs).
+A server is created from a template. A new install starts with four built-in
+ones (Minecraft with Paper, Minecraft with a CurseForge modpack, Valheim, and a
+generic container), loaded the first time the panel starts, so a first server needs
+no import. For any other game, import its egg under Admin → Eggs / templates. An
+egg file from [Pelican's repositories](https://github.com/pelican-eggs) can be
+imported by its URL; see [Import the eggs](MIGRATING.md#1-import-the-eggs).
+
+The built-in templates are loaded once, into an instance that has none. An install
+that already has templates, or whose administrator deletes these, is not given
+them again.
 
 ## Backup target (S3)
 

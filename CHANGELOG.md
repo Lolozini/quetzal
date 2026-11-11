@@ -9,6 +9,11 @@ releases may include breaking changes).
 
 ### Changed
 
+- A new install no longer starts empty: the four built-in templates (Minecraft with
+  Paper, Minecraft with a CurseForge modpack, Valheim, a generic container) are
+  loaded the first time the panel starts, so a first server needs no egg import. It
+  happens once per database: an install that already has templates is left as it is,
+  and so is one whose administrator deletes these.
 - A namespace is no longer deleted the first time the controller sees it without a
   server row. It waits an hour (the clock starts over if the row comes back, or the
   controller restarts), and one pass collects nothing at all when it would take

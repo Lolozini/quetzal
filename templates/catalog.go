@@ -60,3 +60,41 @@ func Seed(s upserter) error {
 	}
 	return nil
 }
+
+// SeededSetting is the settings key that records an instance has been through
+// SeedOnce. Without it, an administrator who deleted the built-in templates would
+// get them back at every restart.
+const SeededSetting = "templates.seeded"
+
+// onceSeeder is the subset of the store SeedOnce needs.
+type onceSeeder interface {
+	upserter
+	ListTemplates() ([]models.Template, error)
+	GetSetting(key string) (string, error)
+	SetSetting(key, value string) error
+}
+
+// SeedOnce gives an instance that has no template the built-in ones, the first
+// time it starts, so a new install can create a first server without importing
+// an egg. It only ever acts once per database: an instance that already has
+// templates (every install made before this existed, an administrator's own work)
+// is left as it is and marked, and so is one whose administrator has since deleted
+// them all. It reports whether it seeded.
+func SeedOnce(s onceSeeder) (bool, error) {
+	if v, err := s.GetSetting(SeededSetting); err != nil {
+		return false, err
+	} else if v != "" {
+		return false, nil
+	}
+	existing, err := s.ListTemplates()
+	if err != nil {
+		return false, err
+	}
+	seeded := len(existing) == 0
+	if seeded {
+		if err := Seed(s); err != nil {
+			return false, err // not marked: the next start tries again
+		}
+	}
+	return seeded, s.SetSetting(SeededSetting, "1")
+}

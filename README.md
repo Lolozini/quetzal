@@ -246,8 +246,9 @@ Browser ──HTTP/WS──▶  api-server  (UI · REST/WebSocket · console pro
   ports, lifecycle, install script, and `config.files`. Importing a Pterodactyl
   egg maps it onto this model; `config.files` are rendered at startup
   (properties/json/yaml/ini/xml) so imported eggs configure themselves.
-- **A new install has no template:** import the eggs of the games you run, from
-  your Pterodactyl panel or straight from
+- **A new install starts with four built-in templates** (Minecraft with Paper or a
+  CurseForge modpack, Valheim, a generic container). For any other game, import its
+  egg from your Pterodactyl panel or straight from
   [Pelican's repositories](https://github.com/pelican-eggs) by URL (see
   [Import the eggs](docs/MIGRATING.md#1-import-the-eggs)).
 
