@@ -10,12 +10,12 @@ Ingress.
 - A Kubernetes cluster, **1.30 or later**, and `kubectl` access. The chart
   refuses anything older: the admission policy that keeps the control plane's
   account inside its own namespaces is a ValidatingAdmissionPolicy, GA in
-  1.30. Quetzal's end-to-end suite runs on **1.35** on every change, and the
-  reference install runs on **1.33**. Nothing else it uses is newer than
+  1.30. Quetzal's end-to-end suite runs on **1.37** on every change (the
+  version is set in the `Makefile`), and the reference install runs on **1.36**. Nothing else it uses is newer than
   1.23 — there are no native sidecars, no admission webhooks, no custom
   resources.
 - [Helm](https://helm.sh/) v3.
-- A storage class for persistent volumes. Single-node / homelab setups can use a
+- A storage class for persistent volumes. Single-node setups can use a
   local provisioner such as [local-path](https://github.com/rancher/local-path-provisioner).
   A local volume ties each server to the node that holds it: if that node goes
   down, its servers can neither start nor show their files until it is back
@@ -192,7 +192,7 @@ key migrated across, not a fresh one issued.
 
 ### Database
 
-- **SQLite** (default): single file on a PVC; simplest for homelab/single-node.
+- **SQLite** (default): single file on a PVC; simplest for a single-node install.
   Writable database files and existing journals/WAL sidecars are restricted to
   their owner (`0600`). Run API and controller under the same OS account and
   keep the containing directory and database backups private.
@@ -408,7 +408,8 @@ access to it. Its schedules do not run. The server, its data and its backups
 stay as they were for whoever looks into why it was suspended.
 
 **Game servers themselves are confined.** Their pods mount no service account
-token, run with every capability dropped and no privilege escalation, and their
+token, and the game itself runs with every capability dropped and no privilege
+escalation (an egg's install step is the one exception, covered further down), and their
 NetworkPolicy allows DNS and the public internet only — not the cluster network,
 not the node, not your LAN. DNS means the cluster's resolver: its CoreDNS or
 kube-dns pods, a cache on the node at a link-local address (NodeLocal

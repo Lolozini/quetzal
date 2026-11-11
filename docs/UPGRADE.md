@@ -41,7 +41,7 @@ automatically on startup.
 3. Note your current version: `curl https://<panel>/api/version` (or the panel
    footer).
 
-## Security hardening in the unreleased version
+## Security hardening in 0.15.0
 
 - Upgrade the API and controller together. Let active backups and transfers
   finish first; disable scheduled chains before the upgrade. New operations

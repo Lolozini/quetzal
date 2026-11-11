@@ -30,9 +30,19 @@ releases may include breaking changes).
   replica at a time now holds a lease in the database and delivers, the others
   stand by, and the lease is handed back when a replica stops, so a rollout does
   not delay the next notification. A killed replica holds it for at most a minute.
+- Documentation: the Kubernetes versions the end-to-end suite and the reference
+  install run on, the two "homelab" asides, the security policy's description of
+  how fixes ship, the upgrade notes headed "the unreleased version" (now 0.15.0),
+  and the game pods' "every capability dropped" (the egg's install step is the
+  exception) now match the code.
 
 ### Security
 
+- Session cookies are marked Secure whenever the chart's ingress serves TLS
+  (`ingress.tls`). They used to follow `secureCookies` alone, so an install that
+  set `ingress.tls=true` and nothing else sent its session cookie over plain HTTP
+  as well. Set `secureCookies=true` yourself when TLS ends at a proxy in front of
+  the service.
 - A `QUETZAL_SECRET_KEY` that is set but malformed no longer passes for an unset
   one. It used to be ignored with a "not set" warning, so every secret was stored
   in clear text under a configuration that looked encrypted, and the wake-on-connect

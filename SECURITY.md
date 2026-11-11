@@ -5,8 +5,8 @@ for people who don't administer those clusters. Security reports matter here.
 
 ## Supported versions
 
-Security fixes land on `main` and ship as a patch release of the latest minor
-version. Before 1.0, older minor versions don't get backports: upgrade to the
+Security fixes land on `main` and ship in the next release of the latest minor
+version, as a patch release when one cannot wait for the features of the next. Before 1.0, older minor versions don't get backports: upgrade to the
 [latest release](https://github.com/Lolozini/quetzal/releases/latest).
 
 ## Reporting a vulnerability

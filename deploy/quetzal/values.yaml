@@ -98,7 +98,9 @@ ingress:
   tls: false
   tlsSecretName: ""
 
-# Mark session cookies Secure (enable when served over HTTPS).
+# Mark session cookies Secure (enable when served over HTTPS). Always on when the
+# chart's ingress serves TLS (ingress.tls); set it yourself when TLS ends at a
+# proxy or load balancer in front of the service.
 secureCookies: false
 
 # Trust X-Forwarded-For for per-client rate limiting. Auto-enabled when

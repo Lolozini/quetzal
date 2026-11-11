@@ -79,7 +79,7 @@ spec:
             - name: QUETZAL_ADDR
               value: ":8080"
             - name: QUETZAL_SECURE_COOKIES
-              value: {{ .Values.secureCookies | quote }}
+              value: {{ or .Values.secureCookies (and .Values.ingress.enabled .Values.ingress.tls) | quote }}
             # Trust X-Forwarded-For (for per-client rate limiting) when behind the
             # chart's ingress or when explicitly enabled. The rightmost hop is used,
             # so it's only safe behind a proxy that appends the real client IP.
