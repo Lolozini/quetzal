@@ -34,6 +34,14 @@ releases may include breaking changes).
 
 ### Fixed
 
+- The activator's proxy now bounds what it holds, in a pod of 64 MiB: 256 TCP
+  connections at once and 32 per source address, and 32 UDP flows per source
+  address (128 in all, as before). One client opening thousands of silent
+  connections, or sending from every port, used to take the proxy down and with it
+  the wake-up of the server behind it. A connection over a limit is closed at once,
+  and the proxy logs it at most every thirty seconds. A connection that is already
+  carried is still never closed for being quiet: a player in a game without
+  keepalives keeps theirs.
 - A server whose container cannot start now says why instead of sitting on
   "Starting" with no message: an image that will not pull (no such tag, a private
   registry, a rate limit, a registry that cannot be reached), an invalid image

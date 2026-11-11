@@ -70,6 +70,18 @@ type proxy struct {
 	// lower it before serving. Slots include readers that are still closing.
 	udpFlowLimit int32
 	udpFlows     atomic.Int32
+	// Limits on who may hold how many connections. Zero uses the production
+	// value; tests lower them before serving. The pod has 64 MiB: a TCP flow
+	// costs about 64 KiB of copy buffers and a UDP flow 64 KiB of reply buffer,
+	// so without a ceiling a few thousand silent connections, from one address or
+	// many, take the activator down and every player of the server with it.
+	tcpConnLimit  int32
+	tcpPerIPLimit int
+	udpPerIPLimit int
+	tcpConns      atomic.Int32
+	tcpByIP       sourceCount
+	udpByIP       sourceCount
+	refusedLogged atomic.Int64 // when a refusal was last logged (Unix seconds)
 	// gate says which flows are a player. For a Minecraft server only a login
 	// on the game port wakes the server or counts as activity: a scanner's
 	// server-list ping, a query packet or an RCON probe does neither.
@@ -127,14 +139,25 @@ func (p *proxy) serveTCP(ln net.Listener, backendAddr, port string) {
 		if err != nil {
 			return
 		}
+		ip := sourceIP(c.RemoteAddr())
+		if !p.acquireTCP(ip) {
+			p.refused("tcp", ip)
+			_ = c.Close()
+			continue
+		}
+		var handle func()
 		switch {
 		case !p.gate.minecraft():
-			go p.handleTCP(c, backendAddr)
+			handle = func() { p.handleTCP(c, backendAddr) }
 		case port == p.gate.gamePort:
-			go p.handleMinecraft(c, backendAddr)
+			handle = func() { p.handleMinecraft(c, backendAddr) }
 		default:
-			go p.forwardIfUp(c, backendAddr)
+			handle = func() { p.forwardIfUp(c, backendAddr) }
 		}
+		go func() {
+			defer p.releaseTCP(ip)
+			handle()
+		}()
 	}
 }
 
@@ -287,6 +310,110 @@ const (
 	maxUDPFlows = 128
 )
 
+const (
+	// maxTCPConns is how many TCP connections the proxy holds at once, whoever
+	// opens them: 256 of them are about 16 MiB of the pod's 64.
+	maxTCPConns = 256
+	// maxTCPPerIP and maxUDPPerIP are how many one source address may hold, so a
+	// single client cannot fill the proxy for everyone else. Generous enough for a
+	// household or a LAN party behind one address; an attacker needs many.
+	maxTCPPerIP = 32
+	maxUDPPerIP = 32
+)
+
+// sourceCount counts what each source address holds. The zero value is ready.
+type sourceCount struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+// acquire takes a slot for ip, or reports that it already holds limit of them.
+func (c *sourceCount) acquire(ip string, limit int) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.n == nil {
+		c.n = map[string]int{}
+	}
+	if c.n[ip] >= limit {
+		return false
+	}
+	c.n[ip]++
+	return true
+}
+
+func (c *sourceCount) release(ip string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.n[ip] <= 1 {
+		delete(c.n, ip)
+		return
+	}
+	c.n[ip]--
+}
+
+// sourceIP is the address of a peer without its port (IPv6 included).
+func sourceIP(a net.Addr) string {
+	switch v := a.(type) {
+	case nil:
+		return ""
+	case *net.TCPAddr:
+		if v == nil {
+			return ""
+		}
+		return v.IP.String()
+	case *net.UDPAddr:
+		if v == nil {
+			return ""
+		}
+		return v.IP.String()
+	}
+	host, _, err := net.SplitHostPort(a.String())
+	if err != nil {
+		return a.String()
+	}
+	return host
+}
+
+func (p *proxy) acquireTCP(ip string) bool {
+	limit := p.tcpConnLimit
+	if limit <= 0 {
+		limit = maxTCPConns
+	}
+	perIP := p.tcpPerIPLimit
+	if perIP <= 0 {
+		perIP = maxTCPPerIP
+	}
+	for {
+		n := p.tcpConns.Load()
+		if n >= limit {
+			return false
+		}
+		if p.tcpConns.CompareAndSwap(n, n+1) {
+			break
+		}
+	}
+	if !p.tcpByIP.acquire(ip, perIP) {
+		p.tcpConns.Add(-1)
+		return false
+	}
+	return true
+}
+
+func (p *proxy) releaseTCP(ip string) {
+	p.tcpByIP.release(ip)
+	p.tcpConns.Add(-1)
+}
+
+// refused logs that a limit turned a connection away, at most once every 30
+// seconds: under the flood the limit is there for, a line each would be the flood.
+func (p *proxy) refused(kind, ip string) {
+	now := time.Now().Unix()
+	last := p.refusedLogged.Load()
+	if now-last >= 30 && p.refusedLogged.CompareAndSwap(last, now) {
+		log.Printf("activator: refusing %s connections (limit reached); the latest from %s", kind, ip)
+	}
+}
+
 func (p *proxy) acquireUDPFlow() bool {
 	limit := p.udpFlowLimit
 	if limit <= 0 || limit > maxUDPFlows {
@@ -336,8 +463,19 @@ func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 		mu.Lock()
 		f := flows[key]
 		if f == nil {
+			ip := sourceIP(caddr)
+			perIP := p.udpPerIPLimit
+			if perIP <= 0 {
+				perIP = maxUDPPerIP
+			}
 			if !p.acquireUDPFlow() {
 				mu.Unlock()
+				continue
+			}
+			if !p.udpByIP.acquire(ip, perIP) {
+				p.udpFlows.Add(-1)
+				mu.Unlock()
+				p.refused("udp", ip)
 				continue
 			}
 			// Resolve + dial per flow so a transient DNS miss at startup (the
@@ -345,6 +483,7 @@ func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 			be, derr := net.Dial("udp", backendAddr)
 			if derr != nil {
 				p.udpFlows.Add(-1)
+				p.udpByIP.release(ip)
 				mu.Unlock()
 				continue
 			}
@@ -387,7 +526,11 @@ func (p *proxy) serveUDP(pc *net.UDPConn, backendAddr string) {
 func (p *proxy) udpBackToClient(pc *net.UDPConn, be net.Conn, caddr *net.UDPAddr, flows map[string]*udpFlow, key string, mu *sync.Mutex) {
 	// Only the reader releases the reservation: sweep/close may remove the
 	// map entry earlier, while this goroutine still retains its buffer.
-	defer p.udpFlows.Add(-1)
+	ip := sourceIP(caddr)
+	defer func() {
+		p.udpByIP.release(ip)
+		p.udpFlows.Add(-1)
+	}()
 	buf := make([]byte, 64*1024)
 	for {
 		_ = be.SetReadDeadline(time.Now().Add(udpIdle + 10*time.Second))
