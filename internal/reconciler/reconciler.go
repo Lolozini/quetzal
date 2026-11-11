@@ -1086,12 +1086,20 @@ func (r *Reconciler) writeStatus(ctx context.Context, s *models.Server, t *model
 		case h.crashloop:
 			st.Phase = models.PhaseCrashed
 			st.Message = h.msg
+		case h.stuck != "":
+			// Still Starting, not an error: a registry that is down for a minute
+			// is retried and recovers. The message is what was missing.
+			st.Phase = models.PhaseStarting
+			st.Message = h.stuck
 		case h.installing:
 			st.Phase = models.PhaseInstalling
 			st.Message = "running " + h.installStep
 		default:
 			st.Phase = models.PhaseStarting
 			st.Message = r.placementProblem(ctx, s, h.unscheduled)
+			if st.Message == "" {
+				st.Message = r.replicaFailure(ctx, s.Namespace)
+			}
 		}
 		r.emitRestartEvents(s, s.Status, h, st.CrashCount)
 	}
@@ -1342,6 +1350,12 @@ type podHealth struct {
 	installRetrying bool
 	installAttempts int
 
+	// stuck says why a container of the pod cannot start at all: its image will
+	// not pull, its name is invalid, a Secret or ConfigMap it needs is missing.
+	// Kubernetes only retries these, so nothing crashes and nothing exits, and
+	// the server sat on "Starting" with an empty message.
+	stuck string
+
 	// The game container that is up, if any: its pod, its runtime ID (new on
 	// every restart) and when it started.
 	gamePod       string
@@ -1380,6 +1394,13 @@ func (r *Reconciler) inspectPods(ctx context.Context, ns, slug string) podHealth
 		if why := Unschedulable(p); current && why != "" {
 			h.unscheduled = why
 		}
+		if current {
+			for _, cs := range append(append([]corev1.ContainerStatus{}, p.Status.InitContainerStatuses...), p.Status.ContainerStatuses...) {
+				if msg := stuckMessage(cs); msg != "" {
+					h.stuck = msg
+				}
+			}
+		}
 		for _, cs := range p.Status.ContainerStatuses {
 			h.restarts += int(cs.RestartCount)
 			if cs.State.Waiting != nil && cs.State.Waiting.Reason == "CrashLoopBackOff" {
@@ -1407,6 +1428,86 @@ func (r *Reconciler) inspectPods(ctx context.Context, ns, slug string) podHealth
 		noteInit(&h, pods.Items[i].Status.InitContainerStatuses)
 	}
 	return h
+}
+
+// stuckWaiting are the reasons a container waits when Kubernetes cannot start it
+// and will only try again: not a crash, and nothing ran.
+var stuckWaiting = map[string]bool{
+	"ErrImagePull":               true,
+	"ImagePullBackOff":           true,
+	"InvalidImageName":           true,
+	"ErrImageNeverPull":          true,
+	"CreateContainerConfigError": true,
+	"CreateContainerError":       true,
+	"RunContainerError":          true,
+}
+
+// stuckMessage says in a line why a container cannot start, or "" when it is not
+// waiting for one of the reasons in stuckWaiting.
+func stuckMessage(cs corev1.ContainerStatus) string {
+	w := cs.State.Waiting
+	if w == nil || !stuckWaiting[w.Reason] {
+		return ""
+	}
+	what := shorten(strings.TrimSpace(ansi.ReplaceAllString(w.Message, "")), 240)
+	switch w.Reason {
+	case "ErrImagePull", "ImagePullBackOff", "ErrImageNeverPull":
+		low := strings.ToLower(w.Message)
+		var why string
+		switch {
+		case strings.Contains(low, "not found") || strings.Contains(low, "manifest unknown") || strings.Contains(low, "name unknown"):
+			why = "the image or its tag does not exist"
+		case strings.Contains(low, "unauthorized") || strings.Contains(low, "denied") || strings.Contains(low, "authentication required"):
+			why = "the registry refused access (a private image?)"
+		case strings.Contains(low, "toomanyrequests") || strings.Contains(low, "rate limit"):
+			why = "the registry's rate limit was reached"
+		case strings.Contains(low, "no such host") || strings.Contains(low, "timeout") || strings.Contains(low, "connection refused") || strings.Contains(low, "i/o timeout"):
+			why = "the registry cannot be reached"
+		}
+		msg := fmt.Sprintf("cannot pull the image %q for %s", cs.Image, cs.Name)
+		if why != "" {
+			msg += ": " + why
+		}
+		if what != "" {
+			msg += " (" + what + ")"
+		}
+		return msg + "; it is retried"
+	case "InvalidImageName":
+		return fmt.Sprintf("the image name %q for %s is not valid", cs.Image, cs.Name)
+	case "CreateContainerConfigError":
+		return fmt.Sprintf("%s cannot be configured: %s", cs.Name, orUnknown(what))
+	}
+	return fmt.Sprintf("%s cannot be created: %s", cs.Name, orUnknown(what))
+}
+
+func orUnknown(s string) string {
+	if s == "" {
+		return "no reason given"
+	}
+	return s
+}
+
+func shorten(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
+// replicaFailure is why the Deployment cannot create its pod, when it says so:
+// a ResourceQuota that is full, an admission policy that refuses it. With no pod
+// there is nothing for inspectPods to read, and the server sat on "Starting".
+func (r *Reconciler) replicaFailure(ctx context.Context, ns string) string {
+	dep := &appsv1.Deployment{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: ns, Name: workloadName}, dep); err != nil {
+		return ""
+	}
+	for _, c := range dep.Status.Conditions {
+		if c.Type == appsv1.DeploymentReplicaFailure && c.Status == corev1.ConditionTrue {
+			return "the cluster refuses to create its pod: " + shorten(strings.TrimSpace(c.Message), 300)
+		}
+	}
+	return ""
 }
 
 // crashMessageWithLog is crashMessage with the last error line of the run's

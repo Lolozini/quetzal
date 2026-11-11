@@ -26,6 +26,14 @@ releases may include breaking changes).
 
 ### Fixed
 
+- A server whose container cannot start now says why instead of sitting on
+  "Starting" with no message: an image that will not pull (no such tag, a private
+  registry, a rate limit, a registry that cannot be reached), an invalid image
+  name, a Secret or ConfigMap that is missing, and a pod the cluster refuses to
+  create because a quota is full. Kubernetes only retries these, so nothing
+  crashed or exited for the panel to notice. Failed volume mounts stay invisible:
+  Kubernetes reports them only as Events, which the control plane has no right to
+  read.
 - The clients of a remote cluster were left at client-go's default of 5 requests a
   second. The controller reads about fifteen objects per server on every pass, so
   each server on a remote cluster cost seconds and held the other clusters' passes
