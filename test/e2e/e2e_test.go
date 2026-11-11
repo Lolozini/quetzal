@@ -161,6 +161,7 @@ func TestE2ELifecycle(t *testing.T) {
 	if err := st.DeleteServer(ported.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
+	rec.OrphanGrace = -1 // collect at once: the grace is covered by the unit tests
 	if err := rec.GCOrphanNamespaces(ctx, map[string]bool{portless.Slug: true}); err != nil {
 		t.Fatalf("gc: %v", err)
 	}

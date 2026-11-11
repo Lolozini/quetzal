@@ -3,8 +3,10 @@ package reconciler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -63,7 +65,7 @@ func TestGCOrphanNamespacesRespectsOwnership(t *testing.T) {
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(live, ownOrphan, otherInstance, legacy, unmanaged).Build()
-	r := &Reconciler{Client: cl, InstanceID: mine}
+	r := &Reconciler{Client: cl, InstanceID: mine, OrphanGrace: -1}
 
 	ctx := context.Background()
 	if err := r.GCOrphanNamespaces(ctx, map[string]bool{"live": true}); err != nil {
@@ -293,7 +295,7 @@ func TestGCRefusesNamespacesItDidNotName(t *testing.T) {
 		managedByLabel: managedByValue, serverLabel: "gone", InstanceLabel: "inst-1",
 	})
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(hijacked, real).Build()
-	r := &Reconciler{Client: cl, InstanceID: "inst-1"}
+	r := &Reconciler{Client: cl, InstanceID: "inst-1", OrphanGrace: -1}
 	ctx := context.Background()
 
 	if err := r.GCOrphanNamespaces(ctx, map[string]bool{}); err != nil {
@@ -304,5 +306,159 @@ func TestGCRefusesNamespacesItDidNotName(t *testing.T) {
 	}
 	if exists(ctx, t, cl, "quetzal-srv-gone") {
 		t.Error("a genuine orphan was not collected")
+	}
+}
+
+// gcFixture is a cluster with the given number of live servers and orphans, and
+// a Reconciler with a Memo whose clock the test moves.
+func gcFixture(t *testing.T, live, orphans int) (*Reconciler, client.Client, map[string]bool, *time.Time) {
+	t.Helper()
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("scheme: %v", err)
+	}
+	const inst = "inst"
+	valid := map[string]bool{}
+	var objs []client.Object
+	mk := func(slug string) {
+		objs = append(objs, nsWithLabels(NamespaceFor(slug), map[string]string{
+			managedByLabel: managedByValue, serverLabel: slug, InstanceLabel: inst,
+		}))
+	}
+	for i := 0; i < live; i++ {
+		slug := fmt.Sprintf("live%d", i)
+		valid[slug] = true
+		mk(slug)
+	}
+	for i := 0; i < orphans; i++ {
+		mk(fmt.Sprintf("orphan%d", i))
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+	now := time.Date(2026, 11, 11, 22, 0, 0, 0, time.UTC)
+	memo := NewMemo()
+	memo.now = func() time.Time { return now }
+	return &Reconciler{Client: cl, InstanceID: inst, Memo: memo}, cl, valid, &now
+}
+
+func nsExists(t *testing.T, cl client.Client, slug string) bool {
+	t.Helper()
+	return exists(context.Background(), t, cl, NamespaceFor(slug))
+}
+
+// A server row missing from the database for a moment must not take its
+// namespace, and its volume, with it: the namespace is collected only after it
+// has been seen without a row for the whole grace period.
+func TestGCOrphanNamespacesWaitsOutTheGrace(t *testing.T) {
+	r, cl, valid, now := gcFixture(t, 4, 1)
+	ctx := context.Background()
+
+	if err := r.GCOrphanNamespaces(ctx, valid); err != nil {
+		t.Fatal(err)
+	}
+	if !nsExists(t, cl, "orphan0") {
+		t.Fatal("an orphan was collected the first time it was seen")
+	}
+	*now = now.Add(DefaultOrphanGrace - time.Minute)
+	if err := r.GCOrphanNamespaces(ctx, valid); err != nil {
+		t.Fatal(err)
+	}
+	if !nsExists(t, cl, "orphan0") {
+		t.Fatal("an orphan was collected before the grace had run")
+	}
+	*now = now.Add(2 * time.Minute)
+	if err := r.GCOrphanNamespaces(ctx, valid); err != nil {
+		t.Fatal(err)
+	}
+	if nsExists(t, cl, "orphan0") {
+		t.Fatal("an orphan was not collected once the grace had run")
+	}
+	for i := 0; i < 4; i++ {
+		if !nsExists(t, cl, fmt.Sprintf("live%d", i)) {
+			t.Fatalf("live server %d lost its namespace", i)
+		}
+	}
+}
+
+// A row that comes back stops the clock, and a later absence starts it again.
+func TestGCOrphanNamespacesGraceStartsOverWhenTheRowComesBack(t *testing.T) {
+	r, cl, valid, now := gcFixture(t, 4, 1)
+	ctx := context.Background()
+
+	if err := r.GCOrphanNamespaces(ctx, valid); err != nil { // seen without a row
+		t.Fatal(err)
+	}
+	*now = now.Add(DefaultOrphanGrace - time.Minute)
+	back := map[string]bool{"orphan0": true}
+	for k := range valid {
+		back[k] = true
+	}
+	if err := r.GCOrphanNamespaces(ctx, back); err != nil { // the row is back
+		t.Fatal(err)
+	}
+	*now = now.Add(2 * time.Minute)
+	if err := r.GCOrphanNamespaces(ctx, valid); err != nil { // gone again, the clock starts over
+		t.Fatal(err)
+	}
+	if !nsExists(t, cl, "orphan0") {
+		t.Fatal("the grace was counted across a period in which the row existed")
+	}
+}
+
+// Most of a cluster's namespaces losing their rows at once is a database that is
+// empty, wrong or restored from an old backup, not a run of failed deletions.
+func TestGCOrphanNamespacesRefusesAMassOrphaning(t *testing.T) {
+	r, cl, valid, now := gcFixture(t, 1, 5)
+	ctx := context.Background()
+	for i := 0; i < 3; i++ {
+		if err := r.GCOrphanNamespaces(ctx, valid); err != nil {
+			t.Fatal(err)
+		}
+		*now = now.Add(DefaultOrphanGrace + time.Minute)
+	}
+	for i := 0; i < 5; i++ {
+		if !nsExists(t, cl, fmt.Sprintf("orphan%d", i)) {
+			t.Fatalf("orphan%d was collected in a pass that orphaned 5 of 6 namespaces", i)
+		}
+	}
+	// An empty database is the worst case of it.
+	if err := r.GCOrphanNamespaces(ctx, map[string]bool{}); err != nil {
+		t.Fatal(err)
+	}
+	if !nsExists(t, cl, "live0") {
+		t.Fatal("an empty set of servers emptied the cluster")
+	}
+}
+
+// Up to three at once are collected whatever their share: a small install that
+// deletes its servers one after another must still be cleaned up.
+func TestGCOrphanNamespacesCollectsAFewAtOnce(t *testing.T) {
+	r, cl, valid, now := gcFixture(t, 1, 3)
+	ctx := context.Background()
+	if err := r.GCOrphanNamespaces(ctx, valid); err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(DefaultOrphanGrace + time.Minute)
+	if err := r.GCOrphanNamespaces(ctx, valid); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if nsExists(t, cl, fmt.Sprintf("orphan%d", i)) {
+			t.Fatalf("orphan%d was not collected", i)
+		}
+	}
+	if !nsExists(t, cl, "live0") {
+		t.Fatal("the live server's namespace was collected")
+	}
+}
+
+// Without a Memo the time cannot be counted, so a positive grace collects nothing.
+func TestGCOrphanNamespacesWithoutMemoKeepsEverything(t *testing.T) {
+	r, cl, valid, _ := gcFixture(t, 4, 1)
+	r.Memo = nil
+	if err := r.GCOrphanNamespaces(context.Background(), valid); err != nil {
+		t.Fatal(err)
+	}
+	if !nsExists(t, cl, "orphan0") {
+		t.Fatal("collected an orphan with no way to count the grace")
 	}
 }

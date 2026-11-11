@@ -7,6 +7,18 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- A namespace is no longer deleted the first time the controller sees it without a
+  server row. It waits an hour (the clock starts over if the row comes back, or the
+  controller restarts), and one pass collects nothing at all when it would take
+  more than three namespaces and more than a quarter of them: that is a database
+  that is empty, wrong or restored from an old backup, not a run of failed
+  deletions. Restoring a backup used to delete, within seconds, the namespace and
+  volume of every server made since; `docs/UPGRADE.md` now says so and what to do
+  before restoring. Deleting a server through the API is not affected: it deletes
+  its own namespace at once.
+
 ### Fixed
 
 - The clients of a remote cluster were left at client-go's default of 5 requests a

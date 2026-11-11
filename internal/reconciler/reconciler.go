@@ -47,6 +47,12 @@ type Reconciler struct {
 	// (memo.go). Nil, every pass writes everything.
 	Memo *Memo
 
+	// OrphanGrace is how long a namespace must have been seen without a server
+	// row before GCOrphanNamespaces deletes it. Zero is DefaultOrphanGrace; a
+	// negative value deletes at once. With no Memo there is no way to count the
+	// time, and a positive grace then deletes nothing.
+	OrphanGrace time.Duration
+
 	// warned de-duplicates warnings that would otherwise repeat every resync,
 	// for a Reconciler without a Memo.
 	warnMu sync.Mutex
@@ -469,14 +475,20 @@ func (r *Reconciler) GCOrphanNamespaces(ctx context.Context, validSlugs map[stri
 	if err := r.Client.List(ctx, &list, client.MatchingLabels{managedByLabel: managedByValue}); err != nil {
 		return err
 	}
+	var orphans []*corev1.Namespace
+	managed := 0
 	for i := range list.Items {
 		ns := &list.Items[i]
 		slug := ns.Labels[serverLabel]
-		if slug == "" || validSlugs[slug] {
+		if slug == "" {
 			continue
 		}
 		if owner := ns.Labels[InstanceLabel]; owner != "" && owner != r.InstanceID {
 			continue // belongs to another control plane
+		}
+		managed++
+		if validSlugs[slug] {
+			continue
 		}
 		// The labels are Quetzal's own, but a label is not proof it created the
 		// namespace — it writes them wherever a server row points. Deleting on
@@ -488,12 +500,56 @@ func (r *Reconciler) GCOrphanNamespaces(ctx context.Context, validSlugs map[stri
 		if ns.DeletionTimestamp != nil {
 			continue // already terminating
 		}
+		orphans = append(orphans, ns)
+	}
+	still := make(map[string]bool, len(orphans))
+	for _, ns := range orphans {
+		still[ns.Name] = true
+	}
+	r.Memo.keepOrphans(still)
+
+	// A namespace holds a server's volume, and deleting it is not undone. Losing
+	// a few at a time is what a failed deletion by the API looks like; losing a
+	// large part of them at once is what a database that is empty, wrong or
+	// restored from an old backup looks like, and deleting on that is how a
+	// restore takes the servers made since with it. Refuse, and say so.
+	if len(orphans) > maxOrphansAtOnce && len(orphans)*4 > managed {
+		r.warnOnce(fmt.Sprintf("orphan-mass|%d|%d", len(orphans), managed),
+			"refusing to collect %d of %d namespaces at once: their servers are not in the database. If the database was restored from a backup, or is not the one these servers were made in, they are not orphans; delete the namespaces by hand once you are sure",
+			len(orphans), managed)
+		return nil
+	}
+
+	grace := r.OrphanGrace
+	if grace == 0 {
+		grace = DefaultOrphanGrace
+	}
+	for _, ns := range orphans {
+		if grace > 0 {
+			if r.Memo == nil {
+				continue
+			}
+			age := r.Memo.orphanAge(ns.Name, ns.UID)
+			if age < grace {
+				r.warnOnce("orphan|"+ns.Name+"|"+string(ns.UID),
+					"namespace %q has no server row in the database; it is deleted, volume included, after %s unless the row comes back", ns.Name, grace)
+				continue
+			}
+		}
 		if err := r.Client.Delete(ctx, ns, client.Preconditions{UID: &ns.UID, ResourceVersion: &ns.ResourceVersion}); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}
 	return nil
 }
+
+// DefaultOrphanGrace is how long a namespace has to be seen without a server row
+// before it is collected (Reconciler.OrphanGrace).
+const DefaultOrphanGrace = time.Hour
+
+// maxOrphansAtOnce is how many orphans one pass collects whatever their share;
+// above it, a pass that would take more than a quarter of the namespaces stops.
+const maxOrphansAtOnce = 3
 
 func (r *Reconciler) ensureNamespace(ctx context.Context, s *models.Server) error {
 	return r.ensureOwnedNamespace(ctx, s.Namespace, labelsFor(s))

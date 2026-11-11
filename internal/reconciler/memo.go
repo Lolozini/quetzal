@@ -43,6 +43,15 @@ type Memo struct {
 	namespaces map[string]types.UID
 	warned     map[string]bool
 	swept      time.Time
+	// orphans is when each namespace without a server row was first seen so.
+	orphans map[string]orphanSighting
+}
+
+// orphanSighting is when a namespace was first seen without a server row. A
+// namespace made again under the same name has another UID and starts over.
+type orphanSighting struct {
+	uid   types.UID
+	since time.Time
 }
 
 type memoEntry struct {
@@ -61,6 +70,40 @@ func NewMemo() *Memo {
 		entries:    map[string]memoEntry{},
 		namespaces: map[string]types.UID{},
 		warned:     map[string]bool{},
+		orphans:    map[string]orphanSighting{},
+	}
+}
+
+// orphanAge reports how long the namespace has been seen without a server row,
+// starting the clock the first time it is. It is how long this process has seen
+// it, not how long it has been so: a restart or a new leader starts the clock
+// again, which only lengthens the wait.
+func (m *Memo) orphanAge(name string, uid types.UID) time.Duration {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := m.now()
+	if o, ok := m.orphans[name]; ok && o.uid == uid {
+		return now.Sub(o.since)
+	}
+	m.orphans[name] = orphanSighting{uid: uid, since: now}
+	return 0
+}
+
+// keepOrphans forgets every sighting not in names: a server whose row came back,
+// or a namespace that is gone, has no clock running.
+func (m *Memo) keepOrphans(names map[string]bool) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for name := range m.orphans {
+		if !names[name] {
+			delete(m.orphans, name)
+		}
 	}
 }
 

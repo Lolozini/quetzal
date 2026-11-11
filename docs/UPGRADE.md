@@ -146,6 +146,19 @@ Roll back only to a version whose schema is compatible with your current
 database. Migrations are forward-only; if a release introduced an incompatible
 schema change, restore the database backup taken before the upgrade.
 
+**Restoring a database backup deletes the servers made since it was taken.** The
+controller treats a server's namespace with no row in the database as left over
+from a deleted server, and deletes it, its volume included. After a restore, the
+servers created since the backup are in that case. The controller waits an hour
+from the first time it sees a namespace without a row (`DefaultOrphanGrace`; a
+restart of the controller starts that hour over), logs each one it is waiting
+on, and refuses to collect more than three, and more than a quarter of the
+namespaces, in one pass. That is a safety net, not a plan: before restoring,
+scale the controller to zero (`kubectl scale deploy/quetzal --replicas=0`, which
+also stops the panel), take a backup of any server created since the one you are
+restoring, and bring it back up only once you have checked that the servers you
+expect are in the panel.
+
 ## Version pinning
 
 Pin a released tag (`vX.Y.Z`) in production rather than `latest`/`main`, so
