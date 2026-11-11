@@ -9,6 +9,14 @@ releases may include breaking changes).
 
 ### Changed
 
+- The controller reports on its own loop: passes and their duration, how long each
+  step took, errors by step, which replica leads, and how long ago it last made
+  progress (`quetzal_controller_*` on port 9090, listed in `docs/INSTALL.md`). Its
+  `/healthz` used to answer "ok" for as long as the process could serve HTTP, so a
+  loop stuck on one call left every game server unattended and was never restarted.
+  It now answers 503 once a leading controller has made no progress for ten
+  minutes, which the chart's liveness probe turns into a restart. A replica that
+  stands by is unaffected.
 - A new install no longer starts empty: the four built-in templates (Minecraft with
   Paper, Minecraft with a CurseForge modpack, Valheim, a generic container) are
   loaded the first time the panel starts, so a first server needs no egg import. It

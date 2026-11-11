@@ -535,6 +535,20 @@ served beside the panel is readable by anyone with the URL. Scrape them
 in-cluster (a PodMonitor, or Prometheus pod annotations). There is no
 authentication on those ports: keep them pod-local.
 
+**What the controller reports about itself** (port 9090): `quetzal_controller_ticks_total`,
+`quetzal_controller_last_tick_duration_seconds` and `quetzal_controller_last_tick_timestamp_seconds`
+for the resync loop; `quetzal_controller_step_duration_seconds{step}` and
+`quetzal_controller_step_errors_total{step}` for each step of a pass (reconcile,
+schedules, transfers, backups, hibernation, SFTP activity, cluster refresh, plus the
+servers whose reconcile failed and the namespaces whose collection failed);
+`quetzal_controller_leader`, which is 1 on the replica that runs the loop; and
+`quetzal_controller_seconds_since_progress`, how long ago the loop last finished a step
+or a server. Alert on `time() - quetzal_controller_last_tick_timestamp_seconds` growing
+past a few resync periods, and on `rate(quetzal_controller_step_errors_total[10m]) > 0`.
+`/healthz` on that port follows the loop: a leading controller that has made no progress
+for ten minutes answers 503, and the chart's liveness probe then restarts it. A replica
+that is standing by is healthy.
+
 **SFTP drops a connection that does not authenticate**, within 15 seconds, and
 caps how many may be mid-handshake at once. The SFTP server runs beside the
 file manager in the server's data-manager pod — the one that holds its volume

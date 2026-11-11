@@ -35,9 +35,10 @@ func (c *serverCollector) Collect(ch chan<- prometheus.Metric) {
 }
 
 // Handler returns an HTTP handler exposing Go/process metrics plus Quetzal's
-// store-backed server metrics.
-func Handler(st *store.Store) http.Handler {
+// store-backed server metrics, and any extra collector (the controller's Loop).
+func Handler(st *store.Store, extra ...prometheus.Collector) http.Handler {
 	reg := prometheus.NewRegistry()
+	reg.MustRegister(extra...)
 	reg.MustRegister(
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),

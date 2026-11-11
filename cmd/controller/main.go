@@ -169,27 +169,39 @@ func main() {
 		// What was written to each cluster, kept from one pass to the next for
 		// as long as this replica leads: a new term starts from nothing.
 		memos := map[uint]*reconciler.Memo{}
+		// step runs one independent part of a pass: timed, its failure counted, and
+		// its end a sign of life for the liveness probe.
+		step := func(name string, fn func() error) {
+			start := time.Now()
+			loop.Beat() // so a long step is measured from its start, not from the last one's end
+			err := guarded(name, fn)
+			loop.Step(name, time.Since(start), err)
+		}
 		reconcile := func() {
-			_ = guarded("reconcile", func() error {
+			step("reconcile", func() error {
 				reconcileAll(ctx, reg, st, actCfg, egressAllow, dnsServers, namespacedRole, watcher, memos)
 				return nil
 			})
 		}
 		tick := func() {
+			start := time.Now()
 			// Each step is independent, and none of them is worth the whole
 			// controller: a panic anywhere below would end the process, which
 			// Kubernetes restarts straight back into the row that caused it.
 			reconcile()
-			_ = guarded("schedules", func() error { sched.Tick(ctx); return nil })
+			step("schedules", func() error { sched.Tick(ctx); return nil })
 			// Transfers advance after reconcile (which creates the destination
 			// namespace/volume post cluster-flip) and before the backup manager
 			// (so the backup/restore jobs they enqueue run in the same tick).
-			_ = guarded("transfers", func() error { tmgr.Process(ctx); return nil })
-			_ = guarded("backups", func() error { bmgr.Process(ctx); return nil })
-			_ = guarded("hibernation", func() error { hmgr.Tick(ctx); return nil })
-			_ = guarded("sftp activity", func() error { collectSFTPActivity(ctx, reg, st); return nil })
-			_ = guarded("cluster refresh", func() error { refreshClusters(ctx, reg, st); return nil })
+			step("transfers", func() error { tmgr.Process(ctx); return nil })
+			step("backups", func() error { bmgr.Process(ctx); return nil })
+			step("hibernation", func() error { hmgr.Tick(ctx); return nil })
+			step("sftp activity", func() error { collectSFTPActivity(ctx, reg, st); return nil })
+			step("cluster refresh", func() error { refreshClusters(ctx, reg, st); return nil })
+			loop.TickDone(time.Since(start))
 		}
+		loop.Start()
+		defer loop.Stop()
 		tick()
 		for {
 			select {
@@ -418,10 +430,13 @@ func reconcileAll(ctx context.Context, reg *cluster.Registry, st *store.Store, a
 		for _, s := range byCluster[c.ID] {
 			if err := guarded("reconcile server "+s.Slug, func() error { return rec.ReconcileServer(ctx, s.ID) }); err != nil {
 				log.Printf("reconcile server %s (cluster %s): %v", s.Slug, c.Slug, err)
+				loop.Error("reconcile server")
 			}
+			loop.Beat() // a pass over many servers is progress, not a stall
 		}
 		if err := rec.GCOrphanNamespaces(ctx, allSlugs); err != nil {
 			log.Printf("gc orphan namespaces (cluster %s): %v", c.Slug, err)
+			loop.Error("gc orphan namespaces")
 		}
 		// Managed (Quetzal-owned) database hosts live on the local cluster.
 		if c.InCluster {
@@ -576,10 +591,20 @@ func refreshClusters(ctx context.Context, reg *cluster.Registry, st *store.Store
 	}
 }
 
+// loop is what the controller reports about its own resync loop: metrics, and the
+// liveness probe's answer (metrics.Loop).
+var loop = metrics.NewLoop()
+
 func serveOps(addr string, st *store.Store) {
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", metrics.Handler(st))
+	mux.Handle("/metrics", metrics.Handler(st, loop))
+	// Liveness: a controller whose loop is stuck on one call serves HTTP happily
+	// and leaves every game server unattended, so the answer follows the loop.
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		if err := loop.Healthy(); err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
