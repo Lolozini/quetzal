@@ -7,6 +7,13 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+
+- The clients of a remote cluster were left at client-go's default of 5 requests a
+  second. The controller reads about fifteen objects per server on every pass, so
+  each server on a remote cluster cost seconds and held the other clusters' passes
+  back. They now run at 50 requests a second with a burst of 100.
+
 ### Security
 
 - A `QUETZAL_SECRET_KEY` that is set but malformed no longer passes for an unset

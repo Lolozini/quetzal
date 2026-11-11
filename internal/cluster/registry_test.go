@@ -94,6 +94,21 @@ func TestBuildRejectsLocalCredentialsBeforeSideEffects(t *testing.T) {
 	}
 }
 
+// A remote cluster's client must not keep client-go's default of 5 requests a
+// second: the controller reads about fifteen objects per server on every pass.
+func TestRemoteClientsAreNotLeftAtTheDefaultRateLimit(t *testing.T) {
+	clients, err := Build(boundaryKubeconfig(t, "https://127.0.0.1:1", map[string]any{"token": "inline-token"}, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clients.Config.QPS != RemoteQPS || clients.Config.Burst != RemoteBurst {
+		t.Fatalf("QPS/Burst = %v/%d, want %v/%d", clients.Config.QPS, clients.Config.Burst, RemoteQPS, RemoteBurst)
+	}
+	if clients.Config.QPS <= 5 || clients.Config.Burst <= 10 {
+		t.Fatalf("limits %v/%d are no better than client-go's default 5/10", clients.Config.QPS, clients.Config.Burst)
+	}
+}
+
 func TestBuildAllowsInlineTokenAndTrustedLocalConfig(t *testing.T) {
 	clients, err := Build(boundaryKubeconfig(t, "https://127.0.0.1:1", map[string]any{"token": "inline-token"}, nil))
 	if err != nil || clients.Config.BearerToken != "inline-token" {

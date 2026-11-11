@@ -101,6 +101,13 @@ func Build(kubeconfig string) (Clients, error) {
 	return buildWithTimeout(kubeconfig, 0)
 }
 
+// RemoteQPS and RemoteBurst set the client-side rate limit on the clients of a
+// remote cluster (see buildWithTimeout).
+const (
+	RemoteQPS   float32 = 50
+	RemoteBurst         = 100
+)
+
 func buildWithTimeout(kubeconfig string, timeout time.Duration) (Clients, error) {
 	// Parse without resolving credentials: remote kubeconfigs are supplied by
 	// cluster administrators, not trusted configuration of the panel process.
@@ -131,6 +138,17 @@ func buildWithTimeout(kubeconfig string, timeout time.Duration) (Clients, error)
 	}
 	if timeout > 0 {
 		cfg.Timeout = timeout
+	}
+	// A rest.Config built from a kubeconfig leaves QPS at zero, which client-go
+	// reads as 5 requests a second with a burst of 10. The controller reads
+	// around fifteen objects per server on every pass, so a remote cluster at
+	// that rate takes seconds per server and holds every other cluster's pass
+	// back behind it. The local client has no limiter at all (controller-runtime
+	// disables it); a remote one gets a generous one, API Priority and Fairness
+	// on the far side being what protects that cluster.
+	if cfg.QPS == 0 {
+		cfg.QPS = RemoteQPS
+		cfg.Burst = RemoteBurst
 	}
 	return FromConfig(cfg)
 }
