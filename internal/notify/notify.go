@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lolozini/quetzal/internal/models"
@@ -89,7 +90,11 @@ type Dispatcher struct {
 	LeaseTTL time.Duration
 
 	holder string // identifies this dispatcher among the replicas
-	nudge  chan struct{}
+	// leaseUntil is when the lease this dispatcher last wrote runs out, so it is
+	// written again only once less than half of it is left.
+	leaseMu    sync.Mutex
+	leaseUntil time.Time
+	nudge      chan struct{}
 	// sleep waits between attempts; replaced in tests so they do not wait.
 	sleep func(ctx context.Context, d time.Duration) error
 	now   func() time.Time
@@ -136,20 +141,48 @@ func newHolderID() string {
 // holds renews the lease, or takes it if it is free, and reports whether this
 // dispatcher is the one that delivers. A store error counts as not holding: a
 // replica that cannot tell stays quiet rather than risk a second delivery.
+//
+// The lease is written only when less than half of it is left. Nobody else can
+// take it before it runs out, so until then this dispatcher still holds it, and a
+// write per pass and per event would be most of what the dispatcher asks of the
+// database while it has nothing to deliver.
 func (d *Dispatcher) holds() bool {
 	ttl := d.LeaseTTL
 	if ttl <= 0 {
 		ttl = defaultLeaseTTL
 	}
+	d.leaseMu.Lock()
+	defer d.leaseMu.Unlock()
 	if d.holder == "" {
 		d.holder = newHolderID()
+	}
+	now := d.clock()
+	if d.leaseUntil.After(now.Add(ttl / 2)) {
+		return true
 	}
 	ok, err := d.Store.AcquireLease(LeaseSetting, d.holder, ttl)
 	if err != nil {
 		d.Logger.Printf("notify: lease: %v", err)
+		d.leaseUntil = time.Time{}
 		return false
 	}
+	if ok {
+		d.leaseUntil = now.Add(ttl)
+	} else {
+		d.leaseUntil = time.Time{}
+	}
 	return ok
+}
+
+// releaseLease gives the lease back as Run stops, if it was ever taken.
+func (d *Dispatcher) releaseLease() {
+	d.leaseMu.Lock()
+	defer d.leaseMu.Unlock()
+	held := !d.leaseUntil.IsZero()
+	d.leaseUntil = time.Time{}
+	if held {
+		_ = d.Store.ReleaseLease(LeaseSetting, d.holder)
+	}
 }
 
 // Notify wakes the dispatcher for prompt delivery. Non-blocking and coalescing.
@@ -167,11 +200,7 @@ func (d *Dispatcher) Notify() {
 // the lease. It seeds the cursor to the current latest event on first start so
 // historical events are not replayed.
 func (d *Dispatcher) Run(ctx context.Context) {
-	defer func() {
-		if d.holder != "" {
-			_ = d.Store.ReleaseLease(LeaseSetting, d.holder)
-		}
-	}()
+	defer d.releaseLease()
 	t := time.NewTicker(d.Interval)
 	defer t.Stop()
 	for {

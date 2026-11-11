@@ -69,8 +69,11 @@ func TestChannelHealthIsVisibleAndClearedByAGoodTest(t *testing.T) {
 	chURL := fmt.Sprintf("%s/api/notifications/channels/%d", ts.URL, created.ID)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go d.Run(ctx)
+	runDone := make(chan struct{})
+	// Run returns before the test's directory is removed: it writes to the database
+	// as it stops (the lease), and a write after the cleanup recreates its files.
+	defer func() { cancel(); <-runDone }()
+	go func() { d.Run(ctx); close(runDone) }()
 	for deadline := time.Now().Add(2 * time.Second); ; {
 		if cur, _ := st.GetSetting(notify.CursorSetting); cur != "" {
 			break

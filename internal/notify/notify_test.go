@@ -34,6 +34,7 @@ type fakeStore struct {
 		holder string
 		until  time.Time
 	}
+	acquires int // calls to AcquireLease: what the lease costs the database
 }
 
 // AcquireLease and ReleaseLease give the fake the same semantics as the store's:
@@ -41,6 +42,7 @@ type fakeStore struct {
 func (f *fakeStore) AcquireLease(_ string, holder string, ttl time.Duration) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.acquires++
 	if f.lease.holder != holder && time.Now().Before(f.lease.until) {
 		return false, nil
 	}
@@ -210,6 +212,37 @@ func TestOnlyTheLeaseHolderDelivers(t *testing.T) {
 
 // A replica that stops gives the lease back, so the next one delivers on its
 // next pass instead of after the lease's time has run out.
+// While it holds the lease, a dispatcher has nothing to ask the database for: a
+// write per pass and per event would be most of its traffic when idle, and the
+// tests that stop it by cancelling a context would still be writing as the
+// directory under them is removed.
+func TestLeaseIsRewrittenOnlyWhenHalfOfItIsLeft(t *testing.T) {
+	st := &fakeStore{}
+	d := New(st)
+	d.LeaseTTL = 60 * time.Second
+	now := time.Date(2026, 11, 11, 23, 0, 0, 0, time.UTC)
+	d.now = func() time.Time { return now }
+
+	for i := 0; i < 50; i++ {
+		if !d.holds() {
+			t.Fatal("the dispatcher does not hold a lease nobody else wants")
+		}
+	}
+	if st.acquires != 1 {
+		t.Fatalf("%d lease writes for 50 checks within one second, want 1", st.acquires)
+	}
+	now = now.Add(29 * time.Second) // 31 s left of 60: more than half
+	d.holds()
+	if st.acquires != 1 {
+		t.Fatalf("the lease was written again with more than half of it left (%d writes)", st.acquires)
+	}
+	now = now.Add(2 * time.Second) // 29 s left: less than half
+	d.holds()
+	if st.acquires != 2 {
+		t.Fatalf("the lease was not renewed with less than half of it left (%d writes)", st.acquires)
+	}
+}
+
 func TestLeaseIsGivenBackWhenRunStops(t *testing.T) {
 	st := &fakeStore{settings: map[string]string{CursorSetting: "0"}}
 	d1, d2 := New(st), New(st)

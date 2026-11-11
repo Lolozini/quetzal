@@ -144,8 +144,11 @@ func TestNotificationDeliveryEndToEnd(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go d.Run(ctx)
+	runDone := make(chan struct{})
+	// Run returns before the test's directory is removed: it writes to the database
+	// as it stops (the lease), and a write after the cleanup recreates its files.
+	defer func() { cancel(); <-runDone }()
+	go func() { d.Run(ctx); close(runDone) }()
 
 	// Wait for the dispatcher to seed its cursor before doing anything worth
 	// delivering. Run() sets the cursor to the latest event id on first start so
