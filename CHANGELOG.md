@@ -7,7 +7,34 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
-### Changed
+## [0.19.0] - 2026-11-11
+
+This release comes out of an independent review of the code and the product, and it is
+mostly about what happens when something goes wrong. A server whose container cannot
+start now says why instead of sitting on "Starting"; restoring an old database backup no
+longer deletes, within seconds, the namespace and volume of every server made since; a
+malformed `QUETZAL_SECRET_KEY` no longer leaves every secret in clear text; and the
+controller's loop, the activator's proxy and the notification dispatcher each stop
+failing silently. A new install starts with four built-in templates. The images are built
+with Go 1.27.4, which fixes GO-2026-6859 in the standard library.
+
+**Upgrading from 0.18.0** — five things to know:
+
+- A `QUETZAL_SECRET_KEY` that is set but is not 32 raw characters, 44 base64 characters
+  or 64 hexadecimal ones now keeps the apiserver, the controller and `qctl` from starting,
+  where it was ignored. If you supply the key yourself, check it before upgrading; the one
+  the chart generates is valid. See *Security*.
+- Session cookies are Secure as soon as `ingress.tls` is true. Set `secureCookies=true`
+  yourself when TLS ends at a proxy in front of the service. See *Security*.
+- A namespace without a server row waits an hour before it is collected, and a pass that
+  would take more than three, and more than a quarter of them, takes none. If you restore a
+  database backup, read `docs/UPGRADE.md` first. See *Changed*.
+- A leading controller that makes no progress for ten minutes now fails its liveness
+  probe and is restarted. See *Added*.
+- The activator's proxy turns away TCP connections beyond 256 in all or 32 per address,
+  and UDP flows beyond 32 per address. See *Changed*.
+
+### Added
 
 - The controller reports on its own loop: passes and their duration, how long each
   step took, errors by step, which replica leads, and how long ago it last made
@@ -17,13 +44,11 @@ releases may include breaking changes).
   It now answers 503 once a leading controller has made no progress for ten
   minutes, which the chart's liveness probe turns into a restart. A replica that
   stands by is unaffected.
-- A new install no longer starts empty: the four built-in templates (Minecraft with
-  Paper, Minecraft with a CurseForge modpack, Valheim, a generic container) are
-  loaded the first time the panel starts, so a first server needs no egg import. It
-  happens once per database: an install that already has templates is left as it is,
-  and so is one whose administrator deletes these.
-- A namespace is no longer deleted the first time the controller sees it without a
-  server row. It waits an hour (the clock starts over if the row comes back, or the
+
+### Changed
+
+- **A namespace is no longer deleted the first time the controller sees it without a
+  server row.** It waits an hour (the clock starts over if the row comes back, or the
   controller restarts), and one pass collects nothing at all when it would take
   more than three namespaces and more than a quarter of them: that is a database
   that is empty, wrong or restored from an old backup, not a run of failed
@@ -31,10 +56,7 @@ releases may include breaking changes).
   volume of every server made since; `docs/UPGRADE.md` now says so and what to do
   before restoring. Deleting a server through the API is not affected: it deletes
   its own namespace at once.
-
-### Fixed
-
-- The activator's proxy now bounds what it holds, in a pod of 64 MiB: 256 TCP
+- **The activator's proxy now bounds what it holds, in a pod of 64 MiB:** 256 TCP
   connections at once and 32 per source address, and 32 UDP flows per source
   address (128 in all, as before). One client opening thousands of silent
   connections, or sending from every port, used to take the proxy down and with it
@@ -42,6 +64,14 @@ releases may include breaking changes).
   and the proxy logs it at most every thirty seconds. A connection that is already
   carried is still never closed for being quiet: a player in a game without
   keepalives keeps theirs.
+- A new install no longer starts empty: the four built-in templates (Minecraft with
+  Paper, Minecraft with a CurseForge modpack, Valheim, a generic container) are
+  loaded the first time the panel starts, so a first server needs no egg import. It
+  happens once per database: an install that already has templates is left as it is,
+  and so is one whose administrator deletes these.
+
+### Fixed
+
 - A server whose container cannot start now says why instead of sitting on
   "Starting" with no message: an image that will not pull (no such tag, a private
   registry, a rate limit, a registry that cannot be reached), an invalid image
@@ -67,6 +97,14 @@ releases may include breaking changes).
 
 ### Security
 
+- **A `QUETZAL_SECRET_KEY` that is set but malformed no longer passes for an unset
+  one.** It used to be ignored with a "not set" warning, so every secret was stored
+  in clear text under a configuration that looked encrypted, and the wake-on-connect
+  tokens were derivable from a server's slug. The apiserver, the controller and
+  `qctl` now refuse to start and name the variable (never its value). The key may
+  also be given as 64 hexadecimal characters, what `openssl rand -hex 32` prints,
+  besides 32 raw characters or 44 base64 characters. A chart-generated key, or a
+  valid key you supplied, is unaffected.
 - The images are built with Go 1.27.4, which fixes GO-2026-6859 in the standard
   library: an HTTP/1 server crash from a race on a request's headers under
   `http.MaxBytesReader`, which the panel's API server uses. `govulncheck` reported
@@ -76,14 +114,6 @@ releases may include breaking changes).
   set `ingress.tls=true` and nothing else sent its session cookie over plain HTTP
   as well. Set `secureCookies=true` yourself when TLS ends at a proxy in front of
   the service.
-- A `QUETZAL_SECRET_KEY` that is set but malformed no longer passes for an unset
-  one. It used to be ignored with a "not set" warning, so every secret was stored
-  in clear text under a configuration that looked encrypted, and the wake-on-connect
-  tokens were derivable from a server's slug. The apiserver, the controller and
-  `qctl` now refuse to start and name the variable (never its value). The key may
-  also be given as 64 hexadecimal characters, what `openssl rand -hex 32` prints,
-  besides 32 raw characters or 44 base64 characters. A chart-generated key, or a
-  valid key you supplied, is unaffected.
 
 ## [0.18.0] - 2026-10-29
 
@@ -2631,7 +2661,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/lolozini/quetzal/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/lolozini/quetzal/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/lolozini/quetzal/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/lolozini/quetzal/compare/v0.16.1...v0.16.2
