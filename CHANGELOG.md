@@ -67,6 +67,10 @@ releases may include breaking changes).
 
 ### Security
 
+- The images are built with Go 1.27.4, which fixes GO-2026-6859 in the standard
+  library: an HTTP/1 server crash from a race on a request's headers under
+  `http.MaxBytesReader`, which the panel's API server uses. `govulncheck` reported
+  it on every package that reaches `net/http`.
 - Session cookies are marked Secure whenever the chart's ingress serves TLS
   (`ingress.tls`). They used to follow `secureCookies` alone, so an install that
   set `ingress.tls=true` and nothing else sent its session cookie over plain HTTP
