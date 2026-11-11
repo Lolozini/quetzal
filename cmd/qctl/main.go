@@ -64,11 +64,13 @@ for PostgreSQL, QUETZAL_DB_HOST, _PORT, _NAME, _USER, _PASSWORD, _SSLMODE, _SSLR
 func openStore() *store.Store {
 	driver, dsn, err := store.DatabaseFromEnv(os.Getenv, "qctl")
 	must(err)
+	secretKey, err := crypto.KeyFromEnv("QUETZAL_SECRET_KEY")
+	must(err)
 	st, err := store.Open(store.Config{
 		Driver:    driver,
 		DSN:       dsn,
 		Silent:    true,
-		SecretKey: crypto.KeyFromEnv("QUETZAL_SECRET_KEY"),
+		SecretKey: secretKey,
 	})
 	must(err)
 	must(st.Migrate())

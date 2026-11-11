@@ -42,11 +42,15 @@ func main() {
 		log.Fatalf("database settings: %v", err)
 	}
 
+	secretKey, err := crypto.KeyFromEnv("QUETZAL_SECRET_KEY")
+	if err != nil {
+		log.Fatalf("secret key: %v", err)
+	}
 	st, err := store.Open(store.Config{
 		Driver:    dbDriver,
 		DSN:       dbDSN,
 		Silent:    true,
-		SecretKey: crypto.KeyFromEnv("QUETZAL_SECRET_KEY"),
+		SecretKey: secretKey,
 	})
 	if err != nil {
 		log.Fatalf("open store: %v", err)
@@ -88,7 +92,7 @@ func main() {
 	apiSrv.Secure = env("QUETZAL_SECURE_COOKIES", "") == "true"
 	apiSrv.NodePortMin = envInt32("QUETZAL_NODEPORT_MIN", 0)
 	apiSrv.NodePortMax = envInt32("QUETZAL_NODEPORT_MAX", 0)
-	apiSrv.WakeKey = crypto.KeyFromEnv("QUETZAL_SECRET_KEY")
+	apiSrv.WakeKey = secretKey
 	apiSrv.TrustProxy = env("QUETZAL_TRUST_PROXY", "") == "true"
 	// Only for `npm run dev` against this API; a deployed panel leaves it unset.
 	apiSrv.DevOrigin = env("QUETZAL_DEV_ORIGIN", "") == "true"

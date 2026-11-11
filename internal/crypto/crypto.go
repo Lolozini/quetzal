@@ -10,10 +10,13 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -87,18 +90,29 @@ func newGCM(key []byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-// KeyFromEnv loads a 32-byte key from the given env var. The value may be the
-// raw 32 bytes or a base64 encoding of 32 bytes. Returns nil if unset/invalid.
-func KeyFromEnv(name string) []byte {
+// KeyFromEnv loads the 32-byte encryption key from the given env var. The value
+// may be the 32 raw bytes, their base64 encoding (44 characters) or their
+// hexadecimal encoding (64 characters, what `openssl rand -hex 32` prints). A
+// variable that is unset or empty yields (nil, nil): the caller decides whether
+// running without a key is acceptable. A variable that is set but is none of
+// those forms is an error, never a silent "no key": it would otherwise leave
+// every secret stored in clear text under a configuration that looks encrypted.
+func KeyFromEnv(name string) ([]byte, error) {
 	v := os.Getenv(name)
 	if v == "" {
-		return nil
+		return nil, nil
 	}
 	if len(v) == 32 {
-		return []byte(v)
+		return []byte(v), nil
 	}
-	if b, err := base64.StdEncoding.DecodeString(v); err == nil && len(b) == 32 {
-		return b
+	t := strings.TrimSpace(v) // a key read from a file often keeps its newline
+	if len(t) == 64 {
+		if b, err := hex.DecodeString(t); err == nil {
+			return b, nil
+		}
 	}
-	return nil
+	if b, err := base64.StdEncoding.DecodeString(t); err == nil && len(b) == 32 {
+		return b, nil
+	}
+	return nil, fmt.Errorf("%s is set but is not a 32-byte key: give 32 raw characters, 44 base64 characters or 64 hexadecimal characters (the value is not shown)", name)
 }

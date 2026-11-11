@@ -7,6 +7,17 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Security
+
+- A `QUETZAL_SECRET_KEY` that is set but malformed no longer passes for an unset
+  one. It used to be ignored with a "not set" warning, so every secret was stored
+  in clear text under a configuration that looked encrypted, and the wake-on-connect
+  tokens were derivable from a server's slug. The apiserver, the controller and
+  `qctl` now refuse to start and name the variable (never its value). The key may
+  also be given as 64 hexadecimal characters, what `openssl rand -hex 32` prints,
+  besides 32 raw characters or 44 base64 characters. A chart-generated key, or a
+  valid key you supplied, is unaffected.
+
 ## [0.18.0] - 2026-10-29
 
 A game's images are now looked up in their registry at every start, as Wings

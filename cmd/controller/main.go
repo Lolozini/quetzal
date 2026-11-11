@@ -62,11 +62,15 @@ func main() {
 	leaderEnabled := env("QUETZAL_LEADER_ELECTION", "false") == "true"
 	namespace := env("POD_NAMESPACE", "quetzal-system")
 
+	secretKey, err := crypto.KeyFromEnv("QUETZAL_SECRET_KEY")
+	if err != nil {
+		log.Fatalf("secret key: %v", err)
+	}
 	st, err := store.Open(store.Config{
 		Driver:    dbDriver,
 		DSN:       dbDSN,
 		Silent:    true,
-		SecretKey: crypto.KeyFromEnv("QUETZAL_SECRET_KEY"),
+		SecretKey: secretKey,
 	})
 	if err != nil {
 		log.Fatalf("open store: %v", err)
@@ -103,7 +107,7 @@ func main() {
 		image:       env("QUETZAL_IMAGE", ""),
 		wakeURL:     apiCallbackURL(apiBase, "wake"),
 		activeURL:   apiCallbackURL(apiBase, "active"),
-		key:         crypto.KeyFromEnv("QUETZAL_SECRET_KEY"),
+		key:         secretKey,
 		nodePortMin: envInt32("QUETZAL_NODEPORT_MIN", 0),
 		nodePortMax: envInt32("QUETZAL_NODEPORT_MAX", 0),
 	}
