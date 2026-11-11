@@ -13,6 +13,11 @@ releases may include breaking changes).
   second. The controller reads about fifteen objects per server on every pass, so
   each server on a remote cluster cost seconds and held the other clusters' passes
   back. They now run at 50 requests a second with a burst of 100.
+- With more than one apiserver replica, every notification went out once per
+  replica: each of them drained the same event outbox from the same cursor. One
+  replica at a time now holds a lease in the database and delivers, the others
+  stand by, and the lease is handed back when a replica stops, so a rollout does
+  not delay the next notification. A killed replica holds it for at most a minute.
 
 ### Security
 

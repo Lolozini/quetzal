@@ -147,7 +147,11 @@ func main() {
 	})
 	go gcRateLimiters(ctx, apiSrv)
 	go collectUploads(ctx, apiSrv)
-	go dispatcher.Run(ctx)
+	dispatcherDone := make(chan struct{})
+	go func() {
+		dispatcher.Run(ctx)
+		close(dispatcherDone)
+	}()
 
 	go func() {
 		log.Printf("quetzal-apiserver listening on %s (db=%s)", addr, dbDriver)
@@ -162,6 +166,12 @@ func main() {
 	defer cancel()
 	_ = srv.Shutdown(shutCtx)
 	_ = opsSrv.Shutdown(shutCtx)
+	// The dispatcher gives its lease back as it stops, so the next replica
+	// delivers on its next pass instead of when the lease runs out.
+	select {
+	case <-dispatcherDone:
+	case <-shutCtx.Done():
+	}
 }
 
 // serveOps starts the metrics/health listener on its own port and returns it so

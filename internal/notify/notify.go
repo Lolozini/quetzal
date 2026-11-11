@@ -16,7 +16,9 @@ package notify
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -37,6 +39,16 @@ import (
 // created before that seeding is skipped for good, not delivered late.
 const CursorSetting = "notify.cursor"
 
+// LeaseSetting names the lease that lets one apiserver at a time drain the
+// outbox. Every replica polls the same table and shares one cursor, so without it
+// N replicas would deliver each event N times.
+const LeaseSetting = "notify.lease"
+
+// defaultLeaseTTL is how long a replica that stops renewing keeps the others
+// waiting. It renews at least every Interval and before each delivery, so only a
+// killed pod (a graceful stop gives the lease back) lets it run out.
+const defaultLeaseTTL = 60 * time.Second
+
 // Store is the subset of the data store the dispatcher needs.
 type Store interface {
 	EnabledChannels() ([]models.NotificationChannel, error)
@@ -45,6 +57,10 @@ type Store interface {
 	LatestEventID() (uint, error)
 	GetSetting(key string) (string, error)
 	SetSetting(key, value string) error
+	// AcquireLease takes or renews the named lease for holder, reporting whether
+	// holder has it; ReleaseLease gives it up. See LeaseSetting.
+	AcquireLease(key, holder string, ttl time.Duration) (bool, error)
+	ReleaseLease(key, holder string) error
 	// ServerIdentity resolves a server's display name and slug for labelling
 	// notifications (both empty when the server is gone or id is 0).
 	ServerIdentity(id uint) (name, slug string, err error)
@@ -68,8 +84,12 @@ type Dispatcher struct {
 	// doubling after that.
 	Attempts int
 	Backoff  time.Duration
+	// LeaseTTL bounds how long the lease outlives a replica that stopped
+	// renewing it (defaultLeaseTTL when zero).
+	LeaseTTL time.Duration
 
-	nudge chan struct{}
+	holder string // identifies this dispatcher among the replicas
+	nudge  chan struct{}
 	// sleep waits between attempts; replaced in tests so they do not wait.
 	sleep func(ctx context.Context, d time.Duration) error
 	now   func() time.Time
@@ -98,8 +118,38 @@ func New(st Store) *Dispatcher {
 		Logger:   log.Default(),
 		Attempts: 3,
 		Backoff:  2 * time.Second,
+		holder:   newHolderID(),
 		nudge:    make(chan struct{}, 1),
 	}
+}
+
+// newHolderID returns a name no other replica, and no earlier run of this one,
+// shares.
+func newHolderID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return hex.EncodeToString(b)
+}
+
+// holds renews the lease, or takes it if it is free, and reports whether this
+// dispatcher is the one that delivers. A store error counts as not holding: a
+// replica that cannot tell stays quiet rather than risk a second delivery.
+func (d *Dispatcher) holds() bool {
+	ttl := d.LeaseTTL
+	if ttl <= 0 {
+		ttl = defaultLeaseTTL
+	}
+	if d.holder == "" {
+		d.holder = newHolderID()
+	}
+	ok, err := d.Store.AcquireLease(LeaseSetting, d.holder, ttl)
+	if err != nil {
+		d.Logger.Printf("notify: lease: %v", err)
+		return false
+	}
+	return ok
 }
 
 // Notify wakes the dispatcher for prompt delivery. Non-blocking and coalescing.
@@ -113,18 +163,26 @@ func (d *Dispatcher) Notify() {
 	}
 }
 
-// Run drains the outbox until ctx is cancelled. It seeds the cursor to the
-// current latest event on first start so historical events are not replayed.
+// Run drains the outbox until ctx is cancelled, whenever this dispatcher holds
+// the lease. It seeds the cursor to the current latest event on first start so
+// historical events are not replayed.
 func (d *Dispatcher) Run(ctx context.Context) {
-	if cur, _ := d.Store.GetSetting(CursorSetting); cur == "" {
-		if id, err := d.Store.LatestEventID(); err == nil {
-			_ = d.Store.SetSetting(CursorSetting, strconv.FormatUint(uint64(id), 10))
+	defer func() {
+		if d.holder != "" {
+			_ = d.Store.ReleaseLease(LeaseSetting, d.holder)
 		}
-	}
+	}()
 	t := time.NewTicker(d.Interval)
 	defer t.Stop()
 	for {
-		d.drain(ctx)
+		if d.holds() {
+			if cur, _ := d.Store.GetSetting(CursorSetting); cur == "" {
+				if id, err := d.Store.LatestEventID(); err == nil {
+					_ = d.Store.SetSetting(CursorSetting, strconv.FormatUint(uint64(id), 10))
+				}
+			}
+			d.drain(ctx)
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -156,6 +214,12 @@ func (d *Dispatcher) drain(ctx context.Context) {
 	tripped := map[uint]string{}
 	for _, e := range events {
 		if ctx.Err() != nil {
+			return
+		}
+		// A delivery can outlast the lease (slow endpoints, retries): renew it
+		// before each event, and stop if another replica has taken it, which then
+		// resumes from the cursor.
+		if !d.holds() {
 			return
 		}
 		d.dispatch(ctx, e, channels, tripped)

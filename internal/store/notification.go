@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/lolozini/quetzal/internal/models"
 )
@@ -293,4 +294,58 @@ func (s *Store) GetSetting(key string) (string, error) {
 // SetSetting upserts a setting.
 func (s *Store) SetSetting(key, value string) error {
 	return s.db.Save(&models.Setting{Key: key, Value: value}).Error
+}
+
+// AcquireLease takes, or renews, the named lease for holder and reports whether
+// holder holds it afterwards. The lease is free when no row exists, when the
+// holder's time is up, or when holder already has it. The take is a
+// compare-and-swap on the row's exact previous value, so of several replicas
+// racing for an expired lease exactly one wins, on SQLite and on PostgreSQL alike.
+func (s *Store) AcquireLease(key, holder string, ttl time.Duration) (bool, error) {
+	now := time.Now()
+	want := holder + "|" + strconv.FormatInt(now.Add(ttl).UnixMilli(), 10)
+	var row models.Setting
+	err := s.db.First(&row, "key = ?", key).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		res := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&models.Setting{Key: key, Value: want})
+		return res.Error == nil && res.RowsAffected == 1, res.Error
+	}
+	if err != nil {
+		return false, err
+	}
+	if h, until := splitLease(row.Value); h != holder && until > now.UnixMilli() {
+		return false, nil
+	}
+	res := s.db.Model(&models.Setting{}).Where("key = ? AND value = ?", key, row.Value).Update("value", want)
+	return res.Error == nil && res.RowsAffected == 1, res.Error
+}
+
+// ReleaseLease gives the lease up at once if holder has it, so the next replica
+// takes over on its next pass instead of waiting for the time to run out.
+func (s *Store) ReleaseLease(key, holder string) error {
+	var row models.Setting
+	if err := s.db.First(&row, "key = ?", key).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+	if h, _ := splitLease(row.Value); h != holder {
+		return nil
+	}
+	return s.db.Model(&models.Setting{}).Where("key = ? AND value = ?", key, row.Value).Update("value", holder+"|0").Error
+}
+
+// splitLease reads "holder|unix-millis". A value in any other form has no holder
+// and has run out, so it is free to take.
+func splitLease(v string) (holder string, untilMillis int64) {
+	i := strings.LastIndex(v, "|")
+	if i < 0 {
+		return "", 0
+	}
+	n, err := strconv.ParseInt(v[i+1:], 10, 64)
+	if err != nil {
+		return "", 0
+	}
+	return v[:i], n
 }

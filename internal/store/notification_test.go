@@ -1,7 +1,11 @@
 package store
 
 import (
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/lolozini/quetzal/internal/models"
 )
@@ -78,5 +82,71 @@ func TestCorruptedEventsColumnStaysReadable(t *testing.T) {
 	}
 	if err := s.DeleteChannel(bad.ID); err != nil {
 		t.Fatalf("delete bad row: %v", err)
+	}
+}
+
+// The lease keeps one apiserver replica at a time draining the event outbox.
+func TestLeaseHasOneHolderAtATime(t *testing.T) {
+	st := newTestStore(t)
+	const key = "test.lease"
+	ok := func(holder string, ttl time.Duration) bool {
+		t.Helper()
+		got, err := st.AcquireLease(key, holder, ttl)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if !ok("a", time.Minute) {
+		t.Fatal("a free lease was not taken")
+	}
+	if ok("b", time.Minute) {
+		t.Fatal("a second holder took a lease that is held")
+	}
+	if !ok("a", time.Minute) {
+		t.Fatal("the holder could not renew its own lease")
+	}
+	if err := st.ReleaseLease(key, "b"); err != nil || ok("b", time.Minute) {
+		t.Fatal("a non-holder released, or took, the lease")
+	}
+	if err := st.ReleaseLease(key, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if !ok("b", 50*time.Millisecond) {
+		t.Fatal("a released lease was not free")
+	}
+	time.Sleep(80 * time.Millisecond)
+	if !ok("a", time.Minute) {
+		t.Fatal("an expired lease was not free")
+	}
+}
+
+// Replicas race for a lease that has just run out: exactly one may win it.
+func TestLeaseRaceHasOneWinner(t *testing.T) {
+	st := newTestStore(t)
+	const key = "test.lease.race"
+	if _, err := st.AcquireLease(key, "old", time.Millisecond); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	const n = 12
+	var wins atomic.Int32
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(h string) {
+			defer wg.Done()
+			<-start
+			if got, err := st.AcquireLease(key, h, time.Minute); err == nil && got {
+				wins.Add(1)
+			}
+		}(fmt.Sprint("r", i))
+	}
+	close(start)
+	wg.Wait()
+	if wins.Load() != 1 {
+		t.Fatalf("%d replicas won the same lease, want 1", wins.Load())
 	}
 }

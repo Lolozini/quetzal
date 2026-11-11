@@ -14,6 +14,7 @@ import (
 	"net/mail"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +30,31 @@ type fakeStore struct {
 	servers  map[uint][2]string // id -> {displayName, slug}
 	results  []deliveryResult
 	smtp     map[string]string // the panel's email settings
+	lease    struct {
+		holder string
+		until  time.Time
+	}
+}
+
+// AcquireLease and ReleaseLease give the fake the same semantics as the store's:
+// free when expired or already the holder's.
+func (f *fakeStore) AcquireLease(_ string, holder string, ttl time.Duration) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.lease.holder != holder && time.Now().Before(f.lease.until) {
+		return false, nil
+	}
+	f.lease.holder, f.lease.until = holder, time.Now().Add(ttl)
+	return true, nil
+}
+
+func (f *fakeStore) ReleaseLease(_ string, holder string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.lease.holder == holder {
+		f.lease.until = time.Time{}
+	}
+	return nil
 }
 
 func (f *fakeStore) GetSMTPConfig() (map[string]string, error) { return f.smtp, nil }
@@ -138,6 +164,78 @@ func TestDispatcherMatchesAndAdvances(t *testing.T) {
 	}
 	if cur := st.settings[CursorSetting]; cur != "3" {
 		t.Errorf("cursor = %q, want 3 (advances past all events)", cur)
+	}
+}
+
+// Replicas of the apiserver share one outbox and one cursor. Two of them draining
+// at once used to read the same cursor and deliver every event twice; only the one
+// holding the lease may deliver.
+func TestOnlyTheLeaseHolderDelivers(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		time.Sleep(150 * time.Millisecond) // long enough for both to have read the cursor
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	st := &fakeStore{
+		events:   []models.Event{{ID: 1, Type: models.EventServerCrashed, ServerID: 7, Message: "boom"}},
+		channels: []models.NotificationChannel{{ID: 1, Type: models.ChannelDiscord, Enabled: true, ConfigEnc: srv.URL}},
+		settings: map[string]string{CursorSetting: "0"},
+	}
+	d1, d2 := New(st), New(st)
+	d1.Client, d2.Client = srv.Client(), srv.Client()
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for _, d := range []*Dispatcher{d1, d2} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			d.drain(context.Background())
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	if n := hits.Load(); n != 1 {
+		t.Fatalf("event delivered %d times by two replicas, want once", n)
+	}
+	if cur := st.settings[CursorSetting]; cur != "1" {
+		t.Errorf("cursor = %q, want 1", cur)
+	}
+}
+
+// A replica that stops gives the lease back, so the next one delivers on its
+// next pass instead of after the lease's time has run out.
+func TestLeaseIsGivenBackWhenRunStops(t *testing.T) {
+	st := &fakeStore{settings: map[string]string{CursorSetting: "0"}}
+	d1, d2 := New(st), New(st)
+	d1.Interval = 10 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { d1.Run(ctx); close(done) }()
+
+	heldByD1 := func() bool {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		return st.lease.holder == d1.holder && time.Now().Before(st.lease.until)
+	}
+	for deadline := time.Now().Add(2 * time.Second); !heldByD1(); {
+		if time.Now().After(deadline) {
+			t.Fatal("the first replica never took the lease")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if d2.holds() {
+		t.Fatal("a second replica took the lease while the first holds it")
+	}
+	cancel()
+	<-done
+	if !d2.holds() {
+		t.Fatal("the lease was not given back when Run stopped")
 	}
 }
 
