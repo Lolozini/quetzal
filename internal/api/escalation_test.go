@@ -120,7 +120,7 @@ func TestUsersAdminCannotStripAnAdminsTwoFactor(t *testing.T) {
 func TestSettingsAdminCannotRepointTheMailRelay(t *testing.T) {
 	srv, admin, mail := newMailHarness(t)
 	post(t, admin, srv.URL+"/api/setup", map[string]string{"username": "admin", "password": "supersecret"})
-	doPut(t, admin, srv.URL+"/api/me/email", map[string]string{"email": "admin@example.com"})
+	doPut(t, admin, srv.URL+"/api/me/email", map[string]string{"email": "admin@example.com", "password": "supersecret"})
 	if r := doPut(t, admin, srv.URL+"/api/email-settings", map[string]string{
 		"host": "smtp.legit", "from": "noreply@example", "publicUrl": "https://panel.example",
 	}); r.StatusCode != http.StatusOK && r.StatusCode != http.StatusNoContent {

@@ -174,6 +174,7 @@ export const fr: Record<string, string> = {
   // Account
   "Change password": "Changer le mot de passe",
   "Current password": "Mot de passe actuel",
+  "The address decides who can reset this account's password, so changing it asks for your password.": "L’adresse décide qui peut réinitialiser le mot de passe de ce compte : la changer demande donc votre mot de passe.",
   "Update password": "Mettre à jour le mot de passe",
   "Password changed.": "Mot de passe modifié.",
   "scoped admin ({perms})": "admin restreint ({perms})",

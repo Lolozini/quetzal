@@ -14,17 +14,17 @@ func TestAnEmailAddressIsOneAccounts(t *testing.T) {
 	createUser(t, admin, srv.URL, map[string]any{"username": "alice", "password": "alicepw12"})
 	alice := loginAs(t, srv.URL, "alice", "alicepw12")
 
-	if r := put(t, alice, srv.URL+"/api/me/email", map[string]string{"email": "Admin@Example.com"}); r.StatusCode != http.StatusConflict {
+	if r := put(t, alice, srv.URL+"/api/me/email", map[string]string{"email": "Admin@Example.com", "password": "alicepw12"}); r.StatusCode != http.StatusConflict {
 		t.Errorf("taking another account's address = %d, want 409", r.StatusCode)
 	}
 	if r := post(t, admin, srv.URL+"/api/users", map[string]any{"username": "bob", "password": "bobpw1234", "email": "ADMIN@example.com"}); r.StatusCode != http.StatusConflict {
 		t.Errorf("creating an account on a taken address = %d, want 409", r.StatusCode)
 	}
-	if r := put(t, alice, srv.URL+"/api/me/email", map[string]string{"email": "alice@example.com"}); r.StatusCode != http.StatusOK {
+	if r := put(t, alice, srv.URL+"/api/me/email", map[string]string{"email": "alice@example.com", "password": "alicepw12"}); r.StatusCode != http.StatusOK {
 		t.Errorf("a free address = %d", r.StatusCode)
 	}
 	// Setting one's own address again, in another case, is no conflict.
-	if r := put(t, admin, srv.URL+"/api/me/email", map[string]string{"email": "admin@EXAMPLE.com"}); r.StatusCode != http.StatusOK {
+	if r := put(t, admin, srv.URL+"/api/me/email", map[string]string{"email": "admin@EXAMPLE.com", "password": "supersecret"}); r.StatusCode != http.StatusOK {
 		t.Errorf("one's own address = %d", r.StatusCode)
 	}
 }

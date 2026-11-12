@@ -60,6 +60,16 @@ func (s *Store) ResetPassword(pr *models.PasswordReset, hash string) error {
 		if res.RowsAffected != 1 {
 			return ErrNotFound
 		}
-		return changePassword(tx, pr.UserID, hash, "")
+		if err := changePassword(tx, pr.UserID, hash, ""); err != nil {
+			return err
+		}
+		// A reset is how an account is taken back, so what a thief could have left
+		// behind goes with the old password: API keys and SFTP keys outlive a
+		// password and a session, and the account's owner could not tell they were
+		// there. Their owner makes new ones.
+		if err := tx.Where("user_id = ?", pr.UserID).Delete(&models.APIKey{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("user_id = ?", pr.UserID).Delete(&models.SSHKey{}).Error
 	})
 }

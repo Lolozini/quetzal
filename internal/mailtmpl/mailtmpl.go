@@ -157,6 +157,29 @@ func EmailConfirmation(username, address, link string, valid time.Duration, publ
 	})
 }
 
+// EmailChangeNotice tells an account's current address that the account is being
+// given another one (or none, when next is empty).
+func EmailChangeNotice(username, previous, next, publicURL string) (notify.Mail, error) {
+	host := panelHost(publicURL)
+	what := "to remove this address from the account"
+	if next != "" {
+		what = "to change the address of the account to " + next
+	}
+	return render(content{
+		Subject:   "The email address of your Quetzal account is being changed",
+		Preheader: "A request " + what + ".",
+		Heading:   "Your account's address is being changed",
+		Intro: []string{
+			fmt.Sprintf("Hi %s, someone signed in to the account %s on %s with its password asked %s.", username, username, host, what),
+		},
+		After: []string{
+			"If it was you, there is nothing to do. The new address has to confirm it before it replaces this one, and password resets keep coming here until then.",
+			"If it was not you, change the account's password now: that ends every session. Then look at the account's API keys and SFTP keys.",
+		},
+		Footer: []string{sentBy(publicURL)},
+	})
+}
+
 // permissionHelp is what each permission allows, worded as in the panel.
 var permissionHelp = map[string]string{
 	models.PermView:      "its page: state, address, usage, backups, schedules and activity",

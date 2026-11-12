@@ -43,7 +43,7 @@ func TestSensitiveChangesAreAudited(t *testing.T) {
 		t.Fatalf("edit schedule = %d", rr.StatusCode)
 	}
 
-	if rr := doPut(t, admin, ts.URL+"/api/me/email", map[string]string{"email": "someone@elsewhere.example"}); rr.StatusCode != http.StatusOK {
+	if rr := doPut(t, admin, ts.URL+"/api/me/email", map[string]string{"email": "someone@elsewhere.example", "password": "supersecret"}); rr.StatusCode != http.StatusOK {
 		t.Fatalf("email = %d", rr.StatusCode)
 	}
 	if rr := post(t, admin, ts.URL+"/api/me/password", map[string]string{"oldPassword": "supersecret", "newPassword": "anothersecret"}); rr.StatusCode != http.StatusNoContent {

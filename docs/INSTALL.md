@@ -533,9 +533,15 @@ schedule keeps the permissions it was written with: revoking someone's console
 access does not disable the schedules they already made, so review a server's
 schedules when you take a permission away.
 
-**An API key carries everything its owner can do.** There is no per-key scope
-today, so a key minted by an admin is an admin key. Treat one as the account
-itself and delete keys you no longer use.
+**An API key carries what its owner can do, short of taking the account.** There
+is no per-key scope today, so a key minted by an admin is an admin key. What decides
+who owns the account needs a signed-in session: a key cannot change the account's
+address, change its password, set up or switch off two-factor, or make and delete API
+keys and SFTP keys (403). A session changing the address is asked for the
+password, and the two-factor code if the account has one, and the old address is
+mailed a notice. A password reset, the way an account is taken back, also deletes the
+account's API keys and SFTP keys. Treat a key as the account's other credential
+and delete keys you no longer use.
 
 **Metrics are on a port the Ingress does not publish.** The apiserver serves
 `/metrics` on container port 9091 and the controller on 9090, and the Service

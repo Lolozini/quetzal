@@ -183,6 +183,8 @@ function EmailCard({ initial }: { initial: string }) {
   const fieldId = useId();
   const { t } = useT();
   const [email, setEmail] = useState(initial);
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
   const [me, setMe] = useState<User | null>(null);
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
@@ -217,15 +219,21 @@ function EmailCard({ initial }: { initial: string }) {
     e.preventDefault();
     const wanted = email.trim();
     run(
-      () => api.setMyEmail(wanted),
-      (u) =>
-        u.pendingEmail
+      () => api.setMyEmail(wanted, password, code),
+      (u) => {
+        setPassword("");
+        setCode("");
+        return u.pendingEmail
           ? t("We sent a link to {address}. Your address changes once you open it.", { address: u.pendingEmail })
-          : t("Email saved."),
+          : t("Email saved.");
+      },
     );
   }
 
   const current = me?.email || "";
+  // Keeping the address as it is asks for nothing; changing or removing it asks for the
+  // password, and for the code when the account has two-factor.
+  const changing = email.trim().toLowerCase() !== current.toLowerCase();
   return (
     <div className="card">
       <h2>{t("Email")}</h2>
@@ -273,6 +281,34 @@ function EmailCard({ initial }: { initial: string }) {
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@example.com"
         />
+        {changing && (
+          <>
+            <label htmlFor={`${fieldId}-email-password`} style={{ marginTop: 12 }}>{t("Current password")}</label>
+            <input id={`${fieldId}-email-password`}
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            {me?.twoFactorEnabled && (
+              <>
+                <label htmlFor={`${fieldId}-email-code`} style={{ marginTop: 12 }}>{t("Authentication code")}</label>
+                <input id={`${fieldId}-email-code`}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder={t("6-digit code or recovery code")}
+                  required
+                />
+              </>
+            )}
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              {t("The address decides who can reset this account's password, so changing it asks for your password.")}
+            </div>
+          </>
+        )}
         {msg && <div className="notice">{msg}</div>}
         {error && <div className="error">{error}</div>}
         <button className="primary" style={{ marginTop: 12 }} disabled={busy}>{t("Save email")}</button>

@@ -197,14 +197,19 @@ paths:
         mailed to it; the account keeps its current address until the link is
         opened (POST /api/confirm-email). Without mail, the address is taken as
         given, unconfirmed. Giving the current address again drops a pending
-        one; an empty one clears the address.
+        one; an empty one clears the address. Changing or clearing it needs a
+        signed-in session (an API key gets 403), the account's password and, if
+        it has two-factor, a code; the address it had is mailed a notice.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              properties: { email: { type: string, format: email } }
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, description: The account's current password, needed to change or clear the address }
+                code: { type: string, description: A two-factor or recovery code, needed too when the account has two-factor }
       responses:
         "200":
           description: Updated user

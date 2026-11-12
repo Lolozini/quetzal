@@ -7,6 +7,27 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Changed
+
+- **What decides who owns an account now needs a signed-in session, not an API key.**
+  A key is a long-lived token for scripts and carries no second factor, and one that
+  leaked was enough to take the account: it could change the address password resets
+  go to, then make other keys, so that revoking the first no longer ended the access.
+  Changing or confirming the address, changing the password, setting up, enabling or
+  switching off two-factor, and making or deleting API keys and SFTP keys now answer
+  403 to a key. A script that did any of these with a key has to use a session;
+  reading and everything else a key did is untouched.
+- **Changing the address asks for the password** (and the two-factor code, if the
+  account has one), including removing it, and **the address the account had is
+  mailed a notice** when the panel can send mail. The confirmation used to go to the
+  new address only, so whoever held a session could change where password resets go
+  and the account's owner heard nothing of it. The API takes `password` and `code` in
+  the body of `PUT /api/me/email`; the panel asks for them.
+- **A password reset ends the account's API keys and SFTP keys.** A reset is how an
+  account is taken back, and a thief could have left keys behind: they outlive a
+  password and a session. The owner makes new ones. Changing the password while
+  signed in, with the old one, leaves them alone.
+
 ### Fixed
 
 - **A key that used to be ignored now seals what it left in clear text.** A

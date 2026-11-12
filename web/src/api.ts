@@ -828,7 +828,9 @@ export const api = {
     req<{ ok: boolean }>("POST", "/api/forgot-password", { identifier }),
   resetPassword: (token: string, password: string) =>
     req<void>("POST", "/api/reset-password", { token, password }),
-  setMyEmail: (email: string) => req<User>("PUT", "/api/me/email", { email }),
+  // The password (and the two-factor code, if the account has one) prove who asks:
+  // the address decides who can reset the password. Keeping the address needs neither.
+  setMyEmail: (email: string, password = "", code = "") => req<User>("PUT", "/api/me/email", { email, password, code }),
   resendEmailConfirmation: () => req<User>("POST", "/api/me/email/confirmation"),
   cancelPendingEmail: () => req<User>("DELETE", "/api/me/email/pending"),
   confirmEmail: (token: string) => req<{ email: string }>("POST", "/api/confirm-email", { token }),

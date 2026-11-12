@@ -41,6 +41,17 @@ func mailReady(t *testing.T, st *store.Store) {
 	}
 }
 
+// confirmations keeps the mails that carry a confirmation link.
+func confirmations(msgs []sentMail) []sentMail {
+	var out []sentMail
+	for _, m := range msgs {
+		if strings.HasPrefix(m.subject, "Confirm your email address") {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // A new address waits for its owner to open the link mailed to it; the account
 // keeps the old one, which resets go to, until then.
 func TestANewAddressIsTakenOnceConfirmed(t *testing.T) {
@@ -51,7 +62,7 @@ func TestANewAddressIsTakenOnceConfirmed(t *testing.T) {
 		t.Fatalf("login = %d", r.StatusCode)
 	}
 
-	r := put(t, c, ts.URL+"/api/me/email", map[string]string{"email": "new@example.com"})
+	r := put(t, c, ts.URL+"/api/me/email", map[string]string{"email": "new@example.com", "password": "alicepw12"})
 	if r.StatusCode != http.StatusOK {
 		t.Fatalf("set email = %d", r.StatusCode)
 	}
@@ -59,11 +70,13 @@ func TestANewAddressIsTakenOnceConfirmed(t *testing.T) {
 	if u.Email != "old@example.com" || u.PendingEmail != "new@example.com" {
 		t.Fatalf("after asking: email %q, pending %q; want the old one kept and the new one pending", u.Email, u.PendingEmail)
 	}
-	msgs := cap.waitFor(1)
-	if len(msgs) != 1 || msgs[0].to[0] != "new@example.com" {
-		t.Fatalf("mails = %+v, want one to the new address", msgs)
+	// Two mails: the confirmation to the new address, and the notice to the old.
+	msgs := cap.waitFor(2)
+	conf := confirmations(msgs)
+	if len(conf) != 1 || conf[0].to[0] != "new@example.com" {
+		t.Fatalf("mails = %+v, want one confirmation, to the new address", msgs)
 	}
-	token := confirmTokenFrom(t, msgs[0].body)
+	token := confirmTokenFrom(t, conf[0].body)
 
 	// Nobody signed in: the link may be opened anywhere.
 	jar, _ := cookiejar.New(nil)
@@ -81,10 +94,10 @@ func TestANewAddressIsTakenOnceConfirmed(t *testing.T) {
 
 	// A change of mind: the link of an address the account no longer asks
 	// for is dead.
-	put(t, c, ts.URL+"/api/me/email", map[string]string{"email": "third@example.com"})
-	msgs = cap.waitFor(2)
-	stale := confirmTokenFrom(t, msgs[1].body)
-	if r := put(t, c, ts.URL+"/api/me/email", map[string]string{"email": "new@example.com"}); r.StatusCode != http.StatusOK || userFromBody(t, r).PendingEmail != "" {
+	put(t, c, ts.URL+"/api/me/email", map[string]string{"email": "third@example.com", "password": "alicepw12"})
+	msgs = cap.waitFor(4)
+	stale := confirmTokenFrom(t, confirmations(msgs)[1].body)
+	if r := put(t, c, ts.URL+"/api/me/email", map[string]string{"email": "new@example.com", "password": "alicepw12"}); r.StatusCode != http.StatusOK || userFromBody(t, r).PendingEmail != "" {
 		t.Fatalf("asking for the current address again should drop the pending one")
 	}
 	if r := post(t, anon, ts.URL+"/api/confirm-email", map[string]string{"token": stale}); r.StatusCode != http.StatusBadRequest {
@@ -104,8 +117,8 @@ func TestAnAddressTakenMeanwhileIsRefused(t *testing.T) {
 	makeUser(t, st, "bob", "bobpw1234", "")
 	alice := loginAs(t, ts.URL, "alice", "alicepw12")
 	bob := loginAs(t, ts.URL, "bob", "bobpw1234")
-	put(t, alice, ts.URL+"/api/me/email", map[string]string{"email": "shared@example.com"})
-	put(t, bob, ts.URL+"/api/me/email", map[string]string{"email": "shared@example.com"})
+	put(t, alice, ts.URL+"/api/me/email", map[string]string{"email": "shared@example.com", "password": "alicepw12"})
+	put(t, bob, ts.URL+"/api/me/email", map[string]string{"email": "shared@example.com", "password": "bobpw1234"})
 	msgs := cap.waitFor(2)
 	if r := post(t, bob, ts.URL+"/api/confirm-email", map[string]string{"token": confirmTokenFrom(t, msgs[1].body)}); r.StatusCode != http.StatusOK {
 		t.Fatalf("bob confirms = %d", r.StatusCode)
@@ -121,7 +134,7 @@ func TestWithoutMailAnAddressIsTakenUnconfirmed(t *testing.T) {
 	ts, c, st, cap := newResetHarness(t)
 	makeUser(t, st, "alice", "alicepw12", "")
 	post(t, c, ts.URL+"/api/login", map[string]string{"username": "alice", "password": "alicepw12"})
-	r := put(t, c, ts.URL+"/api/me/email", map[string]string{"email": "a@example.com"})
+	r := put(t, c, ts.URL+"/api/me/email", map[string]string{"email": "a@example.com", "password": "alicepw12"})
 	if u := userFromBody(t, r); u.Email != "a@example.com" || u.EmailVerified || u.PendingEmail != "" {
 		t.Fatalf("without mail: %+v", u)
 	}

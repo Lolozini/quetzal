@@ -274,9 +274,9 @@ func (s *Server) Handler() http.Handler {
 
 	// Protected.
 	mux.Handle("GET /api/me", s.auth(s.handleMe))
-	mux.Handle("PUT /api/me/email", s.auth(s.handleSetMyEmail))
-	mux.Handle("POST /api/me/email/confirmation", s.auth(s.handleResendEmailConfirmation))
-	mux.Handle("DELETE /api/me/email/pending", s.auth(s.handleCancelPendingEmail))
+	mux.Handle("PUT /api/me/email", s.sessionAuth(s.handleSetMyEmail))
+	mux.Handle("POST /api/me/email/confirmation", s.sessionAuth(s.handleResendEmailConfirmation))
+	mux.Handle("DELETE /api/me/email/pending", s.sessionAuth(s.handleCancelPendingEmail))
 	mux.HandleFunc("POST /api/confirm-email", s.handleConfirmEmail)
 	mux.Handle("GET /api/templates", s.auth(s.handleListTemplates))
 	mux.Handle("GET /api/templates/{slug}", s.auth(s.handleGetTemplate))
@@ -349,7 +349,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PATCH /api/users/{uid}", s.auth(s.handleUpdateUser))
 	mux.Handle("DELETE /api/users/{uid}", s.auth(s.handleDeleteUser))
 	mux.Handle("PUT /api/users/{uid}/admin-role", s.auth(s.handleSetUserAdminRole))
-	mux.Handle("POST /api/me/password", s.auth(s.handleChangePassword))
+	mux.Handle("POST /api/me/password", s.sessionAuth(s.handleChangePassword))
 
 	// Admin roles (scoped admin permission bundles; superadmin only).
 	mux.Handle("GET /api/admin-permissions", s.auth(s.handleAdminPermissionCatalog))
@@ -387,18 +387,18 @@ func (s *Server) Handler() http.Handler {
 	// Two-factor authentication (opt-in TOTP) for the current user, plus an
 	// admin reset for the lost-device lockout case.
 	mux.Handle("GET /api/me/sshkeys", s.auth(s.handleListSSHKeys))
-	mux.Handle("POST /api/me/sshkeys", s.auth(s.handleAddSSHKey))
-	mux.Handle("DELETE /api/me/sshkeys/{kid}", s.auth(s.handleDeleteSSHKey))
+	mux.Handle("POST /api/me/sshkeys", s.sessionAuth(s.handleAddSSHKey))
+	mux.Handle("DELETE /api/me/sshkeys/{kid}", s.sessionAuth(s.handleDeleteSSHKey))
 	mux.Handle("GET /api/servers/{id}/sftp", s.auth(s.handleServerSFTP))
-	mux.Handle("POST /api/me/2fa/setup", s.auth(s.handle2FASetup))
-	mux.Handle("POST /api/me/2fa/enable", s.auth(s.handle2FAEnable))
-	mux.Handle("POST /api/me/2fa/disable", s.auth(s.handle2FADisable))
+	mux.Handle("POST /api/me/2fa/setup", s.sessionAuth(s.handle2FASetup))
+	mux.Handle("POST /api/me/2fa/enable", s.sessionAuth(s.handle2FAEnable))
+	mux.Handle("POST /api/me/2fa/disable", s.sessionAuth(s.handle2FADisable))
 	mux.Handle("POST /api/users/{uid}/2fa/disable", s.auth(s.handleAdminDisable2FA))
 
 	// API keys (scoped bearer tokens for the public API).
 	mux.Handle("GET /api/apikeys", s.auth(s.handleListAPIKeys))
-	mux.Handle("POST /api/apikeys", s.auth(s.handleCreateAPIKey))
-	mux.Handle("DELETE /api/apikeys/{kid}", s.auth(s.handleDeleteAPIKey))
+	mux.Handle("POST /api/apikeys", s.sessionAuth(s.handleCreateAPIKey))
+	mux.Handle("DELETE /api/apikeys/{kid}", s.sessionAuth(s.handleDeleteAPIKey))
 
 	// Clusters (multi-cluster registry). Listing is open to any authenticated
 	// user (to pick a deploy target); mutations are admin-only.
@@ -522,6 +522,26 @@ func (s *Server) auth(next http.HandlerFunc) http.Handler {
 		}
 		ctx := context.WithValue(r.Context(), userCtxKey, user)
 		next(w, r.WithContext(ctx))
+	})
+}
+
+// sessionAuth is auth for what only a signed-in person may do: an API key is refused.
+// A key is a long-lived token made for scripts and carries no second factor, so one
+// that leaks must not be able to take the account over: change the address password
+// resets go to, change the password, switch two-factor off, or mint other keys and
+// SFTP keys that outlive its own revocation.
+func (s *Server) sessionAuth(next http.HandlerFunc) http.Handler {
+	inner := s.auth(next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(tokenFromRequest(r), apiKeyPrefix) {
+			if _, err := s.resolveCurrentUser(r, false); err != nil {
+				writeError(w, http.StatusUnauthorized, "authentication required")
+				return
+			}
+			writeError(w, http.StatusForbidden, "this needs a signed-in session: an API key cannot change the account's address, password, two-factor setting or keys")
+			return
+		}
+		inner.ServeHTTP(w, r)
 	})
 }
 

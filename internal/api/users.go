@@ -1,13 +1,17 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/lolozini/quetzal/internal/auth"
+	"github.com/lolozini/quetzal/internal/mailtmpl"
 	"github.com/lolozini/quetzal/internal/models"
 	"github.com/lolozini/quetzal/internal/store"
 )
@@ -344,6 +348,53 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// reauthenticate checks the password, and the two-factor code when the account
+// has one, before something that decides who owns the account. It writes the answer
+// itself when they are wrong.
+func (s *Server) reauthenticate(w http.ResponseWriter, u *models.User, password, code string) bool {
+	if !s.allowSensitiveAuth(w, u) {
+		return false
+	}
+	ok, err := auth.VerifyPassword(u.PasswordHash, password)
+	if err != nil {
+		writeCredentialError(w, err)
+		return false
+	}
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "current password is incorrect")
+		return false
+	}
+	if u.TOTPEnabled && !s.verifyTwoFactor(u, code) {
+		writeError(w, http.StatusBadRequest, "invalid code")
+		return false
+	}
+	return true
+}
+
+// noticeToPreviousAddress tells the address an account had that it is being
+// changed, so its owner can act if it was not them. The new address gets its own
+// mail to confirm; the old one would otherwise never hear of it. Best effort: it
+// needs mail set up, and its failure does not undo the change.
+func (s *Server) noticeToPreviousAddress(r *http.Request, u *models.User, previous, next string) {
+	if previous == "" || strings.EqualFold(previous, next) {
+		return
+	}
+	cfg, _ := s.confirmationMail()
+	if cfg == nil || s.Mailer == nil {
+		return
+	}
+	m, err := mailtmpl.EmailChangeNotice(u.Username, previous, next, s.publicURL())
+	if err != nil {
+		log.Printf("email change notice for %s: %v", u.Username, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 20*time.Second)
+	defer cancel()
+	if err := s.Mailer(ctx, cfg, []string{previous}, m); err != nil {
+		log.Printf("email change notice for %s: %v", u.Username, err)
+	}
+}
+
 // handleSetMyEmail lets the current user set or clear their own email (used for
 // self-service password reset). An address is one account's. When the panel
 // can send mail, a new address waits for its owner to open the link mailed to
@@ -353,6 +404,11 @@ func (s *Server) handleSetMyEmail(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r.Context())
 	var req struct {
 		Email string `json:"email"`
+		// Password (and Code, when the account has two-factor) prove it is the
+		// account's owner who changes the address password resets go to: a stolen
+		// session that could change it unasked would be a stolen account.
+		Password string `json:"password"`
+		Code     string `json:"code"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid body")
@@ -363,6 +419,10 @@ func (s *Server) handleSetMyEmail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid email")
 		return
 	}
+	if !strings.EqualFold(email, u.Email) && !s.reauthenticate(w, u, req.Password, req.Code) {
+		return
+	}
+	previous := u.Email
 	switch {
 	case strings.EqualFold(email, u.Email):
 		// Asking for the address the account has drops one it was waiting on.
@@ -378,6 +438,7 @@ func (s *Server) handleSetMyEmail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.audit(r, 0, "user.email", "cleared")
+		s.noticeToPreviousAddress(r, u, previous, "")
 	default:
 		if !s.emailFree(w, email, u.ID) {
 			return
@@ -389,6 +450,7 @@ func (s *Server) handleSetMyEmail(w http.ResponseWriter, r *http.Request) {
 			// The address password resets go to: changing it and then asking
 			// for a reset is how a stolen session becomes a stolen account.
 			s.audit(r, 0, "user.email", "confirmation sent to "+email)
+			s.noticeToPreviousAddress(r, u, previous, email)
 			break
 		}
 		if err := s.Store.UpdateUserEmail(u.ID, email); err != nil {
@@ -396,6 +458,7 @@ func (s *Server) handleSetMyEmail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.audit(r, 0, "user.email", email)
+		s.noticeToPreviousAddress(r, u, previous, email)
 	}
 	updated, _ := s.Store.GetUser(u.ID)
 	writeJSON(w, http.StatusOK, updated)
