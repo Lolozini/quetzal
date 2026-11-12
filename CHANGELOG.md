@@ -7,6 +7,15 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Security
+
+- **The "require two-factor" policy now keeps SFTP shut to the accounts it covers
+  until they enrol.** It stopped them using the panel and the API, but their SSH
+  keys stayed in every server's `authorized_keys`, so an account that had not
+  enrolled could still read and write its servers' files over SFTP with a key and
+  nothing else. Their keys leave the list on the controller's next pass and come
+  back when they enrol or the policy is relaxed.
+
 ## [0.20.0] - 2026-11-12
 
 This release closes the ways an account could be taken over, and fixes several things

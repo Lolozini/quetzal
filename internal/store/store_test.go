@@ -1052,3 +1052,82 @@ func TestMigrationDropsDuplicateSSHKeys(t *testing.T) {
 		t.Errorf("adding the key again after the upgrade = %v, want ErrDuplicate", err)
 	}
 }
+
+// The "require two-factor" policy stops an account that has not enrolled from
+// using the panel, and its SSH keys must stop too: a key is a first factor with
+// nothing after it, and SFTP was left open to the very accounts the policy
+// meant to hold back. Enrolling brings the key back.
+func TestAuthorizedSSHKeysFollowTheTwoFactorPolicy(t *testing.T) {
+	st := newTestStore(t)
+	mk := func(name string, admin, totp bool) *models.User {
+		t.Helper()
+		u := &models.User{Username: name, PasswordHash: "x", IsAdmin: admin, TOTPEnabled: totp}
+		if err := st.CreateUser(u); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.AddSSHKey(&models.SSHKey{
+			UserID: u.ID, Name: name, PublicKey: "ssh-ed25519 AAAA " + name, Fingerprint: "fp-" + name,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	owner := mk("owner", false, false)
+	mk("owner-enrolled-admin", true, true)
+	mk("admin-bare", true, false)
+	srv := &models.Server{Slug: "mc", OwnerID: owner.ID}
+	if err := st.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+	enrolled := mk("subuser-enrolled", false, true)
+	if err := st.GrantAccess(srv.ID, enrolled.ID, []string{models.PermFiles}); err != nil {
+		t.Fatal(err)
+	}
+
+	names := func() map[string]bool {
+		t.Helper()
+		keys, err := st.ListAuthorizedSSHKeys(srv.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]bool{}
+		for _, k := range keys {
+			got[k.Name] = true
+		}
+		return got
+	}
+	check := func(policy string, want ...string) {
+		t.Helper()
+		if err := st.SetSetting(SettingRequire2FA, policy); err != nil {
+			t.Fatal(err)
+		}
+		got := names()
+		w := map[string]bool{}
+		for _, n := range want {
+			w[n] = true
+		}
+		for n := range w {
+			if !got[n] {
+				t.Errorf("policy %q: key %q missing, got %v", policy, n, got)
+			}
+		}
+		for n := range got {
+			if !w[n] {
+				t.Errorf("policy %q: key %q authorized, it should not be (got %v)", policy, n, got)
+			}
+		}
+	}
+
+	check(Require2FAOff, "owner", "owner-enrolled-admin", "admin-bare", "subuser-enrolled")
+	// Admins owe a second factor: the bare admin loses its key, the owner (not
+	// an admin) keeps it.
+	check(Require2FAAdmins, "owner", "owner-enrolled-admin", "subuser-enrolled")
+	// Everyone owes one: only the enrolled accounts are left.
+	check(Require2FAAll, "owner-enrolled-admin", "subuser-enrolled")
+
+	// Enrolling brings the owner's key back.
+	if err := st.db.Model(&models.User{}).Where("id = ?", owner.ID).Update("totp_enabled", true).Error; err != nil {
+		t.Fatal(err)
+	}
+	check(Require2FAAll, "owner", "owner-enrolled-admin", "subuser-enrolled")
+}

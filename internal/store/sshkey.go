@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -102,12 +103,58 @@ func (s *Store) ListAuthorizedSSHKeys(serverID uint) ([]models.SSHKey, error) {
 	// Restrict to accounts that still exist. The owner id is taken from the
 	// server row, which outlives the account it points at, so a key belonging to
 	// a deleted user must not find its way back into authorized_keys.
+	var users []models.User
+	if err := s.db.Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	// An account that owes a second factor and has not enrolled one has no way
+	// in over HTTP (the API answers 403 to all but enrolment), and a key is a
+	// first factor with nothing after it: the policy stopped the panel and left
+	// SFTP open. A key comes back with the enrolment, on the controller's next
+	// pass.
+	policy := s.Require2FAPolicy()
+	allowed := make([]uint, 0, len(users))
+	for i := range users {
+		u := &users[i]
+		s.resolveAdminPerms(u)
+		if !u.TOTPEnabled && Require2FACovers(policy, u) {
+			continue
+		}
+		allowed = append(allowed, u.ID)
+	}
+	if len(allowed) == 0 {
+		return nil, nil
+	}
 	var keys []models.SSHKey
-	if err := s.db.Where("user_id IN ? AND user_id IN (?)", ids,
-		s.db.Model(&models.User{}).Select("id")).Find(&keys).Error; err != nil {
+	if err := s.db.Where("user_id IN ?", allowed).Find(&keys).Error; err != nil {
 		return nil, err
 	}
 	return keys, nil
+}
+
+// Require2FAPolicy reads the panel-wide second-factor policy; anything but a
+// known value is off.
+func (s *Store) Require2FAPolicy() string {
+	v, _ := s.GetSetting(SettingRequire2FA)
+	switch strings.TrimSpace(v) {
+	case Require2FAAdmins:
+		return Require2FAAdmins
+	case Require2FAAll:
+		return Require2FAAll
+	}
+	return Require2FAOff
+}
+
+// Require2FACovers reports whether a two-factor policy applies to u. u's admin
+// permissions must be resolved (GetUser and ListUsers do).
+func Require2FACovers(policy string, u *models.User) bool {
+	switch policy {
+	case Require2FAAll:
+		return true
+	case Require2FAAdmins:
+		return u.IsAnyAdmin()
+	}
+	return false
 }
 
 // UpdateServerSFTP persists a server's SFTP configuration.

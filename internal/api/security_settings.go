@@ -132,16 +132,7 @@ func (s *Server) handleSetSecuritySettings(w http.ResponseWriter, r *http.Reques
 }
 
 // requireTwoFactorPolicy reads the policy, defaulting to off.
-func (s *Server) requireTwoFactorPolicy() string {
-	v, _ := s.Store.GetSetting(store.SettingRequire2FA)
-	switch strings.TrimSpace(v) {
-	case store.Require2FAAdmins:
-		return store.Require2FAAdmins
-	case store.Require2FAAll:
-		return store.Require2FAAll
-	}
-	return store.Require2FAOff
-}
+func (s *Server) requireTwoFactorPolicy() string { return s.Store.Require2FAPolicy() }
 
 // twoFactorMissing reports whether the policy applies to this user and they have
 // not enrolled yet.
@@ -151,13 +142,7 @@ func (s *Server) twoFactorMissing(u *models.User) bool {
 
 // policyCovers reports whether a two-factor policy applies to u.
 func policyCovers(policy string, u *models.User) bool {
-	switch policy {
-	case store.Require2FAAll:
-		return true
-	case store.Require2FAAdmins:
-		return u.IsAnyAdmin()
-	}
-	return false
+	return store.Require2FACovers(policy, u)
 }
 
 // twoFactorExempt lists what a user still reaches while they owe a second
