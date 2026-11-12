@@ -223,7 +223,13 @@ func (s *Store) Migrate() error {
 	if err := s.migrateUnlimitedQuotas(); err != nil {
 		return err
 	}
-	return s.migratePublicSecrets()
+	if err := s.migratePublicSecrets(); err != nil {
+		return err
+	}
+	if n := s.resealPlainSecrets(); n > 0 {
+		log.Printf("sealed %d secrets that were stored in clear text while this instance ran without a usable QUETZAL_SECRET_KEY", n)
+	}
+	return nil
 }
 
 // settingQuotaSemantics marks that quotas read 0 as none and QuotaUnlimited

@@ -190,6 +190,15 @@ Whichever way you manage it, keep the value stable. Everything already encrypted
 becomes unreadable under a new key, so an install that holds data wants the old
 key migrated across, not a fresh one issued.
 
+**The key is 32 bytes, in one of three forms**: 32 raw characters, 44 characters of
+base64, or 64 hexadecimal characters (`openssl rand -hex 32` prints the last,
+`openssl rand -base64 32` the second). Anything else stops the apiserver, the
+controller and `qctl` at start, with a message that names the variable and never
+shows its value. An instance with no key at all still starts, warns, and writes its
+secrets in clear text; the first start that has a valid key seals those secrets
+(S3 credentials, SMTP, channel and cluster settings, 2FA secrets, database
+passwords, server secret variables) and logs how many.
+
 ### Database
 
 - **SQLite** (default): single file on a PVC; simplest for a single-node install.

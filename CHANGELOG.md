@@ -9,6 +9,17 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A key that used to be ignored now seals what it left in clear text.** A
+  `QUETZAL_SECRET_KEY` of 64 hexadecimal characters was taken for no key before
+  0.19.0, so an instance configured with one wrote its secrets in clear text, behind
+  `plain:`. 0.19.0 accepted the key but left those values as they were, unmarked and
+  readable by anyone with the database or a backup of it, while its notes said a
+  valid key you supplied was unaffected. The first start with a valid key now seals
+  every such value (S3 credentials, SMTP, channel and cluster settings, 2FA secrets,
+  database passwords, server secret variables), once, and logs how many; a value it
+  cannot seal is logged and left readable. Backups taken before that still hold the
+  clear text. The key's three accepted forms are written down in `docs/INSTALL.md`.
+  Introduced in 0.19.0.
 - **The activator's per-address limit turned legitimate players away, and it is now a setting.**
   0.19.0 held one source address to 32 connections and 32 UDP flows, but players
   behind a Velocity or BungeeCord proxy, a NAT or a DDoS filter all arrive from one
