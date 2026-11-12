@@ -124,7 +124,10 @@ Guides: **[Install](docs/INSTALL.md)** · **[Upgrade](docs/UPGRADE.md)** ·
   it asleep, and port scanners wake nothing. Other games are not woken by a
   port scan or a server-list query (Steam, Minecraft Bedrock, whose list shows
   the server asleep) but by any other connection, so a server on the internet
-  still wakes for the odd probe.
+  still wakes for the odd probe. The proxy holds 256 TCP connections and 128 UDP
+  flows in all, and a server can lower how many one source address (one /64 for
+  IPv6) may take; by default one address may take them all, so players behind a
+  Velocity or BungeeCord proxy or a NAT are never turned away.
 
 ### Console, files & SFTP
 - Live **console** over WebSocket — log stream + stdin via the Kubernetes

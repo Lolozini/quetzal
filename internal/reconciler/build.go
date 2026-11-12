@@ -556,6 +556,9 @@ func BuildActivatorDeployment(s *models.Server, t *models.Template, p ActivatorP
 			corev1.EnvVar{Name: "QUETZAL_UDP_PORTS", Value: strings.Join(udpCSV, ",")},
 			corev1.EnvVar{Name: "QUETZAL_ACTIVE_URL", Value: p.ActiveURL},
 		)
+		if n := s.Hibernation.MaxPerAddress; n > 0 {
+			env = append(env, corev1.EnvVar{Name: "QUETZAL_MAX_PER_ADDRESS", Value: strconv.Itoa(n)})
+		}
 	}
 
 	// The Service selects the activator while the game sleeps (always, in proxy

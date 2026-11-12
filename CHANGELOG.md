@@ -9,6 +9,16 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **The activator's per-address limit turned legitimate players away, and it is now a setting.**
+  0.19.0 held one source address to 32 connections and 32 UDP flows, but players
+  behind a Velocity or BungeeCord proxy, a NAT or a DDoS filter all arrive from one
+  address, so the thirty-third was refused (proxy-mode servers only). The default
+  per address is now the proxy's whole budget (256 TCP connections, 128 UDP
+  flows), which still bounds its memory, and a proxy-mode server has a
+  "connections allowed per address" setting (`hibernation.maxPerAddress`, 1 to 256)
+  to lower it. IPv6 sources are counted by their /64 instead of by address: one
+  subscriber holds a whole /64, and used to be able to take every slot from it.
+  Introduced in 0.19.0.
 - A notification to several channels that stop answering no longer reaches the
   healthy ones twice. The dispatcher's lease was renewed between events only, and
   two channels that never answer cost over a minute for one event, longer than the

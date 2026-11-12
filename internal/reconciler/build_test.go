@@ -1244,3 +1244,29 @@ func TestCPUIsACeiling(t *testing.T) {
 		t.Errorf("cpu alone: %s/%s, want 1500m/6", res.Requests.Cpu(), res.Limits.Cpu())
 	}
 }
+
+// A proxy-mode server that wants more than the default connections per address (its
+// players share one, behind Velocity or a NAT) hands the setting to its activator.
+func TestBuildActivatorCarriesThePerAddressLimit(t *testing.T) {
+	env := func(s *models.Server) map[string]string {
+		s2, tmpl := testServerAndTemplate()
+		s2.Hibernation = s.Hibernation
+		out := map[string]string{}
+		for _, e := range BuildActivatorDeployment(s2, tmpl, ActivatorParams{Image: "x", WakeURL: "u", Proxy: s.Hibernation.Proxy}).Spec.Template.Spec.Containers[0].Env {
+			out[e.Name] = e.Value
+		}
+		return out
+	}
+	mk := func(proxy bool, n int) *models.Server {
+		return &models.Server{Hibernation: models.Hibernation{Enabled: true, Proxy: proxy, MaxPerAddress: n}}
+	}
+	if got := env(mk(true, 64))["QUETZAL_MAX_PER_ADDRESS"]; got != "64" {
+		t.Errorf("QUETZAL_MAX_PER_ADDRESS = %q, want 64", got)
+	}
+	if _, ok := env(mk(true, 0))["QUETZAL_MAX_PER_ADDRESS"]; ok {
+		t.Error("the default limit was written into the activator's environment")
+	}
+	if _, ok := env(mk(false, 64))["QUETZAL_MAX_PER_ADDRESS"]; ok {
+		t.Error("a server that is not in proxy mode got a per-address limit")
+	}
+}

@@ -203,3 +203,58 @@ func TestSourceCountIsExact(t *testing.T) {
 		t.Errorf("%d addresses tracked, want 2 (released ones are forgotten)", len(c.n))
 	}
 }
+
+// Players behind a Velocity or BungeeCord proxy, a NAT or a DDoS filter arrive from
+// one address. A default of 32 per address turned the thirty-third away.
+func TestManyPlayersBehindOneAddressAreAllCarriedByDefault(t *testing.T) {
+	var wakes, beats int32
+	p := newTestProxy(&wakes, &beats)
+	front := startFront(t, p, startEcho(t).Addr().String())
+	const players = 40
+	for i := 0; i < players; i++ {
+		if !served(dialFrom(t, "127.0.0.1", front)) {
+			t.Fatalf("player %d of %d, all from one address, was turned away", i+1, players)
+		}
+	}
+}
+
+// An address that holds a /64 holds 2^64 addresses: counting by whole address let
+// one IPv6 subscriber fill the proxy as if there were no limit.
+func TestIPv6SourcesAreCountedByTheirSlash64(t *testing.T) {
+	same := []net.Addr{
+		&net.TCPAddr{IP: net.ParseIP("2001:db8:1:2::1")},
+		&net.TCPAddr{IP: net.ParseIP("2001:db8:1:2:aaaa:bbbb:cccc:dddd")},
+		&net.UDPAddr{IP: net.ParseIP("2001:db8:1:2::ffff")},
+	}
+	key := sourceIP(same[0])
+	for _, a := range same[1:] {
+		if got := sourceIP(a); got != key {
+			t.Errorf("%v counted as %q, want the /64 of the others, %q", a, got, key)
+		}
+	}
+	if other := sourceIP(&net.TCPAddr{IP: net.ParseIP("2001:db8:1:3::1")}); other == key {
+		t.Error("two different /64s counted as one source")
+	}
+	if got := sourceIP(&net.TCPAddr{IP: net.ParseIP("203.0.113.7")}); got != "203.0.113.7" {
+		t.Errorf("an IPv4 address was changed: %q", got)
+	}
+
+	p := &proxy{tcpPerIPLimit: 2}
+	for i, a := range same {
+		ok := p.acquireTCP(sourceIP(a))
+		if i < 2 && !ok {
+			t.Fatalf("connection %d from the /64 was refused under its limit of 2", i+1)
+		}
+		if i == 2 && ok {
+			t.Fatal("a third connection from one /64, each from another address, was carried past its limit of 2")
+		}
+	}
+}
+
+func TestPerAddressLimitFromTheEnvironment(t *testing.T) {
+	for in, want := range map[string]int{"": 0, "abc": 0, "0": 0, "-3": 0, "64": 64, "256": 256} {
+		if got := perAddressLimit(in); got != want {
+			t.Errorf("perAddressLimit(%q) = %d, want %d", in, got, want)
+		}
+	}
+}

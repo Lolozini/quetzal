@@ -762,6 +762,9 @@ export const fr: Record<string, string> = {
   min: "min",
   "wake when a player connects (TCP)": "réveiller à la connexion d'un joueur (TCP)",
   "transparent proxy (TCP+UDP, no reconnect)": "proxy transparent (TCP+UDP, pas de reconnexion)",
+  "connections allowed per address": "connexions autorisées par adresse",
+  "Connections allowed per address": "Connexions autorisées par adresse",
+  "Players behind a Velocity or BungeeCord proxy, a NAT or a DDoS filter all reach the server from one address, so leave this high. Lower it to stop one address from taking every connection the proxy can hold ({max}).": "Les joueurs derrière un proxy Velocity ou BungeeCord, un NAT ou un filtre anti-DDoS arrivent tous de la même adresse : laissez cette valeur haute. Baissez-la pour empêcher une seule adresse de prendre toutes les connexions que le proxy peut tenir ({max}).",
   "UDP servers need the transparent proxy to auto-sleep.": "Les serveurs UDP nécessitent le proxy transparent pour la mise en veille auto.",
   "Access this server's files over SFTP using an SSH key from your Account → SSH keys, whether the server is running or not.":
     "Accédez aux fichiers de ce serveur en SFTP avec une clé SSH de votre Compte → Clés SSH, que le serveur tourne ou non.",

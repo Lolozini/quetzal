@@ -350,7 +350,12 @@ export interface Hibernation {
   idleMinutes: number;
   wakeOnConnect?: boolean;
   proxy?: boolean;
+  /** Connections and UDP flows the proxy takes from one source address; 0 or absent is its default. */
+  maxPerAddress?: number;
 }
+
+/** What the transparent proxy holds in all, and so the most worth setting per address. */
+export const PROXY_MAX_PER_ADDRESS = 256;
 
 export interface Port {
   name: string;

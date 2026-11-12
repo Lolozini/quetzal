@@ -46,7 +46,16 @@ type Hibernation struct {
 	// small extra hop and the server sees the proxy's IP, not the client's.
 	// When set, it supersedes WakeOnConnect.
 	Proxy bool `json:"proxy"`
+	// MaxPerAddress is how many connections (and UDP flows) the proxy accepts from
+	// one source address. 0 is the proxy's own default. Players behind a Velocity or
+	// BungeeCord proxy, a NAT or a DDoS filter all arrive from one address, so a
+	// server that has them wants it as high as the proxy's total (MaxProxyPerAddress).
+	MaxPerAddress int `json:"maxPerAddress,omitempty"`
 }
+
+// MaxProxyPerAddress is the highest per-address limit worth setting: the proxy
+// holds no more than this many TCP connections in all.
+const MaxProxyPerAddress = 256
 
 // WakesOnConnect reports whether a connection should wake this server, in either
 // activator mode (drop or proxy).

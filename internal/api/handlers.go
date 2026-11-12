@@ -449,6 +449,10 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if msg := hibernationProblem(req.Hibernation); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
 
 	// Ports: imported eggs declare none (Pterodactyl allocates per server), so the
 	// request may supply them; otherwise use the template's.
@@ -1009,6 +1013,15 @@ const minMemoryBytes = 4 * 1024 * 1024 // 4Mi
 
 // validateStorageSize checks the exact value persisted for the builders, which
 // use resource.MustParse. Callers normalize input before validating and storing.
+// hibernationProblem says what is wrong with a hibernation policy a client sent,
+// or "" when it is fine.
+func hibernationProblem(h models.Hibernation) string {
+	if h.MaxPerAddress < 0 || h.MaxPerAddress > models.MaxProxyPerAddress {
+		return fmt.Sprintf("hibernation.maxPerAddress must be between 0 (the default) and %d", models.MaxProxyPerAddress)
+	}
+	return ""
+}
+
 func validateStorageSize(size string) error {
 	q, err := resource.ParseQuantity(size)
 	if err != nil {
@@ -1108,6 +1121,10 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if req.Hibernation != nil {
+		if msg := hibernationProblem(*req.Hibernation); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
 		// Turned on, or changed while on: the idle countdown starts now. It used
 		// to run from the server's last activity, however long ago, and a server
 		// nobody had joined for a day went to sleep seconds after hibernation

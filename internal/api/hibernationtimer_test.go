@@ -67,3 +67,40 @@ func TestTurningHibernationOnStartsTheCountdown(t *testing.T) {
 		t.Error("asleep a minute after the idle window changed")
 	}
 }
+
+// The per-address limit of the proxy is a number a client sends: it has to be
+// between 0 (the default) and what the proxy can hold.
+func TestHibernationPerAddressLimitIsBounded(t *testing.T) {
+	ts, c, st := newTestServerStore(t)
+	setupAdmin(t, ts.URL, c)
+	srv := &models.Server{
+		Slug: "limit-a1b2", DisplayName: "limit", Namespace: reconciler.NamespaceFor("limit-a1b2"),
+		DesiredState: models.StateRunning,
+		Ports:        []models.PortSpec{{Name: "game", Port: 25565, Protocol: "TCP", Primary: true}},
+	}
+	if err := st.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+	patch := func(n int) int {
+		t.Helper()
+		body := `{"hibernation":{"enabled":true,"idleMinutes":15,"proxy":true,"maxPerAddress":` + itoa(uint(n)) + `}}`
+		req, _ := http.NewRequest(http.MethodPatch, ts.URL+"/api/servers/"+itoa(srv.ID), strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		r, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.StatusCode
+	}
+	for _, n := range []int{0, 1, 128, models.MaxProxyPerAddress} {
+		if got := patch(n); got != http.StatusOK {
+			t.Errorf("maxPerAddress %d answered %d, want 200", n, got)
+		}
+	}
+	if got, _ := st.GetServer(srv.ID); got.Hibernation.MaxPerAddress != models.MaxProxyPerAddress {
+		t.Errorf("stored maxPerAddress = %d, want %d", got.Hibernation.MaxPerAddress, models.MaxProxyPerAddress)
+	}
+	if got := patch(models.MaxProxyPerAddress + 1); got != http.StatusBadRequest {
+		t.Errorf("maxPerAddress above the proxy's capacity answered %d, want 400", got)
+	}
+}

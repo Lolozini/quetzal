@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -90,6 +91,16 @@ type proxy struct {
 	bedrock bedrockPong
 }
 
+// perAddressLimit reads the per-address limit a server asks for, 0 (the default)
+// when it is unset or not a positive number.
+func perAddressLimit(v string) int {
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return 0
+	}
+	return n
+}
+
 func runProxy() {
 	backend := os.Getenv("QUETZAL_BACKEND")
 	wakeURL := os.Getenv("QUETZAL_WAKE_URL")
@@ -111,6 +122,10 @@ func runProxy() {
 		activity:   act,
 		dialBudget: 90 * time.Second,
 		gate:       gateFromEnv(),
+	}
+	if n := perAddressLimit(os.Getenv("QUETZAL_MAX_PER_ADDRESS")); n > 0 {
+		p.tcpPerIPLimit, p.udpPerIPLimit = n, n
+		log.Printf("activator(proxy): at most %d connections per source address", n)
 	}
 	for _, port := range tcp {
 		ln, err := net.Listen("tcp", ":"+port)
@@ -314,11 +329,13 @@ const (
 	// maxTCPConns is how many TCP connections the proxy holds at once, whoever
 	// opens them: 256 of them are about 16 MiB of the pod's 64.
 	maxTCPConns = 256
-	// maxTCPPerIP and maxUDPPerIP are how many one source address may hold, so a
-	// single client cannot fill the proxy for everyone else. Generous enough for a
-	// household or a LAN party behind one address; an attacker needs many.
-	maxTCPPerIP = 32
-	maxUDPPerIP = 32
+	// maxTCPPerIP and maxUDPPerIP are how many one source address may hold by
+	// default: the proxy's whole budget. Players behind a Velocity or BungeeCord
+	// proxy, a NAT or a DDoS filter all arrive from one address, so a lower default
+	// turns the thirty-third of them away. A server that wants an address held to
+	// less sets QUETZAL_MAX_PER_ADDRESS (its "connections per address" setting).
+	maxTCPPerIP = maxTCPConns
+	maxUDPPerIP = maxUDPFlows
 )
 
 // sourceCount counts what each source address holds. The zero value is ready.
@@ -351,8 +368,20 @@ func (c *sourceCount) release(ip string) {
 	c.n[ip]--
 }
 
-// sourceIP is the address of a peer without its port (IPv6 included).
+// sourceIP names the source of a peer for counting: its address without the port,
+// and for IPv6 the /64 it is in. An IPv6 subscriber is given a /64 and can take
+// 2^64 addresses from it, so counting by whole address would let one of them fill
+// the proxy as easily as no limit at all.
 func sourceIP(a net.Addr) string {
+	ip := sourceAddr(a)
+	if v6 := net.ParseIP(ip); v6 != nil && v6.To4() == nil {
+		return v6.Mask(net.CIDRMask(64, 128)).String() + "/64"
+	}
+	return ip
+}
+
+// sourceAddr is the address of a peer without its port (IPv6 included).
+func sourceAddr(a net.Addr) string {
 	switch v := a.(type) {
 	case nil:
 		return ""

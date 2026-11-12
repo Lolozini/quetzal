@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, Cluster, endpointLines, EventEntry, ExposeType, hasAdminPerm, InstallLog, OFFLINE_PHASES, PowerAction, Server, ServerStats, User, wakesOnMinecraftLogin, errorMessage } from "../api";
+import { api, Cluster, endpointLines, PROXY_MAX_PER_ADDRESS, EventEntry, ExposeType, hasAdminPerm, InstallLog, OFFLINE_PHASES, PowerAction, Server, ServerStats, User, wakesOnMinecraftLogin, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { Access } from "./Access";
 import { Backups } from "./Backups";
@@ -204,6 +204,7 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
   const [idleDraft, setIdleDraft] = useState<string | null>(null);
+  const [perAddressDraft, setPerAddressDraft] = useState<string | null>(null);
   const [hibBusy, setHibBusy] = useState(false);
   const hibSaving = useRef(false);
   const hibRevision = useRef(0);
@@ -296,11 +297,13 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
         idleMinutes: cur?.idleMinutes || 15,
         wakeOnConnect: cur?.wakeOnConnect ?? false,
         proxy: cur?.proxy ?? false,
+        maxPerAddress: cur?.maxPerAddress ?? 0,
         ...patch,
       });
       hibRevision.current++;
       setSrv(saved);
       if (patch.idleMinutes !== undefined) setIdleDraft(null);
+      if (patch.maxPerAddress !== undefined) setPerAddressDraft(null);
     } catch (err) {
       setError(err);
     } finally {
@@ -700,6 +703,37 @@ export function ServerDetail({ id, tab, user, onBack, onDirtyChange }: { id: num
                         />
                         &nbsp;{t("transparent proxy (TCP+UDP, no reconnect)")}
                       </label>
+                      {srv.hibernation?.proxy && (
+                        <>
+                          <form className="row" style={{ marginTop: 4 }} onSubmit={(e) => {
+                            e.preventDefault();
+                            const n = Number(perAddressDraft);
+                            if (perAddressDraft !== null && Number.isSafeInteger(n) && n >= 1 && n <= PROXY_MAX_PER_ADDRESS) {
+                              void saveHib({ maxPerAddress: n });
+                            }
+                          }}>
+                            <span>{t("connections allowed per address")}</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={PROXY_MAX_PER_ADDRESS}
+                              step={1}
+                              required
+                              aria-label={t("Connections allowed per address")}
+                              style={{ width: 90 }}
+                              value={perAddressDraft ?? String(srv.hibernation?.maxPerAddress || PROXY_MAX_PER_ADDRESS)}
+                              onChange={(e) => setPerAddressDraft(e.target.value)}
+                              disabled={hibBusy}
+                            />
+                            <button disabled={hibBusy || perAddressDraft === null || !Number.isSafeInteger(Number(perAddressDraft)) || Number(perAddressDraft) < 1 || Number(perAddressDraft) > PROXY_MAX_PER_ADDRESS}>
+                              {hibBusy ? t("Saving…") : t("Save")}
+                            </button>
+                          </form>
+                          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                            {t("Players behind a Velocity or BungeeCord proxy, a NAT or a DDoS filter all reach the server from one address, so leave this high. Lower it to stop one address from taking every connection the proxy can hold ({max}).", { max: PROXY_MAX_PER_ADDRESS })}
+                          </div>
+                        </>
+                      )}
                       {!tcpOnly && !srv.hibernation?.proxy && (
                         <div className="error" style={{ fontSize: 12 }}>
                           {t("UDP servers need the transparent proxy to auto-sleep.")}
