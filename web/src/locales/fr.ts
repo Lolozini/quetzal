@@ -1041,4 +1041,10 @@ export const fr: Record<string, string> = {
   "This line is not key=value: {line}": "Cette ligne n’est pas de la forme clé=valeur : {line}",
   "The public port for {port} must be between 1 and 65535.": "Le port public de {port} doit être compris entre 1 et 65535.",
   "Saved. The address shown follows within a few seconds.": "Enregistré. L’adresse affichée suit d’ici quelques secondes.",
+  "{n} of {total} namespaces on {cluster} have no server in the database":
+    "{n} namespaces sur {total} de {cluster} n’ont plus de serveur dans la base",
+  "That is too many to delete on its own, so none is deleted. If the database was restored from a backup, they are not orphans: delete the namespaces by hand once you are sure.":
+    "C’est trop pour les supprimer seul : aucun n’est supprimé. Si la base a été restaurée depuis une sauvegarde, ce ne sont pas des orphelins : supprimez les namespaces à la main quand vous en êtes sûr.",
+  "Each is deleted, volume included, after {hours} h unless its server comes back. If the database was just restored from a backup, stop the controller and check before then.":
+    "Chacun est supprimé, volume compris, au bout de {hours} h, sauf si son serveur revient. Si la base vient d’être restaurée depuis une sauvegarde, arrêtez le contrôleur et vérifiez avant.",
 };

@@ -8,6 +8,7 @@ import { Admin } from "./Admin";
 import { Account } from "./Account";
 import { Lockup } from "./Brand";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { OrphanBanner } from "./OrphanBanner";
 
 type View =
   | { name: "list" }
@@ -113,6 +114,7 @@ export function Dashboard({ user, onLogout, onUserRefresh }: { user: User; onLog
           }}>{t("Logout")}</button>
         </div>
       </div>
+      <OrphanBanner user={user} />
       <div className="container">
         {/* Keyed by the page, so going elsewhere gives it a fresh start: by
             the server, not its tab, which would remount the console. */}

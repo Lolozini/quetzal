@@ -82,6 +82,20 @@ export interface NetworkSettings {
   nodeAddress: string;
 }
 
+// OrphanNamespaces is what the controller found on one cluster: namespaces whose
+// server is not in the database. It deletes them, volume included, after
+// graceSeconds, or leaves them alone when there are too many at once (refused).
+// A restored database backup looks exactly like this.
+export interface OrphanNamespaces {
+  clusterId: number;
+  cluster: string;
+  since: string;
+  names: string[];
+  managed: number;
+  refused: boolean;
+  graceSeconds: number;
+}
+
 // LoginResult is either the authenticated user or a 2FA challenge: when the
 // account has two-factor enabled, the password step returns twoFactorRequired
 // and the client must resubmit with a code. A challenge has no user ID; a
@@ -673,6 +687,7 @@ export const EVENT_TYPES = [
   "schedule.run",
   "server.transfer",
   "server.port-moved",
+  "namespace.orphaned",
   "sftp.write",
   "sftp.delete",
 ] as const;
@@ -841,6 +856,7 @@ export const api = {
   testEmail: (to?: string) => req<void>("POST", "/api/email-settings/test", { to }),
   // Network settings (admin): the DNS name published in external endpoints.
   networkSettings: () => req<NetworkSettings>("GET", "/api/network-settings"),
+  orphanNamespaces: () => req<OrphanNamespaces[]>("GET", "/api/orphan-namespaces"),
   setNetworkSettings: (endpointHost: string) =>
     req<void>("PUT", "/api/network-settings", { endpointHost }),
 

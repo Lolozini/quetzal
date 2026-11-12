@@ -403,6 +403,7 @@ func (s *Server) Handler() http.Handler {
 	// Clusters (multi-cluster registry). Listing is open to any authenticated
 	// user (to pick a deploy target); mutations are admin-only.
 	mux.Handle("GET /api/clusters", s.auth(s.handleListClusters))
+	mux.Handle("GET /api/orphan-namespaces", s.auth(s.handleListOrphanNamespaces))
 	mux.Handle("GET /api/clusters/setup-manifest", s.auth(s.handleClusterSetupManifest))
 	mux.Handle("POST /api/clusters", s.auth(s.handleCreateCluster))
 	mux.Handle("PATCH /api/clusters/{cid}", s.auth(s.handleUpdateCluster))

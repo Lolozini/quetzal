@@ -41,9 +41,14 @@ const (
 	// Service outside Quetzal, replaced by another: the address players use
 	// changes.
 	EventServerPortMoved = "server.port-moved"
-	EventScheduleRun     = "schedule.run" // controller: a schedule's tasks ran
-	EventBackupCreate    = "backup.create"
-	EventBackupRestore   = "backup.restore"
+	// EventNamespaceOrphaned is namespaces the controller found without a server
+	// row in the database, which it deletes, volume included, after a grace
+	// period. A database restored from a backup looks like this, and the event is
+	// the warning while there is still time to stop it. Panel-wide.
+	EventNamespaceOrphaned = "namespace.orphaned"
+	EventScheduleRun       = "schedule.run" // controller: a schedule's tasks ran
+	EventBackupCreate      = "backup.create"
+	EventBackupRestore     = "backup.restore"
 	// How a backup or a restore ended, scheduled or not. The two above are the
 	// requests that start one, so a nightly backup failing used to be told to
 	// no one.
@@ -73,7 +78,7 @@ var EventTypes = []string{
 	// Seen by the controller.
 	EventServerRunning, EventServerStopped, EventServerCrashed, EventServerRestarted,
 	EventServerOOMKilled, EventServerInstallFailed, EventServerHibernated, EventServerTransfer,
-	EventServerPortMoved,
+	EventServerPortMoved, EventNamespaceOrphaned,
 	EventBackupSucceeded, EventBackupFailed, EventRestoreSucceeded, EventRestoreFailed,
 	EventDatabaseImported, EventDatabaseImportFailed,
 	EventScheduleRun,
@@ -114,6 +119,7 @@ var eventTitles = map[string]string{
 	EventServerHibernated:     "Server went to sleep",
 	EventServerTransfer:       "Server transfer",
 	EventServerPortMoved:      "Server port changed",
+	EventNamespaceOrphaned:    "Namespaces without a server",
 	EventBackupSucceeded:      "Backup done",
 	EventBackupFailed:         "Backup failed",
 	EventRestoreSucceeded:     "Restore done",

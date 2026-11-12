@@ -7,6 +7,18 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **Administrators are told when namespaces have no server in the database,
+  before the volumes go.** That is what a database restored from a backup looks
+  like: the controller deletes such a namespace, volume included, after an hour,
+  and a line in its log was the only sign. The panel now shows administrators
+  with the `servers` permission a banner naming the namespaces and the time they
+  have left (`GET /api/orphan-namespaces`), and a `namespace.orphaned` event goes
+  to the notification channels once each time the set changes, with the same
+  advice; a channel with no filter receives it. When there are too many at once
+  for the controller to delete on its own, both say that none is deleted.
+
 ### Security
 
 - **The "require two-factor" policy now keeps SFTP shut to the accounts it covers

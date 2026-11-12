@@ -153,7 +153,11 @@ servers created since the backup are in that case. The controller waits an hour
 from the first time it sees a namespace without a row (`DefaultOrphanGrace`; a
 restart of the controller starts that hour over), logs each one it is waiting
 on, and refuses to collect more than three, and more than a quarter of the
-namespaces, in one pass. That is a safety net, not a plan: before restoring,
+namespaces, in one pass. It also says so where it will be seen: the panel shows
+administrators with the `servers` permission a banner that names the namespaces
+and how long they have left, and a `namespace.orphaned` event goes to the
+notification channels, once each time the set changes (a channel with no filter
+receives it). That is a safety net, not a plan: before restoring,
 scale the controller to zero (`kubectl scale deploy/quetzal --replicas=0`, which
 also stops the panel), take a backup of any server created since the one you are
 restoring, and bring it back up only once you have checked that the servers you

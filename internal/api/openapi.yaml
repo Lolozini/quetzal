@@ -468,6 +468,36 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { description: The policy covers the caller, who has no second factor }
 
+  /api/orphan-namespaces:
+    get:
+      tags: [Servers]
+      summary: Namespaces that have no server in the database (admin)
+      description: >-
+        What the controllers found when they looked for namespaces whose server is
+        not in the database, one entry per cluster that has any, empty when nothing
+        is wrong. They are deleted, volume included, after the grace period, or
+        left alone when there are too many at once (`refused`): a database restored
+        from a backup looks exactly like this, and the panel shows it as a banner.
+        Needs the `servers` admin permission.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    clusterId: { type: integer }
+                    cluster: { type: string, description: The cluster's name }
+                    since: { type: string, format: date-time, description: When this set was first seen }
+                    names: { type: array, items: { type: string }, description: The namespaces }
+                    managed: { type: integer, description: How many namespaces of this instance the cluster holds }
+                    refused: { type: boolean, description: The controller will not delete them on its own }
+                    graceSeconds: { type: integer, description: How long a namespace stays unreferenced before it is deleted }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /api/network-settings:
     get:
       tags: [Servers]

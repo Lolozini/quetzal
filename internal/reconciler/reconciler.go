@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -508,22 +509,25 @@ func (r *Reconciler) GCOrphanNamespaces(ctx context.Context, validSlugs map[stri
 	}
 	r.Memo.keepOrphans(still)
 
+	grace := r.OrphanGrace
+	if grace == 0 {
+		grace = DefaultOrphanGrace
+	}
+	refused := len(orphans) > maxOrphansAtOnce && len(orphans)*4 > managed
+	r.reportOrphans(orphans, managed, refused, grace)
+
 	// A namespace holds a server's volume, and deleting it is not undone. Losing
 	// a few at a time is what a failed deletion by the API looks like; losing a
 	// large part of them at once is what a database that is empty, wrong or
 	// restored from an old backup looks like, and deleting on that is how a
 	// restore takes the servers made since with it. Refuse, and say so.
-	if len(orphans) > maxOrphansAtOnce && len(orphans)*4 > managed {
+	if refused {
 		r.warnOnce(fmt.Sprintf("orphan-mass|%d|%d", len(orphans), managed),
 			"refusing to collect %d of %d namespaces at once: their servers are not in the database. If the database was restored from a backup, or is not the one these servers were made in, they are not orphans; delete the namespaces by hand once you are sure",
 			len(orphans), managed)
 		return nil
 	}
 
-	grace := r.OrphanGrace
-	if grace == 0 {
-		grace = DefaultOrphanGrace
-	}
 	for _, ns := range orphans {
 		if grace > 0 {
 			if r.Memo == nil {
@@ -541,6 +545,48 @@ func (r *Reconciler) GCOrphanNamespaces(ctx context.Context, validSlugs map[stri
 		}
 	}
 	return nil
+}
+
+// reportOrphans tells the administrators what the pass found: a report the
+// panel shows as a banner, and, each time the set changes, a panel-wide event
+// for the notification channels. A single line in the controller's log was all
+// that said a restored database was about to take servers with it, and nobody
+// reads the controller's log in the hour they have. Best-effort: the collection
+// itself does not depend on it.
+func (r *Reconciler) reportOrphans(orphans []*corev1.Namespace, managed int, refused bool, grace time.Duration) {
+	if r.Store == nil {
+		return
+	}
+	names := make([]string, 0, len(orphans))
+	for _, ns := range orphans {
+		names = append(names, ns.Name)
+	}
+	sort.Strings(names)
+	changed, err := r.Store.ReportOrphans(models.OrphanReport{
+		ClusterID: r.ClusterID, Names: names, Managed: managed, Refused: refused,
+		GraceSeconds: int64(grace / time.Second),
+	})
+	if err != nil {
+		log.Printf("record namespaces without a server row (cluster %d): %v", r.ClusterID, err)
+		return
+	}
+	if !changed || len(names) == 0 {
+		return
+	}
+	shown := strings.Join(names, ", ")
+	if len(names) > 10 {
+		shown = strings.Join(names[:10], ", ") + fmt.Sprintf(" and %d more", len(names)-10)
+	}
+	msg := fmt.Sprintf("%d of %d namespaces have no server in the database (%s). ", len(names), managed, shown)
+	switch {
+	case refused:
+		msg += "That is too many to delete on its own, so none is deleted: if the database was restored from a backup, or is not the one these servers were made in, they are not orphans. Delete the namespaces by hand once you are sure."
+	case grace > 0:
+		msg += fmt.Sprintf("Each is deleted, volume included, after %s unless its server comes back. If the database was just restored from a backup, stop the controller and check before then.", grace)
+	default:
+		msg += "They are being deleted, volumes included."
+	}
+	_ = r.Store.AddEvent(&models.Event{Type: models.EventNamespaceOrphaned, Message: msg})
 }
 
 // DefaultOrphanGrace is how long a namespace has to be seen without a server row
