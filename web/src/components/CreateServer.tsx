@@ -1,8 +1,19 @@
 import { useId, FormEvent, useEffect, useState } from "react";
-import { api, Cluster, CreateServerRequest, ExposeType, Template, wakesOnMinecraftLogin, errorMessage } from "../api";
+import { api, Cluster, CreateServerRequest, ExposeType, Server, Template, wakesOnMinecraftLogin, errorMessage } from "../api";
 import { useT } from "../i18n";
 import { Combobox } from "./Combobox";
 import { PortRow, PortsEditor, portsToRows, PROTO_BOTH, rowsToPorts } from "./PortsEditor";
+
+/**
+ * firstChoice is the template the form opens on. The list is alphabetical, and its
+ * first entry is often one that declares no port (the generic container): a new
+ * user who clicked Create got a 400. Open on Minecraft with Paper when it is there,
+ * else on the first template that has a port to publish, else on the first.
+ */
+function firstChoice(ts: Template[]): Template | undefined {
+  const hasPort = (t: Template) => (t.ports?.length ?? 0) > 0 || !!t.allocatedPort || wakesOnMinecraftLogin(t);
+  return ts.find((t) => t.slug === "minecraft-paper") ?? ts.find(hasPort) ?? ts[0];
+}
 
 export function CreateServer({
   memoryRequired = false,
@@ -19,7 +30,7 @@ export function CreateServer({
   // A load balancer is an address from the operator's pool or a line on their
   // cloud bill: the panel gives that choice to administrators alone.
   canUseLoadBalancer?: boolean;
-  onDone: () => void;
+  onDone: (created: Server) => void;
   onCancel: () => void;
 }) {
   const fieldId = useId();
@@ -110,7 +121,8 @@ export function CreateServer({
       .then((ts) => {
         setTemplates(ts);
         setTemplatesLoaded(true);
-        if (ts[0]) selectTemplate(ts[0]);
+        const first = firstChoice(ts);
+        if (first) selectTemplate(first);
       })
       .catch((e) => setError(errorMessage(e, t)));
     api
@@ -127,6 +139,16 @@ export function CreateServer({
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    // What the form can tell before sending: the API answers 400, in English and
+    // after the fact, and an unticked EULA used to make a server that never starts.
+    if (tpl?.features?.includes("eula") && !eulaAccepted) {
+      setError(t("Accept the Minecraft EULA to create this server."));
+      return;
+    }
+    if (expose !== "ClusterIP" && effPorts.length === 0) {
+      setError(t("This server has no port to publish. Add one under Ports, or set the network exposure to cluster-internal."));
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -151,8 +173,8 @@ export function CreateServer({
             ? effPorts.map((p) => ({ port: p.port, protocol: p.protocol, primary: p.primary }))
             : undefined,
       };
-      await api.createServer(body);
-      onDone();
+      const created = await api.createServer(body);
+      onDone(created);
     } catch (err) {
       setError(errorMessage(err, t));
     } finally {
@@ -388,6 +410,7 @@ export function CreateServer({
                 ) : (
                   <input aria-describedby={!!v.description ? `${fieldId}-variable-help-${v.envVariable}` : undefined} id={`${fieldId}-variable-${v.envVariable}`}
                     type={v.secret ? "password" : "text"}
+                    required={v.required}
                     autoComplete={v.secret ? "new-password" : "off"}
                     value={env[v.envVariable] ?? ""}
                     onChange={(e) => setEnv({ ...env, [v.envVariable]: e.target.value })}

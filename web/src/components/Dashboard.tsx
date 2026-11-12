@@ -142,7 +142,7 @@ export function Dashboard({ user, onLogout, onUserRefresh }: { user: User; onLog
               memoryRequired={!hasAdminPerm(user, "servers")}
               canImportTemplates={hasAdminPerm(user, "templates")}
               canUseLoadBalancer={hasAdminPerm(user, "servers")}
-              onDone={() => go({ name: "list" })}
+              onDone={(created) => go({ name: "detail", id: created.id })}
               onCancel={() => go({ name: "list" })}
             />
           ) : (

@@ -174,6 +174,8 @@ export const fr: Record<string, string> = {
   // Account
   "Change password": "Changer le mot de passe",
   "Current password": "Mot de passe actuel",
+  "Accept the Minecraft EULA to create this server.": "Acceptez le CLUF de Minecraft pour créer ce serveur.",
+  "This server has no port to publish. Add one under Ports, or set the network exposure to cluster-internal.": "Ce serveur n’a aucun port à publier. Ajoutez-en un sous Ports, ou réglez l’exposition réseau sur interne au cluster.",
   "The address decides who can reset this account's password, so changing it asks for your password.": "L’adresse décide qui peut réinitialiser le mot de passe de ce compte : la changer demande donc votre mot de passe.",
   "Update password": "Mettre à jour le mot de passe",
   "Password changed.": "Mot de passe modifié.",

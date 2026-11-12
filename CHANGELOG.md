@@ -30,6 +30,15 @@ releases may include breaking changes).
 
 ### Fixed
 
+- **A new user's first server no longer fails on the form's defaults.** The form
+  opened on the first template in alphabetical order, often the generic container,
+  which declares no port: "Create" answered 400 in English, whatever the panel's
+  language, after the fact. It now opens on Minecraft with Paper when it is there, or
+  on the first template that has a port. Before sending, it checks what it can know:
+  the EULA of a game that needs one (an unticked box used to create a server that
+  never started), a port to publish when the network exposure is not
+  cluster-internal, and the variables a template marks as required. A created server
+  opens on its own page instead of the list, with no message.
 - **A key that used to be ignored now seals what it left in clear text.** A
   `QUETZAL_SECRET_KEY` of 64 hexadecimal characters was taken for no key before
   0.19.0, so an instance configured with one wrote its secrets in clear text, behind
