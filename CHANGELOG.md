@@ -9,6 +9,13 @@ releases may include breaking changes).
 
 ### Fixed
 
+- A notification to several channels that stop answering no longer reaches the
+  healthy ones twice. The dispatcher's lease was renewed between events only, and
+  two channels that never answer cost over a minute for one event, longer than the
+  lease: a second replica took it, read the cursor still behind that event and
+  delivered it again. The lease is now renewed between channels and before each
+  try, and a dispatcher that finds it gone stops where it is and leaves the cursor
+  to the replica that holds it. Introduced in 0.19.0.
 - The controller's liveness probe no longer restarts a controller that is only waiting. Between two passes the loop sits on its timer and makes no progress by
   design, which with a `resync` over ten minutes (the chart accepts one) took
   `/healthz` to 503 and the controller to a restart loop. The hibernation probe, the

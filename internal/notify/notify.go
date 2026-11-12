@@ -251,11 +251,18 @@ func (d *Dispatcher) drain(ctx context.Context) {
 		if !d.holds() {
 			return
 		}
-		d.dispatch(ctx, e, channels, tripped)
+		if !d.dispatch(ctx, e, channels, tripped) {
+			return // the lease went to another replica: it resumes from the cursor
+		}
 		if ctx.Err() != nil {
 			// Interrupted mid-event: leave the cursor behind it, so the restart
 			// delivers it again. A channel that already had it gets it twice,
 			// which is the at-least-once the package promises.
+			return
+		}
+		// Not past the event unless the lease is still held: if it went to another
+		// replica meanwhile, the cursor is that replica's to move.
+		if !d.holds() {
 			return
 		}
 		_ = d.Store.SetSetting(CursorSetting, strconv.FormatUint(uint64(e.ID), 10))
@@ -273,13 +280,22 @@ func (d *Dispatcher) cursor() uint {
 // dispatch delivers one event to every matching channel. The event's server is
 // resolved once here rather than per channel, so fanning out to several sinks
 // costs one lookup, not one each.
-func (d *Dispatcher) dispatch(ctx context.Context, e models.Event, channels []models.NotificationChannel, tripped map[uint]string) {
+//
+// It reports false when the lease was lost on the way and the event is left
+// unfinished, so the replica that holds it now delivers the rest from the cursor.
+func (d *Dispatcher) dispatch(ctx context.Context, e models.Event, channels []models.NotificationChannel, tripped map[uint]string) bool {
 	var name, slug string
 	var resolved bool
 	for i := range channels {
 		c := channels[i]
 		if !c.Matches(e.Type, e.ServerID) {
 			continue
+		}
+		// An event to several channels that stop answering takes longer than the
+		// lease (three tries of ten seconds and their waits, for each), so the lease
+		// is renewed between channels, and before each try below.
+		if !d.holds() {
+			return false
 		}
 		if reason, ok := tripped[c.ID]; ok {
 			d.record(c.ID, e.ID, "not attempted, the channel was failing: "+reason)
@@ -296,8 +312,11 @@ func (d *Dispatcher) dispatch(ctx context.Context, e models.Event, channels []mo
 			continue
 		}
 		if err := d.deliverWithRetry(ctx, &c, cfg, e, name, slug); err != nil {
+			if errors.Is(err, errLeaseLost) {
+				return false
+			}
 			if ctx.Err() != nil {
-				return // shutting down: this is not the channel's failure
+				return true // shutting down: this is not the channel's failure
 			}
 			msg := describe(err)
 			tripped[c.ID] = msg
@@ -306,7 +325,11 @@ func (d *Dispatcher) dispatch(ctx context.Context, e models.Event, channels []mo
 		}
 		d.record(c.ID, e.ID, "")
 	}
+	return true
 }
+
+// errLeaseLost ends a delivery whose dispatcher no longer holds the lease.
+var errLeaseLost = errors.New("notify: the lease went to another replica")
 
 // deliverWithRetry makes up to Attempts deliveries, backing off between them,
 // and stops early on a failure that another try would not change.
@@ -318,6 +341,9 @@ func (d *Dispatcher) deliverWithRetry(ctx context.Context, c *models.Notificatio
 	wait := d.Backoff
 	var err error
 	for i := 1; ; i++ {
+		if !d.holds() {
+			return errLeaseLost
+		}
 		err = d.deliverTo(ctx, c, cfg, e, name, slug)
 		if err == nil {
 			return nil

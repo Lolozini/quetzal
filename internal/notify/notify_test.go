@@ -579,3 +579,102 @@ func (c *countingStore) ServerIdentity(id uint) (string, string, error) {
 	c.identityCalls++
 	return c.fakeStore.ServerIdentity(id)
 }
+
+// An event to several channels that stop answering takes longer than the lease:
+// two dead channels cost three tries of ten seconds each and the waits between
+// them, over a minute. The lease used to be renewed only between events, so a
+// second replica took it mid-event, read the cursor that was still behind the
+// event, and delivered it to the healthy channel a second time.
+//
+// Durations are production's divided by a hundred: lease 600 ms, 100 ms a try,
+// waits of 20 then 40 ms, a pass every 150 ms.
+func TestSlowDeliveryDoesNotLetASecondReplicaDeliverTheSameEvent(t *testing.T) {
+	dead := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select { // never answers: the client gives up at its timeout
+		case <-r.Context().Done():
+		case <-time.After(3 * time.Second):
+		}
+	}))
+	defer dead.Close()
+	var hits atomic.Int32
+	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(204)
+	}))
+	defer healthy.Close()
+
+	st := &fakeStore{
+		events: []models.Event{{ID: 1, Type: models.EventServerCrashed, ServerID: 7, Message: "boom"}},
+		channels: []models.NotificationChannel{
+			{ID: 1, Type: models.ChannelWebhook, Enabled: true, ConfigEnc: dead.URL},
+			{ID: 2, Type: models.ChannelWebhook, Enabled: true, ConfigEnc: dead.URL},
+			{ID: 3, Type: models.ChannelWebhook, Enabled: true, ConfigEnc: healthy.URL},
+		},
+		settings: map[string]string{CursorSetting: "0"},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		d := New(st)
+		d.Client = &http.Client{Timeout: 100 * time.Millisecond}
+		d.Timeout = 100 * time.Millisecond
+		d.Backoff = 20 * time.Millisecond
+		d.LeaseTTL = 600 * time.Millisecond
+		d.Interval = 150 * time.Millisecond
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d.Run(ctx)
+		}()
+	}
+	time.Sleep(2500 * time.Millisecond)
+	cancel()
+	wg.Wait()
+
+	if n := hits.Load(); n != 1 {
+		t.Fatalf("the healthy channel got the event %d times, want once: the lease ran out mid-event and the second replica delivered it again", n)
+	}
+}
+
+// A dispatcher that finds the lease gone mid-event stops where it is and leaves
+// the cursor alone: the replica that holds it now delivers from there.
+func TestLostLeaseStopsTheEventAndLeavesTheCursor(t *testing.T) {
+	var second atomic.Int32
+	st := &fakeStore{settings: map[string]string{CursorSetting: "0"}}
+	d := New(st)
+	now := time.Date(2026, 11, 12, 14, 0, 0, 0, time.UTC)
+	d.now = func() time.Time { return now }
+	d.LeaseTTL = time.Minute
+
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// While this channel is being served, a minute and more goes by and another
+		// replica takes the lease.
+		now = now.Add(2 * time.Minute)
+		st.mu.Lock()
+		st.lease.holder, st.lease.until = "another-replica", time.Now().Add(time.Hour)
+		st.mu.Unlock()
+		w.WriteHeader(204)
+	}))
+	defer first.Close()
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		second.Add(1)
+		w.WriteHeader(204)
+	}))
+	defer other.Close()
+	st.events = []models.Event{{ID: 1, Type: models.EventServerCrashed, ServerID: 7, Message: "boom"}}
+	st.channels = []models.NotificationChannel{
+		{ID: 1, Type: models.ChannelWebhook, Enabled: true, ConfigEnc: first.URL},
+		{ID: 2, Type: models.ChannelWebhook, Enabled: true, ConfigEnc: other.URL},
+	}
+	d.Client = first.Client()
+
+	d.drain(context.Background())
+
+	if second.Load() != 0 {
+		t.Error("the event went on to the next channel after the lease was lost")
+	}
+	if cur, _ := st.GetSetting(CursorSetting); cur != "0" {
+		t.Errorf("cursor = %q, want 0: it is the new holder's to move", cur)
+	}
+}
