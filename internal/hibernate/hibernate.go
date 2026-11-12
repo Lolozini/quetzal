@@ -30,6 +30,17 @@ type Manager struct {
 	Store *store.Store
 	Probe ConnProbe
 	Now   func() time.Time
+	// Beat, if set, is called each time Tick finishes with a server, probe
+	// included. A pass over many servers, each probe waiting on a cluster that does
+	// not answer, is long and still making progress, which the controller's
+	// liveness probe has to be told.
+	Beat func()
+}
+
+func (m *Manager) beat() {
+	if m.Beat != nil {
+		m.Beat()
+	}
 }
 
 // New returns a hibernation Manager.
@@ -52,7 +63,9 @@ func (m *Manager) Tick(ctx context.Context) {
 		return
 	}
 	now := m.now()
+	defer m.beat()
 	for i := range servers {
+		m.beat() // the previous server is done, whichever way it ended
 		srv := &servers[i]
 		if !eligible(srv) {
 			continue

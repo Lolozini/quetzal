@@ -104,6 +104,7 @@ func TestLoopExportsWhatItDoes(t *testing.T) {
 	l.Error("reconcile server")
 	*now = now.Add(5 * time.Second)
 	l.TickDone(7 * time.Second)
+	l.Beat() // the next pass has begun: the loop is working, no longer waiting
 	*now = now.Add(30 * time.Second)
 
 	fams = gather(t, l)
@@ -152,5 +153,46 @@ func TestUnhealthyMessageSaysHowLong(t *testing.T) {
 	err := l.Healthy()
 	if err == nil || !strings.Contains(err.Error(), "11m30s") {
 		t.Fatalf("message = %v, want it to say 11m30s", err)
+	}
+}
+
+// Between two passes the loop waits on its ticker and makes no progress by design.
+// With a resync of fifteen minutes that is longer than the stall limit, and the
+// liveness probe restarted a controller that was only waiting for its next pass.
+func TestWaitingForTheNextPassIsNotAStall(t *testing.T) {
+	l, now := newTestLoop()
+	l.Start()
+	l.TickDone(2 * time.Second)
+
+	*now = now.Add(2 * time.Hour)
+	if err := l.Healthy(); err != nil {
+		t.Fatalf("a controller waiting for its next pass is stalled: %v", err)
+	}
+	if got := gather(t, l)["quetzal_controller_seconds_since_progress"].GetMetric()[0].GetGauge().GetValue(); got != 0 {
+		t.Errorf("seconds since progress = %v while waiting, want 0", got)
+	}
+
+	l.Beat() // the next pass begins, and a stall is possible again
+	*now = now.Add(StallLimit + time.Second)
+	if err := l.Healthy(); err == nil {
+		t.Fatal("a loop that began a pass and made no progress for the stall limit is healthy")
+	}
+	l.TickDone(time.Second)
+	if err := l.Healthy(); err != nil {
+		t.Fatalf("still unhealthy after the pass ended: %v", err)
+	}
+}
+
+// A pass started by a console event (the kick) ends in a wait too, not in a
+// stall once the limit has gone by.
+func TestWaitAfterAKickedPass(t *testing.T) {
+	l, now := newTestLoop()
+	l.Start()
+	l.TickDone(time.Second)
+	l.Step("reconcile", time.Second, nil) // a kicked pass: a step, no TickDone
+	l.Wait()
+	*now = now.Add(time.Hour)
+	if err := l.Healthy(); err != nil {
+		t.Fatalf("a controller idle after a kicked pass is stalled: %v", err)
 	}
 }

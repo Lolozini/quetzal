@@ -546,8 +546,9 @@ servers whose reconcile failed and the namespaces whose collection failed);
 or a server. Alert on `time() - quetzal_controller_last_tick_timestamp_seconds` growing
 past a few resync periods, and on `rate(quetzal_controller_step_errors_total[10m]) > 0`.
 `/healthz` on that port follows the loop: a leading controller that has made no progress
-for ten minutes answers 503, and the chart's liveness probe then restarts it. A replica
-that is standing by is healthy.
+for ten minutes answers 503, and the chart's liveness probe then restarts it. Every step
+and every server of a pass counts as progress, and a controller waiting for its next pass
+(a `resync` of fifteen minutes, say) is healthy, as is a replica that is standing by.
 
 **SFTP drops a connection that does not authenticate**, within 15 seconds, and
 caps how many may be mid-handshake at once. The SFTP server runs beside the

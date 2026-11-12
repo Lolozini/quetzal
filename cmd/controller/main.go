@@ -143,6 +143,7 @@ func main() {
 	bmgr := backup.NewManager(st, reg)
 	tmgr := transfer.NewManager(st, reg)
 	hmgr := hibernate.New(st, connProbe(reg))
+	hmgr.Beat = loop.Beat
 
 	go serveOps(metricsAddr, st)
 
@@ -211,6 +212,7 @@ func main() {
 				tick()
 			case <-kick:
 				reconcile()
+				loop.Wait()
 			}
 		}
 	}
@@ -325,12 +327,19 @@ func connProbe(reg *cluster.Registry) hibernate.ConnProbe {
 	}
 }
 
+// execTimeout bounds one command run in a pod.
+const execTimeout = 15 * time.Second
+
 // execCapture runs a command in a pod container and returns its stdout.
 func execCapture(ctx context.Context, cs kubernetes.Interface, cfg *rest.Config, ns, pod, container string, cmd []string) (string, error) {
 	req := cs.CoreV1().RESTClient().Post().Resource("pods").Name(pod).Namespace(ns).SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
 			Container: container, Command: cmd, Stdout: true, Stderr: true,
 		}, scheme.ParameterCodec)
+	// A cluster that stops answering would hold the pass on this call for as long
+	// as the connection lasts, and every server behind it with it.
+	ctx, cancel := context.WithTimeout(ctx, execTimeout)
+	defer cancel()
 	ex, err := remotecommand.NewSPDYExecutor(cfg, "POST", req.URL())
 	if err != nil {
 		return "", err
@@ -509,6 +518,7 @@ func collectSFTPActivity(ctx context.Context, reg *cluster.Registry, st *store.S
 	}
 	collectors := map[uint]*sftpactivity.Collector{}
 	for i := range servers {
+		loop.Beat() // a pass over many servers is progress, not a stall
 		s := &servers[i]
 		if !s.SFTP.Enabled || s.Namespace == "" {
 			continue
@@ -576,6 +586,7 @@ func refreshClusters(ctx context.Context, reg *cluster.Registry, st *store.Store
 		return
 	}
 	for ci := range clusters {
+		loop.Beat()
 		c := &clusters[ci]
 		clients, err := reg.For(c.ID)
 		if err != nil {

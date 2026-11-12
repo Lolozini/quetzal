@@ -2,6 +2,8 @@ package hibernate
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -159,5 +161,37 @@ func TestManagerFailSafeAndIneligible(t *testing.T) {
 		if got, _ := st.GetServerBySlug(slug); got.Hibernated {
 			t.Errorf("%s should be ineligible for hibernation", slug)
 		}
+	}
+}
+
+// A pass over many servers, each probe waiting on a cluster that does not answer,
+// is long and still making progress: every server has to be a sign of life for the
+// controller's liveness probe, or twenty-one servers on a silent cluster kill it.
+func TestManagerBeatsOncePerServer(t *testing.T) {
+	st := testStore(t)
+	const servers = 21
+	for i := 0; i < servers; i++ {
+		srv := runningHibernatable()
+		srv.Slug = fmt.Sprintf("s%d", i)
+		srv.Namespace = fmt.Sprintf("ns%d", i)
+		if err := st.CreateServer(srv); err != nil {
+			t.Fatal(err)
+		}
+	}
+	beats, probed := 0, 0
+	m := New(st, func(context.Context, *models.Server) (int, error) {
+		probed++
+		if beats < probed-1 {
+			t.Errorf("probe %d began with only %d beats: the servers before it were not reported", probed, beats)
+		}
+		return 0, errors.New("context deadline exceeded") // the cluster does not answer
+	})
+	m.Beat = func() { beats++ }
+	m.Tick(context.Background())
+	if probed != servers {
+		t.Fatalf("%d servers probed, want %d", probed, servers)
+	}
+	if beats < servers {
+		t.Fatalf("%d beats for %d servers", beats, servers)
 	}
 }

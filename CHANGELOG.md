@@ -7,6 +7,17 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+
+- The controller's liveness probe no longer restarts a controller that is only waiting. Between two passes the loop sits on its timer and makes no progress by
+  design, which with a `resync` over ten minutes (the chart accepts one) took
+  `/healthz` to 503 and the controller to a restart loop. The hibernation probe, the
+  SFTP activity collector and the cluster refresh now report progress server by
+  server, as the reconcile step already did, so twenty-one servers on a cluster that
+  stopped answering no longer look like a stall; and a command run in a pod gives up
+  after fifteen seconds instead of holding the pass for as long as the connection
+  lasts. Introduced in 0.19.0.
+
 ## [0.19.0] - 2026-11-11
 
 This release comes out of an independent review of the code and the product, and it is

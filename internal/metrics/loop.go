@@ -22,11 +22,14 @@ const StallLimit = 10 * time.Minute
 // metric said how many servers there were.
 //
 // A replica that is not leading has no loop to watch: it is healthy by being
-// ready to take over.
+// ready to take over. So is one waiting for its next pass: between two passes the
+// loop sits on its ticker and makes no progress by design, and with a `resync` of
+// fifteen minutes that is longer than the stall limit.
 type Loop struct {
 	mu          sync.Mutex
 	now         func() time.Time
 	running     bool
+	waiting     bool // between two passes, on the ticker
 	lastBeat    time.Time
 	lastTickEnd time.Time
 	lastTick    time.Duration
@@ -44,7 +47,7 @@ func NewLoop() *Loop {
 func (l *Loop) Start() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.running, l.lastBeat = true, l.now()
+	l.running, l.waiting, l.lastBeat = true, false, l.now()
 }
 
 // Stop marks it as not running (leadership lost, shutting down).
@@ -54,11 +57,19 @@ func (l *Loop) Stop() {
 	l.running = false
 }
 
-// Beat says the loop is alive: it has just finished something.
+// Beat says the loop is alive: it has just finished something, and is working.
 func (l *Loop) Beat() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.lastBeat = l.now()
+	l.waiting, l.lastBeat = false, l.now()
+}
+
+// Wait says the loop has nothing to do until its next pass: it is not stalled for
+// as long as it waits. The next Beat, a step or a server, ends the wait.
+func (l *Loop) Wait() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.waiting = true
 }
 
 // Step records that a step of a pass took d and ended with err, and beats.
@@ -69,7 +80,7 @@ func (l *Loop) Step(name string, d time.Duration, err error) {
 	if err != nil {
 		l.errors[name]++
 	}
-	l.lastBeat = l.now()
+	l.waiting, l.lastBeat = false, l.now()
 }
 
 // Error counts a failure inside a step, one server's reconcile among a pass's.
@@ -87,13 +98,15 @@ func (l *Loop) TickDone(d time.Duration) {
 	l.lastTick = d
 	l.lastTickEnd = l.now()
 	l.lastBeat = l.lastTickEnd
+	l.waiting = true // a pass is done: the loop waits for the next one
 }
 
-// Healthy is nil unless the loop is running and has not beaten for StallLimit.
+// Healthy is nil unless the loop is running, is not waiting for its next pass, and
+// has not beaten for StallLimit.
 func (l *Loop) Healthy() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if !l.running {
+	if !l.running || l.waiting {
 		return nil
 	}
 	if since := l.now().Sub(l.lastBeat); since > StallLimit {
@@ -107,7 +120,7 @@ var (
 	descTicks     = prometheus.NewDesc("quetzal_controller_ticks_total", "Resync passes the controller has completed.", nil, nil)
 	descTickTime  = prometheus.NewDesc("quetzal_controller_last_tick_duration_seconds", "How long the last resync pass took.", nil, nil)
 	descTickEnd   = prometheus.NewDesc("quetzal_controller_last_tick_timestamp_seconds", "When the last resync pass ended, in Unix seconds (0 before the first).", nil, nil)
-	descSinceBeat = prometheus.NewDesc("quetzal_controller_seconds_since_progress", "Seconds since the loop last finished a step or a server; what the liveness probe watches (0 when not leading).", nil, nil)
+	descSinceBeat = prometheus.NewDesc("quetzal_controller_seconds_since_progress", "Seconds since the loop last finished a step or a server; what the liveness probe watches (0 while waiting for the next pass, and when not leading).", nil, nil)
 	descStepTime  = prometheus.NewDesc("quetzal_controller_step_duration_seconds", "How long each step of the last pass took.", []string{"step"}, nil)
 	descStepErrs  = prometheus.NewDesc("quetzal_controller_step_errors_total", "Failures by step: an error, a panic, or one server's reconcile failing.", []string{"step"}, nil)
 )
@@ -124,7 +137,10 @@ func (l *Loop) Collect(ch chan<- prometheus.Metric) {
 	defer l.mu.Unlock()
 	leader, since := 0.0, 0.0
 	if l.running {
-		leader, since = 1, l.now().Sub(l.lastBeat).Seconds()
+		leader = 1
+		if !l.waiting {
+			since = l.now().Sub(l.lastBeat).Seconds()
+		}
 	}
 	end := 0.0
 	if !l.lastTickEnd.IsZero() {
