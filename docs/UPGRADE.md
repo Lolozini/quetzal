@@ -59,7 +59,8 @@ automatically on startup.
 - Channels with their own SMTP host may only contact public addresses. To use
   an internal relay, configure the administrator's panel-wide SMTP settings and
   let channels use that relay without overriding its transport settings.
-- If `qctl create` previously set variables marked secret by their template,
+- If `qctl create` (the command-line client built from `cmd/qctl`, not part of the
+  image) previously set variables marked secret by their template,
   **rotate those credentials**: their old values may have reached API readers,
   database copies and exports. Startup now moves values marked secret by the
   current template or the server's pinned revision into encrypted storage under
@@ -85,7 +86,7 @@ automatically on startup.
 helm upgrade quetzal oci://ghcr.io/lolozini/charts/quetzal \
   --version X.Y.Z \
   --namespace quetzal \
-  --reuse-values
+  --reset-then-reuse-values
 ```
 
 The registry has the chart from 0.5.0 on; for an earlier version, use the file
@@ -98,14 +99,17 @@ repository instead, pin the image yourself:
 ```sh
 helm upgrade quetzal ./deploy/quetzal \
   --namespace quetzal \
-  --reuse-values \
+  --reset-then-reuse-values \
   --set image.tag=vX.Y.Z
 ```
 
-- `--reuse-values` keeps your existing settings; override only what changes.
+- `--reset-then-reuse-values` (Helm 3.14 or later) keeps the settings you changed and
+  takes the new chart's defaults for everything else. `--reuse-values` keeps the
+  previous release's whole set of values, so a setting the new chart adds never reaches
+  you, and the upgrade quietly runs without it. Override only what changes.
 - Coming from **0.1.0**: its chart defaulted to an image tag that was never
   published, so an install made from it had `image.tag` set by hand, and
-  `--reuse-values` keeps that setting. Pass `--set image.tag=vX.Y.Z`, or
+  the upgrade keeps that setting. Pass `--set image.tag=vX.Y.Z`, or
   `--set image.tag=` to follow the chart, or the upgrade stays on the old image.
 - The generated `QUETZAL_SECRET_KEY` is reused across upgrades (do not rotate it
   unintentionally — existing encrypted values would become unreadable).
@@ -162,6 +166,28 @@ scale the controller to zero (`kubectl scale deploy/quetzal --replicas=0`, which
 also stops the panel), take a backup of any server created since the one you are
 restoring, and bring it back up only once you have checked that the servers you
 expect are in the panel.
+
+## Upgrading across several versions
+
+Each release's changelog entry opens with what behaves differently for someone coming
+from the version before it. Skipping releases means reading each of those blocks;
+this is the same list in one place, for the releases since 0.15.0. It is a summary:
+the changelog entry it points to has the reasons and the exceptions.
+
+| Moving to | What to do or know |
+|---|---|
+| 0.15.1 | The hibernation idle timeout is saved with Enter or Save, no longer on every keystroke. |
+| 0.15.2 | Nothing: the same code as 0.15.1, rebuilt with a newer Go. |
+| 0.16.0 | Nothing required. A managed database host's network policy now closes its egress but for DNS, picked up on the controller's first resync, with no restart. Optional: `networkPolicy.enabled` fences in the panel. |
+| 0.16.1 | Upgrade the chart and the image together, as `helm upgrade` does; if you pin the image, move it to 0.16.1 first. On a remote cluster registered with the manifest the panel offers, re-apply that manifest. |
+| 0.16.2 | An API client that cleared a server's annotations by sending an exposure without them must send `"annotations": {}` instead. |
+| 0.17.0 | Each managed database restarts once, for a few seconds: restart a game server that keeps its connections open (TeamSpeak) once the database is back. An object of a server changed by hand is put back within five minutes. Re-apply the manifest on remote clusters. |
+| 0.18.0 | A game's image is looked up again at each start, so a tag that moved upstream (`:latest`) can bring a new game version at the next restart. An owner can no longer switch a server to a load balancer (403). On a cluster whose role cannot relabel namespaces, a server stops until its namespace carries a Pod Security level. |
+| 0.19.0 | A set `QUETZAL_SECRET_KEY` that is not 32 raw characters, 44 of base64 or 64 of hex stops the apiserver, controller and `qctl`. Session cookies are Secure as soon as `ingress.tls` is true (set `secureCookies=true` when TLS ends at a proxy). A namespace without a server row waits an hour before it is collected: read the restore warning above before restoring a database. The controller restarts if it makes no progress for ten minutes. The activator's proxy refuses connections beyond its limits. |
+| 0.20.0 | A script that changed an account's address or password, set up or switched off two-factor, or made or deleted API keys or SFTP keys with an API key gets 403 and must use a session. `PUT /api/me/email` takes `password` (and `code`). A password reset deletes the account's API keys and SFTP keys. The first start with a valid `QUETZAL_SECRET_KEY` seals secrets an instance had written in clear text. |
+
+The per-address limit of 0.19.0 turned players behind a proxy or a NAT away: go to 0.20.0
+rather than stopping at 0.19.0 if you run servers in proxy mode.
 
 ## Version pinning
 

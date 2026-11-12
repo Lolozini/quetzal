@@ -10,4 +10,7 @@ ignoreUntil = 2027-03-25
 reason = """\
 The advisory covers every version of golang.org/x/crypto because of its \
 openpgp package, which Quetzal does not import; the CI fails if it ever does \
-(lint job). No fixed version exists."""
+(lint job). A fixed release of the module has existed since 2026-10-09 \
+and golang.org/x/crypto v0.59.0 (2026-11-11) carries it, so this entry is \
+dropped when x/crypto is bumped past it; until then nothing that is called is \
+affected."""

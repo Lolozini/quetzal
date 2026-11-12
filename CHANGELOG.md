@@ -19,6 +19,31 @@ releases may include breaking changes).
   advice; a channel with no filter receives it. When there are too many at once
   for the controller to delete on its own, both say that none is deleted.
 
+### Changed
+
+- **The chart requests resources for the panel by default.** The pod had none, so it
+  was BestEffort and the first thing a node under memory pressure evicts, taking
+  the panel and the controller down with it. Each container now requests 10m CPU
+  and 64Mi (each idles at about 20 MiB) and has no limit, since the right ceiling
+  grows with the servers it runs. An install that sets `resources` is untouched;
+  one that relies on the default has its panel pod replaced once at the upgrade.
+
+### Fixed
+
+- **Documentation that would mislead someone installing or upgrading is
+  corrected.** The upgrade command now uses `--reset-then-reuse-values`, which
+  keeps what you set and takes the new chart's defaults, where `--reuse-values`
+  froze the values of the release before and left out any setting a new chart adds.
+  The install guide warns that a renderer with no cluster to ask (Argo CD, or Flux
+  or a pipeline that runs `helm template`) generates a new encryption key at each
+  render, and says to supply the key as `secretKey.existingSecret`. The site no
+  longer promises to bring a server over in one step, `qctl` is described as a
+  client you build rather than something in the image, the backup target is said to
+  be under a server's Backups tab, and the API description names its real
+  license, AGPL-3.0, instead of MIT. `docs/UPGRADE.md` gains a table of what each
+  release since 0.15.0 asks of someone upgrading, so a jump across several is read
+  in one place.
+
 ### Security
 
 - **The "require two-factor" policy now keeps SFTP shut to the accounts it covers

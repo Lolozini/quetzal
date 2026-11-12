@@ -3,7 +3,8 @@ info:
   title: Quetzal API
   version: "1.0"
   license:
-    name: MIT
+    name: AGPL-3.0-only
+    url: https://www.gnu.org/licenses/agpl-3.0.html
   description: |
     HTTP API for Quetzal, a Kubernetes-native game-server control plane.
 

@@ -186,6 +186,13 @@ chart at your own Secret and it will generate nothing:
 --set secretKey.existingSecretKey=QUETZAL_SECRET_KEY
 ```
 
+**Rendering without the cluster generates a new key every time.** The chart reuses
+the key by looking up its own Secret, and a renderer that has no cluster to ask (Argo
+CD, or Flux or a pipeline that runs `helm template`) finds nothing, so each render
+issues a key of its own and the next sync replaces the one your data is encrypted
+with. Under any of them, make the key yourself and pass it as
+`secretKey.existingSecret`.
+
 Whichever way you manage it, keep the value stable. Everything already encrypted
 becomes unreadable under a new key, so an install that holds data wants the old
 key migrated across, not a fresh one issued.
@@ -193,7 +200,8 @@ key migrated across, not a fresh one issued.
 **The key is 32 bytes, in one of three forms**: 32 raw characters, 44 characters of
 base64, or 64 hexadecimal characters (`openssl rand -hex 32` prints the last,
 `openssl rand -base64 32` the second). Anything else stops the apiserver, the
-controller and `qctl` at start, with a message that names the variable and never
+controller and `qctl` (the command-line client, built from `cmd/qctl`; the image does
+not ship it) at start, with a message that names the variable and never
 shows its value. An instance with no key at all still starts, warns, and writes its
 secrets in clear text; the first start that has a valid key seals those secrets
 (S3 credentials, SMTP, channel and cluster settings, 2FA secrets, database
@@ -274,8 +282,9 @@ them again.
 
 ## Backup target (S3)
 
-Backups run `restic` against an S3-compatible bucket, configured in the panel
-under the backup settings. Restic is not an upload-only client: it reads its own
+Backups run `restic` against an S3-compatible bucket, configured in the panel: an
+administrator opens any server's **Backups** tab and clicks **Backup target**. The
+target is the panel's, not that server's. Restic is not an upload-only client: it reads its own
 index and lock files on every run, and prunes old data when a snapshot is
 forgotten. The key you give Quetzal therefore needs full object access to the
 prefix, not just write access:

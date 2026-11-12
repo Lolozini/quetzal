@@ -206,7 +206,14 @@ secretKey:
 extraEnv: []
 
 # Requests and limits for each of the two containers (apiserver, controller).
-resources: {}
+# The requests keep the pod out of the BestEffort class, where a node under memory
+# pressure evicts it before anything else; they are small because each container
+# idles at about 20 MiB. There is no limit by default: the right memory ceiling
+# grows with the number of servers the panel runs, so set one for yours.
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
 # Extra labels and annotations on the pod: a scrape annotation, a team label.
 podLabels: {}
 podAnnotations: {}

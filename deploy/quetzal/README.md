@@ -60,6 +60,7 @@ instead of being ignored. The ones most installs set:
 | `secretKey.existingSecret` | generated | The key that encrypts stored credentials. Generated on first install and kept on upgrade; point it at your own Secret to manage it with SOPS or an external secret operator. |
 | `nodePort.min`, `nodePort.max` | the cluster's range | The node ports Quetzal hands out to game servers. Narrow it to a block reserved for Quetzal and open on your firewall. |
 | `egressAllow` | none | Private address ranges game servers may reach, on top of the internet. |
+| `resources` | 10m CPU and 64Mi requested per container, no limit | Requests and limits for the apiserver and the controller. The requests keep the pod out of BestEffort; set a memory limit that fits the number of servers you run. |
 | `extraEnv` | none | Environment for the panel. Set `TZ`: schedules run in the panel's local time. |
 | `trustProxy` | on with the Ingress | Trust `X-Forwarded-For` for rate limiting. |
 | `admissionPolicy.enabled` | on | Keeps the panel's account inside the namespaces it creates. |
@@ -76,7 +77,7 @@ each of them.
 ## Upgrade and uninstall
 
 ```sh
-helm upgrade quetzal oci://ghcr.io/lolozini/charts/quetzal --version <version> -n quetzal --reuse-values
+helm upgrade quetzal oci://ghcr.io/lolozini/charts/quetzal --version <version> -n quetzal --reset-then-reuse-values
 ```
 
 Read the [changelog](https://lolozini.github.io/quetzal/changelog/) first: each
