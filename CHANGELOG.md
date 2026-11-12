@@ -7,16 +7,34 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-12
+
+This release closes the ways an account could be taken over, and fixes several things
+0.19.0 got wrong. A leaked API key is no longer enough to take an account: changing the
+address, the password, two-factor or the keys now needs a signed-in session, changing the
+address asks for the password, and a password reset ends the account's keys. An instance
+whose `QUETZAL_SECRET_KEY` was a 64-character hexadecimal string, wrongly taken for no
+key before 0.19.0, has the secrets it wrote in clear text sealed at its first start. The
+activator's per-address limit no longer turns players behind a proxy or a NAT away, the
+controller's liveness probe no longer restarts a controller that is only waiting, a
+notification no longer reaches the healthy channels twice. A new user's first server also
+no longer fails on the form's defaults.
+
+**Upgrading from 0.19.0** — three things behave differently:
+
+- A script that changed an account's address or password, set up or switched off
+  two-factor, or made or deleted API keys or SFTP keys with an API key now gets 403 and
+  has to use a session. Reading, and everything else a key did, is untouched. See
+  *Security*.
+- `PUT /api/me/email` takes the account's `password` (and the two-factor `code`, if it
+  has one) in the body; the panel asks for them. A password reset now also deletes the
+  account's API keys and SFTP keys. See *Changed*.
+- On the first start with a valid `QUETZAL_SECRET_KEY`, the values an instance had
+  written in clear text are sealed, once, and the count is logged. Backups taken before
+  that still hold them in clear text. See *Security*.
+
 ### Changed
 
-- **What decides who owns an account now needs a signed-in session, not an API key.**
-  A key is a long-lived token for scripts and carries no second factor, and one that
-  leaked was enough to take the account: it could change the address password resets
-  go to, then make other keys, so that revoking the first no longer ended the access.
-  Changing or confirming the address, changing the password, setting up, enabling or
-  switching off two-factor, and making or deleting API keys and SFTP keys now answer
-  403 to a key. A script that did any of these with a key has to use a session;
-  reading and everything else a key did is untouched.
 - **Changing the address asks for the password** (and the two-factor code, if the
   account has one), including removing it, and **the address the account had is
   mailed a notice** when the panel can send mail. The confirmation used to go to the
@@ -39,17 +57,6 @@ releases may include breaking changes).
   never started), a port to publish when the network exposure is not
   cluster-internal, and the variables a template marks as required. A created server
   opens on its own page instead of the list, with no message.
-- **A key that used to be ignored now seals what it left in clear text.** A
-  `QUETZAL_SECRET_KEY` of 64 hexadecimal characters was taken for no key before
-  0.19.0, so an instance configured with one wrote its secrets in clear text, behind
-  `plain:`. 0.19.0 accepted the key but left those values as they were, unmarked and
-  readable by anyone with the database or a backup of it, while its notes said a
-  valid key you supplied was unaffected. The first start with a valid key now seals
-  every such value (S3 credentials, SMTP, channel and cluster settings, 2FA secrets,
-  database passwords, server secret variables), once, and logs how many; a value it
-  cannot seal is logged and left readable. Backups taken before that still hold the
-  clear text. The key's three accepted forms are written down in `docs/INSTALL.md`.
-  Introduced in 0.19.0.
 - **The activator's per-address limit turned legitimate players away, and it is now a setting.**
   0.19.0 held one source address to 32 connections and 32 UDP flows, but players
   behind a Velocity or BungeeCord proxy, a NAT or a DDoS filter all arrive from one
@@ -75,6 +82,28 @@ releases may include breaking changes).
   stopped answering no longer look like a stall; and a command run in a pod gives up
   after fifteen seconds instead of holding the pass for as long as the connection
   lasts. Introduced in 0.19.0.
+
+### Security
+
+- **What decides who owns an account now needs a signed-in session, not an API key.**
+  A key is a long-lived token for scripts and carries no second factor, and one that
+  leaked was enough to take the account: it could change the address password resets
+  go to, then make other keys, so that revoking the first no longer ended the access.
+  Changing or confirming the address, changing the password, setting up, enabling or
+  switching off two-factor, and making or deleting API keys and SFTP keys now answer
+  403 to a key. A script that did any of these with a key has to use a session;
+  reading and everything else a key did is untouched.
+- **A key that used to be ignored now seals what it left in clear text.** A
+  `QUETZAL_SECRET_KEY` of 64 hexadecimal characters was taken for no key before
+  0.19.0, so an instance configured with one wrote its secrets in clear text, behind
+  `plain:`. 0.19.0 accepted the key but left those values as they were, unmarked and
+  readable by anyone with the database or a backup of it, while its notes said a
+  valid key you supplied was unaffected. The first start with a valid key now seals
+  every such value (S3 credentials, SMTP, channel and cluster settings, 2FA secrets,
+  database passwords, server secret variables), once, and logs how many; a value it
+  cannot seal is logged and left readable. Backups taken before that still hold the
+  clear text. The key's three accepted forms are written down in `docs/INSTALL.md`.
+  Introduced in 0.19.0.
 
 ## [0.19.0] - 2026-11-11
 
@@ -2730,7 +2759,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/lolozini/quetzal/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/lolozini/quetzal/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/lolozini/quetzal/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/lolozini/quetzal/compare/v0.16.2...v0.17.0
