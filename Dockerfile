@@ -8,7 +8,7 @@
 # so nothing is emulated; the last stage only copies files.
 
 # 1) Build the React UI (the same static files on every platform).
-FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS web
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 AS web
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
@@ -39,7 +39,7 @@ RUN LDFLAGS="-s -w \
  && go build -trimpath -o /out/quetzal-sftp ./cmd/sftp
 
 # 3) Minimal runtime image.
-FROM gcr.io/distroless/static:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
+FROM gcr.io/distroless/static:nonroot@sha256:aafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931
 COPY --from=build /out/quetzal-apiserver /usr/local/bin/quetzal-apiserver
 COPY --from=build /out/quetzal-controller /usr/local/bin/quetzal-controller
 COPY --from=build /out/quetzal-activator /usr/local/bin/quetzal-activator
