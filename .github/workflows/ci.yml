@@ -377,14 +377,29 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Pushes close together run their CI side by side, and the last image job to
+      # finish took `main` and `latest`, whichever commit it built: on 2026-11-13
+      # four merges in a row left `latest` on the second of them. Only the commit
+      # main points at when the image is built takes those two tags; the others
+      # keep their sha tag.
+      - name: Is this commit still the head of main?
+        id: head
+        run: |
+          head=$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" refs/heads/main | cut -f1)
+          if [ "$head" = "$GITHUB_SHA" ]; then
+            echo "is_head=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_head=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::main is at ${head:0:7} now: this build keeps its sha tag only"
+          fi
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=ref,event=branch
+            type=ref,event=branch,enable=${{ steps.head.outputs.is_head }}
             type=sha,format=short
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ steps.head.outputs.is_head }}
       - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:

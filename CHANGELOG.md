@@ -7,6 +7,14 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+### Fixed
+
+- The `latest` and `main` images no longer go back to an older commit when several
+  are pushed to `main` close together. Each push builds its own image, and the last
+  build to finish took both tags, whichever commit it was: four merges in a row
+  left them on the second. Only the commit `main` points at when its image is built
+  takes them now; the others keep their `sha-` tag.
+
 ## [0.21.0] - 2026-11-13
 
 This release makes a restored database hard to miss, shuts SFTP to the accounts a
