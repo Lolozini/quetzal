@@ -7,6 +7,25 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-13
+
+This release makes a restored database hard to miss, shuts SFTP to the accounts a
+two-factor policy holds back, and corrects the documentation that misled people
+installing or upgrading. Namespaces without a server in the database, which the
+controller deletes with their volumes after an hour, now raise a banner for
+administrators and a `namespace.orphaned` notification instead of a line in a log.
+The chart requests resources for the panel by default, and the images are built on
+current base images.
+
+**Upgrading from 0.20.0** — three things to know:
+
+- If the chart's `resources` was left at its default, the panel pod is replaced once
+  at the upgrade and now requests 10m CPU and 64Mi per container. See *Changed*.
+- Under a "require two-factor" policy, an account that has not enrolled loses SFTP
+  access with its SSH keys until it enrols. See *Security*.
+- Upgrade with `--reset-then-reuse-values` (Helm 3.14 or later) rather than
+  `--reuse-values`, so the settings a new chart adds reach you. See *Fixed*.
+
 ### Added
 
 - **Administrators are told when namespaces have no server in the database,
@@ -52,6 +71,8 @@ releases may include breaking changes).
   enrolled could still read and write its servers' files over SFTP with a key and
   nothing else. Their keys leave the list on the controller's next pass and come
   back when they enrol or the policy is relaxed.
+- The images are built on the current `gcr.io/distroless/static:nonroot` and
+  `node:24-alpine`; the digests they were pinned to dated from before 2026-11-05.
 
 ## [0.20.0] - 2026-11-12
 
@@ -2805,7 +2826,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/lolozini/quetzal/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/lolozini/quetzal/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/lolozini/quetzal/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/lolozini/quetzal/compare/v0.17.0...v0.18.0
