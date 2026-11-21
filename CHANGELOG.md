@@ -7,6 +7,14 @@ releases may include breaking changes).
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-11-21
+
+A maintenance release. The `latest` and `main` images can no longer fall back to an
+older commit when several land on `main` together, `golang.org/x/crypto` moves to the
+version that closes GO-2026-5932 (never reachable from Quetzal), and the Go, panel and
+site dependencies are updated (pgx 5.13, controller-runtime 0.25.3, Kubernetes client
+0.37.2, Vite 8.3, Astro 7.4 and Starlight 0.43). Nothing changes for someone upgrading.
+
 ### Fixed
 
 - The `latest` and `main` images no longer go back to an older commit when several
@@ -2840,7 +2848,8 @@ game servers, with no per-node agent (Kubernetes itself runs the workloads).
 
 - Licensed under **AGPL-3.0-or-later**.
 
-[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/lolozini/quetzal/compare/v0.21.1...HEAD
+[0.21.1]: https://github.com/lolozini/quetzal/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/lolozini/quetzal/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/lolozini/quetzal/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/lolozini/quetzal/compare/v0.18.0...v0.19.0
