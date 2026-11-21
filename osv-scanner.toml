@@ -2,15 +2,5 @@
 # this module but that don't apply to Quetzal, each with the reason. They are
 # matched per module, not per package; govulncheck in CI checks the code that is
 # actually called.
-
-[[IgnoredVulns]]
-id = "GO-2026-5932"
-# Re-examined by then, or earlier if x/crypto drops the package.
-ignoreUntil = 2027-03-25
-reason = """\
-The advisory covers every version of golang.org/x/crypto because of its \
-openpgp package, which Quetzal does not import; the CI fails if it ever does \
-(lint job). A fixed release of the module has existed since 2026-10-09 \
-and golang.org/x/crypto v0.59.0 (2026-11-11) carries it, so this entry is \
-dropped when x/crypto is bumped past it; until then nothing that is called is \
-affected."""
+#
+# None at the moment: GO-2026-5932 (golang.org/x/crypto/openpgp) left with x/crypto v0.59.0.

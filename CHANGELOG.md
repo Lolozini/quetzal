@@ -15,6 +15,12 @@ releases may include breaking changes).
   left them on the second. Only the commit `main` points at when its image is built
   takes them now; the others keep their `sha-` tag.
 
+### Security
+
+- `golang.org/x/crypto` is at v0.59.0, which closes GO-2026-5932. The advisory is about
+  its `openpgp` package, which Quetzal never imported, so nothing was reachable; scanners
+  that read the module version stop reporting it.
+
 ## [0.21.0] - 2026-11-13
 
 This release makes a restored database hard to miss, shuts SFTP to the accounts a
